@@ -66,6 +66,9 @@ export function InstructionsScreen() {
       setLoaded(false);
       setContent("");
       setSavedContent("");
+      // Clear the path too, so the header can't show the PREVIOUS target's
+      // resolved filename (e.g. a stale CLAUDE.md) while the new one loads.
+      setFilePath("");
       void load(key, url);
     }
   }, [key, url, load]);
@@ -90,6 +93,8 @@ export function InstructionsScreen() {
 
   const dirty = content !== savedContent;
   const needsProject = scope === "project" && !project;
+  // The effective file pi loads (AGENTS.md, or a CLAUDE.md fallback the server resolved).
+  const fileName = filePath ? (filePath.split(/[\\/]/).pop() ?? "AGENTS.md") : "AGENTS.md";
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="instructions-screen">
@@ -101,7 +106,7 @@ export function InstructionsScreen() {
               className="text-base font-semibold text-text-primary"
               style={{ fontStretch: "expanded" }}
             >
-              {scope === "global" ? "Global" : (project?.name ?? "Project")} · AGENTS.md
+              {scope === "global" ? "Global" : (project?.name ?? "Project")} · {fileName}
             </h2>
           </div>
           <div className="flex items-center gap-2">

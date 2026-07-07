@@ -1610,13 +1610,22 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { ok: true };
   });
 
-  // Project instructions: pi's canonical AGENTS.md at the project root, which
-  // pi auto-loads as project context every turn. (Global scope + CLAUDE.md are
-  // follow-ups; AGENTS.md wins over CLAUDE.md in pi's own precedence.)
+  // Project instructions: pi auto-loads a context file every turn. It reads the
+  // FIRST of AGENTS.md / AGENTS.MD / CLAUDE.md / CLAUDE.MD it finds (AGENTS wins),
+  // so we edit that effective file — a CLAUDE.md project shows CLAUDE.md, not an
+  // empty AGENTS.md editor. A fresh location defaults to AGENTS.md.
   const instructionsBody = z.object({ content: z.string().max(200_000) });
+  const INSTRUCTION_FILENAMES = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+  const resolveInstructionsFile = (dir: string): string => {
+    for (const name of INSTRUCTION_FILENAMES) {
+      const candidate = nodePath.join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    return nodePath.join(dir, "AGENTS.md");
+  };
   const agentsFileFor = (id: string): { path: string } | null => {
     const project = projects.find((p) => p.id === id);
-    return project ? { path: nodePath.join(project.path, "AGENTS.md") } : null;
+    return project ? { path: resolveInstructionsFile(project.path) } : null;
   };
 
   const INSTRUCTIONS_MAX = 1_000_000;
@@ -1627,7 +1636,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     let content = "";
     if (existsSync(target.path)) {
       if (statSync(target.path).size > INSTRUCTIONS_MAX) {
-        return reply.status(413).send({ error: "AGENTS.md is too large to edit here" });
+        return reply.status(413).send({ error: "the instructions file is too large to edit here" });
       }
       content = readFileSync(target.path, "utf8");
     }
@@ -1642,7 +1651,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // Never write THROUGH a symlink — a symlinked AGENTS.md could redirect the
     // write to a file outside the project.
     if (existsSync(target.path) && lstatSync(target.path).isSymbolicLink()) {
-      return reply.status(400).send({ error: "AGENTS.md is a symlink; refusing to write" });
+      return reply
+        .status(400)
+        .send({ error: "the instructions file is a symlink; refusing to write" });
     }
     writeFileSync(target.path, parsed.data.content, "utf8");
     return { ok: true, path: target.path };
@@ -1651,14 +1662,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // Global instructions: ~/.pi/agent/AGENTS.md, which pi loads as global context
   // for every session (agent-deck-system-prompt-logic.md §context files).
   // Editable with no project selected — the project-scoped file is separate.
-  const globalAgentsPath = (): string => nodePath.join(resourceHome(), ".pi", "agent", "AGENTS.md");
+  const globalAgentsPath = (): string =>
+    resolveInstructionsFile(nodePath.join(resourceHome(), ".pi", "agent"));
 
   fastify.get("/runtime/instructions", async (_request, reply) => {
     const filePath = globalAgentsPath();
     let content = "";
     if (existsSync(filePath)) {
       if (statSync(filePath).size > INSTRUCTIONS_MAX) {
-        return reply.status(413).send({ error: "AGENTS.md is too large to edit here" });
+        return reply.status(413).send({ error: "the instructions file is too large to edit here" });
       }
       content = readFileSync(filePath, "utf8");
     }
@@ -1671,7 +1683,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const filePath = globalAgentsPath();
     // Never write THROUGH a symlink (same guard as the project file).
     if (existsSync(filePath) && lstatSync(filePath).isSymbolicLink()) {
-      return reply.status(400).send({ error: "AGENTS.md is a symlink; refusing to write" });
+      return reply
+        .status(400)
+        .send({ error: "the instructions file is a symlink; refusing to write" });
     }
     mkdirSync(nodePath.dirname(filePath), { recursive: true });
     writeFileSync(filePath, parsed.data.content, "utf8");

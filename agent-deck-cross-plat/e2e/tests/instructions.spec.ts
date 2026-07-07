@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
@@ -99,4 +99,33 @@ test("switching projects reloads instructions and never saves stale content", as
   if (existsSync(fileB)) {
     expect(readFileSync(fileB, "utf8")).not.toContain("must not leak");
   }
+});
+
+test("edits a project's CLAUDE.md when it has no AGENTS.md", async ({ page }) => {
+  const claudeProject = mkdtempSync(path.join(tmpdir(), "proj-claude-"));
+  writeFileSync(path.join(claudeProject, "CLAUDE.md"), "# Claude\n\nExisting claude instructions.");
+  const res = await fetch(`${harness.baseUrl}/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: claudeProject }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(claudeProject)}`).click();
+  await page.getByTestId("nav-instructions").click();
+
+  // The editor loads CLAUDE.md's content, and the header names the resolved file.
+  const editor = page.getByTestId("instructions-editor");
+  await expect(editor).toHaveValue(/Existing claude instructions/);
+  await expect(page.getByTestId("instructions-screen")).toContainText("CLAUDE.md");
+
+  // Saving writes back to CLAUDE.md — it does not create a shadowing AGENTS.md.
+  await editor.fill("Edited claude instructions.");
+  await page.getByTestId("instructions-save").click();
+  await expect(page.getByTestId("instructions-save")).toHaveText("Saved");
+  await expect
+    .poll(() => readFileSync(path.join(claudeProject, "CLAUDE.md"), "utf8"))
+    .toContain("Edited claude instructions.");
+  expect(existsSync(path.join(claudeProject, "AGENTS.md"))).toBe(false);
 });
