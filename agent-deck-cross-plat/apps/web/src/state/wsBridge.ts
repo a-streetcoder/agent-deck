@@ -380,7 +380,12 @@ export async function switchToProject(projectId: string | null): Promise<void> {
 
 export async function updateProject(
   projectId: string,
-  patch: { assignedSkills?: string[]; defaultAgentName?: string | null; enabled?: boolean },
+  patch: {
+    assignedSkills?: string[];
+    assignedPrompts?: string[];
+    defaultAgentName?: string | null;
+    enabled?: boolean;
+  },
 ): Promise<void> {
   const store = useAppStore.getState();
   // Optimistic: controlled inputs (assignment checkboxes) must flip
@@ -391,6 +396,9 @@ export async function updateProject(
         ? {
             ...project,
             ...(patch.assignedSkills !== undefined ? { assignedSkills: patch.assignedSkills } : {}),
+            ...(patch.assignedPrompts !== undefined
+              ? { assignedPrompts: patch.assignedPrompts }
+              : {}),
             ...(patch.defaultAgentName !== undefined
               ? { defaultAgentName: patch.defaultAgentName ?? undefined }
               : {}),

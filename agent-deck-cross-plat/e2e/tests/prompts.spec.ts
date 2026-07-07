@@ -150,3 +150,47 @@ test("the All Projects toggle sets a prompt as a default (native defaultPromptTe
     })
     .not.toContain("changelog-note");
 });
+
+test("the editor's per-project availability assigns a global prompt to a project (native)", async ({
+  page,
+}) => {
+  const dir = path.join(harness.piHome, ".pi", "agent", "prompts");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, "briefing.md"),
+    "---\ndescription: Draft a briefing\n---\n\nWrite a briefing.\n",
+  );
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-prompts").click();
+
+  // Open the editor for the global prompt, then assign it to this project via
+  // the per-project availability checkbox.
+  await page.locator('[data-prompt-name="briefing"]').getByTestId("prompt-invocation").click();
+  await expect(page.getByTestId("prompt-editor")).toBeVisible();
+  const checkbox = page.getByTestId(`prompt-assign-briefing-${path.basename(project)}`);
+  await expect(checkbox).not.toBeChecked();
+  await checkbox.check();
+
+  await expect
+    .poll(async () => {
+      const { projects } = (await (await fetch(`${harness.baseUrl}/projects`)).json()) as {
+        projects: Array<{ path: string; assignedPrompts?: string[] }>;
+      };
+      return projects.find((p) => p.path === project)?.assignedPrompts ?? [];
+    })
+    .toContain("briefing");
+
+  // Uncheck → removed from the project's assignment.
+  await checkbox.uncheck();
+  await expect
+    .poll(async () => {
+      const { projects } = (await (await fetch(`${harness.baseUrl}/projects`)).json()) as {
+        projects: Array<{ path: string; assignedPrompts?: string[] }>;
+      };
+      return projects.find((p) => p.path === project)?.assignedPrompts ?? [];
+    })
+    .not.toContain("briefing");
+});

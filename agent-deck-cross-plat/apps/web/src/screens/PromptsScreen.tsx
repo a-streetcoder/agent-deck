@@ -3,6 +3,7 @@ import { Check, Globe, MessageSquareText, Pencil, Plus, Trash2, X } from "lucide
 import type { PromptInfo } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
+import { updateProject } from "../state/wsBridge.ts";
 
 /**
  * Prompts screen (native piResources → Prompts): CRUD for prompt-template .md
@@ -25,6 +26,7 @@ export function PromptsScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const setError = useAppStore((state) => state.setError);
+  const projects = useAppStore((state) => state.projects);
   const [prompts, setPrompts] = useState<PromptInfo[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   // "All Projects" default prompt templates (native defaultPromptTemplateNames):
@@ -257,6 +259,51 @@ export function PromptsScreen() {
               value={draft.body}
               onChange={(e) => setDraft({ ...draft, body: e.target.value })}
             />
+            {/* Per-project availability (native assignedPromptTemplateNames). Like
+                the All-Projects default, this is a GLOBAL concept: assigning a
+                global prompt to a project injects it as --prompt-template there.
+                Shown only when editing an existing global prompt. */}
+            {draft.original !== undefined && draft.scope === "global" && projects.length > 0 ? (
+              <div
+                className="rounded-lg border border-border-subtle bg-surface p-2.5"
+                data-testid="prompt-availability"
+              >
+                <div className="pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  Available in projects
+                </div>
+                <p className="pb-1.5 text-[11px] text-text-muted">
+                  Inject this prompt as a <code className="font-mono">/{draft.name}</code> command
+                  in specific projects (in addition to any All Projects default).
+                </p>
+                <div className="space-y-0.5">
+                  {projects.map((project) => {
+                    const assigned = (project.assignedPrompts ?? []).includes(draft.name);
+                    return (
+                      <label
+                        key={project.id}
+                        className="flex items-center gap-2.5 rounded px-1.5 py-1 hover:bg-[var(--color-hover-fill)]"
+                      >
+                        <input
+                          type="checkbox"
+                          data-testid={`prompt-assign-${draft.name}-${project.name}`}
+                          checked={assigned}
+                          onChange={(event) => {
+                            const next = new Set(project.assignedPrompts ?? []);
+                            if (event.target.checked) next.add(draft.name);
+                            else next.delete(draft.name);
+                            void updateProject(project.id, { assignedPrompts: [...next] });
+                          }}
+                        />
+                        <span className="text-sm text-text-primary">{project.name}</span>
+                        <span className="truncate font-mono text-[11px] text-text-muted">
+                          {project.path}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
             <div className="flex items-center justify-end gap-2">
               <button
                 className="rounded-capsule px-3 py-1 text-xs text-text-secondary hover:text-text-primary"
