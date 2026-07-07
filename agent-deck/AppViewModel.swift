@@ -3856,7 +3856,7 @@ final class AppViewModel: NSObject {
         guard let projectPath = session.projectPathForProjectFeatures else { return nil }
         let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
-        return await piAgentSessionStore.launchSingleAgentLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, agentName, task, writeTarget, workingDirectory, requestedOutputPath in
+        return await piAgentSessionStore.launchSingleAgentLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, agentName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
             guard let agent = agentsByName[agentName], agent.resolved.disabled != true else {
                 self.piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Agent Unavailable", text: "Single-agent role \"\(agentName)\" is not available in this project."))
@@ -3875,7 +3875,9 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func launchParallelAgentsLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
-        await piAgentSessionStore.launchParallelAgentsLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, tasks, concurrency, useWorktreeIsolation in
+        let projectPath = session.projectPathForProjectFeatures
+        let snapshot = projectPath.map { startupSnapshot(forProjectPath: $0) } ?? self.snapshot
+        return await piAgentSessionStore.launchParallelAgentsLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, tasks, concurrency, useWorktreeIsolation in
             guard let self else { return nil }
             return await withCheckedContinuation { continuation in
                 Task { @MainActor in
@@ -3897,7 +3899,7 @@ final class AppViewModel: NSObject {
         guard let projectPath = session.projectPathForProjectFeatures else { return nil }
         let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
-        return await piAgentSessionStore.launchDiscoveryTriageLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, agentName, task, writeTarget, workingDirectory, requestedOutputPath in
+        return await piAgentSessionStore.launchDiscoveryTriageLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, agentName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
             guard let agent = agentsByName[agentName], agent.resolved.disabled != true else {
                 self.piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Agent Unavailable", text: "Discovery/Triage agent \"\(agentName)\" is not available in this project."))
@@ -3919,7 +3921,7 @@ final class AppViewModel: NSObject {
         guard let projectPath = session.projectPathForProjectFeatures else { return nil }
         let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
-        return await piAgentSessionStore.launchMakerCheckerLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, roleName, task, writeTarget, workingDirectory, requestedOutputPath in
+        return await piAgentSessionStore.launchMakerCheckerLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, roleName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
             guard let agent = agentsByName[roleName], agent.resolved.disabled != true else {
                 self.piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Agent Unavailable", text: "Maker/checker role \"\(roleName)\" is not available in this project."))
@@ -3941,7 +3943,7 @@ final class AppViewModel: NSObject {
         guard let projectPath = session.projectPathForProjectFeatures else { return nil }
         let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
-        return await piAgentSessionStore.launchAgentPipelineLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, stageName, task, writeTarget, workingDirectory, requestedOutputPath in
+        return await piAgentSessionStore.launchAgentPipelineLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, stageName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
             guard let agent = agentsByName[stageName], agent.resolved.disabled != true else {
                 self.piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Agent Unavailable", text: "Pipeline stage \"\(stageName)\" is not available in this project."))
@@ -3972,6 +3974,29 @@ final class AppViewModel: NSObject {
             )
             return childRun
         }
+    }
+
+    private func loopGoalEvaluatorExecutor(session: PiAgentSessionRecord, snapshot: ScanSnapshot, draft: LoopDraft) -> PiAgentSessionStore.LoopChildExecutor {
+        { [weak self] loopID, _, task, _, workingDirectory, requestedOutputPath in
+            guard let self else { return nil }
+            var executionSession = session
+            if let workingDirectory, draft.writeTarget == .newWorktree { executionSession.worktreePath = workingDirectory.path }
+            let agent = self.loopGoalEvaluatorAgent(config: draft.goalEvaluation)
+            return await self.runNativeSubagentAndWait(parentSession: executionSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: false, expectedOutcome: .reportOnly, requestedOutputPath: requestedOutputPath, loopID: loopID)
+        }
+    }
+
+    private func loopGoalEvaluatorAgent(config: LoopGoalEvaluationConfig) -> EffectiveAgentRecord {
+        var resolved = AgentConfig.empty
+        resolved.name = "Goal Evaluator"
+        resolved.description = "Report-only natural-language loop goal evaluator."
+        resolved.model = config.model
+        resolved.thinking = config.thinkingLevel
+        resolved.tools = []
+        resolved.skills = []
+        resolved.defaultExpectedOutcome = .reportOnly
+        resolved.systemPrompt = "You are Agent Deck's report-only natural-language goal evaluator. You review evidence and answer only with SUCCESS, CONTINUE, or FAIL followed by a concise rationale. Do not edit files."
+        return EffectiveAgentRecord(id: "agent-deck-loop-goal-evaluator", name: "Goal Evaluator", projectRoot: nil, builtin: nil, globalCustom: nil, projectCustom: nil, userOverride: nil, projectOverride: nil, resolved: resolved, resolutionKind: .builtin)
     }
 
     private func runNativeSubagentAndWait(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, loopID: UUID) async -> PiSubagentRunRecord {
@@ -9821,6 +9846,7 @@ final class AppViewModel: NSObject {
             writeTarget: run.writeTarget,
             maxIterations: run.maxIterations,
             validationCommand: run.validationCommand,
+            goalEvaluation: run.goalEvaluation,
             makerChecker: run.makerChecker,
             pipeline: run.pipeline,
             parallel: run.parallel,
@@ -9848,6 +9874,7 @@ final class AppViewModel: NSObject {
             writeTarget: draft.writeTarget,
             maxIterations: draft.maxIterations,
             validationCommand: draft.validationCommand,
+            goalEvaluation: draft.goalEvaluation,
             makerChecker: draft.makerChecker,
             pipeline: draft.pipeline,
             parallel: draft.parallel,

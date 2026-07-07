@@ -188,6 +188,27 @@ struct LoopLaunchSheet: View {
         )
     }
 
+    private var successConditionBinding: Binding<String> {
+        Binding(
+            get: { draft.goalEvaluation.successCondition },
+            set: { draft.goalEvaluation = LoopGoalEvaluationConfig(successCondition: $0, model: draft.goalEvaluation.model, thinkingLevel: draft.goalEvaluation.thinkingLevel) }
+        )
+    }
+
+    private var evaluatorModelBinding: Binding<String> {
+        Binding(
+            get: { draft.goalEvaluation.model ?? "" },
+            set: { draft.goalEvaluation = LoopGoalEvaluationConfig(successCondition: draft.goalEvaluation.successCondition, model: $0, thinkingLevel: draft.goalEvaluation.thinkingLevel) }
+        )
+    }
+
+    private var evaluatorThinkingBinding: Binding<String> {
+        Binding(
+            get: { draft.goalEvaluation.thinkingLevel ?? "" },
+            set: { draft.goalEvaluation = LoopGoalEvaluationConfig(successCondition: draft.goalEvaluation.successCondition, model: draft.goalEvaluation.model, thinkingLevel: $0) }
+        )
+    }
+
     private var title: String {
         sourceDefinition?.name ?? "Create Loop"
     }
@@ -267,6 +288,28 @@ struct LoopLaunchSheet: View {
                                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                                             .stroke(AppTheme.contentStroke, lineWidth: 1)
                                     }
+                            }
+
+                            fieldGroup {
+                                HStack(spacing: 6) {
+                                    Text("Success condition")
+                                        .font(AppTheme.Font.caption.weight(.semibold))
+                                        .foregroundStyle(AppTheme.mutedText)
+                                    LoopInlineInfoButton(
+                                        title: "Goal evaluator",
+                                        message: "After every iteration, Agent Deck runs a report-only natural-language evaluator. It returns SUCCESS to stop successfully, CONTINUE to run another iteration until the max, or FAIL to stop as agent failed. Leave this empty to use the loop goal."
+                                    )
+                                }
+                            } content: {
+                                AppTextField(text: successConditionBinding, placeholder: "Defaults to loop goal", axis: .vertical)
+                                    .lineLimit(2...4)
+                                HStack(spacing: 8) {
+                                    AppTextField(text: evaluatorModelBinding, placeholder: "Evaluator model: default")
+                                    AppTextField(text: evaluatorThinkingBinding, placeholder: "Thinking: default")
+                                }
+                                Text("Validation command output is optional evidence for the evaluator; it is not required.")
+                                    .font(AppTheme.Font.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
                             }
 
                             fieldGroup {
@@ -1048,7 +1091,8 @@ struct LoopLaunchInfoPopover: View {
                 infoRow("What runs", "A loop repeatedly asks Pi to work toward the goal, records each iteration, and stops when it reaches the max iterations or needs attention.")
                 infoRow("Structure", "Choose a single agent, maker/checker review, a pipeline, parallel branches, discovery triage, or a human approval checkpoint.")
                 infoRow("Write target", "Artifact writes keep project files untouched. Worktree writes isolate code changes. Current checkout writes directly to this project.")
-                infoRow("Validation (optional)", "If provided, Agent Deck runs this shell command after each loop iteration and attaches its output as evidence. Leave it empty to skip automatic validation.")
+                infoRow("Goal evaluator", "After each iteration, a report-only natural-language evaluator decides SUCCESS, CONTINUE, or FAIL against the success condition.")
+            infoRow("Validation (optional)", "If provided, Agent Deck runs this shell command after each loop iteration and attaches its output as evaluator evidence. Leave it empty to skip automatic validation.")
             }
         }
         .padding(16)

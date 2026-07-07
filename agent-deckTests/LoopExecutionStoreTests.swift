@@ -3,6 +3,44 @@ import XCTest
 
 @MainActor
 final class LoopExecutionStoreTests: XCTestCase {
+    func testSingleAgentLoopGoalEvaluatorContinuesThenSucceedsWithoutValidationCommand() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        var agentCalls = 0
+        var evaluatorCalls = 0
+        let draft = LoopDraft(
+            goal: "Produce report",
+            structure: .singleAgent,
+            maxIterations: 3,
+            makerChecker: LoopMakerCheckerConfig(makerName: "Explorer")
+        )
+
+        let maybeRun = await store.launchSingleAgentLoop(
+            session: session,
+            draft: draft,
+            executeEvaluator: { _, agentName, task, writeTarget, _, outputPath in
+                evaluatorCalls += 1
+                XCTAssertEqual(agentName, "Goal Evaluator")
+                XCTAssertEqual(writeTarget, .artifactMarkdown)
+                XCTAssertNotNil(outputPath)
+                XCTAssertTrue(task.contains("SUCCESS, CONTINUE, or FAIL"))
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: evaluatorCalls == 1 ? "CONTINUE\nNeed one more pass." : "SUCCESS\nMeets the goal.")
+            },
+            executeAgent: { _, agentName, task, _, _, _ in
+                agentCalls += 1
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "pass \(agentCalls)")
+            }
+        )
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.stopReason, .success)
+        XCTAssertEqual(run.currentIteration, 2)
+        XCTAssertEqual(run.iterations.map { $0.goalEvaluation?.result }, [.continueLoop, .success])
+        XCTAssertEqual(agentCalls, 2)
+        XCTAssertEqual(evaluatorCalls, 2)
+    }
+
     func testSingleAgentLoopCompletesOnValidationSuccess() async throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = try makeSession(store: store)
@@ -202,7 +240,7 @@ final class LoopExecutionStoreTests: XCTestCase {
         }
         XCTAssertEqual(separators.count, 1)
         XCTAssertEqual(separators.first?.1.kind, .iteration)
-        XCTAssertTrue(separators.first?.0.text.contains("Iteration 1 of") == true)
+        XCTAssertTrue(separators.first?.0.text.contains("Iteration 1") == true)
         XCTAssertEqual(recaps.count, 2)
         XCTAssertEqual(recaps.filter { $0.1.kind == .iteration }.count, 1)
         XCTAssertEqual(recaps.filter { $0.1.kind == .final }.count, 1)
@@ -406,6 +444,47 @@ final class LoopExecutionStoreTests: XCTestCase {
         XCTAssertFalse(run.iterations[0].summary.contains("REJECT\n"))
         XCTAssertTrue(observedTasks[2].task.contains("Previous checker review to address"))
         XCTAssertTrue(responses.isEmpty)
+    }
+
+    func testMakerCheckerLoopUsesGoalEvaluatorEvenWhenCheckerApproves() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        var roleResponses = ["Maker pass", "APPROVE\nLooks acceptable to the checker.", "Maker second pass", "APPROVE\nStill acceptable."]
+        var evaluatorResponses = ["CONTINUE\nThe success condition still needs stronger evidence.", "SUCCESS\nThe success condition is now met."]
+        let draft = LoopDraft(
+            goal: "Build safely with evidence",
+            structure: .makerChecker,
+            writeTarget: .artifactMarkdown,
+            maxIterations: 3,
+            validationCommand: "/usr/bin/true",
+            makerChecker: LoopMakerCheckerConfig(makerName: "Builder", checkerName: "Reviewer", checkerRubric: "approve")
+        )
+
+        let maybeRun = await store.launchMakerCheckerLoop(
+            session: session,
+            draft: draft,
+            executeEvaluator: { _, agentName, task, writeTarget, _, outputPath in
+                XCTAssertEqual(agentName, "Goal Evaluator")
+                XCTAssertEqual(writeTarget, .artifactMarkdown)
+                XCTAssertNotNil(outputPath)
+                XCTAssertTrue(task.contains("Success condition:"))
+                let summary = evaluatorResponses.removeFirst()
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: summary)
+            },
+            executeRole: { _, role, task, _, _, _ in
+                let summary = roleResponses.removeFirst()
+                return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: summary)
+            }
+        )
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.stopReason, .success)
+        XCTAssertEqual(run.currentIteration, 2)
+        XCTAssertEqual(run.iterations.map(\.checkerResult), [.approve, .approve])
+        XCTAssertEqual(run.iterations.map { $0.goalEvaluation?.result }, [.continueLoop, .success])
+        XCTAssertTrue(roleResponses.isEmpty)
+        XCTAssertTrue(evaluatorResponses.isEmpty)
     }
 
     func testMakerCheckerLoopContinueUsesIterationsWithoutRejectionSemantics() async throws {

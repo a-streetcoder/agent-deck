@@ -131,6 +131,11 @@ nonisolated final class LoopDefinitionStore: @unchecked Sendable {
         let writeTarget = LoopWriteTarget(rawValue: fm["writeTarget"]?.nonEmpty ?? "") ?? .artifactMarkdown
         let maxIterations = Int(fm["maxIterations"]?.nonEmpty ?? "") ?? LoopDraft.defaultMaxIterations
         let validationCommand = fm["validationCommand"]?.nonEmpty ?? ""
+        let goalEvaluation = LoopGoalEvaluationConfig(
+            successCondition: decodeString(json: fm["successConditionJSON"]) ?? fm["successCondition"]?.nonEmpty ?? document.body,
+            model: fm["evaluatorModel"]?.nonEmpty,
+            thinkingLevel: fm["evaluatorThinkingLevel"]?.nonEmpty
+        )
         let launchContext = decodeString(json: fm["launchContextJSON"]) ?? fm["launchContext"]?.nonEmpty
         let launchContextScope = LoopLaunchContextScope(rawValue: fm["launchContextScope"]?.nonEmpty ?? "") ?? .firstIterationOnly
         let makerChecker = LoopMakerCheckerConfig(
@@ -158,6 +163,7 @@ nonisolated final class LoopDefinitionStore: @unchecked Sendable {
             writeTarget: writeTarget,
             maxIterations: max(0, maxIterations),
             validationCommand: validationCommand,
+            goalEvaluation: goalEvaluation,
             makerChecker: makerChecker,
             pipeline: pipeline,
             parallel: parallel,
@@ -183,6 +189,12 @@ nonisolated final class LoopDefinitionStore: @unchecked Sendable {
         if !definition.validationCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             lines.append("validationCommand: \(oneLine(definition.validationCommand))")
         }
+        let successCondition = definition.goalEvaluation.successCondition.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !successCondition.isEmpty && successCondition != definition.goalTemplate.trimmingCharacters(in: .whitespacesAndNewlines) {
+            lines.append("successConditionJSON: \(jsonString(successCondition))")
+        }
+        if let model = definition.goalEvaluation.model?.nonEmpty { lines.append("evaluatorModel: \(oneLine(model))") }
+        if let thinkingLevel = definition.goalEvaluation.thinkingLevel?.nonEmpty { lines.append("evaluatorThinkingLevel: \(oneLine(thinkingLevel))") }
         if let launchContext = definition.launchContext?.trimmingCharacters(in: .whitespacesAndNewlines), !launchContext.isEmpty {
             lines.append("launchContextScope: \(definition.launchContextScope.rawValue)")
             lines.append("launchContextJSON: \(jsonString(launchContext))")

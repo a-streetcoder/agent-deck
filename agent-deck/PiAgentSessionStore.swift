@@ -1023,8 +1023,10 @@ final class PiAgentSessionStore {
 
     var onStopLoopRun: ((UUID, UUID) -> Void)?
 
+    typealias LoopChildExecutor = (UUID, String, String, LoopWriteTarget, URL?, String?) async -> PiSubagentRunRecord?
+
     @discardableResult
-    func launchSingleAgentLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeAgent: @escaping (UUID, String, String, LoopWriteTarget, URL?, String?) async -> PiSubagentRunRecord?) async -> LoopRun? {
+    func launchSingleAgentLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeEvaluator: LoopChildExecutor? = nil, executeAgent: @escaping LoopChildExecutor) async -> LoopRun? {
         guard draft.structure == .singleAgent else { return nil }
         guard !draft.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let active = activeLoopRun(for: session.id) {
@@ -1069,17 +1071,17 @@ final class PiAgentSessionStore {
             }
             let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
             let artifact = makeMarkdownArtifact(filename: iterationIndex == 1 ? "single-agent-summary.md" : "single-agent-summary-\(iterationIndex).md", markdown: singleAgentArtifactMarkdown(run: run, iterationIndex: iterationIndex, childRunID: childRun.id, summary: summary), artifactDirectory: artifactDirectory)
+            let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: summary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
             let ended = Date()
-            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: summary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, timeline: timeline))
-            if run.validationCommand.isEmpty { run.status = .failed; run.endedAt = ended; run.stopReason = .validationUnavailable; upsertLoopRun(run); return run }
-            if validationResult?.didPass == true { run.status = .completed; run.endedAt = ended; run.stopReason = .success; upsertLoopRun(run); return run }
+            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: summary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, goalEvaluation: evaluation, timeline: timeline))
+            if applyGoalEvaluation(evaluation, ended: ended, to: &run) { upsertLoopRun(run); return run }
             upsertLoopRun(run)
         }
-        run.status = .failed; run.endedAt = Date(); run.stopReason = .validationFailedAfterFinalIteration; upsertLoopRun(run); return run
+        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
     }
 
     @discardableResult
-    func launchAgentPipelineLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeStage: @escaping (UUID, String, String, LoopWriteTarget, URL?, String?) async -> PiSubagentRunRecord?) async -> LoopRun? {
+    func launchAgentPipelineLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeEvaluator: LoopChildExecutor? = nil, executeStage: @escaping LoopChildExecutor) async -> LoopRun? {
         guard draft.structure == .agentPipeline else { return nil }
         guard !draft.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let active = activeLoopRun(for: session.id) {
@@ -1202,43 +1204,36 @@ final class PiAgentSessionStore {
                 markdown: pipelineArtifactMarkdown(run: run, iterationIndex: iterationIndex, stageSummaries: stageSummaries, childRunIDs: childRunIDs, validationResult: validationCommand.isEmpty ? nil : validationResult),
                 artifactDirectory: artifactDirectory
             )
+            let iterationSummary = stageSummaries.joined(separator: "\n\n")
+            let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationCommand.isEmpty ? nil : validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
             let iterationEndedAt = Date()
             run.iterations.append(LoopIteration(
                 index: iterationIndex,
                 startedAt: iterationStartedAt,
                 endedAt: iterationEndedAt,
-                summary: stageSummaries.joined(separator: "\n\n"),
+                summary: iterationSummary,
                 artifacts: [artifact].compactMap { $0 },
                 validationResult: validationCommand.isEmpty ? nil : validationResult,
+                goalEvaluation: evaluation,
                 timeline: timeline
             ))
 
-            if validationCommand.isEmpty {
-                run.status = .failed
-                run.endedAt = iterationEndedAt
-                run.stopReason = .validationUnavailable
-                upsertLoopRun(run)
-                return run
-            }
-            if validationResult.didPass {
-                run.status = .completed
-                run.endedAt = iterationEndedAt
-                run.stopReason = .success
+            if applyGoalEvaluation(evaluation, ended: iterationEndedAt, to: &run) {
                 upsertLoopRun(run)
                 return run
             }
             upsertLoopRun(run)
         }
 
-        run.status = .failed
+        run.status = .completed
         run.endedAt = Date()
-        run.stopReason = .validationFailedAfterFinalIteration
+        run.stopReason = .maxIterationsReached
         upsertLoopRun(run)
         return run
     }
 
     @discardableResult
-    func launchParallelAgentsLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeParallel: @escaping (UUID, [(String, String)], Int, Bool) async -> PiSubagentRunRecord?) async -> LoopRun? {
+    func launchParallelAgentsLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeEvaluator: LoopChildExecutor? = nil, executeParallel: @escaping (UUID, [(String, String)], Int, Bool) async -> PiSubagentRunRecord?) async -> LoopRun? {
         guard draft.structure == .parallelAgents else { return nil }
         guard !draft.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let active = activeLoopRun(for: session.id) {
@@ -1271,19 +1266,19 @@ final class PiAgentSessionStore {
             let summary = graphRun.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? graphRun.status.rawValue
             let artifact = makeMarkdownArtifact(filename: iterationIndex == 1 ? "parallel-summary.md" : "parallel-summary-\(iterationIndex).md", markdown: parallelAgentsArtifactMarkdown(run: run, iterationIndex: iterationIndex, graphRunID: graphRun.id, summary: summary), artifactDirectory: artifactDirectory)
             let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
+            let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: summary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
             let ended = Date()
             let timeline = run.parallel.branchNames.enumerated().map { offset, branch in LoopTimelineEvent(step: .parallelBranch, roleName: branch, note: "Parallel graph run: \(graphRun.id.uuidString)", timestamp: started.addingTimeInterval(TimeInterval(offset))) }
-            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: summary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, timeline: timeline))
+            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: summary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, goalEvaluation: evaluation, timeline: timeline))
             if graphRun.status != .completed { run.status = graphRun.status == .stopped ? .stopped : .failed; run.endedAt = ended; run.stopReason = graphRun.status == .stopped ? .userStopped : .agentFailed; upsertLoopRun(run); return run }
-            if run.validationCommand.isEmpty { run.status = .failed; run.endedAt = ended; run.stopReason = .validationUnavailable; upsertLoopRun(run); return run }
-            if validationResult?.didPass == true { run.status = .completed; run.endedAt = ended; run.stopReason = .success; upsertLoopRun(run); return run }
+            if applyGoalEvaluation(evaluation, ended: ended, to: &run) { upsertLoopRun(run); return run }
             upsertLoopRun(run)
         }
-        run.status = .failed; run.endedAt = Date(); run.stopReason = .validationFailedAfterFinalIteration; upsertLoopRun(run); return run
+        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
     }
 
     @discardableResult
-    func launchDiscoveryTriageLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeTriage: @escaping (UUID, String, String, LoopWriteTarget, URL?, String?) async -> PiSubagentRunRecord?) async -> LoopRun? {
+    func launchDiscoveryTriageLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeEvaluator: LoopChildExecutor? = nil, executeTriage: @escaping LoopChildExecutor) async -> LoopRun? {
         guard draft.structure == .discoveryTriage else { return nil }
         guard !draft.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let active = activeLoopRun(for: session.id) {
@@ -1317,24 +1312,22 @@ final class PiAgentSessionStore {
             let childSummary = childRun.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? childRun.status.rawValue
             let artifact = makeMarkdownArtifact(filename: iterationIndex == 1 ? "discovery-triage-summary.md" : "discovery-triage-summary-\(iterationIndex).md", markdown: discoveryTriageArtifactMarkdown(run: run, iterationIndex: iterationIndex, childRunID: childRun.id, summary: childSummary), artifactDirectory: artifactDirectory)
             let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
+            let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: childSummary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
             let ended = Date()
-            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: childSummary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, timeline: [LoopTimelineEvent(step: .discoveryTriage, roleName: run.discoveryTriage.agentName, note: "Triage child run: \(childRun.id.uuidString)", timestamp: started)]))
+            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: childSummary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, goalEvaluation: evaluation, timeline: [LoopTimelineEvent(step: .discoveryTriage, roleName: run.discoveryTriage.agentName, note: "Triage child run: \(childRun.id.uuidString)", timestamp: started)]))
             if childRun.status != .completed {
                 run.status = childRun.status == .stopped ? .stopped : .failed; run.endedAt = ended; run.stopReason = childRun.status == .stopped ? .userStopped : .agentFailed; upsertLoopRun(run); return run
             }
-            if run.validationCommand.isEmpty {
-                run.status = .failed; run.endedAt = ended; run.stopReason = .validationUnavailable; upsertLoopRun(run); return run
-            }
-            if validationResult?.didPass == true {
-                run.status = .completed; run.endedAt = ended; run.stopReason = .success; upsertLoopRun(run); return run
+            if applyGoalEvaluation(evaluation, ended: ended, to: &run) {
+                upsertLoopRun(run); return run
             }
             upsertLoopRun(run)
         }
-        run.status = .failed; run.endedAt = Date(); run.stopReason = .validationFailedAfterFinalIteration; upsertLoopRun(run); return run
+        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
     }
 
     @discardableResult
-    func launchMakerCheckerLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeRole: @escaping (UUID, String, String, LoopWriteTarget, URL?, String?) async -> PiSubagentRunRecord?) async -> LoopRun? {
+    func launchMakerCheckerLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool = false, executeEvaluator: LoopChildExecutor? = nil, executeRole: @escaping LoopChildExecutor) async -> LoopRun? {
         guard draft.structure == .makerChecker else { return nil }
         guard !draft.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let active = activeLoopRun(for: session.id) {
@@ -1412,12 +1405,20 @@ final class PiAgentSessionStore {
                 LoopTimelineEvent(step: .makerAct, roleName: run.makerChecker.makerName, note: "Maker child run: \(makerRun.id.uuidString)", timestamp: iterationStartedAt),
                 LoopTimelineEvent(step: .checkerReview, roleName: run.makerChecker.checkerName, note: "Checker child run: \(checkerRun.id.uuidString) returned \(checkerResult.displayName).", timestamp: ended)
             ]
-            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: iterationStartedAt, endedAt: ended, summary: iterationSummary, validationResult: validationResult, checkerResult: checkerResult, timeline: timeline))
+            let evaluation = executeEvaluator == nil ? nil : await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            run.iterations.append(LoopIteration(index: iterationIndex, startedAt: iterationStartedAt, endedAt: ended, summary: iterationSummary, validationResult: validationResult, goalEvaluation: evaluation, checkerResult: checkerResult, timeline: timeline))
             priorReview = checkerText
-            switch checkerResult {
-            case .approve:
+            if checkerResult == .fail {
+                run.status = .failed; run.endedAt = ended; run.stopReason = .agentFailed; upsertLoopRun(run); return run
+            }
+            if applyGoalEvaluation(evaluation, ended: ended, to: &run) { upsertLoopRun(run); return run }
+            if evaluation == nil, checkerResult == .approve {
                 run.status = .completed; run.endedAt = ended; run.stopReason = .success; upsertLoopRun(run); return run
-            case .reject, .continueLoop:
+            }
+            switch checkerResult {
+            case .approve, .reject, .continueLoop:
+                // Checker output is evidence for the goal evaluator. It no longer
+                // decides success on its own when the evaluator says more work is needed.
                 upsertLoopRun(run); continue
             case .askHuman:
                 run.status = .stopped; run.endedAt = ended; run.stopReason = .humanInputRequired; upsertLoopRun(run); return run
@@ -1758,6 +1759,74 @@ final class PiAgentSessionStore {
     private func stoppedLoopRun(_ run: LoopRun) -> LoopRun? {
         guard let current = loopRunsBySessionID[run.sessionID]?.first(where: { $0.id == run.id }), !current.isActive else { return nil }
         return current
+    }
+
+    private func evaluateGoalIfNeeded(run: LoopRun, iterationIndex: Int, iterationSummary: String, validationResult: LoopValidationResult?, workingDirectory: URL?, artifactDirectory: URL, executeEvaluator: LoopChildExecutor?) async -> LoopGoalEvaluation {
+        let outputPath = artifactDirectory.appendingPathComponent("goal-evaluation-\(iterationIndex).md").path
+        let task = goalEvaluatorTask(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationResult)
+        guard let executeEvaluator else {
+            if validationResult?.didPass == true { return LoopGoalEvaluation(result: .success, rationale: "Validation evidence passed.") }
+            return LoopGoalEvaluation(result: .continueLoop, rationale: "No evaluator runner was available; continuing toward the success condition.")
+        }
+        guard let evaluatorRun = await executeEvaluator(run.id, "Goal Evaluator", task, .artifactMarkdown, workingDirectory, outputPath) else {
+            return LoopGoalEvaluation(result: .fail, rationale: "Goal evaluator failed to launch.")
+        }
+        guard evaluatorRun.status == .completed else {
+            return LoopGoalEvaluation(result: .fail, rationale: evaluatorRun.error ?? evaluatorRun.summary ?? "Goal evaluator stopped with \(evaluatorRun.status.rawValue).", childRunID: evaluatorRun.id)
+        }
+        return goalEvaluation(from: evaluatorRun.summary ?? "", childRunID: evaluatorRun.id)
+    }
+
+    private func applyGoalEvaluation(_ evaluation: LoopGoalEvaluation?, ended: Date, to run: inout LoopRun) -> Bool {
+        guard let evaluation else { return false }
+        switch evaluation.result {
+        case .success:
+            run.status = .completed
+            run.endedAt = ended
+            run.stopReason = .success
+            return true
+        case .continueLoop:
+            return false
+        case .fail:
+            run.status = .failed
+            run.endedAt = ended
+            run.stopReason = .agentFailed
+            return true
+        }
+    }
+
+    private func goalEvaluation(from text: String, childRunID: UUID?) -> LoopGoalEvaluation {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let firstLine = trimmed.components(separatedBy: .newlines).first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+        let normalized = firstLine.uppercased()
+        let result: LoopGoalEvaluationResult
+        if normalized.contains("SUCCESS") { result = .success }
+        else if normalized.contains("FAIL") { result = .fail }
+        else { result = .continueLoop }
+        let rationale = checkerRationale(from: trimmed)
+        return LoopGoalEvaluation(result: result, rationale: rationale, childRunID: childRunID)
+    }
+
+    private func goalEvaluatorTask(run: LoopRun, iterationIndex: Int, iterationSummary: String, validationResult: LoopValidationResult?) -> String {
+        var lines: [String] = [
+            "You are Agent Deck's report-only natural-language goal evaluator. Review only; do not edit project files.",
+            "Loop goal: \(run.goal)",
+            "Success condition: \(run.goalEvaluation.successCondition.isEmpty ? run.goal : run.goalEvaluation.successCondition)",
+            run.iterationProgressText(iterationIndex),
+            "Iteration summary:\n\(iterationSummary)",
+            "Decide whether the success condition is met from the available evidence. Start your final response with exactly one decision line: SUCCESS, CONTINUE, or FAIL. Use SUCCESS only when the success condition is satisfied, CONTINUE when more iterations should try again, and FAIL when the loop should stop as agent failed. Then provide concise Markdown rationale."
+        ]
+        if let validationResult {
+            lines.append("Validation evidence: \(validationResult.didPass ? "passed" : "did not pass")\(validationResult.exitCode.map { " (exit \($0))" } ?? "")")
+            if !validationResult.stdout.isEmpty { lines.append("stdout:\n\(validationResult.stdout.prefix(4000))") }
+            if !validationResult.stderr.isEmpty { lines.append("stderr:\n\(validationResult.stderr.prefix(4000))") }
+        } else {
+            lines.append("Validation evidence: no validation command was configured.")
+        }
+        if let lastEvaluation = run.iterations.last?.goalEvaluation {
+            lines.append("Previous goal evaluation: \(lastEvaluation.result.displayName)\n\(lastEvaluation.rationale)")
+        }
+        return lines.joined(separator: "\n\n")
     }
 
     private func loopRuntimeContext(run: LoopRun, iterationIndex: Int) -> [String] {

@@ -32,6 +32,23 @@ final class LoopDefinitionStoreTests: XCTestCase {
         XCTAssertEqual(loaded.projectPaths, ["/tmp/project-a"])
     }
 
+    func testGoalEvaluationConfigRoundTrips() throws {
+        let directory = PiTestSupport.temporaryStateFile().deletingLastPathComponent().appendingPathComponent("loops", isDirectory: true)
+        let store = LoopDefinitionStore(directoryURL: directory)
+
+        _ = try store.saveUserDefinition(LoopDefinition(
+            name: "Evaluator Loop",
+            goalTemplate: "Ship the feature",
+            goalEvaluation: LoopGoalEvaluationConfig(successCondition: "Feature is implemented and tested", model: "openai/gpt-5", thinkingLevel: "low")
+        ))
+
+        let loaded = try XCTUnwrap(store.loadUserDefinitions().first)
+        XCTAssertEqual(loaded.goalEvaluation.successCondition, "Feature is implemented and tested")
+        XCTAssertEqual(loaded.goalEvaluation.model, "openai/gpt-5")
+        XCTAssertEqual(loaded.goalEvaluation.thinkingLevel, "low")
+        XCTAssertEqual(loaded.makeDraft().goalEvaluation.successCondition, "Feature is implemented and tested")
+    }
+
     func testLaunchContextRoundTripsWithMultilineSafeEncoding() throws {
         let directory = PiTestSupport.temporaryStateFile().deletingLastPathComponent().appendingPathComponent("loops", isDirectory: true)
         let store = LoopDefinitionStore(directoryURL: directory)

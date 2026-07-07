@@ -12,6 +12,9 @@ struct LoopDefinitionEditorDraft: Equatable {
     var writeTarget: LoopWriteTarget
     var maxIterations: Int
     var validationCommand: String
+    var successCondition: String
+    var evaluatorModel: String
+    var evaluatorThinkingLevel: String
     var makerName: String
     var checkerName: String
     var checkerRubric: String
@@ -38,6 +41,10 @@ struct LoopDefinitionEditorDraft: Equatable {
         writeTarget = definition?.writeTarget ?? .artifactMarkdown
         maxIterations = definition?.maxIterations ?? LoopDraft.defaultMaxIterations
         validationCommand = definition?.validationCommand ?? ""
+        let goalEvaluation = definition?.goalEvaluation ?? LoopGoalEvaluationConfig(successCondition: definition?.goalTemplate ?? "")
+        successCondition = goalEvaluation.successCondition
+        evaluatorModel = goalEvaluation.model ?? ""
+        evaluatorThinkingLevel = goalEvaluation.thinkingLevel ?? ""
         let makerChecker = definition?.makerChecker ?? LoopMakerCheckerConfig()
         makerName = makerChecker.makerName
         checkerName = makerChecker.checkerName
@@ -82,6 +89,7 @@ struct LoopDefinitionEditorDraft: Equatable {
             writeTarget: writeTarget,
             maxIterations: maxIterations,
             validationCommand: validationCommand,
+            goalEvaluation: LoopGoalEvaluationConfig(successCondition: successCondition.isEmpty ? goalTemplate : successCondition, model: evaluatorModel, thinkingLevel: evaluatorThinkingLevel),
             makerChecker: LoopMakerCheckerConfig(
                 makerName: makerName,
                 checkerName: checkerName,
@@ -337,6 +345,9 @@ struct LoopBankScreen: View {
             } else {
                 readOnlyFieldRow("Launch context", value: "None")
             }
+            readOnlyMarkdownFieldRow("Success condition", value: definition.goalEvaluation.successCondition.isEmpty ? definition.goalTemplate : definition.goalEvaluation.successCondition, placeholder: "Loop goal")
+            readOnlyFieldRow("Evaluator model", value: definition.goalEvaluation.model ?? "", placeholder: "Default")
+            readOnlyFieldRow("Evaluator thinking", value: definition.goalEvaluation.thinkingLevel ?? "", placeholder: "Default")
             readOnlyFieldRow("Validation command", value: definition.validationCommand, placeholder: "None", isLast: true)
         }
     }
@@ -383,6 +394,15 @@ struct LoopBankScreen: View {
                 }
             }
             detailEditor("Goal template", text: $editorDraft.goalTemplate, minHeight: 120, info: "The reusable instruction the loop runs against. Be explicit about the desired outcome, constraints, and what counts as done.")
+            detailEditor("Success condition", text: $editorDraft.successCondition, minHeight: 84, info: "Always-on report-only evaluator uses this natural-language condition after every iteration. Leave empty to use the loop goal.")
+            detailRow("Evaluator model", info: "Optional model override for the report-only goal evaluator. Leave empty to use Pi's current default/inherited model.") {
+                AppTextField(text: $editorDraft.evaluatorModel, placeholder: "Default")
+                    .frame(maxWidth: 360)
+            }
+            detailRow("Evaluator thinking", info: "Optional thinking level for the report-only goal evaluator, such as off, low, medium, high, or xhigh.") {
+                AppTextField(text: $editorDraft.evaluatorThinkingLevel, placeholder: "Default")
+                    .frame(maxWidth: 360)
+            }
             detailEditor("Launch context (optional)", text: $editorDraft.launchContext, minHeight: 84, infoRows: loopLaunchContextInfoRows)
             if !editorDraft.launchContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 detailRow("Context scope", info: "First iteration only is the default. Every iteration repeats this context in each child-agent prompt.") {

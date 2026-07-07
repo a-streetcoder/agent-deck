@@ -179,6 +179,57 @@ nonisolated enum LoopCheckerResult: String, Codable, CaseIterable, Identifiable,
     }
 }
 
+nonisolated enum LoopGoalEvaluationResult: String, Codable, CaseIterable, Identifiable, Sendable {
+    case success
+    case continueLoop = "continue"
+    case fail
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .success: return "SUCCESS"
+        case .continueLoop: return "CONTINUE"
+        case .fail: return "FAIL"
+        }
+    }
+}
+
+nonisolated struct LoopGoalEvaluationConfig: Codable, Equatable, Hashable, Sendable {
+    var successCondition: String
+    var model: String?
+    var thinkingLevel: String?
+
+    init(successCondition: String = "", model: String? = nil, thinkingLevel: String? = nil) {
+        self.successCondition = successCondition.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.model = model?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        self.thinkingLevel = thinkingLevel?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+    }
+
+    enum CodingKeys: String, CodingKey { case successCondition, model, thinkingLevel }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            successCondition: try container.decodeIfPresent(String.self, forKey: .successCondition) ?? "",
+            model: try container.decodeIfPresent(String.self, forKey: .model),
+            thinkingLevel: try container.decodeIfPresent(String.self, forKey: .thinkingLevel)
+        )
+    }
+}
+
+nonisolated struct LoopGoalEvaluation: Codable, Equatable, Sendable {
+    var result: LoopGoalEvaluationResult
+    var rationale: String
+    var childRunID: UUID?
+
+    init(result: LoopGoalEvaluationResult, rationale: String = "", childRunID: UUID? = nil) {
+        self.result = result
+        self.rationale = rationale.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.childRunID = childRunID
+    }
+}
+
 nonisolated enum LoopTimelineStepKind: String, Codable, Sendable {
     case makerAct
     case checkerReview
@@ -226,6 +277,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
     var writeTarget: LoopWriteTarget
     var maxIterations: Int
     var validationCommand: String
+    var goalEvaluation: LoopGoalEvaluationConfig
     var makerChecker: LoopMakerCheckerConfig
     var pipeline: LoopPipelineConfig
     var parallel: LoopParallelConfig
@@ -243,6 +295,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
         writeTarget: LoopWriteTarget = .artifactMarkdown,
         maxIterations: Int = Self.defaultMaxIterations,
         validationCommand: String = "",
+        goalEvaluation: LoopGoalEvaluationConfig? = nil,
         makerChecker: LoopMakerCheckerConfig = LoopMakerCheckerConfig(),
         pipeline: LoopPipelineConfig = LoopPipelineConfig(),
         parallel: LoopParallelConfig = LoopParallelConfig(),
@@ -256,6 +309,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
         self.writeTarget = writeTarget
         self.maxIterations = max(0, maxIterations)
         self.validationCommand = validationCommand
+        self.goalEvaluation = goalEvaluation ?? LoopGoalEvaluationConfig(successCondition: self.goal)
         self.makerChecker = makerChecker
         self.pipeline = pipeline
         self.parallel = parallel
@@ -264,7 +318,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case goal, launchContext, launchContextScope, structure, writeTarget, maxIterations, validationCommand, makerChecker, pipeline, parallel, discoveryTriage, humanApproval
+        case goal, launchContext, launchContextScope, structure, writeTarget, maxIterations, validationCommand, goalEvaluation, makerChecker, pipeline, parallel, discoveryTriage, humanApproval
     }
 
     init(from decoder: Decoder) throws {
@@ -277,6 +331,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
             writeTarget: try container.decodeIfPresent(LoopWriteTarget.self, forKey: .writeTarget) ?? .artifactMarkdown,
             maxIterations: try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? Self.defaultMaxIterations,
             validationCommand: try container.decodeIfPresent(String.self, forKey: .validationCommand) ?? "",
+            goalEvaluation: try container.decodeIfPresent(LoopGoalEvaluationConfig.self, forKey: .goalEvaluation),
             makerChecker: try container.decodeIfPresent(LoopMakerCheckerConfig.self, forKey: .makerChecker) ?? LoopMakerCheckerConfig(),
             pipeline: try container.decodeIfPresent(LoopPipelineConfig.self, forKey: .pipeline) ?? LoopPipelineConfig(),
             parallel: try container.decodeIfPresent(LoopParallelConfig.self, forKey: .parallel) ?? LoopParallelConfig(),
@@ -318,6 +373,7 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
     var writeTarget: LoopWriteTarget
     var maxIterations: Int
     var validationCommand: String
+    var goalEvaluation: LoopGoalEvaluationConfig
     var makerChecker: LoopMakerCheckerConfig
     var pipeline: LoopPipelineConfig
     var parallel: LoopParallelConfig
@@ -341,6 +397,7 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
         writeTarget: LoopWriteTarget = .artifactMarkdown,
         maxIterations: Int = LoopDraft.defaultMaxIterations,
         validationCommand: String = "",
+        goalEvaluation: LoopGoalEvaluationConfig? = nil,
         makerChecker: LoopMakerCheckerConfig = LoopMakerCheckerConfig(),
         pipeline: LoopPipelineConfig = LoopPipelineConfig(),
         parallel: LoopParallelConfig = LoopParallelConfig(),
@@ -363,6 +420,7 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
         self.writeTarget = writeTarget
         self.maxIterations = max(0, maxIterations)
         self.validationCommand = validationCommand
+        self.goalEvaluation = goalEvaluation ?? LoopGoalEvaluationConfig(successCondition: self.goalTemplate)
         self.makerChecker = makerChecker
         self.pipeline = pipeline
         self.parallel = parallel
@@ -374,6 +432,39 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
         self.filePath = filePath
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, goalTemplate, launchContext, launchContextScope, structure, writeTarget, maxIterations, validationCommand, goalEvaluation, makerChecker, pipeline, parallel, discoveryTriage, humanApproval, source, availability, projectPaths, filePath, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let goalTemplate = try container.decodeIfPresent(String.self, forKey: .goalTemplate) ?? ""
+        self.init(
+            id: try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString,
+            name: try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Loop",
+            description: try container.decodeIfPresent(String.self, forKey: .description) ?? "",
+            goalTemplate: goalTemplate,
+            launchContext: try container.decodeIfPresent(String.self, forKey: .launchContext),
+            launchContextScope: try container.decodeIfPresent(LoopLaunchContextScope.self, forKey: .launchContextScope) ?? .firstIterationOnly,
+            structure: try container.decodeIfPresent(LoopStructureKind.self, forKey: .structure) ?? .singleAgent,
+            writeTarget: try container.decodeIfPresent(LoopWriteTarget.self, forKey: .writeTarget) ?? .artifactMarkdown,
+            maxIterations: try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? LoopDraft.defaultMaxIterations,
+            validationCommand: try container.decodeIfPresent(String.self, forKey: .validationCommand) ?? "",
+            goalEvaluation: try container.decodeIfPresent(LoopGoalEvaluationConfig.self, forKey: .goalEvaluation) ?? LoopGoalEvaluationConfig(successCondition: goalTemplate),
+            makerChecker: try container.decodeIfPresent(LoopMakerCheckerConfig.self, forKey: .makerChecker) ?? LoopMakerCheckerConfig(),
+            pipeline: try container.decodeIfPresent(LoopPipelineConfig.self, forKey: .pipeline) ?? LoopPipelineConfig(),
+            parallel: try container.decodeIfPresent(LoopParallelConfig.self, forKey: .parallel) ?? LoopParallelConfig(),
+            discoveryTriage: try container.decodeIfPresent(LoopDiscoveryTriageConfig.self, forKey: .discoveryTriage) ?? LoopDiscoveryTriageConfig(),
+            humanApproval: try container.decodeIfPresent(LoopHumanApprovalConfig.self, forKey: .humanApproval) ?? LoopHumanApprovalConfig(),
+            source: try container.decodeIfPresent(LoopDefinitionSource.self, forKey: .source) ?? .user,
+            availability: try container.decodeIfPresent(LoopDefinitionAvailability.self, forKey: .availability) ?? .allProjects,
+            projectPaths: try container.decodeIfPresent([String].self, forKey: .projectPaths) ?? [],
+            filePath: try container.decodeIfPresent(String.self, forKey: .filePath),
+            createdAt: try container.decodeIfPresent(Date.self, forKey: .createdAt),
+            updatedAt: try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        )
     }
 
     func isAvailable(in projectPath: String?) -> Bool {
@@ -395,6 +486,7 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
             writeTarget: writeTarget,
             maxIterations: maxIterations,
             validationCommand: validationCommand,
+            goalEvaluation: goalEvaluation,
             makerChecker: makerChecker,
             pipeline: pipeline,
             parallel: parallel,
@@ -411,6 +503,7 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
         run.writeTarget == writeTarget &&
         run.maxIterations == maxIterations &&
         run.validationCommand == validationCommand.trimmingCharacters(in: .whitespacesAndNewlines) &&
+        run.goalEvaluation == goalEvaluation &&
         run.makerChecker == makerChecker &&
         run.pipeline == pipeline &&
         run.parallel == parallel &&
@@ -480,6 +573,7 @@ nonisolated struct LoopIteration: Identifiable, Codable, Equatable, Sendable {
     var summary: String
     var artifacts: [LoopArtifact]
     var validationResult: LoopValidationResult?
+    var goalEvaluation: LoopGoalEvaluation?
     var checkerResult: LoopCheckerResult?
     var timeline: [LoopTimelineEvent]
     var changedFiles: [String]
@@ -492,6 +586,7 @@ nonisolated struct LoopIteration: Identifiable, Codable, Equatable, Sendable {
         summary: String = "",
         artifacts: [LoopArtifact] = [],
         validationResult: LoopValidationResult? = nil,
+        goalEvaluation: LoopGoalEvaluation? = nil,
         checkerResult: LoopCheckerResult? = nil,
         timeline: [LoopTimelineEvent] = [],
         changedFiles: [String] = []
@@ -503,13 +598,14 @@ nonisolated struct LoopIteration: Identifiable, Codable, Equatable, Sendable {
         self.summary = summary
         self.artifacts = artifacts
         self.validationResult = validationResult
+        self.goalEvaluation = goalEvaluation
         self.checkerResult = checkerResult
         self.timeline = timeline
         self.changedFiles = changedFiles
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, index, startedAt, endedAt, summary, artifacts, validationResult, checkerResult, timeline, changedFiles
+        case id, index, startedAt, endedAt, summary, artifacts, validationResult, goalEvaluation, checkerResult, timeline, changedFiles
     }
 
     init(from decoder: Decoder) throws {
@@ -521,6 +617,7 @@ nonisolated struct LoopIteration: Identifiable, Codable, Equatable, Sendable {
         summary = try container.decode(String.self, forKey: .summary)
         artifacts = try container.decode([LoopArtifact].self, forKey: .artifacts)
         validationResult = try container.decodeIfPresent(LoopValidationResult.self, forKey: .validationResult)
+        goalEvaluation = try container.decodeIfPresent(LoopGoalEvaluation.self, forKey: .goalEvaluation)
         checkerResult = try container.decodeIfPresent(LoopCheckerResult.self, forKey: .checkerResult)
         timeline = try container.decodeIfPresent([LoopTimelineEvent].self, forKey: .timeline) ?? []
         changedFiles = try container.decodeIfPresent([String].self, forKey: .changedFiles) ?? []
@@ -540,6 +637,7 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
     var currentIteration: Int
     var maxIterations: Int
     var validationCommand: String
+    var goalEvaluation: LoopGoalEvaluationConfig
     var makerChecker: LoopMakerCheckerConfig
     var pipeline: LoopPipelineConfig
     var parallel: LoopParallelConfig
@@ -566,6 +664,7 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
         self.currentIteration = 0
         self.maxIterations = max(0, draft.maxIterations)
         self.validationCommand = draft.validationCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.goalEvaluation = draft.goalEvaluation.successCondition.isEmpty ? LoopGoalEvaluationConfig(successCondition: self.goal, model: draft.goalEvaluation.model, thinkingLevel: draft.goalEvaluation.thinkingLevel) : draft.goalEvaluation
         self.makerChecker = draft.makerChecker
         self.pipeline = draft.pipeline
         self.parallel = draft.parallel
@@ -582,7 +681,7 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, sessionID, projectPath, goal, launchContext, launchContextScope, structure, status, writeTarget, currentIteration
-        case maxIterations, validationCommand, makerChecker, pipeline, parallel, discoveryTriage, humanApproval
+        case maxIterations, validationCommand, goalEvaluation, makerChecker, pipeline, parallel, discoveryTriage, humanApproval
         case startedAt, endedAt, stopReason, iterations, artifactDirectoryPath, worktreeState, transcriptEntryID
     }
 
@@ -600,6 +699,7 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
         currentIteration = try container.decode(Int.self, forKey: .currentIteration)
         maxIterations = try container.decode(Int.self, forKey: .maxIterations)
         validationCommand = try container.decodeIfPresent(String.self, forKey: .validationCommand) ?? ""
+        goalEvaluation = try container.decodeIfPresent(LoopGoalEvaluationConfig.self, forKey: .goalEvaluation) ?? LoopGoalEvaluationConfig(successCondition: goal)
         makerChecker = try container.decodeIfPresent(LoopMakerCheckerConfig.self, forKey: .makerChecker) ?? LoopMakerCheckerConfig()
         pipeline = try container.decodeIfPresent(LoopPipelineConfig.self, forKey: .pipeline) ?? LoopPipelineConfig()
         parallel = try container.decodeIfPresent(LoopParallelConfig.self, forKey: .parallel) ?? LoopParallelConfig()
@@ -745,6 +845,9 @@ enum LoopRunRecapCodec {
         if let validation = iteration.validationResult {
             parts.append("Validation: \(validation.didPass ? "passed" : "did not pass")\(validation.exitCode.map { " (exit \($0))" } ?? "")")
         }
+        if let evaluation = iteration.goalEvaluation {
+            parts.append("Goal evaluation: \(evaluation.result.displayName)")
+        }
         if !iteration.artifacts.isEmpty {
             parts.append("Artifacts: \(iteration.artifacts.map(\.filename).joined(separator: ", "))")
         }
@@ -783,6 +886,9 @@ enum LoopRunRecapCodec {
         }
         if let validation = run.iterations.last?.validationResult {
             lines.append("Latest validation: \(validation.didPass ? "passed" : "failed")\(validation.exitCode.map { " (exit \($0))" } ?? "")")
+        }
+        if let evaluation = run.iterations.last?.goalEvaluation {
+            lines.append("Latest goal evaluation: \(evaluation.result.displayName)")
         }
         if let progressSummary = finalProgressSummary(from: progressMarkdown) {
             lines.append("")
@@ -882,6 +988,8 @@ enum LoopRunTranscriptCodec {
         if run.launchContext?.isEmpty == false {
             lines.append("Launch context: present (\(run.launchContextScope.displayName.lowercased()))")
         }
+        lines.append("Goal evaluation: report-only natural-language evaluator")
+        lines.append("Success condition: \(run.goalEvaluation.successCondition.isEmpty ? run.goal : run.goalEvaluation.successCondition)")
         if !run.validationCommand.isEmpty {
             lines.append("Validation command: \(run.validationCommand)")
         }
@@ -916,6 +1024,10 @@ enum LoopRunTranscriptCodec {
         if let validation = run.iterations.last?.validationResult {
             lines.append("Validation exit code: \(validation.exitCode.map(String.init) ?? "unavailable")")
             lines.append("Validation duration: \(String(format: "%.2fs", validation.duration))")
+        }
+        if let evaluation = run.iterations.last?.goalEvaluation {
+            lines.append("Goal evaluator result: \(evaluation.result.displayName)")
+            if !evaluation.rationale.isEmpty { lines.append("Goal evaluator rationale: \(evaluation.rationale)") }
         }
         if let changedFiles = run.iterations.last?.changedFiles, !changedFiles.isEmpty {
             lines.append("Changed files: \(changedFiles.joined(separator: ", "))")
