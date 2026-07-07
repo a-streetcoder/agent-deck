@@ -26,6 +26,7 @@ interface EnvEntry {
   masked: string;
   scope: "global" | "project";
   overridden: boolean;
+  source: string;
 }
 
 type EnvScope = "global" | "project";
@@ -168,9 +169,16 @@ export function EnvironmentScreen() {
                 data-env-key={entry.key}
                 data-env-scope={entry.scope}
               >
-                <span className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary">
-                  {entry.key}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-sm text-text-primary">{entry.key}</div>
+                  <div
+                    className="truncate font-mono text-[10px] text-text-muted"
+                    data-testid="env-source"
+                    title={entry.source}
+                  >
+                    {entry.source}
+                  </div>
+                </div>
                 {isEditing ? (
                   <input
                     autoFocus

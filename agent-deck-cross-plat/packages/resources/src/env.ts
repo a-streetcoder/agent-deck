@@ -18,6 +18,8 @@ export interface EnvEntry {
   scope: Extract<ResourceScope, "global" | "project">;
   /** A global entry shadowed by a project entry of the same key. */
   overridden: boolean;
+  /** Absolute path of the .env file this entry was read from (native 5.2). */
+  source: string;
 }
 
 /**
@@ -70,10 +72,10 @@ function readEnvFile(filePath: string): Map<string, string> {
 }
 
 export function scanEnv(roots: ResourceRoots): EnvEntry[] {
-  const globalEnv = readEnvFile(path.join(piAgentHome(roots), ".env"));
-  const projectEnv = roots.projectPath
-    ? readEnvFile(path.join(roots.projectPath, ".pi", ".env"))
-    : new Map<string, string>();
+  const globalSource = path.join(piAgentHome(roots), ".env");
+  const projectSource = roots.projectPath ? path.join(roots.projectPath, ".pi", ".env") : undefined;
+  const globalEnv = readEnvFile(globalSource);
+  const projectEnv = projectSource ? readEnvFile(projectSource) : new Map<string, string>();
 
   const entries: EnvEntry[] = [];
   for (const [key, value] of globalEnv) {
@@ -82,10 +84,17 @@ export function scanEnv(roots: ResourceRoots): EnvEntry[] {
       masked: maskValue(value),
       scope: "global",
       overridden: projectEnv.has(key),
+      source: globalSource,
     });
   }
   for (const [key, value] of projectEnv) {
-    entries.push({ key, masked: maskValue(value), scope: "project", overridden: false });
+    entries.push({
+      key,
+      masked: maskValue(value),
+      scope: "project",
+      overridden: false,
+      source: projectSource!,
+    });
   }
   return entries.sort((a, b) => a.key.localeCompare(b.key));
 }

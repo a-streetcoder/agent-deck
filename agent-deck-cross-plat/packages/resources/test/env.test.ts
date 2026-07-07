@@ -87,4 +87,19 @@ describe("writeEnvVar / scanEnv round-trip", () => {
     // Long secret shows a fixed prefix + last 4 (constant width, no length leak).
     expect(long.masked).toBe("••••••••mnop");
   });
+
+  it("reports each var's source .env file (native 5.2)", () => {
+    const home = makeHome();
+    const project = makeHome();
+    mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(path.join(home, ".pi", "agent", ".env"), "GKEY=g\n");
+    mkdirSync(path.join(project, ".pi"), { recursive: true });
+    writeFileSync(path.join(project, ".pi", ".env"), "PKEY=p\n");
+
+    const entries = scanEnv({ home, projectPath: project });
+    expect(entries.find((e) => e.key === "GKEY")!.source).toBe(
+      path.join(home, ".pi", "agent", ".env"),
+    );
+    expect(entries.find((e) => e.key === "PKEY")!.source).toBe(path.join(project, ".pi", ".env"));
+  });
 });

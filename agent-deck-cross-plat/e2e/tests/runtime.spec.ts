@@ -47,6 +47,8 @@ test("environment inspector masks values and flags overrides", async ({ page }) 
   // The full secret is never rendered — only a masked tail.
   await expect(apiKeyRow).not.toContainText("sk-secret-value-1234");
   await expect(apiKeyRow).toContainText("1234");
+  // Each row names its source .env file (native 5.2).
+  await expect(apiKeyRow.getByTestId("env-source")).toContainText(".env");
 
   // SHARED_KEY exists globally (overridden) and in the project.
   const sharedRows = page.locator('[data-env-key="SHARED_KEY"]');
