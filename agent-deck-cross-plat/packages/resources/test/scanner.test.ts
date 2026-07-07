@@ -77,6 +77,26 @@ describe("scanSkills", () => {
     expect(skills.find((s) => s.name === "web-research")).toMatchObject({ scope: "global" });
     expect(skills.find((s) => s.name === "deploy")).toMatchObject({ scope: "project" });
   });
+
+  it("reflects pi's disable-model-invocation frontmatter (native 7.6 detail)", () => {
+    const home = makeHome();
+    const manual = path.join(home, ".pi", "agent", "skills", "danger-op");
+    mkdirSync(manual, { recursive: true });
+    writeFileSync(
+      path.join(manual, "SKILL.md"),
+      "---\nname: danger-op\ndescription: A destructive op\ndisable-model-invocation: true\n---\n\nRun the op.\n",
+    );
+    const auto = path.join(home, ".pi", "agent", "skills", "helper");
+    mkdirSync(auto, { recursive: true });
+    writeFileSync(
+      path.join(auto, "SKILL.md"),
+      "---\nname: helper\ndescription: A helper\n---\n\nHelp.\n",
+    );
+
+    const skills = scanSkills({ home });
+    expect(skills.find((s) => s.name === "danger-op")!.disableModelInvocation).toBe(true);
+    expect(skills.find((s) => s.name === "helper")!.disableModelInvocation).toBe(false);
+  });
 });
 
 describe("scanPrompts (native prompt.invocation + argument-hint, §8.1)", () => {

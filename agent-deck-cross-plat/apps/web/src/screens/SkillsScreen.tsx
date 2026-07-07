@@ -669,6 +669,15 @@ export function SkillsScreen() {
                   </h2>
                 )}
                 <ScopeChip scope={selected.scope} />
+                {selected.disableModelInvocation ? (
+                  <span
+                    data-testid="skill-manual-only-badge"
+                    className="rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted"
+                    title="disable-model-invocation is set: the model won't auto-invoke this skill. It's only used when invoked explicitly (e.g. via the composer's / menu)."
+                  >
+                    manual only
+                  </span>
+                ) : null}
               </div>
               <p className="mt-0.5 text-sm text-text-secondary">{selected.description}</p>
             </div>

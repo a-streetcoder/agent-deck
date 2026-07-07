@@ -180,3 +180,40 @@ test("imports a local .md file as a skill (7.3)", async ({ page }) => {
   await expect.poll(() => existsSync(imported)).toBe(true);
   expect(readFileSync(imported, "utf8")).toContain("Do the thing.");
 });
+
+test("skill detail flags disable-model-invocation as 'manual only' (native 7.6)", async ({
+  page,
+}) => {
+  await registerProject();
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-skills").click();
+
+  // A skill the model must NOT auto-invoke (disable-model-invocation) and a
+  // normal one that it may.
+  const manualDir = path.join(project, ".pi", "skills", "manual-op");
+  mkdirSync(manualDir, { recursive: true });
+  writeFileSync(
+    path.join(manualDir, "SKILL.md"),
+    "---\nname: manual-op\ndescription: Only run when asked\ndisable-model-invocation: true\n---\n\nRun the op.\n",
+  );
+  const autoDir = path.join(project, ".pi", "skills", "auto-helper");
+  mkdirSync(autoDir, { recursive: true });
+  writeFileSync(
+    path.join(autoDir, "SKILL.md"),
+    "---\nname: auto-helper\ndescription: The model may use this freely\n---\n\nHelp.\n",
+  );
+
+  // The manual-only skill shows the badge in its detail pane.
+  const manualRow = page.locator('[data-skill-name="manual-op"]');
+  await expect(manualRow).toBeVisible({ timeout: 15_000 });
+  await manualRow.click();
+  await expect(page.getByTestId("skill-detail")).toBeVisible();
+  await expect(page.getByTestId("skill-manual-only-badge")).toBeVisible();
+
+  // The normal skill does not.
+  await page.locator('[data-skill-name="auto-helper"]').click();
+  await expect(page.getByTestId("skill-detail")).toBeVisible();
+  await expect(page.getByTestId("skill-manual-only-badge")).toHaveCount(0);
+});
