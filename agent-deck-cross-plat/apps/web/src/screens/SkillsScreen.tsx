@@ -326,6 +326,8 @@ export function SkillsScreen() {
   const [editing, setEditing] = useState<SkillDraft | null>(null);
   // Inline rename of the selected skill; value === null when not renaming.
   const [renameValue, setRenameValue] = useState<string | null>(null);
+  // Multi-select for bulk actions (native 7.5), by filePath.
+  const [checked, setChecked] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
@@ -357,6 +359,33 @@ export function SkillsScreen() {
         skill.description.toLowerCase().includes(query),
     );
   }, [skills, search]);
+
+  // Intersect with the live skills so a stale filePath (deleted skill) drops out.
+  const checkedSkills = skills.filter((s) => checked.has(s.filePath));
+  const toggleCheck = (filePath: string): void =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(filePath)) next.delete(filePath);
+      else next.add(filePath);
+      return next;
+    });
+
+  // Prune the selection to live skills after any reload: successfully deleted
+  // skills drop out on their own, a FAILED delete stays checked (retry set
+  // preserved), and no ghost filePaths accumulate.
+  useEffect(() => {
+    setChecked((prev) => {
+      const live = new Set(skills.map((s) => s.filePath));
+      const next = new Set([...prev].filter((fp) => live.has(fp)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [skills]);
+
+  const bulkDelete = async (): Promise<void> => {
+    // deleteSkill reloads on success; the prune effect then clears the deleted
+    // ones from the selection (no blanket clear, so failures stay selected).
+    await Promise.all(checkedSkills.map((s) => deleteSkill(s.scope, s.name)));
+  };
 
   const selected = visible.find((s) => s.filePath === selectedKey) ?? visible[0] ?? null;
 
@@ -411,6 +440,28 @@ export function SkillsScreen() {
             <Plus size={15} />
           </button>
         </div>
+        {checkedSkills.length > 0 ? (
+          <div
+            className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-border-strong bg-surface-elevated px-2.5 py-1.5 text-xs"
+            data-testid="skills-bulk-bar"
+          >
+            <span className="flex-1 text-text-secondary">{checkedSkills.length} selected</span>
+            <button
+              data-testid="skills-bulk-clear"
+              className="rounded px-1.5 py-0.5 text-text-muted hover:text-text-primary"
+              onClick={() => setChecked(new Set())}
+            >
+              Clear
+            </button>
+            <button
+              data-testid="skills-bulk-delete"
+              className="flex items-center gap-1 rounded-capsule border border-border-strong px-2 py-0.5 text-text-muted hover:text-[var(--color-role-error)]"
+              onClick={() => void bulkDelete()}
+            >
+              <Trash2 size={12} /> Delete
+            </button>
+          </div>
+        ) : null}
         <div
           className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4"
           role="listbox"
@@ -437,12 +488,24 @@ export function SkillsScreen() {
                 tabIndex={0}
                 onClick={() => setSelectedKey(skill.filePath)}
                 onKeyDown={(event) => {
+                  // Ignore keys bubbled from the checkbox (its own Space toggles
+                  // it) — only the row's own Enter/Space opens the detail.
+                  if (event.target !== event.currentTarget) return;
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     setSelectedKey(skill.filePath);
                   }
                 }}
               >
+                <input
+                  type="checkbox"
+                  data-testid={`skill-check-${skill.name}`}
+                  aria-label={`Select ${skill.name}`}
+                  className="shrink-0 accent-[var(--color-brand-accent)]"
+                  checked={checked.has(skill.filePath)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => toggleCheck(skill.filePath)}
+                />
                 <WandSparkles
                   size={17}
                   className="shrink-0"

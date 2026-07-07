@@ -118,3 +118,34 @@ test("skills screen live-updates when a SKILL.md appears on disk", async ({ page
   await expect.poll(() => existsSync(movedSkill)).toBe(true);
   expect(existsSync(path.join(project, ".pi", "skills", "release-notes"))).toBe(false);
 });
+
+test("multi-select bulk-deletes skills (7.5)", async ({ page }) => {
+  await registerProject();
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await page.getByTestId("nav-skills").click();
+
+  // Two project skills on disk.
+  for (const name of ["bulk-a", "bulk-b"]) {
+    const dir = path.join(project, ".pi", "skills", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, "SKILL.md"),
+      `---\nname: ${name}\ndescription: A bulk-delete test skill\n---\n\nbody\n`,
+    );
+  }
+  await expect(page.locator('[data-skill-name="bulk-a"]')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-skill-name="bulk-b"]')).toBeVisible({ timeout: 15_000 });
+
+  // Select both via the row checkboxes, then bulk delete.
+  await page.getByTestId("skill-check-bulk-a").check();
+  await page.getByTestId("skill-check-bulk-b").check();
+  await expect(page.getByTestId("skills-bulk-bar")).toContainText("2 selected");
+  await page.getByTestId("skills-bulk-delete").click();
+
+  await expect(page.locator('[data-skill-name="bulk-a"]')).toHaveCount(0);
+  await expect(page.locator('[data-skill-name="bulk-b"]')).toHaveCount(0);
+  await expect(page.getByTestId("skills-bulk-bar")).toHaveCount(0);
+  expect(existsSync(path.join(project, ".pi", "skills", "bulk-a"))).toBe(false);
+  expect(existsSync(path.join(project, ".pi", "skills", "bulk-b"))).toBe(false);
+});
