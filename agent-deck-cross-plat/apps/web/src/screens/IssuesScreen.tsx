@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, CircleDot, RefreshCw, Sparkles, User } from "lucide-react";
+import { ArrowLeft, CircleDot, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAppStore } from "../state/store.ts";
@@ -18,10 +18,26 @@ interface Issue {
   labels: string[];
 }
 
+interface IssueComment {
+  author: string | null;
+  body: string;
+  createdAt: string | null;
+}
+
 interface IssueDetail extends Issue {
   body: string;
   assignees: string[];
   author: string | null;
+  comments: IssueComment[];
+}
+
+/** ISO timestamp → a short local date, or "" if absent/unparseable. */
+function formatDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 export function IssuesScreen() {
@@ -219,6 +235,38 @@ export function IssuesScreen() {
                   data-testid="issue-detail-body"
                 >
                   <MarkdownDocument source={detail.body || "_No description provided._"} />
+                </div>
+
+                <div className="mt-5" data-testid="issue-comments">
+                  <div className="flex items-center gap-1.5 pb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                    <MessageSquare size={12} /> Comments
+                    <span className="rounded-capsule border border-border-subtle px-1 tabular-nums">
+                      {detail.comments.length}
+                    </span>
+                  </div>
+                  {detail.comments.length === 0 ? (
+                    <div className="text-xs text-text-muted">No comments yet.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {detail.comments.map((comment, i) => (
+                        <div
+                          key={i}
+                          data-testid="issue-comment"
+                          className="rounded-xl border border-border-subtle bg-surface px-4 py-2.5"
+                        >
+                          <div className="flex items-center gap-2 pb-1 text-[11px] text-text-muted">
+                            <span className="flex items-center gap-1 font-medium text-text-secondary">
+                              <User size={11} /> {comment.author ?? "unknown"}
+                            </span>
+                            {formatDate(comment.createdAt) ? (
+                              <span>{formatDate(comment.createdAt)}</span>
+                            ) : null}
+                          </div>
+                          <MarkdownDocument source={comment.body || "_(empty)_"} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}

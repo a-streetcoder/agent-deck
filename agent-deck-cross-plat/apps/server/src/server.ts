@@ -1673,7 +1673,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     try {
       const { stdout } = await execFileAsync(
         ghBin,
-        ["issue", "view", number, "--json", "number,title,body,state,url,labels,assignees,author"],
+        [
+          "issue",
+          "view",
+          number,
+          "--json",
+          "number,title,body,state,url,labels,assignees,author,comments",
+        ],
         { cwd: project.path, timeout: 15_000, maxBuffer: 8_000_000 },
       );
       const raw = JSON.parse(stdout) as {
@@ -1685,6 +1691,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         labels?: Array<{ name: string }>;
         assignees?: Array<{ login: string }>;
         author?: { login: string };
+        comments?: Array<{ author?: { login: string }; body?: string; createdAt?: string }>;
       };
       return {
         issue: {
@@ -1696,6 +1703,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           labels: (raw.labels ?? []).map((l) => l.name),
           assignees: (raw.assignees ?? []).map((a) => a.login),
           author: raw.author?.login ?? null,
+          comments: (raw.comments ?? []).map((c) => ({
+            author: c.author?.login ?? null,
+            body: c.body ?? "",
+            createdAt: c.createdAt ?? null,
+          })),
         },
       };
     } catch {
