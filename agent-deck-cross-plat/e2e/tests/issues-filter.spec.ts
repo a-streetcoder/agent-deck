@@ -24,9 +24,9 @@ test.beforeAll(async () => {
     stub,
     `#!/bin/sh
 cat <<'JSON'
-[{"number":1,"title":"Fix login crash","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}]},
- {"number":2,"title":"Add dark mode","state":"OPEN","url":"https://x/2","labels":[{"name":"feature"}],"assignees":[{"login":"doc"}]},
- {"number":3,"title":"Flaky retry logic","state":"OPEN","url":"https://x/3","labels":[{"name":"bug"},{"name":"flaky"}],"assignees":[{"login":"doc"}]}]
+[{"number":1,"title":"Fix login crash","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}],"author":{"login":"alice"}},
+ {"number":2,"title":"Add dark mode","state":"OPEN","url":"https://x/2","labels":[{"name":"feature"}],"assignees":[{"login":"doc"}],"author":{"login":"bob"}},
+ {"number":3,"title":"Flaky retry logic","state":"OPEN","url":"https://x/3","labels":[{"name":"bug"},{"name":"flaky"}],"assignees":[{"login":"doc"}],"author":{"login":"alice"}}]
 JSON
 `,
   );
@@ -97,6 +97,38 @@ test("label (OR) + assignee facet filters narrow the loaded board client-side", 
   await expect(page.getByTestId("issue-3")).toBeVisible();
 });
 
+test("author (single-select) filter narrows the board and composes with labels", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-issues").click();
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+
+  // Author "alice" wrote #1 and #3.
+  await page.getByTestId("issues-author-alice").click();
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+  await expect(page.getByTestId("issue-3")).toBeVisible();
+  await expect(page.getByTestId("issue-2")).toHaveCount(0);
+
+  // Single-select: picking "bob" replaces alice → only #2.
+  await page.getByTestId("issues-author-bob").click();
+  await expect(page.getByTestId("issue-2")).toBeVisible();
+  await expect(page.getByTestId("issue-1")).toHaveCount(0);
+  await expect(page.getByTestId("issue-3")).toHaveCount(0);
+
+  // Author bob AND label bug → nothing (bob's #2 is a feature): empty state.
+  await page.getByTestId("issues-label-bug").click();
+  await expect(page.getByTestId("issues-empty")).toContainText("Try clearing the filters");
+
+  // Clear restores everything.
+  await page.getByTestId("issues-clear-filters").click();
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+  await expect(page.getByTestId("issue-2")).toBeVisible();
+  await expect(page.getByTestId("issue-3")).toBeVisible();
+});
+
 test("free-text search filters the loaded board over title / #number / label / assignee", async ({
   page,
 }) => {
@@ -120,6 +152,12 @@ test("free-text search filters the loaded board over title / #number / label / a
   // Assignee text → marty is only on #1.
   await page.getByTestId("issues-search").fill("marty");
   await expect(page.getByTestId("issue-1")).toBeVisible();
+  await expect(page.getByTestId("issue-2")).toHaveCount(0);
+
+  // Author text is in the haystack → "alice" wrote #1 and #3.
+  await page.getByTestId("issues-search").fill("alice");
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+  await expect(page.getByTestId("issue-3")).toBeVisible();
   await expect(page.getByTestId("issue-2")).toHaveCount(0);
 
   // Search AND facets compose: label "bug" (→ #1,#3) then search "flaky" (→ #3).

@@ -5,6 +5,7 @@ import {
   CircleDot,
   CircleSlash,
   MessageSquare,
+  PenLine,
   RefreshCw,
   Sparkles,
   User,
@@ -26,6 +27,7 @@ interface Issue {
   url: string;
   labels: string[];
   assignees: string[];
+  author: string | null;
 }
 
 interface IssueComment {
@@ -36,7 +38,6 @@ interface IssueComment {
 
 interface IssueDetail extends Issue {
   body: string;
-  author: string | null;
   comments: IssueComment[];
 }
 
@@ -68,6 +69,8 @@ export function IssuesScreen() {
   // filter the already-loaded board, never re-query gh.
   const [labelFilters, setLabelFilters] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
+  // Native single-select author/creator filter (githubAuthorFilter).
+  const [authorFilter, setAuthorFilter] = useState<string | null>(null);
   // Native free-text search (IssuesScreen.searchFiltered): a lowercased substring
   // match over each item's searchableHaystack, applied AFTER the facet filters.
   const [searchQuery, setSearchQuery] = useState("");
@@ -116,9 +119,10 @@ export function IssuesScreen() {
     setDetail(null);
     setDetailError(null);
     setLocalError(null);
-    // The old repo's labels/assignees don't apply to the new one.
+    // The old repo's labels/assignees/authors don't apply to the new one.
     setLabelFilters([]);
     setAssigneeFilter(null);
+    setAuthorFilter(null);
     setSearchQuery("");
   }, [currentProjectId]);
 
@@ -202,6 +206,10 @@ export function IssuesScreen() {
     () => [...new Set(issues.flatMap((i) => i.assignees))].sort(sortCI),
     [issues],
   );
+  const availableAuthors = useMemo(
+    () => [...new Set(issues.flatMap((i) => (i.author ? [i.author] : [])))].sort(sortCI),
+    [issues],
+  );
 
   // Client-side filter (native filteredBoardItems + searchFiltered): label OR +
   // assignee contains, then a lowercased substring search over the item's
@@ -211,23 +219,31 @@ export function IssuesScreen() {
   const visibleIssues = useMemo(
     () =>
       issues.filter((issue) => {
+        if (authorFilter && issue.author !== authorFilter) return false;
         if (assigneeFilter && !issue.assignees.includes(assigneeFilter)) return false;
         if (labelFilters.length && !labelFilters.some((l) => issue.labels.includes(l)))
           return false;
         if (search) {
-          const haystack = [issue.title, `#${issue.number}`, ...issue.assignees, ...issue.labels]
+          const haystack = [
+            issue.title,
+            `#${issue.number}`,
+            issue.author ?? "",
+            ...issue.assignees,
+            ...issue.labels,
+          ]
             .join(" ")
             .toLowerCase();
           if (!haystack.includes(search)) return false;
         }
         return true;
       }),
-    [issues, assigneeFilter, labelFilters, search],
+    [issues, authorFilter, assigneeFilter, labelFilters, search],
   );
-  const filtersActive = labelFilters.length > 0 || assigneeFilter !== null;
+  const filtersActive = labelFilters.length > 0 || assigneeFilter !== null || authorFilter !== null;
   const clearFilters = (): void => {
     setLabelFilters([]);
     setAssigneeFilter(null);
+    setAuthorFilter(null);
   };
 
   // Prune selections that no longer exist in the reloaded board (e.g. after a
@@ -240,7 +256,8 @@ export function IssuesScreen() {
       return next.length === prev.length ? prev : next;
     });
     setAssigneeFilter((prev) => (prev && !availableAssignees.includes(prev) ? null : prev));
-  }, [availableLabels, availableAssignees]);
+    setAuthorFilter((prev) => (prev && !availableAuthors.includes(prev) ? null : prev));
+  }, [availableLabels, availableAssignees, availableAuthors]);
 
   if (!project) {
     return (
@@ -452,16 +469,43 @@ export function IssuesScreen() {
               <input
                 data-testid="issues-search"
                 className="mb-3 w-full rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-                placeholder="Search issues by title, #number, label, or assignee…"
+                placeholder="Search issues by title, #number, label, assignee, or author…"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
             ) : null}
 
-            {/* Native label + assignee facet filters (client-side over the loaded
-                board). Only shown when the board actually offers a facet. */}
-            {!error && (availableLabels.length > 0 || availableAssignees.length > 0) ? (
+            {/* Native label + assignee + author facet filters (client-side over
+                the loaded board). Only shown when the board offers a facet. */}
+            {!error &&
+            (availableLabels.length > 0 ||
+              availableAssignees.length > 0 ||
+              availableAuthors.length > 0) ? (
               <div className="flex flex-wrap items-center gap-1.5 pb-3" data-testid="issues-facets">
+                {availableAuthors.length > 0 ? (
+                  <div className="flex items-center gap-1" data-testid="issues-author-filter">
+                    <PenLine size={12} className="text-text-muted" aria-hidden />
+                    {availableAuthors.map((author) => {
+                      const on = authorFilter === author;
+                      return (
+                        <button
+                          key={author}
+                          data-testid={`issues-author-${author}`}
+                          aria-pressed={on}
+                          className={cn(
+                            "rounded-capsule border px-2 py-0.5 text-[11px] transition-colors",
+                            on
+                              ? "border-border-strong bg-[var(--color-selection-fill)] text-text-primary"
+                              : "border-border-subtle text-text-muted hover:text-text-primary",
+                          )}
+                          onClick={() => setAuthorFilter(on ? null : author)}
+                        >
+                          {author}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 {availableAssignees.length > 0 ? (
                   <div className="flex items-center gap-1" data-testid="issues-assignee-filter">
                     <User size={12} className="text-text-muted" aria-hidden />

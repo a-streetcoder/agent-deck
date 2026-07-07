@@ -1726,10 +1726,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           "--state",
           stateParsed.data,
           "--json",
-          // assignees is included so the Issues screen can offer the native
-          // client-side assignee filter (native filteredBoardItems) over the
-          // already-loaded board without a per-filter re-query.
-          "number,title,state,url,labels,assignees",
+          // assignees/author are included so the Issues screen can offer the
+          // native client-side assignee + author facet filters (native
+          // filteredBoardItems) and search over the already-loaded board
+          // without a per-filter re-query.
+          "number,title,state,url,labels,assignees,author",
           "--limit",
           "50",
         ],
@@ -1742,6 +1743,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         url: string;
         labels?: Array<{ name: string }>;
         assignees?: Array<{ login: string }>;
+        author?: { login: string } | null;
       }>;
       return {
         issues: raw.map((i) => ({
@@ -1751,6 +1753,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           url: i.url,
           labels: (i.labels ?? []).map((l) => l.name),
           assignees: (i.assignees ?? []).map((a) => a.login),
+          author: i.author?.login ?? null,
         })),
       };
     } catch {

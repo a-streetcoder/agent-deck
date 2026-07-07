@@ -25,6 +25,7 @@ interface StubIssue {
   title: string;
   labels: string[];
   assignees: string[];
+  author: string | null;
 }
 
 async function issuesFor(
@@ -50,7 +51,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 cat <<JSON
-[{"number":1,"title":"state=$state","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}]}]
+[{"number":1,"title":"state=$state","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}],"author":{"login":"doc"}}]
 JSON
 `,
   );
@@ -90,12 +91,14 @@ describe.skipIf(isWindows)("issues state filter", () => {
     expect((await issuesFor("?state=bogus")).status).toBe(400);
   });
 
-  it("returns labels and assignees for client-side facet filtering (native 10.5)", async () => {
-    // The Issues screen filters labels/assignees on the loaded board, so the
-    // list route must map gh's [{name}]/[{login}] shapes to flat string arrays.
+  it("returns labels, assignees, and author for client-side facet filtering (native 10.5)", async () => {
+    // The Issues screen filters labels/assignees/author on the loaded board, so
+    // the list route must map gh's [{name}]/[{login}]/{login} shapes to flat
+    // strings.
     const { issues } = await issuesFor("");
     expect(issues).toHaveLength(1);
     expect(issues[0]!.labels).toEqual(["bug"]);
     expect(issues[0]!.assignees).toEqual(["marty"]);
+    expect(issues[0]!.author).toEqual("doc");
   });
 });
