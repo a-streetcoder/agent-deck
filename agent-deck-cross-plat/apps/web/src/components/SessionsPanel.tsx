@@ -255,9 +255,19 @@ export function SessionsExpandedOverlay({
   onCollapse: () => void;
 }) {
   const { byNewest, currentSession, agentStatus, setView, projectName } = useSessionsData();
+  const [search, setSearch] = useState("");
+
+  // Filter by title (native Sessions column search 18.1) — case-insensitive
+  // substring over the displayed title, which falls back to the project name.
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? byNewest.filter((s) =>
+        sessionDisplayTitle(s.title, projectName(s.projectId)).toLowerCase().includes(query),
+      )
+    : byNewest;
 
   const groups = new Map<string, SessionMeta[]>();
-  for (const session of byNewest) {
+  for (const session of filtered) {
     const key = projectName(session.projectId);
     groups.set(key, [...(groups.get(key) ?? []), session]);
   }
@@ -292,7 +302,22 @@ export function SessionsExpandedOverlay({
             <ChevronDown size={14} />
           </button>
         </div>
+        <input
+          data-testid="sessions-search"
+          className="mb-1.5 w-full rounded-lg border border-border-subtle bg-surface px-2.5 py-1 text-xs text-text-primary outline-none focus:border-accent"
+          placeholder="Search sessions by title…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div
+              className="py-6 text-center text-xs text-text-muted"
+              data-testid="sessions-search-empty"
+            >
+              {query ? "No sessions match your search." : "No sessions yet."}
+            </div>
+          ) : null}
           {[...groups.entries()].map(([group, groupSessions]) => (
             <div key={group}>
               <div className="px-2.5 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">

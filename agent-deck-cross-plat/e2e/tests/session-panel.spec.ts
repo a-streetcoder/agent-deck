@@ -84,6 +84,52 @@ test("an untitled session shows a Draft · <project> display title", async ({ pa
   await expect(page.getByTestId("chat-list")).toContainText("Draft · Default");
 });
 
+test("the expanded panel filters sessions by title (18.1)", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Ensure at least two sessions exist.
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  const panel = page.getByTestId("sessions-expanded");
+  const rows = panel.locator('[data-testid^="chat-"][role="button"]');
+  await page.getByTestId("sessions-expand").click();
+  await expect(panel).toHaveAttribute("aria-hidden", "false");
+
+  // Rename two rows to distinct titles (target by "not yet renamed" so a
+  // reorder-on-rename can't make us rename the same row twice).
+  const renameInput = panel.locator('[data-testid^="chat-rename-input-"]');
+  const rename = async (rowLocator: ReturnType<typeof panel.locator>, name: string) => {
+    await rowLocator.hover();
+    await rowLocator.getByTitle("Rename").click();
+    await renameInput.fill(name);
+    await renameInput.press("Enter");
+    await expect(panel.getByText(name, { exact: true })).toBeVisible();
+  };
+  await rename(rows.first(), "alpha-session");
+  await rename(rows.filter({ hasNotText: "alpha-session" }).first(), "beta-session");
+
+  // Search filters to the matching title; drafts don't match so the count is
+  // deterministic regardless of how many other sessions exist.
+  await page.getByTestId("sessions-search").fill("alpha");
+  await expect(rows).toHaveCount(1);
+  await expect(panel).toContainText("alpha-session");
+  await expect(panel).not.toContainText("beta-session");
+
+  // A non-matching query shows the empty state.
+  await page.getByTestId("sessions-search").fill("zzz-no-such-session");
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByTestId("sessions-search-empty")).toBeVisible();
+
+  // Clearing the search restores the list (both renamed sessions present).
+  await page.getByTestId("sessions-search").fill("");
+  await expect(panel).toContainText("alpha-session");
+  await expect(panel).toContainText("beta-session");
+});
+
 test("navigating to a nav section renders it with the panel collapsed", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
