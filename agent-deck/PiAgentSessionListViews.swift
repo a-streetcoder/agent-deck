@@ -657,10 +657,11 @@ struct PiAgentSessionRow: View, Equatable {
                 }
         } else {
             HStack(alignment: .center, spacing: 5) {
-                HoverMarqueeTitleText(text: sessionTitle, isHovering: isTitleHovered)
+                HoverMarqueeTitleText(text: sessionTitle, isHovering: isTitleHovered || isRowHovered)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
+                    .layoutPriority(1)
                 Image(systemName: "pencil")
                     .font(AppTheme.Font.caption2.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
@@ -762,51 +763,63 @@ private struct HoverMarqueeTitleText: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Text(text)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .offset(x: isScrolled ? -overflow : 0)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { width in
-                    textWidth = width
+        Text(text)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .opacity(shouldScroll ? 0 : 1)
+            .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
+            .overlay(alignment: .leading) {
+                if shouldScroll {
+                    Text(text)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .offset(x: isScrolled ? -overflow : 0)
                 }
-        }
-        .frame(height: 18, alignment: .leading)
-        .clipped()
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { width in
-            containerWidth = width
-        }
-        .task(id: marqueeTaskID) {
-            guard shouldScroll else {
-                isScrolled = false
-                return
             }
+            .background(alignment: .leading) {
+                Text(text)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        textWidth = width
+                    }
+            }
+            .clipped()
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                containerWidth = width
+            }
+            .task(id: marqueeTaskID) {
+                guard shouldScroll else {
+                    isScrolled = false
+                    return
+                }
 
-            do {
-                try await Task.sleep(for: .milliseconds(350))
-                while !Task.isCancelled {
-                    withAnimation(.linear(duration: scrollDurationSeconds)) {
-                        isScrolled = true
+                do {
+                    try await Task.sleep(for: .milliseconds(350))
+                    while !Task.isCancelled {
+                        withAnimation(.linear(duration: scrollDurationSeconds)) {
+                            isScrolled = true
+                        }
+                        try await Task.sleep(for: scrollDuration + .milliseconds(900))
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            isScrolled = false
+                        }
+                        try await Task.sleep(for: .milliseconds(650))
                     }
-                    try await Task.sleep(for: scrollDuration + .milliseconds(900))
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        isScrolled = false
-                    }
-                    try await Task.sleep(for: .milliseconds(650))
+                } catch {
+                    return
                 }
-            } catch {
-                return
             }
-        }
-        .onChange(of: shouldScroll) { _, scrolling in
-            if !scrolling {
-                isScrolled = false
+            .onChange(of: shouldScroll) { _, scrolling in
+                if !scrolling {
+                    isScrolled = false
+                }
             }
-        }
     }
 
     private var marqueeTaskID: MarqueeTaskID {
