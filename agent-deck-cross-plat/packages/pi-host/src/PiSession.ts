@@ -160,6 +160,16 @@ export class PiSession extends EventEmitter<PiSessionEvents> {
     await this.request({ type: "abort" });
   }
 
+  /**
+   * Manually compact the session: pi summarizes older history to free context,
+   * emitting a `compaction_end` (reason "manual"). Blocks until the summarization
+   * completes (an LLM call), so it uses a generous timeout rather than the fast
+   * ack path of prompt/steer.
+   */
+  async compact(): Promise<void> {
+    await this.request({ type: "compact" }, 120_000);
+  }
+
   async getState(): Promise<RpcSessionState> {
     return await this.request({ type: "get_state" });
   }

@@ -470,6 +470,11 @@ export function sendAbort(): void {
   if (currentSessionId) send({ type: "abort", sessionId: currentSessionId });
 }
 
+/** Manually compact the current session's context (native "Compact context"). */
+export function sendCompact(): void {
+  if (currentSessionId) send({ type: "compact", sessionId: currentSessionId });
+}
+
 export function sendSetModel(provider: string, modelId: string): void {
   if (currentSessionId) {
     send({ type: "set_model", sessionId: currentSessionId, provider, modelId });

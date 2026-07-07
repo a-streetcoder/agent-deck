@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Paperclip, X } from "lucide-react";
+import { Paperclip, Shrink, X } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { thinkingLevelsForModel } from "@agent-deck/domain";
 import { useAppStore } from "../state/store.ts";
 import { useAgents } from "../state/useAgents.ts";
 import {
   sendAbort,
+  sendCompact,
   sendPrompt,
   sendSetModel,
   sendSetThinking,
@@ -84,6 +85,9 @@ export function Composer() {
     tokens: number;
     cost: number | null;
   } | null>(null);
+  // True while a manual compaction is in flight, so the button can't double-fire.
+  // Reset on the compaction's contextRevision bump (success) or a safety timeout.
+  const [compacting, setCompacting] = useState(false);
   const sessionId = session?.id ?? null;
   // Guards against a stale session's response/timer clobbering the new one.
   const activeSessionRef = useRef<string | null>(null);
@@ -200,7 +204,10 @@ export function Composer() {
   useEffect(() => {
     const prev = prevContextRevisionRef.current;
     prevContextRevisionRef.current = contextRevision;
-    if (contextRevision > prev && sessionId) void refreshStats();
+    if (contextRevision > prev && sessionId) {
+      void refreshStats();
+      setCompacting(false); // a compaction (manual or threshold) landed → re-enable
+    }
   }, [contextRevision, sessionId, refreshStats]);
 
   const suggestions = useSuggestions(sessionId);
@@ -421,6 +428,33 @@ export function Composer() {
             >
               ${sessionTotals.cost.toFixed(2)}
             </span>
+          ) : null}
+          {/* Manual "Compact context" (native PiAgentComposerViews.swift:1464):
+              pi summarizes older history to free context. Shown alongside the
+              context chip (after a turn); disabled mid-stream. */}
+          {contextUsage ? (
+            <button
+              type="button"
+              data-testid="compact-button"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary disabled:opacity-40"
+              title="Compact context — Pi summarizes older history to free up context"
+              disabled={running || compacting}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Compact context? Pi will summarize older conversation history to free up context.",
+                  )
+                ) {
+                  setCompacting(true);
+                  sendCompact();
+                  // Safety re-enable if no contextRevision bump arrives (e.g. pi
+                  // rejects "nothing to compact") — the success path resets sooner.
+                  window.setTimeout(() => setCompacting(false), 15_000);
+                }
+              }}
+            >
+              <Shrink size={13} />
+            </button>
           ) : null}
           <div className="flex-1" />
           <label

@@ -594,6 +594,11 @@ export class ManagedSession {
     await this.pi.followUp(message);
   }
 
+  /** Manually compact this session's context (native "Compact context"). */
+  async compact(): Promise<void> {
+    await this.pi.compact();
+  }
+
   async abort(): Promise<void> {
     await this.pi.abort();
   }

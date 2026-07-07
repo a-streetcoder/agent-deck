@@ -81,6 +81,12 @@ test("shows the session context-usage indicator (native, from get_session_stats)
   await expect(tokens).toBeVisible({ timeout: 15_000 });
   await expect(tokens).toContainText("tokens");
   await expect(page.getByTestId("session-cost")).toContainText("$0.00");
+
+  // The manual "Compact context" button (native) sits alongside the context
+  // chip once a turn has run, and is enabled while idle.
+  const compact = page.getByTestId("compact-button");
+  await expect(compact).toBeVisible();
+  await expect(compact).toBeEnabled();
 });
 
 test("abort stops a streaming reply and returns to idle", async ({ page }) => {

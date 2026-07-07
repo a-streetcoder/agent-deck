@@ -2339,6 +2339,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
             case "abort":
               await session.abort();
               break;
+            case "compact":
+              await session.compact();
+              break;
             case "set_model": {
               // Only switch to models pi actually offers.
               const available = await session.getAvailableModels();

@@ -34,6 +34,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("steer"), sessionId: z.string(), message: z.string() }),
   z.object({ type: z.literal("follow_up"), sessionId: z.string(), message: z.string() }),
   z.object({ type: z.literal("abort"), sessionId: z.string() }),
+  z.object({ type: z.literal("compact"), sessionId: z.string() }),
   z.object({
     type: z.literal("set_model"),
     sessionId: z.string(),
