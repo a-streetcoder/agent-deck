@@ -37,6 +37,13 @@ final class LoopExecutionStoreTests: XCTestCase {
         XCTAssertEqual(run.stopReason, .success)
         XCTAssertEqual(run.currentIteration, 2)
         XCTAssertEqual(run.iterations.map { $0.goalEvaluation?.result }, [.continueLoop, .success])
+        let recapEntries = (store.transcriptsBySessionID[session.id] ?? []).filter { LoopRunRecapCodec.decode(from: $0) != nil }
+        XCTAssertTrue(recapEntries.contains { $0.text.contains("Goal evaluator: CONTINUE") && $0.text.contains("Goal evaluator rationale: Need one more pass.") })
+        XCTAssertTrue(recapEntries.contains { $0.text.contains("Latest goal evaluator: SUCCESS") && $0.text.contains("Latest goal evaluator rationale: Meets the goal.") })
+        let finalRecap = try XCTUnwrap(recapEntries.first { LoopRunRecapCodec.decode(from: $0)?.kind == .final })
+        let payload = NativeLoopRecapPayload.make(entry: finalRecap, marker: try XCTUnwrap(LoopRunRecapCodec.decode(from: finalRecap)))
+        XCTAssertEqual(payload.title, "Goal evaluator: SUCCESS")
+        XCTAssertEqual(payload.outcomeText, "Latest goal evaluator: SUCCESS")
         XCTAssertEqual(agentCalls, 2)
         XCTAssertEqual(evaluatorCalls, 2)
     }

@@ -1073,7 +1073,7 @@ struct NativeLoopRecapPayload {
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
         let bodyLines = Array(lines.dropFirst())
-        let metadataPrefixes = ["Checker:", "Validation:", "Artifacts:", "Changed files:", "Structure:", "Iterations:", "Stop reason:", "Outcome:", "Final checker result:", "Latest validation:", "Shared progress artifact:"]
+        let metadataPrefixes = ["Checker:", "Validation:", "Goal evaluator:", "Goal evaluator rationale:", "Latest goal evaluator:", "Latest goal evaluator rationale:", "Evaluator child run:", "Artifacts:", "Changed files:", "Structure:", "Iterations:", "Stop reason:", "Outcome:", "Final checker result:", "Latest validation:", "Shared progress artifact:"]
         let firstSummaryIndex = bodyLines.firstIndex { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return false }
@@ -1096,7 +1096,7 @@ struct NativeLoopRecapPayload {
             }
         }()
         return NativeLoopRecapPayload(
-            title: marker.kind == .final ? "Final loop recap" : "Loop iteration recap",
+            title: headlineTitle(lines: bodyLines, marker: marker),
             label: label,
             outcomeText: outcome,
             summaryText: summary.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1110,14 +1110,28 @@ struct NativeLoopRecapPayload {
 
     private static func outcomeText(lines: [String], marker: LoopRunRecapMarker, headline: String?) -> String {
         if marker.kind == .final {
+            if let evaluation = lines.first(where: { $0.hasPrefix("Latest goal evaluator:") }) { return evaluation }
+            if let evaluation = lines.first(where: { $0.hasPrefix("Goal evaluator:") }) { return evaluation }
             if let outcome = lines.first(where: { $0.hasPrefix("Outcome:") }) { return outcome }
             if let stopReason = lines.first(where: { $0.hasPrefix("Stop reason:") }) { return stopReason }
             if let headline, let status = headline.components(separatedBy: "—").last?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty { return "Status: \(status)" }
             return "Status: Final"
         }
+        if let evaluation = lines.first(where: { $0.hasPrefix("Goal evaluator:") }) { return evaluation }
         if let validation = lines.first(where: { $0.hasPrefix("Validation:") }) { return validation }
         if let checker = lines.first(where: { $0.hasPrefix("Checker:") }) { return checker }
         return "Status: Iteration complete"
+    }
+
+    private static func headlineTitle(lines: [String], marker: LoopRunRecapMarker) -> String {
+        let prefixes = marker.kind == .final ? ["Latest goal evaluator:", "Goal evaluator:"] : ["Goal evaluator:"]
+        for prefix in prefixes {
+            if let line = lines.first(where: { $0.hasPrefix(prefix) }) {
+                let decision = line.replacingOccurrences(of: prefix, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !decision.isEmpty { return "Goal evaluator: \(decision)" }
+            }
+        }
+        return marker.kind == .final ? "Final loop recap" : "Loop iteration recap"
     }
 }
 
@@ -1287,6 +1301,15 @@ private func loopRunDetailsText(for run: LoopRun) -> String {
             if !iteration.changedFiles.isEmpty {
                 lines.append("• Changed files:")
                 lines.append(contentsOf: iteration.changedFiles.map { "  - \($0)" })
+            }
+            if let evaluation = iteration.goalEvaluation {
+                lines.append("• Goal evaluator: \(evaluation.result.displayName)")
+                if !evaluation.rationale.isEmpty {
+                    lines.append("  - Rationale: \(evaluation.rationale)")
+                }
+                if let childRunReference = evaluation.childRunReferenceText {
+                    lines.append("  - \(childRunReference)")
+                }
             }
             if !iteration.artifacts.isEmpty {
                 lines.append("• Artifacts:")

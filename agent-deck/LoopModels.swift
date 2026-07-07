@@ -228,6 +228,22 @@ nonisolated struct LoopGoalEvaluation: Codable, Equatable, Sendable {
         self.rationale = rationale.trimmingCharacters(in: .whitespacesAndNewlines)
         self.childRunID = childRunID
     }
+
+    var displayDecisionText: String {
+        "Goal evaluator: \(result.displayName)"
+    }
+
+    var conciseRationaleText: String? {
+        let trimmed = rationale.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let singleLine = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        guard singleLine.count > 220 else { return singleLine }
+        return String(singleLine.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
+    var childRunReferenceText: String? {
+        childRunID.map { "Evaluator child run: \($0.uuidString)" }
+    }
 }
 
 nonisolated enum LoopTimelineStepKind: String, Codable, Sendable {
@@ -846,7 +862,13 @@ enum LoopRunRecapCodec {
             parts.append("Validation: \(validation.didPass ? "passed" : "did not pass")\(validation.exitCode.map { " (exit \($0))" } ?? "")")
         }
         if let evaluation = iteration.goalEvaluation {
-            parts.append("Goal evaluation: \(evaluation.result.displayName)")
+            parts.append(evaluation.displayDecisionText)
+            if let rationale = evaluation.conciseRationaleText {
+                parts.append("Goal evaluator rationale: \(rationale)")
+            }
+            if let childRunReference = evaluation.childRunReferenceText {
+                parts.append(childRunReference)
+            }
         }
         if !iteration.artifacts.isEmpty {
             parts.append("Artifacts: \(iteration.artifacts.map(\.filename).joined(separator: ", "))")
@@ -888,7 +910,13 @@ enum LoopRunRecapCodec {
             lines.append("Latest validation: \(validation.didPass ? "passed" : "failed")\(validation.exitCode.map { " (exit \($0))" } ?? "")")
         }
         if let evaluation = run.iterations.last?.goalEvaluation {
-            lines.append("Latest goal evaluation: \(evaluation.result.displayName)")
+            lines.append("Latest goal evaluator: \(evaluation.result.displayName)")
+            if let rationale = evaluation.conciseRationaleText {
+                lines.append("Latest goal evaluator rationale: \(rationale)")
+            }
+            if let childRunReference = evaluation.childRunReferenceText {
+                lines.append(childRunReference)
+            }
         }
         if let progressSummary = finalProgressSummary(from: progressMarkdown) {
             lines.append("")
@@ -1028,6 +1056,7 @@ enum LoopRunTranscriptCodec {
         if let evaluation = run.iterations.last?.goalEvaluation {
             lines.append("Goal evaluator result: \(evaluation.result.displayName)")
             if !evaluation.rationale.isEmpty { lines.append("Goal evaluator rationale: \(evaluation.rationale)") }
+            if let childRunReference = evaluation.childRunReferenceText { lines.append(childRunReference) }
         }
         if let changedFiles = run.iterations.last?.changedFiles, !changedFiles.isEmpty {
             lines.append("Changed files: \(changedFiles.joined(separator: ", "))")

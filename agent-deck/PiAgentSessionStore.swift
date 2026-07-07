@@ -2044,7 +2044,7 @@ final class PiAgentSessionStore {
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: " ", with: "_")
-        if ["approve", "continue", "reject", "ask_human", "fail"].contains(decision) {
+        if ["approve", "success", "continue", "reject", "ask_human", "fail"].contains(decision) {
             lines.removeFirst()
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)

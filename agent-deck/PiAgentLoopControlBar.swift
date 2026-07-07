@@ -132,7 +132,13 @@ struct PiAgentLoopControlBar: View {
 
     private var detailText: String {
         var parts = [run.structure.displayName, run.iterationProgressText]
-        if let stopReason = run.stopReason, !run.isActive {
+        if let evaluation = run.iterations.last?.goalEvaluation {
+            var evaluatorText = "Goal evaluator: \(evaluation.result.displayName)"
+            if let rationale = evaluation.conciseRationaleText {
+                evaluatorText += " — \(rationale)"
+            }
+            parts.append(evaluatorText)
+        } else if let stopReason = run.stopReason, !run.isActive {
             parts.append("Stop reason: \(stopReason.displayName)")
         } else if let latest = run.iterations.last?.summary, !latest.isEmpty {
             parts.append(trimSummary(latest))
@@ -236,6 +242,15 @@ struct PiAgentLoopDetailsSheet: View {
                                 .foregroundStyle(.secondary)
                             if let checkerResult = iteration.checkerResult {
                                 detailRow("Checker", checkerResult.displayName)
+                            }
+                            if let evaluation = iteration.goalEvaluation {
+                                detailRow("Goal evaluator", evaluation.result.displayName)
+                                if !evaluation.rationale.isEmpty {
+                                    detailRow("Evaluator rationale", evaluation.rationale)
+                                }
+                                if let childRunReference = evaluation.childRunReferenceText {
+                                    detailRow("Evaluator child", childRunReference.replacingOccurrences(of: "Evaluator child run: ", with: ""))
+                                }
                             }
                             if let validation = iteration.validationResult {
                                 detailRow("Validation", validation.didPass ? "Passed" : "Failed")
