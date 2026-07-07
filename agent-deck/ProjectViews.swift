@@ -287,6 +287,7 @@ struct ProjectsScreen: View {
     @State private var skillsRecapProject: DiscoveredProject?
     @State private var mcpRecapProject: DiscoveredProject?
     @State private var projectPendingRemoval: DiscoveredProject?
+    @State private var shouldMovePendingProjectToTrash = false
     @State private var projectDeleteError: String?
     /// Cached visible-project layout. Without this, the body would walk
     /// `discoveredProjects` twice per render (once for `.isEmpty`, once for
@@ -330,24 +331,17 @@ struct ProjectsScreen: View {
                 viewModel: viewModel
             )
         }
-        .alert("Remove project?", isPresented: removeProjectAlertBinding, presenting: projectPendingRemoval) { project in
-            Button("Cancel", role: .cancel) {
-                projectPendingRemoval = nil
-            }
-            Button("Hide from List") {
-                viewModel.removeProjectFromLibrary(project)
-                projectPendingRemoval = nil
-            }
-            Button("Move to Trash", role: .destructive) {
-                do {
-                    try viewModel.moveProjectToTrash(project)
-                } catch {
-                    projectDeleteError = error.localizedDescription
+        .sheet(item: $projectPendingRemoval, onDismiss: { shouldMovePendingProjectToTrash = false }) { project in
+            ProjectRemovalConfirmationSheet(
+                project: project,
+                moveToTrash: $shouldMovePendingProjectToTrash,
+                onCancel: {
+                    projectPendingRemoval = nil
+                },
+                onConfirm: {
+                    confirmProjectRemoval(project)
                 }
-                projectPendingRemoval = nil
-            }
-        } message: { project in
-            Text("Hide \(project.repositoryDisplayName) from Agent Deck, or move the project folder to the macOS Trash. Moving to Trash deletes the folder from its current location.")
+            )
         }
         .alert("Couldn’t move project to Trash", isPresented: Binding(
             get: { projectDeleteError != nil },
@@ -359,15 +353,27 @@ struct ProjectsScreen: View {
         }
     }
 
-    private var removeProjectAlertBinding: Binding<Bool> {
-        Binding(
-            get: { projectPendingRemoval != nil },
-            set: { isPresented in
-                if !isPresented {
-                    projectPendingRemoval = nil
-                }
+    private func showProjectRemovalConfirmation(for project: DiscoveredProject) {
+        shouldMovePendingProjectToTrash = false
+        projectPendingRemoval = project
+    }
+
+    private func confirmProjectRemoval(_ project: DiscoveredProject) {
+        if shouldMovePendingProjectToTrash {
+            do {
+                try viewModel.moveProjectToTrash(project)
+            } catch {
+                projectDeleteError = error.localizedDescription
             }
-        )
+        } else {
+            viewModel.removeProjectFromLibrary(project)
+        }
+        shouldMovePendingProjectToTrash = false
+        projectPendingRemoval = nil
+    }
+
+    private func showProjectInFinder(_ project: DiscoveredProject) {
+        NSWorkspace.shared.activateFileViewerSelecting([project.url])
     }
 
     private var projectList: some View {
@@ -559,8 +565,18 @@ struct ProjectsScreen: View {
             .disabled(!hasMcpAssignments)
             .help(hasMcpAssignments ? "Show MCP servers for this project" : "No MCP servers assigned to this project")
 
+            Button {
+                showProjectInFinder(project)
+            } label: {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Show in Finder")
+
             Button(role: .destructive) {
-                projectPendingRemoval = project
+                showProjectRemovalConfirmation(for: project)
             } label: {
                 Image(systemName: "eye.slash")
                     .foregroundStyle(.secondary)
@@ -578,6 +594,75 @@ struct ProjectsScreen: View {
                 .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
         .opacity(preference.isEnabled ? 1 : 0.58)
+        .contextMenu {
+            Button {
+                showProjectInFinder(project)
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
+            }
+
+            Button(role: .destructive) {
+                showProjectRemovalConfirmation(for: project)
+            } label: {
+                Label("Delete Project", systemImage: "trash")
+            }
+        }
+    }
+}
+
+private struct ProjectRemovalConfirmationSheet: View {
+    let project: DiscoveredProject
+    @Binding var moveToTrash: Bool
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Remove Project")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text(project.repositoryDisplayName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(project.path)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Text("By default, this only hides the project from \(AppBrand.displayName). The project folder stays on disk.")
+                .font(.callout)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle(isOn: $moveToTrash) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Move project folder to macOS Trash")
+                        .font(.subheadline.weight(.semibold))
+                    Text("This moves the entire folder from disk to the Trash. You can restore it from Finder until the Trash is emptied.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+            .toggleStyle(.checkbox)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onCancel)
+                Button(moveToTrash ? "Move to Trash" : "Hide from List", role: moveToTrash ? .destructive : nil, action: onConfirm)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
     }
 }
 
