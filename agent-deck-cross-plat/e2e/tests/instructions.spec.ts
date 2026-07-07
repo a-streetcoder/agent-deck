@@ -29,10 +29,31 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the Default workspace prompts to pick a project", async ({ page }) => {
+test("the Default workspace edits Global; Project scope prompts to pick one", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-instructions").click();
+  // No project selected → Global scope by default, so the editor is available.
+  await expect(page.getByTestId("instructions-editor")).toBeVisible();
+  // Toggling to Project scope (with no project) shows the pick-a-project prompt.
+  await page.getByTestId("instructions-scope-project").click();
   await expect(page.getByTestId("instructions-no-project")).toBeVisible();
+});
+
+test("editing Global AGENTS.md writes ~/.pi/agent/AGENTS.md", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-instructions").click();
+  await page.getByTestId("instructions-scope-global").click();
+
+  const editor = page.getByTestId("instructions-editor");
+  await expect(editor).toBeVisible();
+  await editor.fill("# Global rules\n\nPrefer small PRs.");
+  await page.getByTestId("instructions-save").click();
+  await expect(page.getByTestId("instructions-save")).toHaveText("Saved");
+
+  // On disk at the global path pi loads for every session.
+  const globalFile = path.join(harness.piHome, ".pi", "agent", "AGENTS.md");
+  await expect.poll(() => existsSync(globalFile)).toBe(true);
+  expect(readFileSync(globalFile, "utf8")).toContain("Prefer small PRs.");
 });
 
 test("editing a project's AGENTS.md writes it to disk and reloads", async ({ page }) => {

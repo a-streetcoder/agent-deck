@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -1607,6 +1608,36 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     writeFileSync(target.path, parsed.data.content, "utf8");
     return { ok: true, path: target.path };
+  });
+
+  // Global instructions: ~/.pi/agent/AGENTS.md, which pi loads as global context
+  // for every session (agent-deck-system-prompt-logic.md §context files).
+  // Editable with no project selected — the project-scoped file is separate.
+  const globalAgentsPath = (): string => nodePath.join(resourceHome(), ".pi", "agent", "AGENTS.md");
+
+  fastify.get("/runtime/instructions", async (_request, reply) => {
+    const filePath = globalAgentsPath();
+    let content = "";
+    if (existsSync(filePath)) {
+      if (statSync(filePath).size > INSTRUCTIONS_MAX) {
+        return reply.status(413).send({ error: "AGENTS.md is too large to edit here" });
+      }
+      content = readFileSync(filePath, "utf8");
+    }
+    return { content, path: filePath };
+  });
+
+  fastify.put("/runtime/instructions", async (request, reply) => {
+    const parsed = instructionsBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const filePath = globalAgentsPath();
+    // Never write THROUGH a symlink (same guard as the project file).
+    if (existsSync(filePath) && lstatSync(filePath).isSymbolicLink()) {
+      return reply.status(400).send({ error: "AGENTS.md is a symlink; refusing to write" });
+    }
+    mkdirSync(nodePath.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, parsed.data.content, "utf8");
+    return { ok: true, path: filePath };
   });
 
   // GitHub issues for a project, via the gh CLI (reuses the user's gh auth so
