@@ -93,6 +93,12 @@ export interface ProjectMeta {
   createdAt: string;
   /** Skill names injected (as --skill paths) into this project's parent sessions. */
   assignedSkills?: string[];
+  /**
+   * Prompt-template names made available (as --prompt-template paths) in this
+   * project's parent sessions — native assignedPromptTemplateNames, unioned with
+   * the app-level defaultPromptTemplates at launch.
+   */
+  assignedPrompts?: string[];
   /** Agent preselected when switching to this project. */
   defaultAgentName?: string;
   /** Disabled projects are hidden from the sidebar and session creation. */

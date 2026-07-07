@@ -172,6 +172,54 @@ test("an All-Projects (default) prompt template reaches sessions as a /<name> co
     .toContain("standup");
 });
 
+test("a per-project assigned prompt template reaches only that project's sessions", async () => {
+  // A GLOBAL prompt in the hermetic pi home, assigned to THIS project (native
+  // assignedPromptTemplateNames — unioned with the all-projects defaults).
+  const promptsDir = path.join(harness.piHome, ".pi", "agent", "prompts");
+  mkdirSync(promptsDir, { recursive: true });
+  writeFileSync(
+    path.join(promptsDir, "handoff.md"),
+    "---\ndescription: Write a handoff note\n---\n\nWrite a handoff note.\n",
+  );
+
+  const id = await projectId();
+  const patched = await fetch(`${harness.baseUrl}/projects/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ assignedPrompts: ["handoff"] }),
+  });
+  expect(patched.status).toBe(200);
+
+  // Guard: "handoff" is purely a PER-PROJECT assignment, not an app-level default,
+  // so its presence proves the assignedPrompts path (not defaultPromptTemplates).
+  const { settings } = (await (await fetch(`${harness.baseUrl}/settings`)).json()) as {
+    settings: { defaultPromptTemplates?: string[] };
+  };
+  expect(settings.defaultPromptTemplates ?? []).not.toContain("handoff");
+
+  // A fresh session for this project loads it (pi's real get_commands).
+  const created = await fetch(`${harness.baseUrl}/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: id }),
+  });
+  expect(created.status).toBe(201);
+  const { session } = (await created.json()) as { session: SessionMeta };
+  await expect
+    .poll(
+      async () => {
+        const response = await fetch(`${harness.baseUrl}/sessions/${session.id}/commands`);
+        if (!response.ok) return [];
+        const { commands } = (await response.json()) as {
+          commands: Array<{ name: string; source: string }>;
+        };
+        return commands.filter((c) => c.source === "prompt").map((c) => c.name);
+      },
+      { timeout: 30_000 },
+    )
+    .toContain("handoff");
+});
+
 test("the project default agent is auto-selected on switch", async ({ page }) => {
   const id = await projectId();
   const patched = await fetch(`${harness.baseUrl}/projects/${id}`, {

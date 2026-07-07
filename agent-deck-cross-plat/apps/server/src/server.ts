@@ -108,6 +108,7 @@ const createProjectBody = z.object({
 
 const patchProjectBody = z.object({
   assignedSkills: z.array(RESOURCE_NAME).optional(),
+  assignedPrompts: z.array(RESOURCE_NAME).optional(),
   defaultAgentName: RESOURCE_NAME.nullable().optional(),
   enabled: z.boolean().optional(),
 });
@@ -913,12 +914,27 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // Drop the name from the flat default list only if it no longer resolves to
     // any prompt anywhere (another scope may still provide it).
     const globalPromptDir = nodePath.join(resourceHome(), ".pi", "agent", "prompts");
+    const globalPromptExists = existsSync(nodePath.join(globalPromptDir, `${name}.md`));
     const stillResolves =
-      existsSync(nodePath.join(globalPromptDir, `${name}.md`)) ||
+      globalPromptExists ||
       projects
         .list()
         .some((p) => existsSync(nodePath.join(p.path, ".pi", "prompts", `${name}.md`)));
     if (!stillResolves) settings.renameDefaultPromptTemplate(name, null);
+    // Drop each project's assignment only if the name no longer resolves FOR THAT
+    // project (the global was deleted and it has no own same-named prompt) — a
+    // project that still has its own prompt keeps its assignment.
+    for (const project of projects.list()) {
+      if (!project.assignedPrompts?.includes(name)) continue;
+      const resolvesForProject =
+        globalPromptExists ||
+        existsSync(nodePath.join(project.path, ".pi", "prompts", `${name}.md`));
+      if (resolvesForProject) continue;
+      projects.upsert({
+        ...project,
+        assignedPrompts: project.assignedPrompts.filter((p) => p !== name),
+      });
+    }
     broadcast({ type: "resources_changed" });
     return { ok: true };
   });
@@ -953,15 +969,40 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
       return reply.status(500).send({ error: message });
     }
-    // Re-point the flat default-prompt-template list only when the old name no
-    // longer resolves to ANY prompt anywhere (a project prompt shadows a global
-    // one per name), mirroring the skill-rename resolution guard.
+    // Re-point references by which FILE each reference actually resolved to.
+    // Prompts resolve GLOBAL-first (unlike skills, where a project skill shadows
+    // the global), so:
+    //  - A GLOBAL rename: every reference (the app-level defaults + every project
+    //    assignment) resolved to that global, so re-point them all.
+    //  - A PROJECT rename (in this request's project): only that project's own
+    //    reference, and only when NO global of the same name shadowed it (else the
+    //    reference resolved to the still-untouched global, not the renamed file).
     const globalPromptDir = nodePath.join(resourceHome(), ".pi", "agent", "prompts");
-    const promptNameResolves = (n: string): boolean =>
-      existsSync(nodePath.join(globalPromptDir, `${n}.md`)) ||
-      projects.list().some((p) => existsSync(nodePath.join(p.path, ".pi", "prompts", `${n}.md`)));
-    if (!promptNameResolves(name)) {
+    const rewriteAssignment = (project: ProjectMeta): void => {
+      projects.upsert({
+        ...project,
+        assignedPrompts: [
+          ...new Set((project.assignedPrompts ?? []).map((p) => (p === name ? newName : p))),
+        ],
+      });
+    };
+    if (scope === "global") {
+      // Defaults are a global concept, and every project assignment resolved to
+      // this (now-renamed) global first.
       settings.renameDefaultPromptTemplate(name, newName);
+      for (const project of projects.list()) {
+        if (project.assignedPrompts?.includes(name)) rewriteAssignment(project);
+      }
+    } else {
+      // Project rename: the global (if any) is untouched and would have shadowed
+      // the reference, so only re-point this project's own assignment when no
+      // global of that name exists. (A project prompt is never an app-level
+      // default, so the default list is untouched here.)
+      const globalShadows = existsSync(nodePath.join(globalPromptDir, `${name}.md`));
+      if (!globalShadows) {
+        const own = projects.list().find((p) => p.path === rootsFor(projectId).projectPath);
+        if (own?.assignedPrompts?.includes(name)) rewriteAssignment(own);
+      }
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };
@@ -1560,6 +1601,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (!project) return reply.status(404).send({ error: "unknown project" });
     const next: ProjectMeta = { ...project };
     if (parsed.data.assignedSkills !== undefined) next.assignedSkills = parsed.data.assignedSkills;
+    if (parsed.data.assignedPrompts !== undefined)
+      next.assignedPrompts = parsed.data.assignedPrompts;
     if (parsed.data.defaultAgentName !== undefined) {
       next.defaultAgentName = parsed.data.defaultAgentName ?? undefined;
     }
@@ -2046,17 +2089,19 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
     }
 
-    // Default prompt templates (native defaultPromptTemplateNames): the user's
-    // "All Projects" prompt templates become `--prompt-template <path>` flags so
-    // pi exposes them as /<name> slash commands. On a name collision we resolve
-    // to the GLOBAL entry (first-wins) — matching pi's own prompt-template loader,
+    // Prompt templates (native: defaultPromptTemplateNames ∪ the project's
+    // assignedPromptTemplateNames): the user's "All Projects" defaults PLUS this
+    // project's assigned prompts become `--prompt-template <path>` flags so pi
+    // exposes them as /<name> slash commands. On a name collision we resolve to
+    // the GLOBAL entry (first-wins) — matching pi's own prompt-template loader,
     // which loads global before project and keeps the first (unlike skills, where
     // a project skill deliberately shadows the global one). scanPrompts sorts a
     // same-named collision global-before-project, so keeping the first occurrence
     // yields the global file.
     let defaultPromptTemplatePaths: string[] | undefined;
     {
-      const names = settings.get().defaultPromptTemplates;
+      const project = body.projectId ? projects.find((p) => p.id === body.projectId) : undefined;
+      const names = [...settings.get().defaultPromptTemplates, ...(project?.assignedPrompts ?? [])];
       if (names.length > 0) {
         const promptsByName = new Map<string, PromptInfo>();
         for (const prompt of scanPrompts(rootsFor(body.projectId))) {
