@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Brain, ChevronDown, Cpu, Square } from "lucide-react";
+import { THINKING_LEVELS, type ThinkingLevel } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 
 /**
@@ -11,6 +12,8 @@ import { cn } from "@/lib/cn";
 export interface PiModelInfo {
   provider: string;
   id: string;
+  /** pi ModelInfo.reasoning — gates the thinking-level ladder (see ThinkingChip). */
+  reasoning?: boolean;
 }
 
 export interface PiComposerState {
@@ -18,8 +21,6 @@ export interface PiComposerState {
   modelId?: string;
   thinkingLevel: string;
 }
-
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 export function chipClass(active = false): string {
   return cn(
@@ -129,13 +130,27 @@ export function ModelChip({
 
 export function ThinkingChip({
   state,
+  levels = THINKING_LEVELS,
   onSelect,
 }: {
   state: PiComposerState | null;
-  onSelect: (level: (typeof THINKING_LEVELS)[number]) => void;
+  /** Levels the current model supports; a non-reasoning model offers only "off". */
+  levels?: readonly ThinkingLevel[];
+  onSelect: (level: ThinkingLevel) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useDismiss(() => setOpen(false));
+
+  // Native `displayLevel`: when the active level isn't one the current model
+  // supports (e.g. after switching to a non-reasoning model), surface it as
+  // "{level} unavailable" rather than silently showing an unpickable value.
+  const current = state?.thinkingLevel;
+  const label =
+    current == null
+      ? "thinking"
+      : (levels as readonly string[]).includes(current)
+        ? current
+        : `${current} unavailable`;
 
   return (
     <div className="relative" ref={ref}>
@@ -148,7 +163,7 @@ export function ThinkingChip({
         onClick={() => setOpen((v) => !v)}
       >
         <Brain size={12} />
-        <span data-testid="thinking-chip-label">{state?.thinkingLevel ?? "thinking"}</span>
+        <span data-testid="thinking-chip-label">{label}</span>
         <ChevronDown size={11} className="opacity-60" />
       </button>
       {open ? (
@@ -158,7 +173,7 @@ export function ThinkingChip({
           aria-label="Thinking level"
           className="absolute bottom-full left-0 z-20 mb-1.5 w-36 rounded-xl border border-border-strong bg-surface-elevated p-1.5 shadow-elevated"
         >
-          {THINKING_LEVELS.map((level) => (
+          {levels.map((level) => (
             <button
               key={level}
               data-testid={`thinking-option-${level}`}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Paperclip, X } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
+import { thinkingLevelsForModel } from "@agent-deck/domain";
 import { useAppStore } from "../state/store.ts";
 import { useAgents } from "../state/useAgents.ts";
 import {
@@ -166,9 +167,15 @@ export function Composer() {
     void refreshPiState();
     void fetch(`/sessions/${encodeURIComponent(sessionId)}/models`)
       .then((response) => (response.ok ? response.json() : { models: [] }))
-      .then((data: { models: Array<{ provider: string; id: string }> }) => {
+      .then((data: { models: Array<{ provider: string; id: string; reasoning?: boolean }> }) => {
         if (activeSessionRef.current === sessionId) {
-          setModels(data.models.map((m) => ({ provider: m.provider, id: m.id })));
+          setModels(
+            data.models.map((m) => ({
+              provider: m.provider,
+              id: m.id,
+              reasoning: m.reasoning,
+            })),
+          );
         }
       })
       .catch(() => {});
@@ -197,6 +204,13 @@ export function Composer() {
   }, [contextRevision, sessionId, refreshStats]);
 
   const suggestions = useSuggestions(sessionId);
+  // The current model gates the thinking ladder: a non-reasoning model offers
+  // only "off" (native supportsThinking fallback). reasoning comes from the
+  // already-fetched models catalog; unknown → full ladder (no flash).
+  const currentModel = models.find(
+    (m) => m.provider === piState?.provider && m.id === piState?.modelId,
+  );
+  const thinkingLevels = thinkingLevelsForModel(currentModel?.reasoning);
   const [images, setImages] = useState<PendingImage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -366,6 +380,7 @@ export function Composer() {
           />
           <ThinkingChip
             state={piState}
+            levels={thinkingLevels}
             onSelect={(level) => {
               sendSetThinking(level);
               setPiState((prev) => (prev ? { ...prev, thinkingLevel: level } : prev));

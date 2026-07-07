@@ -4,6 +4,8 @@ import path from "node:path";
 
 export const MOCK_PROVIDER_ID = "mock";
 export const MOCK_MODEL_ID = "mock-model";
+/** A second, non-reasoning model so thinking-level gating is testable. */
+export const MOCK_NOREASON_MODEL_ID = "basic-model";
 
 /**
  * Write a pi custom-provider extension that registers the mock provider at the
@@ -92,6 +94,16 @@ export function writeMockProviderExtension(baseUrl: string): string {
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
         maxTokens: 4096,
+      },
+      {
+        id: ${JSON.stringify(MOCK_NOREASON_MODEL_ID)},
+        name: "Basic Model",
+        // Non-reasoning: the thinking picker must restrict this to "off" only.
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 64000,
+        maxTokens: 2048,
       },
     ],
   });

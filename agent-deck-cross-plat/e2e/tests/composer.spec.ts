@@ -53,3 +53,28 @@ test("thinking picker round-trips through pi", async ({ page }) => {
     })
     .toBe("high");
 });
+
+test("thinking picker restricts a non-reasoning model to 'off' (native supportsThinking gate)", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // The default model is reasoning-capable → the full ladder is offered.
+  await page.getByTestId("thinking-chip").click();
+  await expect(page.getByTestId("thinking-menu")).toBeVisible();
+  await expect(page.getByTestId("thinking-option-high")).toBeVisible();
+
+  // Switch to the non-reasoning "basic-model" (clicking the model chip also
+  // dismisses the open thinking menu).
+  await page.getByTestId("model-chip").click();
+  await page.getByTestId("model-option-basic-model").click();
+  await expect(page.getByTestId("model-chip-label")).toHaveText("basic-model");
+
+  // Now the thinking picker offers only "off" — no reasoning levels.
+  await page.getByTestId("thinking-chip").click();
+  await expect(page.getByTestId("thinking-menu")).toBeVisible();
+  await expect(page.getByTestId("thinking-option-off")).toBeVisible();
+  await expect(page.getByTestId("thinking-option-high")).toHaveCount(0);
+  await expect(page.getByTestId("thinking-option-minimal")).toHaveCount(0);
+});
