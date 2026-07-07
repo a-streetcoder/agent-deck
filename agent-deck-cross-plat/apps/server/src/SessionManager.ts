@@ -40,6 +40,10 @@ export type ChildBridgeFactory = (
   route: { parentSessionId: string; cellId: string },
 ) => { extension: string; dispose: () => void } | undefined;
 
+/** Resolves a named agent (for `managed_subagent{agent}`) to its persona body,
+ * scoped to the delegating session's project. Returns undefined if not found. */
+export type AgentResolver = (name: string, projectId?: string) => { body: string } | undefined;
+
 export interface CreateSessionOptions {
   cwd: string;
   plan: LaunchPlan;
@@ -104,6 +108,8 @@ export class ManagedSession {
     private readonly tempDirs: string[] = [],
     /** Builds a child subagent's contact_supervisor bridge (server-provided). */
     private readonly childBridgeFactory?: ChildBridgeFactory,
+    /** Resolves a named agent for `managed_subagent{agent}` delegation. */
+    private readonly resolveAgent?: AgentResolver,
   ) {
     pi.on("event", (piEvent) => {
       if (this.seedGate) {
@@ -334,7 +340,17 @@ export class ManagedSession {
    * while it works. That is the ONLY tool it has (--tools allowlist of one),
    * so it still cannot recurse into managed_subagent.
    */
-  async runChildAgent(task: string): Promise<string> {
+  async runChildAgent(task: string, agentName?: string): Promise<string> {
+    // Named delegation (native named subagents): resolve the agent's persona and
+    // compose it INTO the subagent operating prompt (never replacing it — that
+    // prompt carries the contact_supervisor / self-contained-result contract).
+    // v1 borrows only the persona body + name; the agent's tools/model are out of
+    // scope (they'd conflict with the supervisor-channel tool allowlist).
+    const resolved = agentName ? this.resolveAgent?.(agentName, this.meta.projectId) : undefined;
+    if (agentName && !resolved) {
+      throw new Error(`unknown agent: ${agentName}`);
+    }
+    const persona = resolved ? `\n\n# Agent: ${agentName}\n${resolved.body}` : "";
     const cellId = `subagent-${randomUUID()}`;
     // The child's supervisor bridge (server-provided): a distinct bridge session
     // id whose contact_supervisor calls route back to THIS card. undefined when
@@ -355,7 +371,7 @@ export class ManagedSession {
       // (writeFileSync / resolvePiBinary / new PiSession) throws before it exists.
       try {
         const promptFile = join(promptDir, "system.md");
-        writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}\n\nTask:\n${task}`);
+        writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}${persona}\n\nTask:\n${task}`);
 
         const child = new PiSession({
           binPath: resolvePiBinary().path,
@@ -382,7 +398,15 @@ export class ManagedSession {
         // Open the Subagent card in the PARENT transcript before the child runs.
         this.emitDomain({
           type: "cell_open",
-          cell: { kind: "subagent", id: cellId, task, status: "running", text: "", progress: [] },
+          cell: {
+            kind: "subagent",
+            id: cellId,
+            task,
+            status: "running",
+            text: "",
+            progress: [],
+            ...(agentName ? { agentName } : {}),
+          },
         });
         const startedAt = Date.now();
         let streamed = "";
@@ -472,6 +496,7 @@ export class ManagedSession {
               status: "done",
               text: finalText,
               progress: [],
+              ...(agentName ? { agentName } : {}),
               ...metadata(),
             },
           });
@@ -488,6 +513,7 @@ export class ManagedSession {
               status: "error",
               text: streamed,
               progress: [],
+              ...(agentName ? { agentName } : {}),
               ...metadata(),
             },
           });
@@ -684,6 +710,9 @@ export class SessionManager {
      * supervisor channel routed back to the right transcript cell.
      */
     private readonly childBridgeFactory?: ChildBridgeFactory,
+    /** Resolves a named agent for `managed_subagent{agent}` delegation, threaded
+     * to each ManagedSession. */
+    private readonly resolveAgent?: AgentResolver,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -844,6 +873,7 @@ export class SessionManager {
       helperContext,
       tempDirs,
       this.childBridgeFactory,
+      this.resolveAgent,
     );
     // ManagedSession now owns tempDirs cleanup (on pi exit); no leak past here.
     markOwned();
@@ -864,10 +894,10 @@ export class SessionManager {
    * (inheriting the parent's provider/model/env) and return its final text.
    * Throws if the parent session is unknown.
    */
-  async runSubagent(parentSessionId: string, task: string): Promise<string> {
+  async runSubagent(parentSessionId: string, task: string, agentName?: string): Promise<string> {
     const parent = this.sessions.get(parentSessionId);
     if (!parent) throw new Error(`unknown parent session: ${parentSessionId}`);
-    return await parent.runChildAgent(task);
+    return await parent.runChildAgent(task, agentName);
   }
 
   list(): SessionMeta[] {

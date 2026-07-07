@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Send } from "lucide-react";
 import {
   memoryToolCardLabel,
   type QuestionCell,
@@ -68,12 +69,23 @@ function SubagentCellView({ cell }: { cell: SubagentCell }) {
   return (
     <div data-testid="subagent-cell" data-status={cell.status}>
       <ToolGroupCard
-        name="Subagent"
+        name={cell.agentName ? `Subagent · ${cell.agentName}` : "Subagent"}
         variant="generic"
         status={SUBAGENT_STATUS[cell.status]}
         defaultExpanded={cell.status === "running"}
         body={
           <div className="space-y-2">
+            {/* Named delegation (native named subagents): which agent's persona
+                this run adopted. Absent for a plain anonymous subagent. */}
+            {cell.agentName ? (
+              <div
+                data-testid="subagent-agent-name"
+                className="flex items-center gap-1 text-xs text-text-muted"
+              >
+                <Send size={11} className="shrink-0" />
+                <span className="truncate">{cell.agentName}</span>
+              </div>
+            ) : null}
             <div className="text-xs font-medium uppercase tracking-wide text-text-muted">Task</div>
             <div className="whitespace-pre-wrap text-xs text-text-muted">{cell.task}</div>
             {cell.progress.length > 0 ? (

@@ -418,6 +418,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         },
       };
     },
+    // Resolve a named agent for `managed_subagent{agent}` delegation, scoped to
+    // the delegating session's project. Invoked only at subagent-run time, so the
+    // forward reference to `rootsFor` (defined below) is resolved by then.
+    (name, projectId) => {
+      const agent = scanAgents(rootsFor(projectId)).find((a) => a.name === name && !a.shadowed);
+      return agent ? { body: agent.body } : undefined;
+    },
   );
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
@@ -432,19 +439,27 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // Native subagents (native-subagent-bridge.md): a parent session can launch a
   // focused child pi to complete one task and report back. v1 is text-returning
   // (managed_subagent); parallel / supervisor / plan tools + the deck UI follow.
-  const subagentParams = z.object({ task: z.string().trim().min(1) });
+  const subagentParams = z.object({
+    task: z.string().trim().min(1),
+    agent: z.string().trim().min(1).optional(),
+  });
   bridge.register(
     {
       name: "managed_subagent",
       label: "Subagent",
       description:
-        "Delegate a self-contained task to a fresh subagent (no conversation history) and get its result back. Use for focused, independent work you can hand off with a complete task description.",
+        "Delegate a self-contained task to a fresh subagent (no conversation history) and get its result back. Use for focused, independent work you can hand off with a complete task description. Optionally pass `agent` to delegate to one of your installed named agents (it adopts that agent's persona).",
       parameters: {
         type: "object",
         properties: {
           task: {
             type: "string",
             description: "A complete, self-contained description of the task for the subagent.",
+          },
+          agent: {
+            type: "string",
+            description:
+              "Optional: the name of an installed agent to delegate to; the subagent adopts its persona. Omit for a plain anonymous subagent.",
           },
         },
         required: ["task"],
@@ -461,7 +476,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         };
       }
       try {
-        const result = await sessions.runSubagent(ctx.sessionId, parsed.data.task);
+        const result = await sessions.runSubagent(
+          ctx.sessionId,
+          parsed.data.task,
+          parsed.data.agent,
+        );
         return { content: result || "(the subagent returned no output)" };
       } catch (error) {
         return { content: `Subagent failed: ${String(error)}`, isError: true };

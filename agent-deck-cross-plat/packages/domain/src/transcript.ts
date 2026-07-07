@@ -66,6 +66,9 @@ export interface SubagentCell {
   id: string;
   task: string;
   status: "running" | "done" | "error";
+  /** The named agent this run was delegated to (native named subagents), if any.
+   * Absent for a plain anonymous task-runner delegation. */
+  agentName?: string;
   text: string;
   /**
    * Non-blocking progress updates the child sent up its supervisor channel
