@@ -146,4 +146,26 @@ describe("scanPrompts (native prompt.invocation + argument-hint, §8.1)", () => 
     writePrompt(dir, "note.md", "---\ndescription: A note\n---\n\nJust a note.\n");
     expect(scanPrompts({ home }).find((p) => p.name === "note")!.argumentHint).toBeUndefined();
   });
+
+  it("orders a same-named collision GLOBAL before project (default resolution is first-wins)", () => {
+    // The launch plan resolves a default prompt-template name first-wins over
+    // this order, so a default must pick the GLOBAL file — matching pi's own
+    // loader (global before project, keep first).
+    const home = makeHome();
+    const project = makeProject();
+    writePrompt(
+      path.join(home, ".pi", "agent", "prompts"),
+      "review.md",
+      "---\ndescription: Global review\n---\n\nglobal body\n",
+    );
+    writePrompt(
+      path.join(project, ".pi", "prompts"),
+      "review.md",
+      "---\ndescription: Project review\n---\n\nproject body\n",
+    );
+
+    const reviews = scanPrompts({ home, projectPath: project }).filter((p) => p.name === "review");
+    expect(reviews.map((p) => p.scope)).toEqual(["global", "project"]);
+    expect(reviews[0]!.filePath).toContain(path.join(".pi", "agent", "prompts"));
+  });
 });

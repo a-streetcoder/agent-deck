@@ -22,6 +22,7 @@ import {
   type SessionMeta,
   type SessionPlanItem,
   type SkillInfo,
+  type PromptInfo,
 } from "@agent-deck/domain";
 import {
   appendSystemPromptPath,
@@ -909,6 +910,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
     }
+    // Drop the name from the flat default list only if it no longer resolves to
+    // any prompt anywhere (another scope may still provide it).
+    const globalPromptDir = nodePath.join(resourceHome(), ".pi", "agent", "prompts");
+    const stillResolves =
+      existsSync(nodePath.join(globalPromptDir, `${name}.md`)) ||
+      projects
+        .list()
+        .some((p) => existsSync(nodePath.join(p.path, ".pi", "prompts", `${name}.md`)));
+    if (!stillResolves) settings.renameDefaultPromptTemplate(name, null);
     broadcast({ type: "resources_changed" });
     return { ok: true };
   });
@@ -942,6 +952,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         return reply.status(404).send({ error: `No ${scope} prompt named "${name}".` });
       }
       return reply.status(500).send({ error: message });
+    }
+    // Re-point the flat default-prompt-template list only when the old name no
+    // longer resolves to ANY prompt anywhere (a project prompt shadows a global
+    // one per name), mirroring the skill-rename resolution guard.
+    const globalPromptDir = nodePath.join(resourceHome(), ".pi", "agent", "prompts");
+    const promptNameResolves = (n: string): boolean =>
+      existsSync(nodePath.join(globalPromptDir, `${n}.md`)) ||
+      projects.list().some((p) => existsSync(nodePath.join(p.path, ".pi", "prompts", `${n}.md`)));
+    if (!promptNameResolves(name)) {
+      settings.renameDefaultPromptTemplate(name, newName);
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };
@@ -1412,12 +1432,19 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         /** Atomic membership ops — preferred over whole-array replacement. */
         setDefaultSkill: z.object({ name: RESOURCE_NAME, enabled: z.boolean() }).optional(),
         setDisabledSkill: z.object({ name: RESOURCE_NAME, disabled: z.boolean() }).optional(),
+        setDefaultPromptTemplate: z
+          .object({ name: RESOURCE_NAME, enabled: z.boolean() })
+          .optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     if (parsed.data.setDefaultSkill) {
       const { name, enabled } = parsed.data.setDefaultSkill;
       return { settings: settings.setDefaultSkill(name, enabled) };
+    }
+    if (parsed.data.setDefaultPromptTemplate) {
+      const { name, enabled } = parsed.data.setDefaultPromptTemplate;
+      return { settings: settings.setDefaultPromptTemplate(name, enabled) };
     }
     if (parsed.data.setDisabledSkill) {
       const { name, disabled } = parsed.data.setDisabledSkill;
@@ -2019,12 +2046,36 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
     }
 
+    // Default prompt templates (native defaultPromptTemplateNames): the user's
+    // "All Projects" prompt templates become `--prompt-template <path>` flags so
+    // pi exposes them as /<name> slash commands. On a name collision we resolve
+    // to the GLOBAL entry (first-wins) — matching pi's own prompt-template loader,
+    // which loads global before project and keeps the first (unlike skills, where
+    // a project skill deliberately shadows the global one). scanPrompts sorts a
+    // same-named collision global-before-project, so keeping the first occurrence
+    // yields the global file.
+    let defaultPromptTemplatePaths: string[] | undefined;
+    {
+      const names = settings.get().defaultPromptTemplates;
+      if (names.length > 0) {
+        const promptsByName = new Map<string, PromptInfo>();
+        for (const prompt of scanPrompts(rootsFor(body.projectId))) {
+          if (!promptsByName.has(prompt.name)) promptsByName.set(prompt.name, prompt);
+        }
+        const paths = [...new Set(names)]
+          .map((name) => promptsByName.get(name)?.filePath)
+          .filter((p): p is string => Boolean(p));
+        if (paths.length > 0) defaultPromptTemplatePaths = paths;
+      }
+    }
+
     let plan: LaunchPlan = {
       kind: "parent",
       provider,
       model,
       extensions,
       skills: body.skills ?? assignedSkillPaths,
+      promptTemplates: defaultPromptTemplatePaths,
     };
 
     if (body.agentName) {

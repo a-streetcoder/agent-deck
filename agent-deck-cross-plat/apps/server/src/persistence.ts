@@ -73,6 +73,11 @@ export class ProjectIndex extends JsonArrayStore<ProjectMeta> {
 export interface AppSettings {
   /** Skills injected into EVERY project's parent sessions ("All Projects"). */
   defaultSkills: string[];
+  /**
+   * Prompt templates made available in EVERY project's parent sessions as
+   * `--prompt-template` flags ("All Projects"). Native defaultPromptTemplateNames.
+   */
+  defaultPromptTemplates: string[];
   /** Skills the user turned off: unassignable, excluded from --skill injection. */
   disabledSkills: string[];
   /** Root folders scanned for project auto-discovery. */
@@ -90,6 +95,7 @@ export class SettingsStore {
   private readonly file: string;
   private settings: AppSettings = {
     defaultSkills: [],
+    defaultPromptTemplates: [],
     disabledSkills: [],
     projectRoots: [],
     extensions: [],
@@ -107,6 +113,9 @@ export class SettingsStore {
         this.settings = {
           defaultSkills: Array.isArray(record.defaultSkills)
             ? record.defaultSkills.map(String)
+            : [],
+          defaultPromptTemplates: Array.isArray(record.defaultPromptTemplates)
+            ? record.defaultPromptTemplates.map(String)
             : [],
           disabledSkills: Array.isArray(record.disabledSkills)
             ? record.disabledSkills.map(String)
@@ -145,6 +154,26 @@ export class SettingsStore {
     if (enabled) next.add(name);
     else next.delete(name);
     this.settings = { ...this.settings, defaultSkills: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  setDefaultPromptTemplate(name: string, enabled: boolean): AppSettings {
+    const next = new Set(this.settings.defaultPromptTemplates);
+    if (enabled) next.add(name);
+    else next.delete(name);
+    this.settings = { ...this.settings, defaultPromptTemplates: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Rename/delete upkeep: rewrite (or drop, with newName=null) a default entry. */
+  renameDefaultPromptTemplate(oldName: string, newName: string | null): AppSettings {
+    const next = new Set(this.settings.defaultPromptTemplates);
+    if (!next.has(oldName)) return this.settings;
+    next.delete(oldName);
+    if (newName !== null) next.add(newName);
+    this.settings = { ...this.settings, defaultPromptTemplates: [...next] };
     this.flush();
     return this.settings;
   }

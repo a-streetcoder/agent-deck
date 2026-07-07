@@ -129,6 +129,49 @@ test("an All-Projects (default) skill reaches sessions of every project", async 
     .toContain("skill:sign-offs");
 });
 
+test("an All-Projects (default) prompt template reaches sessions as a /<name> command", async () => {
+  // A GLOBAL prompt template in the hermetic pi home (native
+  // defaultPromptTemplateNames → --prompt-template launch flags).
+  const promptsDir = path.join(harness.piHome, ".pi", "agent", "prompts");
+  mkdirSync(promptsDir, { recursive: true });
+  writeFileSync(
+    path.join(promptsDir, "standup.md"),
+    "---\ndescription: Draft a standup update\n---\n\nWrite today's standup.\n",
+  );
+
+  // Enable it for All Projects (no UI yet — drive the setting over REST).
+  const patched = await fetch(`${harness.baseUrl}/settings`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ setDefaultPromptTemplate: { name: "standup", enabled: true } }),
+  });
+  expect(patched.status).toBe(200);
+
+  // A fresh session for the registered project must load it: pi's get_commands
+  // shows the /standup prompt command (source "prompt", bare name — no prefix).
+  const id = await projectId();
+  const created = await fetch(`${harness.baseUrl}/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: id }),
+  });
+  expect(created.status).toBe(201);
+  const { session } = (await created.json()) as { session: SessionMeta };
+  await expect
+    .poll(
+      async () => {
+        const response = await fetch(`${harness.baseUrl}/sessions/${session.id}/commands`);
+        if (!response.ok) return [];
+        const { commands } = (await response.json()) as {
+          commands: Array<{ name: string; source: string }>;
+        };
+        return commands.filter((c) => c.source === "prompt").map((c) => c.name);
+      },
+      { timeout: 30_000 },
+    )
+    .toContain("standup");
+});
+
 test("the project default agent is auto-selected on switch", async ({ page }) => {
   const id = await projectId();
   const patched = await fetch(`${harness.baseUrl}/projects/${id}`, {
