@@ -54,6 +54,11 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
 
   // Edit the body.
   await row.getByTestId("prompt-invocation").click();
+  // The editor surfaces the on-disk path (native "File" metadata row); path
+  // separators follow the OS, so match the .pi/prompts/review.md suffix.
+  await expect(page.getByTestId("prompt-file-path")).toContainText(
+    path.join(".pi", "prompts", "review.md"),
+  );
   await page.getByTestId("prompt-body").fill("Please review the diff for security issues.");
   await page.getByTestId("prompt-save").click();
   await expect

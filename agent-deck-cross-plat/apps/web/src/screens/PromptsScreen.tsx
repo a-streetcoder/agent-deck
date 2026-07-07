@@ -20,6 +20,8 @@ interface Draft {
   /** The project this edit targets, captured when the editor opened. */
   projectId: string | null;
   original?: string; // set when editing an existing prompt (its name)
+  /** On-disk path of an existing prompt (native "File" metadata row); absent for a new draft. */
+  filePath?: string;
 }
 
 export function PromptsScreen() {
@@ -130,6 +132,7 @@ export function PromptsScreen() {
       scope: prompt.scope === "project" ? "project" : "global",
       projectId: currentProjectId,
       original: prompt.name,
+      filePath: prompt.filePath,
     });
 
   const save = async (): Promise<void> => {
@@ -259,6 +262,17 @@ export function PromptsScreen() {
               value={draft.body}
               onChange={(e) => setDraft({ ...draft, body: e.target.value })}
             />
+            {/* On-disk path (native "File" metadata row, PromptsViews.swift:700);
+                mirrors the Skills editor's path line. Only for an existing prompt. */}
+            {draft.filePath ? (
+              <div
+                data-testid="prompt-file-path"
+                className="truncate text-xs text-text-muted"
+                title={draft.filePath}
+              >
+                {draft.filePath}
+              </div>
+            ) : null}
             {/* Per-project availability (native assignedPromptTemplateNames). Like
                 the All-Projects default, this is a GLOBAL concept: assigning a
                 global prompt to a project injects it as --prompt-template there.
