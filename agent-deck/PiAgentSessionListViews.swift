@@ -14,7 +14,7 @@ struct PiAgentActiveSessionsFilterButton: View {
             help: isOn ? "Showing focused sessions: recent, drafts, or needing attention; click to show all sessions" : "Show focused sessions: recent, drafts, or needing attention",
             action: { isOn.toggle() }
         ) {
-            Image(systemName: "line.3.horizontal.decrease.circle")
+            Image(systemName: "line.3.horizontal.decrease")
         }
         .accessibilityLabel("Focused sessions filter")
         .accessibilityValue(isOn ? "On" : "Off")
