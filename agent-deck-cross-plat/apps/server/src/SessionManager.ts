@@ -40,9 +40,13 @@ export type ChildBridgeFactory = (
   route: { parentSessionId: string; cellId: string },
 ) => { extension: string; dispose: () => void } | undefined;
 
-/** Resolves a named agent (for `managed_subagent{agent}`) to its persona body,
- * scoped to the delegating session's project. Returns undefined if not found. */
-export type AgentResolver = (name: string, projectId?: string) => { body: string } | undefined;
+/** Resolves a named agent (for `managed_subagent{agent}`) to its persona body
+ * and declared model, scoped to the delegating session's project. Returns
+ * undefined if not found. */
+export type AgentResolver = (
+  name: string,
+  projectId?: string,
+) => { body: string; model?: string } | undefined;
 
 export interface CreateSessionOptions {
   cwd: string;
@@ -383,8 +387,11 @@ export class ManagedSession {
             // is callable this way while --no-tools would strip it). Without a
             // channel it runs tool-less. Either way it can't reach managed_subagent.
             tools: childBridge ? ["contact_supervisor"] : [],
+            // A delegated named agent runs on ITS declared model (same provider —
+            // pi resolves the model string against available models, exactly as
+            // the parent agent-launch does); else the parent's inherited model.
             provider: this.helperContext?.provider,
-            model: this.helperContext?.model,
+            model: resolved?.model ?? this.helperContext?.model,
             // Provider-registration extensions (ambient discovery disabled), plus
             // the child bridge that carries contact_supervisor.
             extensions: childBridge

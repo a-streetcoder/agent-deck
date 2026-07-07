@@ -423,7 +423,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // forward reference to `rootsFor` (defined below) is resolved by then.
     (name, projectId) => {
       const agent = scanAgents(rootsFor(projectId)).find((a) => a.name === name && !a.shadowed);
-      return agent ? { body: agent.body } : undefined;
+      return agent ? { body: agent.body, model: agent.model } : undefined;
     },
   );
   const projects = new ProjectIndex(options.dataDir);

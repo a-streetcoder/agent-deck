@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   MOCK_MODEL_ID,
+  MOCK_NOREASON_MODEL_ID,
   MOCK_PROVIDER_ID,
   startMockProvider,
   writeMockProviderExtension,
@@ -60,9 +61,11 @@ beforeAll(async () => {
   // A named project agent with a distinctive persona body.
   const agentsDir = path.join(project, ".pi", "agents");
   mkdirSync(agentsDir, { recursive: true });
+  // Declares a model distinct from the session default so we can prove the child
+  // runs on the AGENT's model, not the parent's inherited one.
   writeFileSync(
     path.join(agentsDir, "reviewer-bot.md"),
-    `---\nname: reviewer-bot\ndescription: Meticulous reviewer\n---\n\n${PERSONA_SENTINEL}\n`,
+    `---\nname: reviewer-bot\ndescription: Meticulous reviewer\nmodel: ${MOCK_NOREASON_MODEL_ID}\n---\n\n${PERSONA_SENTINEL}\n`,
   );
 
   server = await startServer({ dataDir });
@@ -113,6 +116,10 @@ describe("managed_subagent{agent}: named delegation", () => {
     const childSystem = systemText(childRequest!);
     expect(childSystem).toContain(PERSONA_SENTINEL);
     expect(childSystem).toContain("focused subagent launched by Agent Deck");
+
+    // The child ran on the AGENT's declared model, not the session default.
+    expect(childRequest!.model).toBe(MOCK_NOREASON_MODEL_ID);
+    expect(MOCK_NOREASON_MODEL_ID).not.toBe(MOCK_MODEL_ID);
 
     // The Subagent cell in the parent transcript records which agent it used.
     const cells = server.sessions

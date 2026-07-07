@@ -7,6 +7,7 @@ export {
 } from "./mockProvider.ts";
 export {
   MOCK_MODEL_ID,
+  MOCK_NOREASON_MODEL_ID,
   MOCK_PROVIDER_ID,
   writeMockProviderExtension,
   writeQuestionCommandExtension,
