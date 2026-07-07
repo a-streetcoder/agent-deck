@@ -66,6 +66,35 @@ function probeVersion(cmd: string, args: string[] = ["--version"]): Promise<stri
   });
 }
 
+/**
+ * Run a command purely for its exit status (e.g. `gh auth status`), resolving
+ * true iff it exits 0. Same cross-spawn / timeout handling as probeVersion.
+ */
+function probeSuccess(cmd: string, args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(cmd, args, { stdio: "ignore" });
+    } catch {
+      resolve(false);
+      return;
+    }
+    let settled = false;
+    const settle = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      settle(false);
+    }, 10_000);
+    child.on("error", () => settle(false));
+    child.on("close", (code) => settle(code === 0));
+  });
+}
+
 function readSignedInProviders(home: string): string[] {
   const authFile = path.join(home, ".pi", "agent", "auth.json");
   try {
@@ -139,6 +168,30 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
     status: gitVersion ? "ok" : "warn",
     detail: gitVersion ?? "git not on PATH — version-control tools will be unavailable",
   });
+
+  // GitHub CLI: the Issues screen shells out to `gh`, which must be installed
+  // AND authenticated. Honors the same AGENT_DECK_GH_BIN override the Issues
+  // routes use, so it can be exercised hermetically.
+  const ghBin = process.env.AGENT_DECK_GH_BIN || "gh";
+  const ghVersion = await probeVersion(ghBin);
+  if (!ghVersion) {
+    checks.push({
+      id: "github",
+      label: "GitHub CLI",
+      status: "warn",
+      detail: "gh not on PATH — the Issues screen needs the GitHub CLI (install gh)",
+    });
+  } else {
+    const authed = await probeSuccess(ghBin, ["auth", "status"]);
+    checks.push({
+      id: "github",
+      label: "GitHub CLI",
+      status: authed ? "ok" : "warn",
+      detail: authed
+        ? `${ghVersion} — authenticated`
+        : `${ghVersion} — installed but not authenticated (run: gh auth login)`,
+    });
+  }
 
   const signedInProviders = readSignedInProviders(home);
   const authFile = path.join(home, ".pi", "agent", "auth.json");

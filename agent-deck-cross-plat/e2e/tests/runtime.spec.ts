@@ -65,6 +65,12 @@ test("doctor reports a healthy pi binary with a version", async ({ page }) => {
   await expect(versionCheck).toHaveAttribute("data-check-status", "ok");
   await expect(versionCheck).toContainText("0.80.3");
 
+  // The GitHub CLI check is surfaced (its ok/warn verdict depends on the host's
+  // gh install/auth, so only its presence is asserted here).
+  const githubCheck = page.locator('[data-check-id="github"]');
+  await expect(githubCheck).toBeVisible();
+  await expect(githubCheck).toContainText("GitHub CLI");
+
   // Re-check button works.
   await page.getByTestId("doctor-refresh").click();
   await expect(page.locator('[data-check-id="pi-binary"]')).toBeVisible();
