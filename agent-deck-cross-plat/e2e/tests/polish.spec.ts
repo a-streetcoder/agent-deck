@@ -78,6 +78,22 @@ test("an ended session resumes with its transcript rebuilt from pi's history", a
   });
 });
 
+test("the app serves the brand SVG favicon (native app-icon parity)", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+
+  // The document head links the brand SVG favicon (was previously absent —
+  // the browser tab fell back to a blank icon).
+  const icon = page.locator('link[rel="icon"]');
+  await expect(icon).toHaveAttribute("type", "image/svg+xml");
+  await expect(icon).toHaveAttribute("href", "/favicon.svg");
+
+  // And the asset is actually served (bundled into the web root).
+  const res = await page.request.get(`${harness.baseUrl}/favicon.svg`);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toContain("svg");
+  expect(await res.text()).toContain("<svg");
+});
+
 test("a real extension_ui_request renders as a question card and the answer flows back", async ({
   page,
 }) => {

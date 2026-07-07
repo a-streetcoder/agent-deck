@@ -1,5 +1,6 @@
 pnpm-lock.yaml
 **/dist/
 **/*.ttf
+**/*.svg
 **/coverage/
 apps/web/public/fonts/
