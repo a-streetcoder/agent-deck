@@ -1,0 +1,9 @@
+{
+  "name": "Agent Deck",
+  "short_name": "Agent Deck",
+  "description": "Choose which agent to use in which project, with genuinely streaming chat.",
+  "display": "standalone",
+  "background_color": "#1e1e20",
+  "theme_color": "#1e1e20",
+  "icons": [{ "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }]
+}

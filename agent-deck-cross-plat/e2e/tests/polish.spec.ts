@@ -78,7 +78,9 @@ test("an ended session resumes with its transcript rebuilt from pi's history", a
   });
 });
 
-test("the app serves the brand SVG favicon (native app-icon parity)", async ({ page }) => {
+test("the app serves the brand favicon + web manifest (native app-icon parity)", async ({
+  page,
+}) => {
   await page.goto(harness.baseUrl);
 
   // The document head links the brand SVG favicon (was previously absent —
@@ -92,6 +94,23 @@ test("the app serves the brand SVG favicon (native app-icon parity)", async ({ p
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("svg");
   expect(await res.text()).toContain("<svg");
+
+  // A web manifest + theme-color make it an installable, brand-themed web app.
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#1e1e20");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+    "href",
+    "/manifest.webmanifest",
+  );
+  const manifestRes = await page.request.get(`${harness.baseUrl}/manifest.webmanifest`);
+  expect(manifestRes.status()).toBe(200);
+  const manifest = (await manifestRes.json()) as {
+    name: string;
+    theme_color: string;
+    icons: Array<{ src: string }>;
+  };
+  expect(manifest.name).toBe("Agent Deck");
+  expect(manifest.theme_color).toBe("#1e1e20");
+  expect(manifest.icons.some((i) => i.src === "/favicon.svg")).toBe(true);
 });
 
 test("a real extension_ui_request renders as a question card and the answer flows back", async ({
