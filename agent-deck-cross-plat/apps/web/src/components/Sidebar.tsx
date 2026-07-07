@@ -11,6 +11,7 @@ import {
   Plus,
   Send,
   Server,
+  ShieldCheck,
   Stethoscope,
   WandSparkles,
 } from "lucide-react";
@@ -48,6 +49,7 @@ const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = 
 
 const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "models", label: "Models", icon: Cpu },
+  { id: "providers", label: "Providers", icon: ShieldCheck },
   { id: "environment", label: "Environment", icon: Key },
   { id: "extensions", label: "Extensions", icon: Plug },
   { id: "mcp", label: "MCP", icon: Server },

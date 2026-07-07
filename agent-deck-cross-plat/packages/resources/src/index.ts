@@ -60,3 +60,9 @@ export {
   type DiscoveryCandidate,
 } from "./discovery.ts";
 export { listProjectFiles } from "./files.ts";
+export {
+  listProviders,
+  isKnownProvider,
+  logoutProvider,
+  type ProviderAuthInfo,
+} from "./providers.ts";

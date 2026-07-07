@@ -59,6 +59,9 @@ import {
   discoverProjects,
   detectProjectType,
   listProjectFiles,
+  listProviders,
+  isKnownProvider,
+  logoutProvider,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
@@ -1512,6 +1515,28 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   });
 
   fastify.get("/runtime/doctor", async () => ({ report: await runDoctor(resourceHome()) }));
+
+  // Provider auth (native provider-login surface): the OAuth-capable model
+  // providers pi knows about, plus each one's sign-in status read from the
+  // global ~/.pi/agent/auth.json. Interactive OAuth sign-in is a follow-up; this
+  // covers the read side + logout (disconnect a stored credential).
+  fastify.get("/runtime/providers", async () => ({ providers: listProviders(rootsFor()) }));
+
+  // Disconnect a stored provider credential (native logout). Only a known
+  // provider id is accepted, so arbitrary keys can't be poked into auth.json.
+  fastify.post("/runtime/providers/:id/logout", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!isKnownProvider(rootsFor(), id)) {
+      return reply.status(404).send({ error: `unknown provider: ${id}` });
+    }
+    try {
+      logoutProvider(rootsFor(), id);
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
 
   fastify.get("/settings", async () => ({ settings: settings.get() }));
 

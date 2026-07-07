@@ -13,6 +13,7 @@ import { MemoryScreen } from "./screens/MemoryScreen.tsx";
 import { ModelsScreen } from "./screens/ModelsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { PromptsScreen } from "./screens/PromptsScreen.tsx";
+import { ProvidersScreen } from "./screens/ProvidersScreen.tsx";
 import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { cn } from "@/lib/cn";
@@ -42,6 +43,7 @@ const VIEW_TITLES: Record<string, string> = {
   models: "Models",
   extensions: "Extensions",
   environment: "Environment",
+  providers: "Providers",
   memory: "Memory",
   mcp: "MCP",
   doctor: "Doctor",
@@ -178,6 +180,8 @@ export function App() {
                 <ExtensionsScreen />
               ) : view === "environment" ? (
                 <EnvironmentScreen />
+              ) : view === "providers" ? (
+                <ProvidersScreen />
               ) : view === "memory" ? (
                 <MemoryScreen />
               ) : view === "mcp" ? (

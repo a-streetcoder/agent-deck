@@ -19,6 +19,7 @@ export type AppView =
   | "models"
   | "extensions"
   | "environment"
+  | "providers"
   | "memory"
   | "mcp"
   | "doctor";
