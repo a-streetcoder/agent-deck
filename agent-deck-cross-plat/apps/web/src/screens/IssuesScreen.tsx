@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -25,6 +25,7 @@ interface Issue {
   state: string;
   url: string;
   labels: string[];
+  assignees: string[];
 }
 
 interface IssueComment {
@@ -35,7 +36,6 @@ interface IssueComment {
 
 interface IssueDetail extends Issue {
   body: string;
-  assignees: string[];
   author: string | null;
   comments: IssueComment[];
 }
@@ -62,6 +62,12 @@ export function IssuesScreen() {
   const [loading, setLoading] = useState(false);
   // Native Issues screen's Open / Closed / All segmented filter.
   const [stateFilter, setStateFilter] = useState<"open" | "closed" | "all">("open");
+  // Native client-side facet filters (AppViewModel.filteredBoardItems): labels
+  // are multi-select with OR semantics (an issue passes if it shares ≥1 selected
+  // label — native `labels.isDisjoint(with:)`); assignee is single-select. Both
+  // filter the already-loaded board, never re-query gh.
+  const [labelFilters, setLabelFilters] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   // Monotonic request token: a slow fetch for a stale project/filter must not
   // clobber the result of a newer one (the filter buttons stay clickable).
   const reqRef = useRef(0);
@@ -107,6 +113,9 @@ export function IssuesScreen() {
     setDetail(null);
     setDetailError(null);
     setLocalError(null);
+    // The old repo's labels/assignees don't apply to the new one.
+    setLabelFilters([]);
+    setAssigneeFilter(null);
   }, [currentProjectId]);
 
   const start = async (issue: Issue): Promise<void> => {
@@ -176,6 +185,48 @@ export function IssuesScreen() {
     // its next load).
     setDetail((current) => (current ? { ...current, state: "CLOSED" } : current));
   };
+
+  // Facets derived from the loaded board (native githubAvailableLabels /
+  // githubAvailableAssignees): deduped, case-insensitively sorted.
+  const sortCI = (a: string, b: string): number =>
+    a.localeCompare(b, undefined, { sensitivity: "base" });
+  const availableLabels = useMemo(
+    () => [...new Set(issues.flatMap((i) => i.labels))].sort(sortCI),
+    [issues],
+  );
+  const availableAssignees = useMemo(
+    () => [...new Set(issues.flatMap((i) => i.assignees))].sort(sortCI),
+    [issues],
+  );
+
+  // Client-side filter (native filteredBoardItems): label OR + assignee contains.
+  const visibleIssues = useMemo(
+    () =>
+      issues.filter((issue) => {
+        if (assigneeFilter && !issue.assignees.includes(assigneeFilter)) return false;
+        if (labelFilters.length && !labelFilters.some((l) => issue.labels.includes(l)))
+          return false;
+        return true;
+      }),
+    [issues, assigneeFilter, labelFilters],
+  );
+  const filtersActive = labelFilters.length > 0 || assigneeFilter !== null;
+  const clearFilters = (): void => {
+    setLabelFilters([]);
+    setAssigneeFilter(null);
+  };
+
+  // Prune selections that no longer exist in the reloaded board (e.g. after a
+  // state-filter switch drops the labels/assignees they referenced), so a stale
+  // chip can't keep the list mysteriously empty. Mirrors native resetIssueFilters
+  // being scoped to what's actually present.
+  useEffect(() => {
+    setLabelFilters((prev) => {
+      const next = prev.filter((l) => availableLabels.includes(l));
+      return next.length === prev.length ? prev : next;
+    });
+    setAssigneeFilter((prev) => (prev && !availableAssignees.includes(prev) ? null : prev));
+  }, [availableLabels, availableAssignees]);
 
   if (!project) {
     return (
@@ -381,6 +432,69 @@ export function IssuesScreen() {
               Select one to start a session on it.
             </p>
 
+            {/* Native label + assignee facet filters (client-side over the loaded
+                board). Only shown when the board actually offers a facet. */}
+            {!error && (availableLabels.length > 0 || availableAssignees.length > 0) ? (
+              <div className="flex flex-wrap items-center gap-1.5 pb-3" data-testid="issues-facets">
+                {availableAssignees.length > 0 ? (
+                  <div className="flex items-center gap-1" data-testid="issues-assignee-filter">
+                    <User size={12} className="text-text-muted" aria-hidden />
+                    {availableAssignees.map((assignee) => {
+                      const on = assigneeFilter === assignee;
+                      return (
+                        <button
+                          key={assignee}
+                          data-testid={`issues-assignee-${assignee}`}
+                          aria-pressed={on}
+                          className={cn(
+                            "rounded-capsule border px-2 py-0.5 text-[11px] transition-colors",
+                            on
+                              ? "border-border-strong bg-[var(--color-selection-fill)] text-text-primary"
+                              : "border-border-subtle text-text-muted hover:text-text-primary",
+                          )}
+                          onClick={() => setAssigneeFilter(on ? null : assignee)}
+                        >
+                          {assignee}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {availableLabels.map((label) => {
+                  const on = labelFilters.includes(label);
+                  return (
+                    <button
+                      key={label}
+                      data-testid={`issues-label-${label}`}
+                      aria-pressed={on}
+                      className={cn(
+                        "rounded-capsule border px-2 py-0.5 text-[11px] transition-colors",
+                        on
+                          ? "border-border-strong bg-[var(--color-selection-fill)] text-text-primary"
+                          : "border-border-subtle text-text-muted hover:text-text-primary",
+                      )}
+                      onClick={() =>
+                        setLabelFilters((prev) =>
+                          prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label],
+                        )
+                      }
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                {filtersActive ? (
+                  <button
+                    data-testid="issues-clear-filters"
+                    className="rounded-capsule px-2 py-0.5 text-[11px] text-text-muted underline-offset-2 hover:text-text-primary hover:underline"
+                    onClick={clearFilters}
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             {error ? (
               <div
                 className="rounded-2xl border border-border-subtle bg-surface px-4 py-6 text-center text-sm text-text-muted"
@@ -390,7 +504,7 @@ export function IssuesScreen() {
               </div>
             ) : (
               <div className="space-y-1.5" data-testid="issues-list">
-                {issues.map((issue) => (
+                {visibleIssues.map((issue) => (
                   <button
                     key={issue.number}
                     data-testid={`issue-${issue.number}`}
@@ -414,9 +528,16 @@ export function IssuesScreen() {
                     ))}
                   </button>
                 ))}
-                {issues.length === 0 && !loading ? (
-                  <div className="py-8 text-center text-sm text-text-muted">
-                    {stateFilter === "all" ? "No issues." : `No ${stateFilter} issues.`}
+                {visibleIssues.length === 0 && !loading ? (
+                  <div
+                    className="py-8 text-center text-sm text-text-muted"
+                    data-testid="issues-empty"
+                  >
+                    {filtersActive
+                      ? "No issues match these filters. Try clearing the filters or changing the state."
+                      : stateFilter === "all"
+                        ? "No issues."
+                        : `No ${stateFilter} issues.`}
                   </div>
                 ) : null}
               </div>

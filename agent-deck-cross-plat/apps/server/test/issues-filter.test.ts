@@ -21,10 +21,19 @@ let projectId: string;
 const dataDir = mkdtempSync(path.join(tmpdir(), "agent-deck-data-"));
 const projectDir = mkdtempSync(path.join(tmpdir(), "issues-filter-project-"));
 
-async function issuesFor(query: string): Promise<{ status: number; titles: string[] }> {
+interface StubIssue {
+  title: string;
+  labels: string[];
+  assignees: string[];
+}
+
+async function issuesFor(
+  query: string,
+): Promise<{ status: number; titles: string[]; issues: StubIssue[] }> {
   const res = await fetch(`http://127.0.0.1:${server.port}/projects/${projectId}/issues${query}`);
-  const body = (await res.json()) as { issues?: Array<{ title: string }> };
-  return { status: res.status, titles: (body.issues ?? []).map((i) => i.title) };
+  const body = (await res.json()) as { issues?: StubIssue[] };
+  const issues = body.issues ?? [];
+  return { status: res.status, titles: issues.map((i) => i.title), issues };
 }
 
 beforeAll(async () => {
@@ -41,7 +50,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 cat <<JSON
-[{"number":1,"title":"state=$state","state":"OPEN","url":"https://x/1","labels":[]}]
+[{"number":1,"title":"state=$state","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}]}]
 JSON
 `,
   );
@@ -79,5 +88,14 @@ describe.skipIf(isWindows)("issues state filter", () => {
 
   it("rejects an unknown state with 400", async () => {
     expect((await issuesFor("?state=bogus")).status).toBe(400);
+  });
+
+  it("returns labels and assignees for client-side facet filtering (native 10.5)", async () => {
+    // The Issues screen filters labels/assignees on the loaded board, so the
+    // list route must map gh's [{name}]/[{login}] shapes to flat string arrays.
+    const { issues } = await issuesFor("");
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.labels).toEqual(["bug"]);
+    expect(issues[0]!.assignees).toEqual(["marty"]);
   });
 });
