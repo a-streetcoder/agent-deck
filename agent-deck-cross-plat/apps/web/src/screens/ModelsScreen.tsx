@@ -39,6 +39,7 @@ export function ModelsScreen() {
   const sessionId = session?.id ?? null;
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [active, setActive] = useState<ActiveModel | null>(null);
+  const [search, setSearch] = useState("");
   // Guards a slow response for a previous session from clobbering the new one.
   const activeRef = useRef<string | null>(null);
   const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,8 +102,14 @@ export function ModelsScreen() {
     if (sessionId) void load(sessionId); // re-fetch so the row reflects the new state
   };
 
+  // Filter the catalog by name / id / provider (real catalogs are large).
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? models.filter((m) => `${m.name ?? ""} ${m.id} ${m.provider}`.toLowerCase().includes(query))
+    : models;
+
   const byProvider = new Map<string, CatalogModel[]>();
-  for (const model of models) {
+  for (const model of filtered) {
     byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model]);
   }
 
@@ -131,87 +138,104 @@ export function ModelsScreen() {
             No models available — check your provider configuration in Environment.
           </div>
         ) : (
-          <div className="space-y-4">
-            {[...byProvider.entries()].map(([provider, providerModels]) => (
-              <div key={provider}>
-                <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-                  {provider}
-                </div>
-                <div className="space-y-1.5">
-                  {providerModels.map((model) => {
-                    const isActive = active?.provider === provider && active?.id === model.id;
-                    const ctx = formatTokens(model.contextWindow);
-                    return (
-                      <div
-                        key={model.id}
-                        data-testid={`model-${model.id}`}
-                        data-active={isActive}
-                        data-disabled={model.disabled ? "true" : "false"}
-                        className={cn(
-                          "flex items-center gap-1 rounded-[14px] border transition-colors",
-                          isActive
-                            ? "border-[var(--color-brand-accent)] bg-[var(--color-selection-fill)]"
-                            : "border-border-subtle bg-surface",
-                          model.disabled && "opacity-45",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          data-testid={`model-select-${model.id}`}
-                          disabled={model.disabled}
+          <>
+            <input
+              data-testid="models-search"
+              className="mb-3 w-full rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+              placeholder="Search models by name, id, or provider…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            {filtered.length === 0 ? (
+              <div
+                className="py-8 text-center text-sm text-text-muted"
+                data-testid="models-search-empty"
+              >
+                No models match your search.
+              </div>
+            ) : null}
+            <div className="space-y-4">
+              {[...byProvider.entries()].map(([provider, providerModels]) => (
+                <div key={provider}>
+                  <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                    {provider}
+                  </div>
+                  <div className="space-y-1.5">
+                    {providerModels.map((model) => {
+                      const isActive = active?.provider === provider && active?.id === model.id;
+                      const ctx = formatTokens(model.contextWindow);
+                      return (
+                        <div
+                          key={model.id}
+                          data-testid={`model-${model.id}`}
+                          data-active={isActive}
+                          data-disabled={model.disabled ? "true" : "false"}
                           className={cn(
-                            "flex min-w-0 flex-1 items-center gap-3 rounded-l-[14px] px-3.5 py-2.5 text-left",
-                            !model.disabled && !isActive && "hover:bg-[var(--color-hover-fill)]",
-                            model.disabled && "cursor-default",
+                            "flex items-center gap-1 rounded-[14px] border transition-colors",
+                            isActive
+                              ? "border-[var(--color-brand-accent)] bg-[var(--color-selection-fill)]"
+                              : "border-border-subtle bg-surface",
+                            model.disabled && "opacity-45",
                           )}
-                          onClick={() => select(model)}
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="truncate text-sm font-medium text-text-primary"
-                                style={{ fontStretch: "expanded" }}
-                              >
-                                {model.name ?? model.id}
-                              </span>
-                              {model.reasoning ? (
+                          <button
+                            type="button"
+                            data-testid={`model-select-${model.id}`}
+                            disabled={model.disabled}
+                            className={cn(
+                              "flex min-w-0 flex-1 items-center gap-3 rounded-l-[14px] px-3.5 py-2.5 text-left",
+                              !model.disabled && !isActive && "hover:bg-[var(--color-hover-fill)]",
+                              model.disabled && "cursor-default",
+                            )}
+                            onClick={() => select(model)}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
                                 <span
-                                  data-testid="reasoning-badge"
-                                  className="flex items-center gap-0.5 rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-secondary"
+                                  className="truncate text-sm font-medium text-text-primary"
+                                  style={{ fontStretch: "expanded" }}
                                 >
-                                  <Sparkles size={9} aria-hidden /> reasoning
+                                  {model.name ?? model.id}
                                 </span>
+                                {model.reasoning ? (
+                                  <span
+                                    data-testid="reasoning-badge"
+                                    className="flex items-center gap-0.5 rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-secondary"
+                                  >
+                                    <Sparkles size={9} aria-hidden /> reasoning
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="truncate font-mono text-[11px] text-text-muted">
+                                {model.id}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-3 text-[11px] text-text-muted">
+                              {ctx ? <span title="Context window">{ctx} ctx</span> : null}
+                              {model.input?.includes("image") ? <span>image</span> : null}
+                              {isActive ? (
+                                <Check size={15} style={{ color: "var(--color-brand-accent)" }} />
                               ) : null}
                             </div>
-                            <div className="truncate font-mono text-[11px] text-text-muted">
-                              {model.id}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-3 text-[11px] text-text-muted">
-                            {ctx ? <span title="Context window">{ctx} ctx</span> : null}
-                            {model.input?.includes("image") ? <span>image</span> : null}
-                            {isActive ? (
-                              <Check size={15} style={{ color: "var(--color-brand-accent)" }} />
-                            ) : null}
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          data-testid={`model-toggle-${model.id}`}
-                          aria-label={model.disabled ? "Enable model" : "Disable model"}
-                          title={model.disabled ? "Show in picker" : "Hide from picker"}
-                          className="shrink-0 rounded-r-[14px] px-3 py-2.5 text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-                          onClick={() => void toggleDisabled(model)}
-                        >
-                          {model.disabled ? <EyeOff size={15} /> : <Eye size={15} />}
-                        </button>
-                      </div>
-                    );
-                  })}
+                          </button>
+                          <button
+                            type="button"
+                            data-testid={`model-toggle-${model.id}`}
+                            aria-label={model.disabled ? "Enable model" : "Disable model"}
+                            title={model.disabled ? "Show in picker" : "Hide from picker"}
+                            className="shrink-0 rounded-r-[14px] px-3 py-2.5 text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
+                            onClick={() => void toggleDisabled(model)}
+                          >
+                            {model.disabled ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
