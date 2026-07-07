@@ -17,6 +17,8 @@ export interface HealthCheck {
   label: string;
   status: CheckStatus;
   detail: string;
+  /** A copyable shell command that fixes the check (native Doctor Fix action). */
+  fixCommand?: string;
 }
 
 export interface DoctorReport {
@@ -130,6 +132,7 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
       label: "pi binary",
       status: "error",
       detail: error instanceof PiNotFoundError ? error.message : String(error),
+      fixCommand: "npm install -g @earendil-works/pi-coding-agent",
     });
   }
 
@@ -190,6 +193,7 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
       detail: authed
         ? `${ghVersion} — authenticated`
         : `${ghVersion} — installed but not authenticated (run: gh auth login)`,
+      fixCommand: authed ? undefined : "gh auth login",
     });
   }
 
@@ -205,6 +209,9 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
         : existsSync(authFile)
           ? "auth.json present but no providers"
           : "no auth.json — sign in with pi first",
+    // A provider API key is the simplest fix (native Doctor "Add …_API_KEY").
+    // The placeholder avoids shell metacharacters so it's safe to paste as-is.
+    fixCommand: signedInProviders.length > 0 ? undefined : "export ANTHROPIC_API_KEY=YOUR_KEY_HERE",
   });
 
   return { checks, signedInProviders };

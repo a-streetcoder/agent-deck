@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Check,
   CheckCircle2,
+  Copy,
   Key,
   Pencil,
   Plus,
@@ -234,6 +236,50 @@ interface HealthCheck {
   label: string;
   status: "ok" | "warn" | "error";
   detail: string;
+  fixCommand?: string;
+}
+
+/** Copy a check's suggested fix command; flips to "Copied" briefly (native Doctor Fix). */
+function CopyFixButton({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Clear a pending flip-back if the button unmounts (Doctor navigated away / refreshed).
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  const copy = (): void => {
+    let promise: Promise<void> | undefined;
+    try {
+      promise = navigator.clipboard?.writeText(command);
+    } catch {
+      // A present-but-throwing clipboard implementation — treat as unavailable.
+      return;
+    }
+    void promise?.then(
+      () => {
+        setCopied(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  };
+
+  return (
+    <button
+      data-testid="doctor-fix-copy"
+      data-fix-command={command}
+      title={`Copy: ${command}`}
+      className="flex shrink-0 items-center gap-1 rounded-capsule border border-border-strong px-2 py-0.5 font-mono text-[10px] text-text-secondary hover:text-text-primary"
+      onClick={copy}
+    >
+      {copied ? <Check size={11} /> : <Copy size={11} />}
+      {copied ? "Copied" : "Copy fix"}
+    </button>
+  );
 }
 
 const STATUS_ICON = {
@@ -299,6 +345,7 @@ export function DoctorScreen() {
                     {check.detail}
                   </div>
                 </div>
+                {check.fixCommand ? <CopyFixButton command={check.fixCommand} /> : null}
               </div>
             );
           })}

@@ -75,3 +75,23 @@ test("doctor reports a healthy pi binary with a version", async ({ page }) => {
   await page.getByTestId("doctor-refresh").click();
   await expect(page.locator('[data-check-id="pi-binary"]')).toBeVisible();
 });
+
+test("Doctor offers a copyable fix command for a failing check", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-write"]);
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-doctor").click();
+
+  // The provider-credentials check warns (no auth.json in the harness) and
+  // exposes a copyable fix command; an ok check (pi-binary) does not.
+  const authCheck = page.locator('[data-check-id="auth"]');
+  await expect(authCheck).toHaveAttribute("data-check-status", "warn");
+  const copyBtn = authCheck.getByTestId("doctor-fix-copy");
+  await expect(copyBtn).toHaveAttribute("data-fix-command", /API_KEY/);
+  await expect(
+    page.locator('[data-check-id="pi-binary"]').getByTestId("doctor-fix-copy"),
+  ).toHaveCount(0);
+
+  // Clicking copies the command and flips the label to "Copied".
+  await copyBtn.click();
+  await expect(copyBtn).toHaveText(/Copied/);
+});

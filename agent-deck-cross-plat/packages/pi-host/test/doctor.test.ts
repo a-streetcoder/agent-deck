@@ -76,4 +76,21 @@ describe.skipIf(process.platform === "win32")("runDoctor GitHub CLI check", () =
     expect(check.status).toBe("warn");
     expect(check.detail).toContain("not on PATH");
   });
+
+  it("attaches a `gh auth login` fix command when installed but unauthenticated", async () => {
+    process.env.AGENT_DECK_GH_BIN = ghStub(1);
+    expect((await githubCheck()).fixCommand).toBe("gh auth login");
+    process.env.AGENT_DECK_GH_BIN = ghStub(0);
+    expect((await githubCheck()).fixCommand).toBeUndefined(); // authenticated → no fix
+  });
+});
+
+describe("runDoctor fix commands", () => {
+  it("offers a provider-key fix when no providers are signed in", async () => {
+    const report = await runDoctor(mkdtempSync(path.join(tmpdir(), "doctor-home-")));
+    const auth = report.checks.find((c) => c.id === "auth")!;
+    // A fresh home has no auth.json → the check warns with a copyable fix.
+    expect(auth.status).toBe("warn");
+    expect(auth.fixCommand).toContain("API_KEY");
+  });
 });
