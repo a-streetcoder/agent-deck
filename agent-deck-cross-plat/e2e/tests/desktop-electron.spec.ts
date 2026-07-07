@@ -51,17 +51,30 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // Graceful quit runs the main process's before-quit → server-tree teardown.
-  // Cap it so a slow quit can't fail the hook, then hard-stop as a safety net.
-  await Promise.race([
-    app?.close().catch(() => {}),
-    new Promise((resolve) => setTimeout(resolve, 10_000)),
+  // Graceful quit runs the main process's before-quit → server-tree teardown
+  // (now synchronous on Windows, so the server tree is reaped before Electron
+  // exits). Cap it; only if the graceful quit HANGS do we force-kill the tree.
+  const closedGracefully = await Promise.race([
+    app
+      ?.close()
+      .then(() => true)
+      .catch(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 10_000)),
   ]);
-  if (electronPid) {
+  // Only reap when the graceful close timed out (Electron still alive/hung): a
+  // tree-kill by the Electron PID after it already exited could hit a reused PID.
+  if (!closedGracefully && electronPid) {
     try {
-      process.kill(electronPid, "SIGKILL");
+      if (process.platform === "win32") {
+        // SIGKILL to the Electron PID does NOT cascade to its spawned child tree
+        // (the server via pnpm -> node) on Windows; taskkill /T reaps the whole
+        // tree so no orphan keeps the Playwright worker past its teardown deadline.
+        execSync(`taskkill /F /T /PID ${electronPid}`, { stdio: "ignore" });
+      } else {
+        process.kill(electronPid, "SIGKILL");
+      }
     } catch {
-      // Already gone — the graceful close won.
+      // Already gone.
     }
   }
 });

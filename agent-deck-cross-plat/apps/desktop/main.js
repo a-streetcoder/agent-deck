@@ -9,7 +9,7 @@
 // This is the terminal-launched dev build. Packaged installers (bundled server,
 // GUI-safe PATH, code-signing) are a later phase.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import http from "node:http";
 import path from "node:path";
 import process from "node:process";
@@ -101,7 +101,16 @@ function stopServer() {
   const child = serverProcess;
   if (!child || child.killed || child.pid == null) return;
   if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    // SYNCHRONOUS so the whole tree (pnpm → tsx → node) is actually reaped before
+    // this returns and `before-quit` lets Electron exit. A fire-and-forget spawn
+    // let Electron quit while taskkill was still running, orphaning the server —
+    // its lingering handles then blocked the Playwright worker teardown on Windows
+    // ("Worker teardown timeout of 90000ms exceeded"). Capped so a stuck taskkill
+    // can't hang quit.
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      timeout: 5_000,
+    });
   } else {
     try {
       // Negative pid → the detached process group, so the tsx/node grandchild dies too.
