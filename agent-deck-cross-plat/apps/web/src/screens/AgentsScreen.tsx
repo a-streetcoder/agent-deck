@@ -351,6 +351,17 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
               <ChipList label="MCP Servers" items={agent.mcpServers} />
             </div>
           ) : null}
+          {/* Native "Extensions" card (AgentManagementViews.swift:1377) — an
+              explicit pi-extension allowlist for the agent's sessions. Shown only
+              when declared, like native's `if !extensions.isEmpty`. */}
+          {agent.extensions?.length ? (
+            <div
+              className="col-span-2 rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3"
+              data-testid="agent-extensions"
+            >
+              <ChipList label="Extensions" items={agent.extensions} />
+            </div>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-4 text-xs text-text-muted">

@@ -23,10 +23,11 @@ test.beforeAll(async () => {
     path.join(agentsDir, "pancake-bot.md"),
     `---\nname: pancake-bot\ndescription: Breakfast metaphors only\n---\n\n${AGENT_BODY}\n`,
   );
-  // A second agent in append mode so the detail's Prompt Mode indicator is testable.
+  // A second agent in append mode (with an explicit extension allowlist) so the
+  // detail's Prompt Mode + Extensions indicators are testable.
   writeFileSync(
     path.join(agentsDir, "append-bot.md"),
-    `---\nname: append-bot\ndescription: Adds to pi's base prompt\nsystemPromptMode: append\n---\n\nExtra instructions appended on top of pi's base prompt.\n`,
+    `---\nname: append-bot\ndescription: Adds to pi's base prompt\nsystemPromptMode: append\nextensions:\n  - note-taker\n  - web-search\n---\n\nExtra instructions appended on top of pi's base prompt.\n`,
   );
   const response = await fetch(`${harness.baseUrl}/projects`, {
     method: "POST",
@@ -75,18 +76,24 @@ test("picking an agent injects its body as the system prompt", async ({ page }) 
   await expect(page.getByTestId("user-cell")).toContainText("what is a monad?");
 });
 
-test("the agent detail surfaces the system-prompt mode (native Prompt Mode)", async ({ page }) => {
+test("the agent detail surfaces the system-prompt mode and extensions (native parity)", async ({
+  page,
+}) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId(`project-${path.basename(project)}`).click();
   await page.getByTestId("nav-agents").click();
 
   // pancake-bot declares no mode → the default "replace"; like native, the badge
-  // is hidden for the implicit default.
+  // is hidden for the implicit default. It also declares no extensions.
   await page.locator('[data-agent-name="pancake-bot"]').click();
   await expect(page.getByTestId("agent-detail")).toBeVisible();
   await expect(page.getByTestId("agent-prompt-mode")).toHaveCount(0);
+  await expect(page.getByTestId("agent-extensions")).toHaveCount(0);
 
-  // append-bot declares systemPromptMode: append → the badge is shown.
+  // append-bot declares systemPromptMode: append and an extension allowlist.
   await page.locator('[data-agent-name="append-bot"]').click();
   await expect(page.getByTestId("agent-prompt-mode")).toHaveText("append");
+  const extensions = page.getByTestId("agent-extensions");
+  await expect(extensions).toContainText("note-taker");
+  await expect(extensions).toContainText("web-search");
 });
