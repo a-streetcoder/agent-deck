@@ -164,6 +164,15 @@ export class PiSession extends EventEmitter<PiSessionEvents> {
     return await this.request({ type: "get_state" });
   }
 
+  /**
+   * Token/cost/context-usage totals for the live session (native session
+   * context-usage indicator). `contextUsage` is undefined/null until the first
+   * LLM response has established a context estimate.
+   */
+  async getSessionStats(): Promise<DataOf<"get_session_stats">> {
+    return await this.request({ type: "get_session_stats" });
+  }
+
   async getCommands(): Promise<RpcSlashCommand[]> {
     const data = await this.request({ type: "get_commands" });
     return data.commands;

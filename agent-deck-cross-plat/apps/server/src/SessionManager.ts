@@ -599,6 +599,10 @@ export class ManagedSession {
     return await this.pi.getState();
   }
 
+  async getSessionStats(): Promise<Awaited<ReturnType<PiSession["getSessionStats"]>>> {
+    return await this.pi.getSessionStats();
+  }
+
   async getAvailableModels(): Promise<Awaited<ReturnType<PiSession["getAvailableModels"]>>> {
     return await this.pi.getAvailableModels();
   }

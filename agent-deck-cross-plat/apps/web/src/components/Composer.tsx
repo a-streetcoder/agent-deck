@@ -52,6 +52,7 @@ export function Composer() {
   const pendingComposerText = useAppStore((state) => state.pendingComposerText);
   const setPendingComposerText = useAppStore((state) => state.setPendingComposerText);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
+  const contextRevision = useAppStore((state) => state.transcript.contextRevision);
   const connection = useAppStore((state) => state.connection);
   const session = useAppStore((state) => state.session);
   const currentAgentName = useAppStore((state) => state.currentAgentName);
@@ -61,10 +62,19 @@ export function Composer() {
 
   const [piState, setPiState] = useState<PiComposerState | null>(null);
   const [models, setModels] = useState<PiModelInfo[]>([]);
+  // Live context-window usage (native session context-usage indicator). null
+  // until the first LLM response establishes a token estimate.
+  const [contextUsage, setContextUsage] = useState<{
+    tokens: number | null;
+    contextWindow: number;
+    percent: number | null;
+  } | null>(null);
   const sessionId = session?.id ?? null;
   // Guards against a stale session's response/timer clobbering the new one.
   const activeSessionRef = useRef<string | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest-wins token for the two stats refresh triggers (idle + compaction).
+  const statsSeqRef = useRef(0);
 
   const refreshPiState = useCallback(async (): Promise<void> => {
     if (!sessionId) return;
@@ -90,12 +100,35 @@ export function Composer() {
     refreshTimerRef.current = setTimeout(() => void refreshPiState(), 300);
   }, [refreshPiState]);
 
+  const refreshStats = useCallback(async (): Promise<void> => {
+    if (!sessionId) return;
+    // Monotonic token: two triggers (idle + contextRevision) fire near a turn
+    // boundary, so an older in-flight /stats response must not overwrite a newer
+    // one — only the latest request's result is applied.
+    const seq = ++statsSeqRef.current;
+    try {
+      const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/stats`);
+      if (!response.ok || activeSessionRef.current !== sessionId) return;
+      const { stats } = (await response.json()) as {
+        stats: {
+          contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+        };
+      };
+      if (activeSessionRef.current !== sessionId || seq !== statsSeqRef.current) return;
+      setContextUsage(stats.contextUsage ?? null);
+    } catch {
+      // Session may be mid-restart; the next refresh wins.
+    }
+  }, [sessionId]);
+
   useEffect(() => {
     activeSessionRef.current = sessionId;
     setPiState(null);
     setModels([]);
+    setContextUsage(null);
     if (!sessionId) return;
     void refreshPiState();
+    void refreshStats();
     void fetch(`/sessions/${encodeURIComponent(sessionId)}/models`)
       .then((response) => (response.ok ? response.json() : { models: [] }))
       .then((data: { models: Array<{ provider: string; id: string }> }) => {
@@ -107,7 +140,18 @@ export function Composer() {
     return () => {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [sessionId, refreshPiState]);
+  }, [sessionId, refreshPiState, refreshStats]);
+
+  // Re-read the context fill on the two things that change it: a completed turn
+  // (agent returns to idle) and a compaction (contextRevision bumps — pi runs
+  // threshold auto-compaction AFTER agent_end, which the ingest surfaces from
+  // the runtime `compaction_end` event as a context_changed → contextRevision).
+  useEffect(() => {
+    if (agentStatus === "idle" && sessionId) void refreshStats();
+  }, [agentStatus, sessionId, refreshStats]);
+  useEffect(() => {
+    if (sessionId) void refreshStats();
+  }, [contextRevision, sessionId, refreshStats]);
 
   const suggestions = useSuggestions(sessionId);
   const [images, setImages] = useState<PendingImage[]>([]);
@@ -285,6 +329,21 @@ export function Composer() {
               scheduleRefresh();
             }}
           />
+          {/* Context-window usage (native session context-usage indicator). Only
+              shown once pi has a token estimate (after the first response). */}
+          {contextUsage && contextUsage.percent != null ? (
+            <span
+              data-testid="context-usage"
+              className={chipClass()}
+              title={
+                contextUsage.tokens != null
+                  ? `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} context tokens`
+                  : `context window ${contextUsage.contextWindow.toLocaleString()} tokens`
+              }
+            >
+              {Math.round(contextUsage.percent)}% ctx
+            </span>
+          ) : null}
           <div className="flex-1" />
           <label
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary"

@@ -1624,6 +1624,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
   });
 
+  // Live token / cost / context-usage totals for a session (native session
+  // context-usage indicator). Returns pi's get_session_stats verbatim; the
+  // context-usage percent is null until the first LLM response.
+  fastify.get("/sessions/:id/stats", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const session = sessions.get(id);
+    if (!session) return reply.status(404).send({ error: "unknown session" });
+    try {
+      return { stats: await session.getSessionStats() };
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+  });
+
   fastify.get("/sessions/:id/models", async (request, reply) => {
     const { id } = request.params as { id: string };
     const session = sessions.get(id);

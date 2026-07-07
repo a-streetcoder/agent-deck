@@ -146,4 +146,21 @@ describe("ingest → reduce pipeline", () => {
       result: "a\nb",
     });
   });
+
+  it("maps the runtime `compaction_end` event to a contextRevision bump", () => {
+    // pi's RPC forwards AgentSessionEvent at runtime (incl. compaction_end),
+    // though the exported type union omits it — the ingest still surfaces it.
+    const ingest = createIngestState();
+    const emitted = ingestPiEvent(ingest, { type: "compaction_end" } as unknown as PiInboundEvent);
+    expect(emitted).toEqual([{ type: "context_changed" }]);
+
+    // The reducer increments the monotonic contextRevision the composer watches.
+    let state = emptyTranscript();
+    expect(state.contextRevision).toBe(0);
+    for (const e of emitted) state = reduceTranscript(state, e);
+    expect(state.contextRevision).toBe(1);
+    // A compaction_start (no-op) doesn't bump it.
+    const start = ingestPiEvent(ingest, { type: "compaction_start" } as unknown as PiInboundEvent);
+    expect(start).toEqual([]);
+  });
 });

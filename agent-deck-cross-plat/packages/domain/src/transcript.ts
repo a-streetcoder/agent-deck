@@ -243,17 +243,25 @@ export type DomainEvent =
   | { type: "cell_final"; cell: TranscriptCell }
   | { type: "agent_status"; status: AgentStatus }
   | { type: "plan_set"; items: SessionPlanItem[] }
-  | { type: "plan_update"; updates: SessionPlanUpdate[] };
+  | { type: "plan_update"; updates: SessionPlanUpdate[] }
+  | { type: "context_changed" };
 
 export interface TranscriptState {
   cells: TranscriptCell[];
   agentStatus: AgentStatus;
   /** The session's activity plan (set_session_plan / update_session_plan). */
   plan: SessionPlanItem[];
+  /**
+   * Monotonic counter bumped whenever something outside the normal turn cycle
+   * changes the session's context (currently: pi's auto/manual compaction). The
+   * composer watches it to re-read the context-usage stats, which get_state /
+   * agent_end alone don't cover.
+   */
+  contextRevision: number;
 }
 
 export function emptyTranscript(): TranscriptState {
-  return { cells: [], agentStatus: "idle", plan: [] };
+  return { cells: [], agentStatus: "idle", plan: [], contextRevision: 0 };
 }
 
 function upsertCell(cells: TranscriptCell[], cell: TranscriptCell): TranscriptCell[] {
@@ -286,6 +294,8 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
   switch (event.type) {
     case "agent_status":
       return { ...state, agentStatus: event.status };
+    case "context_changed":
+      return { ...state, contextRevision: state.contextRevision + 1 };
     case "plan_set":
       // set_session_plan REPLACES the whole plan.
       return { ...state, plan: event.items };

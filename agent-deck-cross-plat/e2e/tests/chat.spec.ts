@@ -55,6 +55,25 @@ test("chat renders the streamed reply incrementally", async ({ page }) => {
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
 });
 
+test("shows the session context-usage indicator (native, from get_session_stats)", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  await page.getByTestId("composer-input").fill("hello there");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle", {
+    timeout: 60_000,
+  });
+
+  // pi's get_session_stats reports a context-window fill (tokens / contextWindow),
+  // so the composer shows a "% ctx" chip (percent is 0 for a tiny turn, not null).
+  const chip = page.getByTestId("context-usage");
+  await expect(chip).toBeVisible({ timeout: 15_000 });
+  await expect(chip).toContainText("% ctx");
+});
+
 test("abort stops a streaming reply and returns to idle", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");

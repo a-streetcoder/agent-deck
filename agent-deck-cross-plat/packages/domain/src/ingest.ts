@@ -86,6 +86,14 @@ function userText(content: unknown): string {
 
 /** Feed one pi event; mutates `state`, returns the domain events it produced. */
 export function ingestPiEvent(state: IngestState, event: PiInboundEvent): DomainEvent[] {
+  // pi's RPC mode forwards the FULL AgentSessionEvent union at runtime
+  // (rpc-mode.js `session.subscribe`), including `compaction_end` — even though
+  // the exported RpcEventListener/AgentEvent TYPE is narrower and omits it. A
+  // compaction changes the context outside the normal turn cycle, so surface it
+  // as `context_changed` (the context-usage indicator re-reads stats on it).
+  if ((event as { type: string }).type === "compaction_end") {
+    return [{ type: "context_changed" }];
+  }
   switch (event.type) {
     case "agent_start":
       return [{ type: "agent_status", status: "running" }];
