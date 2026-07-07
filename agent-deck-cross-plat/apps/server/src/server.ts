@@ -1034,6 +1034,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { memories: listMemories(store) };
   });
 
+  // Memory recall search (native Memory search 11.8): runs the SAME lexical+fuzzy
+  // engine the agent recalls with (searchMemories) and returns the ranked hits —
+  // active/pinned only, abstaining (empty) when nothing matches.
+  fastify.get("/memory/search", async (request, reply) => {
+    const { projectId, q } = request.query as { projectId?: string; q?: string };
+    const store = memoryStoreFor(projectId);
+    if (!store) return reply.code(400).send({ error: "memory requires a known project" });
+    const query = (q ?? "").trim();
+    if (!query) return { memories: [] };
+    return { memories: searchMemories(store, query).map((hit) => hit.record) };
+  });
+
   fastify.post("/memory", async (request, reply) => {
     const parsed = memoryCreateBody.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });

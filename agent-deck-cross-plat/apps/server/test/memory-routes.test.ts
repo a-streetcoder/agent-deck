@@ -135,6 +135,52 @@ describe("memory inspection routes", () => {
     expect((await api("PATCH", `/memory/${id}`, { projectId })).status).toBe(400);
   });
 
+  it("searches memories with the recall engine (native 11.8)", async () => {
+    // Seed a clearly-relevant memory and a clearly-irrelevant one, then query.
+    await api("POST", "/memory", {
+      projectId,
+      type: "runbook",
+      title: "Rollback a failed database migration",
+      summary: "run the down migration and restore the postgres snapshot",
+      body: "steps for a broken migration",
+    });
+    await api("POST", "/memory", {
+      projectId,
+      type: "context",
+      title: "Favourite lunch spots near the office",
+      summary: "tacos and ramen",
+      body: "unrelated trivia",
+    });
+
+    const relevant = (await (
+      await api(
+        "GET",
+        `/memory/search?projectId=${projectId}&q=${encodeURIComponent("rollback database migration")}`,
+      )
+    ).json()) as { memories: MemoryRecord[] };
+    const titles = relevant.memories.map((m) => m.title);
+    expect(titles).toContain("Rollback a failed database migration");
+    expect(titles).not.toContain("Favourite lunch spots near the office");
+
+    // An empty query abstains (returns nothing) rather than dumping everything.
+    const empty = (await (await api("GET", `/memory/search?projectId=${projectId}&q=`)).json()) as {
+      memories: MemoryRecord[];
+    };
+    expect(empty.memories).toHaveLength(0);
+
+    // A query with no lexical/fuzzy overlap abstains too.
+    const none = (await (
+      await api(
+        "GET",
+        `/memory/search?projectId=${projectId}&q=${encodeURIComponent("quantum helicopter")}`,
+      )
+    ).json()) as { memories: MemoryRecord[] };
+    expect(none.memories).toHaveLength(0);
+
+    // Requires a known project.
+    expect((await api("GET", "/memory/search?q=anything")).status).toBe(400);
+  });
+
   it("deletes a memory", async () => {
     const list = (await (await api("GET", `/memory?projectId=${projectId}`)).json()) as {
       memories: MemoryRecord[];

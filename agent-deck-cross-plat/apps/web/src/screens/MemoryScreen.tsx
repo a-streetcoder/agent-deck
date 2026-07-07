@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Archive, Brain, Pin, RotateCcw, Trash2 } from "lucide-react";
 import { groupMemoriesByStatus, type MemoryStatus } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
@@ -51,6 +51,34 @@ export function MemoryScreen() {
   // Monotonic request id: a slow response for a previously-selected project must
   // not clobber the list once a newer load (e.g. after switching projects) began.
   const loadSeq = useRef(0);
+  // Recall search (native 11.8): runs the same recall engine the agent uses.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<MemoryItem[] | null>(null);
+  const searchSeq = useRef(0);
+
+  // Clearing the search or switching projects must invalidate any in-flight
+  // request synchronously (bump the token) so a late response from the previous
+  // query/project can't land and re-enter the recall-results branch — otherwise
+  // an older fetch could clobber `null` back to `[]` or show stale hits.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q || !currentProjectId) {
+      searchSeq.current += 1;
+      setSearchResults(null);
+      return;
+    }
+    const seq = ++searchSeq.current;
+    void fetch(
+      `/memory/search?projectId=${encodeURIComponent(currentProjectId)}&q=${encodeURIComponent(q)}`,
+    )
+      .then((r) => r.json() as Promise<{ memories?: MemoryItem[] }>)
+      .then((data) => {
+        if (seq === searchSeq.current) setSearchResults(data.memories ?? []);
+      })
+      .catch(() => {
+        if (seq === searchSeq.current) setSearchResults([]);
+      });
+  }, [searchQuery, currentProjectId, resourcesVersion]);
 
   const load = useCallback(async (): Promise<void> => {
     if (!currentProjectId) {
@@ -72,8 +100,15 @@ export function MemoryScreen() {
     void load();
   }, [load, resourcesVersion]);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the reset commits before paint — the
+  // previous project's recall hits never flash under the new project.
+  useLayoutEffect(() => {
     setDraft(null);
+    // Drop the previous project's search so its recall hits can't render under
+    // the new project before the re-keyed search effect resolves (native 11.8).
+    searchSeq.current += 1;
+    setSearchQuery("");
+    setSearchResults(null);
   }, [currentProjectId]);
 
   const setStatus = async (id: string, status: MemoryStatus): Promise<void> => {
@@ -187,10 +222,17 @@ export function MemoryScreen() {
             New memory
           </button>
         </div>
-        <p className="pb-3 text-xs text-text-muted">
+        <p className="pb-2 text-xs text-text-muted">
           Durable project knowledge agents recall across sessions. Active and pinned memories are
           injected; stale and archived are kept but not injected.
         </p>
+        <input
+          data-testid="memory-search"
+          className="mb-3 w-full rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+          placeholder="Search memories (recall ranking)…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
 
         {draft ? (
           <div
@@ -258,7 +300,12 @@ export function MemoryScreen() {
         ) : null}
 
         <div className="space-y-4" data-testid="memory-list">
-          {groupMemoriesByStatus(memories).map((group) => (
+          {(searchResults !== null
+            ? searchResults.length
+              ? [{ status: "recall", label: "Recall results", memories: searchResults }]
+              : []
+            : groupMemoriesByStatus(memories)
+          ).map((group) => (
             <section key={group.status} data-testid={`memory-section-${group.status}`}>
               <div className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
                 {group.label}
@@ -347,7 +394,16 @@ export function MemoryScreen() {
               </div>
             </section>
           ))}
-          {memories.length === 0 && !draft ? (
+          {searchResults !== null ? (
+            searchResults.length === 0 ? (
+              <div
+                className="py-8 text-center text-sm text-text-muted"
+                data-testid="memory-search-empty"
+              >
+                No memories recalled for this query.
+              </div>
+            ) : null
+          ) : memories.length === 0 && !draft ? (
             <div className="py-8 text-center text-sm text-text-muted" data-testid="memory-empty">
               No memories yet. Agents add them as they work, or create one manually.
             </div>
