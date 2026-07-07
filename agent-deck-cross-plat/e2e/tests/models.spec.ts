@@ -36,6 +36,8 @@ test("the Models screen lists the provider catalog and marks the active model", 
   await expect(model).toContainText("Mock Model");
   await expect(model.getByTestId("reasoning-badge")).toBeVisible();
   await expect(model).toContainText("128K ctx");
+  // Max output tokens badge (native model row "ctx … · out …"): mock model is 4096.
+  await expect(model).toContainText("4K out");
   // It's the session's active model.
   await expect(model).toHaveAttribute("data-active", "true");
 });

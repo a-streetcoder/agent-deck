@@ -164,6 +164,8 @@ export function ModelsScreen() {
                     {providerModels.map((model) => {
                       const isActive = active?.provider === provider && active?.id === model.id;
                       const ctx = formatTokens(model.contextWindow);
+                      // Max output tokens (native model row shows "ctx … · out …").
+                      const out = formatTokens(model.maxTokens);
                       return (
                         <div
                           key={model.id}
@@ -212,6 +214,7 @@ export function ModelsScreen() {
                             </div>
                             <div className="flex shrink-0 items-center gap-3 text-[11px] text-text-muted">
                               {ctx ? <span title="Context window">{ctx} ctx</span> : null}
+                              {out ? <span title="Max output tokens">{out} out</span> : null}
                               {model.input?.includes("image") ? <span>image</span> : null}
                               {isActive ? (
                                 <Check size={15} style={{ color: "var(--color-brand-accent)" }} />
