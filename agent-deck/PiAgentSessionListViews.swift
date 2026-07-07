@@ -657,11 +657,7 @@ struct PiAgentSessionRow: View, Equatable {
                 }
         } else {
             HStack(alignment: .center, spacing: 5) {
-                Text(sessionTitle)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-                    .allowsTightening(true)
-                    .truncationMode(.tail)
+                HoverMarqueeTitleText(text: sessionTitle, isHovering: isTitleHovered)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
@@ -736,6 +732,99 @@ struct PiAgentSessionRow: View, Equatable {
         case .stopped: return .orange
         case .draft: return .secondary
         }
+    }
+}
+
+private struct HoverMarqueeTitleText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let text: String
+    let isHovering: Bool
+
+    @State private var containerWidth: CGFloat = 0
+    @State private var textWidth: CGFloat = 0
+    @State private var isScrolled = false
+
+    private var overflow: CGFloat {
+        max(textWidth - containerWidth, 0)
+    }
+
+    private var shouldScroll: Bool {
+        isHovering && overflow > 1 && !reduceMotion
+    }
+
+    private var scrollDurationSeconds: Double {
+        max(Double(overflow) / 42, 1.6)
+    }
+
+    private var scrollDuration: Duration {
+        .seconds(scrollDurationSeconds)
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Text(text)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .offset(x: isScrolled ? -overflow : 0)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { width in
+                    textWidth = width
+                }
+        }
+        .frame(height: 18, alignment: .leading)
+        .clipped()
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            containerWidth = width
+        }
+        .task(id: marqueeTaskID) {
+            guard shouldScroll else {
+                isScrolled = false
+                return
+            }
+
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+                while !Task.isCancelled {
+                    withAnimation(.linear(duration: scrollDurationSeconds)) {
+                        isScrolled = true
+                    }
+                    try await Task.sleep(for: scrollDuration + .milliseconds(900))
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isScrolled = false
+                    }
+                    try await Task.sleep(for: .milliseconds(650))
+                }
+            } catch {
+                return
+            }
+        }
+        .onChange(of: shouldScroll) { _, scrolling in
+            if !scrolling {
+                isScrolled = false
+            }
+        }
+    }
+
+    private var marqueeTaskID: MarqueeTaskID {
+        MarqueeTaskID(
+            text: text,
+            isHovering: isHovering,
+            containerWidth: containerWidth,
+            textWidth: textWidth,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    private struct MarqueeTaskID: Equatable {
+        let text: String
+        let isHovering: Bool
+        let containerWidth: CGFloat
+        let textWidth: CGFloat
+        let reduceMotion: Bool
     }
 }
 
