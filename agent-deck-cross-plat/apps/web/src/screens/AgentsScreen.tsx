@@ -313,8 +313,25 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
         ) : null}
 
         <div className="rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3">
-          <div className="pb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-            System prompt
+          <div className="flex items-center justify-between pb-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              System prompt
+            </div>
+            {/* Native "Prompt Mode" row (AgentManagementViews.swift:1335) surfaces
+                the mode only when it's set. "replace" is pi's default (an absent
+                mode launches as replace), so — like native, which hides the row
+                for the implicit default — we badge only the notable "append"
+                case: this body is added on top of pi's base prompt, not the
+                whole prompt. */}
+            {agent.systemPromptMode === "append" ? (
+              <span
+                data-testid="agent-prompt-mode"
+                className="rounded-capsule border border-border-strong px-2 py-0.5 text-[10px] font-medium text-text-secondary"
+                title="append — keeps pi's base system prompt and adds this agent's instructions on top"
+              >
+                append
+              </span>
+            ) : null}
           </div>
           <MarkdownDocument source={agent.body || "_(empty — pi's default prompt applies)_"} />
         </div>

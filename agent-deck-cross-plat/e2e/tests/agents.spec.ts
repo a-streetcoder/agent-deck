@@ -23,6 +23,11 @@ test.beforeAll(async () => {
     path.join(agentsDir, "pancake-bot.md"),
     `---\nname: pancake-bot\ndescription: Breakfast metaphors only\n---\n\n${AGENT_BODY}\n`,
   );
+  // A second agent in append mode so the detail's Prompt Mode indicator is testable.
+  writeFileSync(
+    path.join(agentsDir, "append-bot.md"),
+    `---\nname: append-bot\ndescription: Adds to pi's base prompt\nsystemPromptMode: append\n---\n\nExtra instructions appended on top of pi's base prompt.\n`,
+  );
   const response = await fetch(`${harness.baseUrl}/projects`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -68,4 +73,20 @@ test("picking an agent injects its body as the system prompt", async ({ page }) 
   // And back again: the agent chat's transcript is still there.
   await page.getByTestId("agent-picker").selectOption("pancake-bot");
   await expect(page.getByTestId("user-cell")).toContainText("what is a monad?");
+});
+
+test("the agent detail surfaces the system-prompt mode (native Prompt Mode)", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await page.getByTestId("nav-agents").click();
+
+  // pancake-bot declares no mode → the default "replace"; like native, the badge
+  // is hidden for the implicit default.
+  await page.locator('[data-agent-name="pancake-bot"]').click();
+  await expect(page.getByTestId("agent-detail")).toBeVisible();
+  await expect(page.getByTestId("agent-prompt-mode")).toHaveCount(0);
+
+  // append-bot declares systemPromptMode: append → the badge is shown.
+  await page.locator('[data-agent-name="append-bot"]').click();
+  await expect(page.getByTestId("agent-prompt-mode")).toHaveText("append");
 });
