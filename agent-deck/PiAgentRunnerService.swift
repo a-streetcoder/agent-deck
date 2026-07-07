@@ -78,6 +78,7 @@ final class PiAgentRunnerService {
     private let store: PiAgentSessionStore
     private var clientsBySessionID: [UUID: PiRPCClient] = [:]
     private var clientRunIDsBySessionID: [UUID: UUID] = [:]
+    private var afterFinishHookRunIDs: Set<UUID> = []
     private var stoppingClientRunIDsBySessionID: [UUID: UUID] = [:]
     private var parkingClientRunIDsBySessionID: [UUID: UUID] = [:]
     private var assistantEntryIDsBySessionID: [UUID: UUID] = [:]
@@ -869,6 +870,13 @@ final class PiAgentRunnerService {
                     injectedExtensionPaths.append(extraArguments[i + 1])
                 }
             }
+            try AgentDeckBuiltinHooks.preLaunch(.init(
+                session: session,
+                projectURL: projectURL,
+                extraArguments: extraArguments,
+                environment: environment
+            ))
+            afterFinishHookRunIDs.remove(clientRunID)
             let client = try PiRPCClient(
                 cwd: projectURL,
                 sessionFile: resumeExisting ? session.piSessionFile : nil,
@@ -2750,6 +2758,7 @@ final class PiAgentRunnerService {
             if clientsBySessionID[sessionID] == nil {
                 mark(sessionID, status: .idle, error: nil)
             }
+            runAfterFinishHookIfNeeded(sessionID: sessionID, clientRunID: clientRunID, status: .idle, exitCode: exitCode)
             return
         }
 
@@ -2761,6 +2770,7 @@ final class PiAgentRunnerService {
                 clientsBySessionID[sessionID] = nil
                 mark(sessionID, status: .stopped, error: nil)
             }
+            runAfterFinishHookIfNeeded(sessionID: sessionID, clientRunID: clientRunID, status: .stopped, exitCode: exitCode)
             return
         }
 
@@ -2771,7 +2781,13 @@ final class PiAgentRunnerService {
         let status: PiAgentRunStatus = exitCode == 0 ? .completed : .stopped
         mark(sessionID, status: status, error: nil)
         store.append(.init(sessionID: sessionID, role: .status, title: "Process Ended", text: "Pi Agent exited with code \(exitCode)."))
+        runAfterFinishHookIfNeeded(sessionID: sessionID, clientRunID: clientRunID, status: status, exitCode: exitCode)
         onTurnFinished?(sessionID)
+    }
+
+    private func runAfterFinishHookIfNeeded(sessionID: UUID, clientRunID: UUID, status: PiAgentRunStatus, exitCode: Int32?) {
+        guard afterFinishHookRunIDs.insert(clientRunID).inserted else { return }
+        AgentDeckBuiltinHooks.afterFinish(.init(sessionID: sessionID, status: status, exitCode: exitCode))
     }
 
     private func mark(_ sessionID: UUID, status: PiAgentRunStatus, error: String?) {

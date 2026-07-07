@@ -2053,60 +2053,11 @@ final class PiAgentSessionStore {
     }
 
     private func runValidationCommand(_ command: String, workingDirectory: URL?) -> LoopValidationResult {
-        let startedAt = Date()
-        let outputDirectory = fileURL.deletingLastPathComponent().appendingPathComponent("loop-validation-output", isDirectory: true)
-        let stdoutURL = outputDirectory.appendingPathComponent("\(UUID().uuidString)-stdout.txt")
-        let stderrURL = outputDirectory.appendingPathComponent("\(UUID().uuidString)-stderr.txt")
-        do {
-            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-            FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-            let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-            let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-            defer {
-                try? stdoutHandle.close()
-                try? stderrHandle.close()
-            }
-
-            let process = Process()
-            let terminationSemaphore = DispatchSemaphore(value: 0)
-            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = ["-lc", command]
-            process.currentDirectoryURL = workingDirectory
-            process.standardOutput = stdoutHandle
-            process.standardError = stderrHandle
-            process.terminationHandler = { _ in terminationSemaphore.signal() }
-            try process.run()
-            let timedOut = terminationSemaphore.wait(timeout: .now() + 30) == .timedOut
-            if timedOut {
-                process.terminate()
-                process.waitUntilExit()
-            }
-
-            var stderr = cappedText(at: stderrURL)
-            if timedOut {
-                stderr += stderr.isEmpty ? "Validation command timed out after 30 seconds." : "\nValidation command timed out after 30 seconds."
-            }
-            return LoopValidationResult(
-                command: command,
-                workingDirectory: workingDirectory?.path,
-                exitCode: timedOut ? nil : Int(process.terminationStatus),
-                duration: Date().timeIntervalSince(startedAt),
-                stdout: cappedText(at: stdoutURL),
-                stderr: stderr,
-                stdoutPath: stdoutURL.path,
-                stderrPath: stderrURL.path
-            )
-        } catch {
-            return LoopValidationResult(
-                command: command,
-                workingDirectory: workingDirectory?.path,
-                exitCode: nil,
-                duration: Date().timeIntervalSince(startedAt),
-                stdout: "",
-                stderr: error.localizedDescription
-            )
-        }
+        AgentDeckBuiltinHooks.runValidation(.init(
+            command: command,
+            workingDirectory: workingDirectory,
+            outputDirectory: fileURL.deletingLastPathComponent().appendingPathComponent("loop-validation-output", isDirectory: true)
+        ))
     }
 
     private func runGitSynchronously(_ arguments: [String], currentDirectory: URL?, timeout: TimeInterval) -> CommandResult {
@@ -2136,17 +2087,6 @@ final class PiAgentSessionStore {
         }
     }
 
-    private func cappedText(at url: URL, byteLimit: Int = 16 * 1024) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: byteLimit + 1)) ?? Data()
-        let capped = data.count > byteLimit ? data.prefix(byteLimit) : data[...]
-        var text = String(decoding: capped, as: UTF8.self)
-        if data.count > byteLimit {
-            text += "\n… output truncated …"
-        }
-        return text
-    }
 
     private static let loopProgressFilename = "loop-progress.md"
     private static let loopProgressSummaryLimit = 420

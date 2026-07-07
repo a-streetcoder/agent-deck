@@ -26,6 +26,7 @@ final class PiSubagentRunService {
     private var thinkingEntryIDsByRunID: [UUID: UUID] = [:]
     private var thinkingTextByRunID: [UUID: String] = [:]
     private var toolEntryIDsByCallID: [String: UUID] = [:]
+    private var afterFinishHookRunIDs: Set<UUID> = []
     private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
     private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
     private var streamFlushTasksByRunID: [UUID: Task<Void, Never>] = [:]
@@ -319,6 +320,17 @@ final class PiSubagentRunService {
         // client's late termination (from `completeIfNeeded`'s `stop()`) must not
         // clobber the newly installed continuation client.
         let terminationHolder = ClientTerminationHolder()
+        try AgentDeckBuiltinHooks.preLaunch(.init(
+            parentSessionID: parentSessionID,
+            runID: runID,
+            agentName: agent.name,
+            projectURL: childProjectURL,
+            artifactDirectory: artifactDirectory,
+            extraArguments: extraArguments,
+            environment: environment,
+            isContinuation: isContinuation
+        ))
+        afterFinishHookRunIDs.remove(runID)
         let client = try PiRPCClient(
             cwd: childProjectURL,
             sessionFile: continuingRun?.childPiSessionFile,
@@ -414,6 +426,7 @@ final class PiSubagentRunService {
                 run.child = child
             }
         }
+        runAfterFinishHookIfNeeded(runID: runID, parentSessionID: parentSessionID, status: .stopped, exitCode: nil)
         notifyCompletion(runID: runID, parentSessionID: parentSessionID)
         if recordTranscript {
             store.append(.init(sessionID: parentSessionID, role: .status, title: "Deck Agent Stopped", text: "Deck agent run stopped."))
@@ -642,6 +655,7 @@ final class PiSubagentRunService {
                 }
             }
             guard didFailActiveRun else { return }
+            runAfterFinishHookIfNeeded(runID: runID, parentSessionID: parentSessionID, status: .failed, exitCode: exitCode)
             notifyCompletion(runID: runID, parentSessionID: parentSessionID)
             updateSubagentStatusCard(runID: runID, parentSessionID: parentSessionID, statusText: "Child Pi process exited with code \(exitCode).")
         }
@@ -792,6 +806,7 @@ final class PiSubagentRunService {
             outputPath = run.outputPath
             shouldAppend = true
         }
+        runAfterFinishHookIfNeeded(runID: runID, parentSessionID: parentSessionID, status: .completed, exitCode: nil)
         notifyCompletion(runID: runID, parentSessionID: parentSessionID)
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clientsByRunID[runID]?.stop()
@@ -804,6 +819,11 @@ final class PiSubagentRunService {
             let artifactLine = outputPath.map { "\n\nArtifact: \($0)" } ?? ""
             updateSubagentStatusCard(runID: runID, parentSessionID: parentSessionID, statusText: "\(finalSummary)\(artifactLine)")
         }
+    }
+
+    private func runAfterFinishHookIfNeeded(runID: UUID, parentSessionID: UUID, status: PiSubagentRunStatus, exitCode: Int32?) {
+        guard afterFinishHookRunIDs.insert(runID).inserted else { return }
+        AgentDeckBuiltinHooks.afterFinish(.init(parentSessionID: parentSessionID, runID: runID, status: status, exitCode: exitCode))
     }
 
     private func notifyCompletion(runID: UUID, parentSessionID: UUID) {
@@ -860,6 +880,7 @@ final class PiSubagentRunService {
                 run.child = child
             }
         }
+        runAfterFinishHookIfNeeded(runID: runID, parentSessionID: parentSessionID, status: .failed, exitCode: nil)
         notifyCompletion(runID: runID, parentSessionID: parentSessionID)
         updateSubagentStatusCard(runID: runID, parentSessionID: parentSessionID, statusText: message)
     }
