@@ -42,17 +42,26 @@ function TypingDots() {
   );
 }
 
+/** Native session-row caption (PiAgentSessionListViews.swift:439): abbreviated
+ * date + short time of the last activity (updatedAt, falling back to createdAt). */
+function formatSessionTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
 function SessionRow({
   session,
   displayTitle,
   active,
   running,
+  detailed = false,
   onSelect,
 }: {
   session: SessionMeta;
   displayTitle: string;
   active: boolean;
   running: boolean;
+  /** The expanded browsing list shows native's per-row last-active caption. */
+  detailed?: boolean;
   onSelect: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
@@ -109,13 +118,20 @@ function SessionRow({
         }
       }}
     >
-      <span
-        className="min-w-0 flex-1 truncate text-[13px] font-medium"
-        style={{ fontStretch: "expanded" }}
-        data-testid="chat-title"
-      >
-        {displayTitle}
-      </span>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span
+          className="truncate text-[13px] font-medium"
+          style={{ fontStretch: "expanded" }}
+          data-testid="chat-title"
+        >
+          {displayTitle}
+        </span>
+        {detailed ? (
+          <span className="truncate text-[11px] text-text-muted" data-testid="chat-timestamp">
+            {formatSessionTime(session.updatedAt ?? session.createdAt)}
+          </span>
+        ) : null}
+      </div>
       {running ? <TypingDots /> : null}
       {/* Hover-reveal actions (native session row). */}
       <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
@@ -331,6 +347,7 @@ export function SessionsExpandedOverlay({
                     displayTitle={sessionDisplayTitle(session.title, group)}
                     active={currentSession?.id === session.id}
                     running={currentSession?.id === session.id && agentStatus === "running"}
+                    detailed
                     onSelect={() => {
                       // Stay expanded while moving between sessions (native:
                       // selecting a session never collapses the panel).

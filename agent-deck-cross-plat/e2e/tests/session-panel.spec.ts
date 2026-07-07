@@ -130,6 +130,27 @@ test("the expanded panel filters sessions by title (18.1)", async ({ page }) => 
   await expect(panel).toContainText("beta-session");
 });
 
+test("the expanded panel shows each session's last-active time (native row caption)", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  const panel = page.getByTestId("sessions-expanded");
+  await page.getByTestId("sessions-expand").click();
+  await expect(panel).toHaveAttribute("aria-hidden", "false");
+
+  // Each expanded row renders a formatted last-active caption (locale/timezone
+  // vary across CI runners, so assert a real date-time rather than an exact
+  // string: it contains a digit and is non-empty).
+  const timestamp = panel.getByTestId("chat-timestamp").first();
+  await expect(timestamp).toBeVisible();
+  await expect(timestamp).toHaveText(/\d/);
+});
+
 test("navigating to a nav section renders it with the panel collapsed", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
