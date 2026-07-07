@@ -108,11 +108,16 @@ test("skills screen live-updates when a SKILL.md appears on disk", async ({ page
   // Rename the skill via the detail pane: the whole directory moves on disk.
   await row.click();
   await expect(page.getByTestId("skill-detail")).toBeVisible();
+  // The invocation reflects the current name before the rename.
+  await expect(page.getByTestId("skill-invocation")).toHaveText("/skill:release-notes");
   await page.getByTestId("skill-rename").click();
   await page.getByTestId("skill-rename-input").fill("changelog");
   await page.getByTestId("skill-rename-confirm").click();
 
   await expect(page.locator('[data-skill-name="changelog"]')).toBeVisible({ timeout: 15_000 });
+  // …and the detail stays on the renamed skill (no re-click), so the invocation
+  // follows the new name automatically.
+  await expect(page.getByTestId("skill-invocation")).toHaveText("/skill:changelog");
   await expect(page.locator('[data-skill-name="release-notes"]')).toHaveCount(0);
   const movedSkill = path.join(project, ".pi", "skills", "changelog", "SKILL.md");
   await expect.poll(() => existsSync(movedSkill)).toBe(true);
@@ -205,15 +210,50 @@ test("skill detail flags disable-model-invocation as 'manual only' (native 7.6)"
     "---\nname: auto-helper\ndescription: The model may use this freely\n---\n\nHelp.\n",
   );
 
-  // The manual-only skill shows the badge in its detail pane.
+  // The manual-only skill shows the badge in its detail pane, and its explicit
+  // /skill:<name> invocation (native: pi's _expandSkillCommand).
   const manualRow = page.locator('[data-skill-name="manual-op"]');
   await expect(manualRow).toBeVisible({ timeout: 15_000 });
   await manualRow.click();
   await expect(page.getByTestId("skill-detail")).toBeVisible();
   await expect(page.getByTestId("skill-manual-only-badge")).toBeVisible();
+  await expect(page.getByTestId("skill-invocation")).toHaveText("/skill:manual-op");
 
-  // The normal skill does not.
+  // The normal skill shows no badge but still shows its invocation.
   await page.locator('[data-skill-name="auto-helper"]').click();
   await expect(page.getByTestId("skill-detail")).toBeVisible();
   await expect(page.getByTestId("skill-manual-only-badge")).toHaveCount(0);
+  await expect(page.getByTestId("skill-invocation")).toHaveText("/skill:auto-helper");
+});
+
+test("renaming keeps the detail on the renamed skill in a multi-skill list", async ({ page }) => {
+  await registerProject();
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-skills").click();
+
+  // Two skills; select the one that is NOT alphabetically first, so a
+  // filePath-keyed selection that fell back to visible[0] would show the wrong
+  // skill after rename (the exact gap this guards).
+  for (const name of ["alpha-skill", "zeta-skill"]) {
+    const dir = path.join(project, ".pi", "skills", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, "SKILL.md"),
+      `---\nname: ${name}\ndescription: A rename-selection test skill\n---\n\nbody\n`,
+    );
+  }
+  await expect(page.locator('[data-skill-name="zeta-skill"]')).toBeVisible({ timeout: 15_000 });
+  await page.locator('[data-skill-name="zeta-skill"]').click();
+  await expect(page.getByTestId("skill-invocation")).toHaveText("/skill:zeta-skill");
+
+  // Rename zeta-skill → mid-skill. Without the pending-select fix the detail
+  // would fall back to alpha-skill (visible[0]); with it, the detail follows.
+  await page.getByTestId("skill-rename").click();
+  await page.getByTestId("skill-rename-input").fill("mid-skill");
+  await page.getByTestId("skill-rename-confirm").click();
+
+  await expect(page.locator('[data-skill-name="mid-skill"]')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("skill-invocation")).toHaveText("/skill:mid-skill");
 });

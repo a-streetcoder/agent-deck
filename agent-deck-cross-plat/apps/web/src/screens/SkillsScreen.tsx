@@ -30,6 +30,23 @@ import { ScopeChip } from "../components/ScopeChip.tsx";
 const inputClass =
   "w-full rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent";
 
+/**
+ * Mirrors pi's skill-name validity (skills.js validateName): ≤64 chars,
+ * lowercase a-z / 0-9 / hyphens only, no leading/trailing or doubled hyphens.
+ * The `/skill:<name>` invocation is only shown for a valid name, so the command
+ * we display always actually resolves in pi (its parser stops at the first
+ * space and it warns on — but still loads — otherwise-invalid names).
+ */
+function isValidSkillCommandName(name: string): boolean {
+  return (
+    name.length <= 64 &&
+    /^[a-z0-9-]+$/.test(name) &&
+    !name.startsWith("-") &&
+    !name.endsWith("-") &&
+    !name.includes("--")
+  );
+}
+
 interface SkillDraft {
   name: string;
   scope: "global" | "project";
@@ -324,6 +341,13 @@ export function SkillsScreen() {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // After a rename the skill's filePath changes (its directory moves), so a
+  // filePath-keyed selection would fall back to visible[0] and show the wrong
+  // skill. Remember the renamed skill by its EXACT new filePath (deterministic:
+  // renameSkillDir moves the dir to <catalog>/<newName>) and re-select it once
+  // the refetch lands. Keying on the precise path — not (name, scope) — avoids
+  // re-pointing to an unrelated same-name skill.
+  const [pendingSelectPath, setPendingSelectPath] = useState<string | null>(null);
   const [editing, setEditing] = useState<SkillDraft | null>(null);
   // Inline rename of the selected skill; value === null when not renaming.
   const [renameValue, setRenameValue] = useState<string | null>(null);
@@ -410,6 +434,30 @@ export function SkillsScreen() {
     }
   };
 
+  // A manual selection (row click) supersedes any pending post-rename re-select,
+  // so a delayed refetch can't yank the user off a skill they just clicked.
+  const selectSkill = useCallback((filePath: string): void => {
+    setPendingSelectPath(null);
+    setSelectedKey(filePath);
+  }, []);
+
+  // Once the post-rename refetch lands the renamed skill (by its exact new path),
+  // re-point the selection to it so the detail stays on it (native master-detail
+  // keeps the renamed row selected).
+  useEffect(() => {
+    if (!pendingSelectPath) return;
+    if (skills.some((s) => s.filePath === pendingSelectPath)) {
+      setSelectedKey(pendingSelectPath);
+      setPendingSelectPath(null);
+    }
+  }, [skills, pendingSelectPath]);
+
+  // A project switch abandons any pending re-select — it belonged to the old
+  // project's catalog.
+  useEffect(() => {
+    setPendingSelectPath(null);
+  }, [currentProjectId]);
+
   const selected = visible.find((s) => s.filePath === selectedKey) ?? visible[0] ?? null;
 
   // Close an open rename if the selected skill changes, so a pending value can't
@@ -432,7 +480,16 @@ export function SkillsScreen() {
       setRenameValue(null);
       return;
     }
-    if (await renameSkill(skill.scope, skill.name, newName)) setRenameValue(null);
+    if (await renameSkill(skill.scope, skill.name, newName)) {
+      setRenameValue(null);
+      // Keep the detail on the renamed skill once the refetch replaces its path.
+      // renameSkillDir moves the dir to <catalog>/<newName>, keeping the file's
+      // basename, so the new path is the old baseDir's parent + newName + file.
+      const sep = skill.baseDir.includes("\\") ? "\\" : "/";
+      const parent = skill.baseDir.slice(0, skill.baseDir.lastIndexOf(sep));
+      const fileName = skill.filePath.slice(skill.filePath.lastIndexOf(sep) + 1);
+      setPendingSelectPath(`${parent}${sep}${newName}${sep}${fileName}`);
+    }
   };
 
   return (
@@ -541,14 +598,14 @@ export function SkillsScreen() {
                 role="option"
                 aria-selected={isSelected}
                 tabIndex={0}
-                onClick={() => setSelectedKey(skill.filePath)}
+                onClick={() => selectSkill(skill.filePath)}
                 onKeyDown={(event) => {
                   // Ignore keys bubbled from the checkbox (its own Space toggles
                   // it) — only the row's own Enter/Space opens the detail.
                   if (event.target !== event.currentTarget) return;
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    setSelectedKey(skill.filePath);
+                    selectSkill(skill.filePath);
                   }
                 }}
               >
@@ -596,7 +653,7 @@ export function SkillsScreen() {
                   className="rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary opacity-0 transition-opacity hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setSelectedKey(skill.filePath);
+                    selectSkill(skill.filePath);
                     setEditing(editDraft(skill));
                   }}
                 >
@@ -680,6 +737,21 @@ export function SkillsScreen() {
                 ) : null}
               </div>
               <p className="mt-0.5 text-sm text-text-secondary">{selected.description}</p>
+              {/* How pi invokes this skill explicitly (agent-session _expandSkillCommand
+                  matches `/skill:<name>`, where name is pi's resolved skill name —
+                  frontmatter `name` or the directory basename — which is exactly
+                  SkillInfo.name). Distinct from prompts' `/name` form. Only shown
+                  for a pi-valid name (isValidSkillCommandName) so the displayed
+                  command always resolves; pi warns on — but still loads — names
+                  it considers invalid, which wouldn't invoke as typed. */}
+              {isValidSkillCommandName(selected.name) ? (
+                <code
+                  data-testid="skill-invocation"
+                  className="mt-1 inline-block font-mono text-xs text-text-muted"
+                >
+                  /skill:{selected.name}
+                </code>
+              ) : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button
