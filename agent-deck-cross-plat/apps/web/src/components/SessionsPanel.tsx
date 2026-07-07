@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import type { SessionMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
@@ -126,6 +126,15 @@ function SessionRow({
         >
           {displayTitle}
         </span>
+        {detailed && session.agentName ? (
+          <span
+            className="flex items-center gap-1 truncate text-[11px] text-text-muted"
+            data-testid="chat-agent-name"
+          >
+            <Send size={10} className="shrink-0" />
+            <span className="truncate">{session.agentName}</span>
+          </span>
+        ) : null}
         {detailed ? (
           <span className="truncate text-[11px] text-text-muted" data-testid="chat-timestamp">
             {formatSessionTime(session.updatedAt ?? session.createdAt)}

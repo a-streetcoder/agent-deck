@@ -97,3 +97,22 @@ test("the agent detail surfaces the system-prompt mode and extensions (native pa
   await expect(extensions).toContainText("note-taker");
   await expect(extensions).toContainText("web-search");
 });
+
+test("an agent-bound session shows the agent name in the expanded panel (native paperplane line)", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+
+  // Picking an agent binds the session to it (SessionMeta.agentName).
+  await page.getByTestId("agent-picker").selectOption("pancake-bot");
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // The expanded browsing list surfaces the bound agent's name as a visible line
+  // (native paperplane row), not just the row's hover tooltip.
+  await page.getByTestId("sessions-expand").click();
+  const panel = page.getByTestId("sessions-expanded");
+  await expect(panel).toHaveAttribute("aria-hidden", "false");
+  await expect(panel.getByTestId("chat-agent-name").first()).toHaveText("pancake-bot");
+});
