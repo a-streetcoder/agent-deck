@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runDoctor } from "../src/doctor.ts";
+import { MIN_NODE_VERSION, meetsMinNode, parseNodeVersion, runDoctor } from "../src/doctor.ts";
 
 /**
  * The environment doctor probes real host tools. bash + git are cross-platform
@@ -26,6 +26,44 @@ describe("runDoctor", () => {
       expect(check!.detail).not.toBe("");
       expect(["ok", "warn", "error"]).toContain(check!.status);
     }
+  });
+
+  it("includes a Node.js runtime check (this runner meets pi's minimum)", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
+    const report = await runDoctor(home);
+    const node = report.checks.find((c) => c.id === "node");
+    expect(node, "node check present").toBeDefined();
+    expect(node!.detail).not.toBe("");
+    // The test runner necessarily runs on Node ≥ pi's minimum, so this is "ok".
+    expect(node!.status).toBe("ok");
+    expect(node!.detail).toContain(MIN_NODE_VERSION);
+  });
+});
+
+describe("Node.js version gate (pi engines >= " + MIN_NODE_VERSION + ")", () => {
+  it("parses v-prefixed and bare versions, rejecting junk", () => {
+    expect(parseNodeVersion("v22.19.0")).toEqual([22, 19, 0]);
+    expect(parseNodeVersion("24.3.1")).toEqual([24, 3, 1]);
+    expect(parseNodeVersion("v20.11.1 (some build)")).toEqual([20, 11, 1]);
+    expect(parseNodeVersion("not-a-version")).toBeNull();
+    expect(parseNodeVersion(null)).toBeNull();
+    // A prerelease/build suffix still yields the base X.Y.Z (so a prerelease of
+    // an OLD version still trips the minimum): v20.0.0-nightly → below min.
+    expect(parseNodeVersion("v20.0.0-nightly20240101")).toEqual([20, 0, 0]);
+    expect(parseNodeVersion("v22.19.0+build")).toEqual([22, 19, 0]);
+    // But an extra numeric segment is rejected (not a clean release string).
+    expect(parseNodeVersion("22.19.0.1")).toBeNull();
+  });
+
+  it("accepts the exact minimum and anything newer, rejects older", () => {
+    expect(meetsMinNode([22, 19, 0])).toBe(true); // exact minimum
+    expect(meetsMinNode([22, 19, 1])).toBe(true); // newer patch
+    expect(meetsMinNode([22, 20, 0])).toBe(true); // newer minor
+    expect(meetsMinNode([23, 0, 0])).toBe(true); // newer major
+    expect(meetsMinNode([24, 5, 2])).toBe(true);
+    expect(meetsMinNode([22, 18, 9])).toBe(false); // older patch/minor
+    expect(meetsMinNode([22, 0, 0])).toBe(false);
+    expect(meetsMinNode([21, 99, 99])).toBe(false); // older major
   });
 });
 

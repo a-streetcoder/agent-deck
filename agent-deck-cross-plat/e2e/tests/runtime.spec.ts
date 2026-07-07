@@ -67,6 +67,13 @@ test("doctor reports a healthy pi binary with a version", async ({ page }) => {
   await expect(versionCheck).toHaveAttribute("data-check-status", "ok");
   await expect(versionCheck).toContainText("0.80.3");
 
+  // Node.js runtime check: pi is a Node CLI, so it's a first-class preflight.
+  // The e2e runner is on Node ≥ pi's minimum, so it reports ok.
+  const nodeCheck = page.locator('[data-check-id="node"]');
+  await expect(nodeCheck).toBeVisible();
+  await expect(nodeCheck).toHaveAttribute("data-check-status", "ok");
+  await expect(nodeCheck).toContainText("Node.js");
+
   // The GitHub CLI check is surfaced (its ok/warn verdict depends on the host's
   // gh install/auth, so only its presence is asserted here).
   const githubCheck = page.locator('[data-check-id="github"]');

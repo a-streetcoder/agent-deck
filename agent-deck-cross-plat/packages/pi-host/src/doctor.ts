@@ -27,6 +27,33 @@ export interface DoctorReport {
   signedInProviders: string[];
 }
 
+/** pi's minimum supported Node (package.json engines: node >=22.19.0). */
+export const MIN_NODE_VERSION = "22.19.0";
+const MIN_NODE_PARTS = MIN_NODE_VERSION.split(".").map(Number) as [number, number, number];
+
+/**
+ * Parse `v22.19.0` (or `22.19.0`) → [22,19,0]; null if unrecognizable. The
+ * `(?![.\d])` boundary rejects an extra numeric segment (`22.19.0.1`) so a
+ * malformed string isn't misread as a clean release, while still allowing a
+ * trailing prerelease/build suffix (`-nightly`, `+build`) or ` (extra text)` —
+ * the base X.Y.Z is what the minimum is compared against.
+ */
+export function parseNodeVersion(raw: string | null): [number, number, number] | null {
+  if (!raw) return null;
+  const match = raw.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?![.\d])/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/** True iff the given version is >= MIN_NODE_VERSION (lexicographic by part). */
+export function meetsMinNode(version: [number, number, number]): boolean {
+  for (let i = 0; i < 3; i++) {
+    if (version[i]! > MIN_NODE_PARTS[i]!) return true;
+    if (version[i]! < MIN_NODE_PARTS[i]!) return false;
+  }
+  return true; // exactly equal
+}
+
 /**
  * Run `cmd --version` (or the given args) and return its first stdout line, or
  * null if the command is missing or fails. cross-spawn, not node's execFile: on
@@ -145,6 +172,35 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
       detail: version ?? "could not read --version",
     });
     void binSource;
+  }
+
+  // Node.js runtime: pi is an npm-installed Node CLI (spawned via cross-spawn),
+  // so it can't run without Node on PATH — and it requires a minimum version
+  // (package.json engines). A "pi binary found" check alone would look healthy
+  // while pi fails to launch, so Node is a first-class preflight.
+  const nodeVersion = await probeVersion("node");
+  const nodeParsed = parseNodeVersion(nodeVersion);
+  if (!nodeVersion) {
+    checks.push({
+      id: "node",
+      label: "Node.js runtime",
+      status: "error",
+      detail: `node not on PATH — pi is a Node CLI and needs Node.js ≥ ${MIN_NODE_VERSION} (install from nodejs.org)`,
+    });
+  } else if (nodeParsed && !meetsMinNode(nodeParsed)) {
+    checks.push({
+      id: "node",
+      label: "Node.js runtime",
+      status: "error",
+      detail: `${nodeVersion} — pi requires Node.js ≥ ${MIN_NODE_VERSION}; upgrade Node`,
+    });
+  } else {
+    checks.push({
+      id: "node",
+      label: "Node.js runtime",
+      status: "ok",
+      detail: nodeParsed ? `${nodeVersion} (≥ ${MIN_NODE_VERSION})` : nodeVersion,
+    });
   }
 
   // bash on PATH: pi's shell tools run through bash, which is native on
