@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
@@ -148,4 +148,35 @@ test("multi-select bulk-deletes skills (7.5)", async ({ page }) => {
   await expect(page.getByTestId("skills-bulk-bar")).toHaveCount(0);
   expect(existsSync(path.join(project, ".pi", "skills", "bulk-a"))).toBe(false);
   expect(existsSync(path.join(project, ".pi", "skills", "bulk-b"))).toBe(false);
+});
+
+test("imports a local .md file as a skill (7.3)", async ({ page }) => {
+  await registerProject();
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await page.getByTestId("nav-skills").click();
+
+  // A source .md on disk (outside any catalog).
+  const source = path.join(mkdtempSync(path.join(tmpdir(), "skill-src-")), "anything.md");
+  writeFileSync(
+    source,
+    "---\nname: imported-skill\ndescription: An imported skill\n---\n\nDo the thing.\n",
+  );
+
+  await page.getByTestId("skill-import").click();
+  await page.getByTestId("skill-import-path").fill(source);
+  await page.getByTestId("skill-import-confirm").click();
+
+  // The imported (global) skill appears, written into the global catalog.
+  await expect(page.locator('[data-skill-name="imported-skill"]')).toBeVisible({ timeout: 15_000 });
+  const imported = path.join(
+    harness.piHome,
+    ".pi",
+    "agent",
+    "skills",
+    "imported-skill",
+    "SKILL.md",
+  );
+  await expect.poll(() => existsSync(imported)).toBe(true);
+  expect(readFileSync(imported, "utf8")).toContain("Do the thing.");
 });

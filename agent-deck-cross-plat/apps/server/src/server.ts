@@ -52,6 +52,7 @@ import {
   renamePromptFile,
   renameAgentFile,
   renameSkillDir,
+  importSkillFile,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -822,6 +823,43 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };
+  });
+
+  // Import a local .md file as a skill (native SkillImportSheet Local tab).
+  fastify.post("/resources/skills/import", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        sourcePath: z.string().min(1),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, sourcePath } = parsed.data;
+    const roots = rootsFor(projectId);
+    if (scope === "project" && !roots.projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    let name: string;
+    try {
+      name = importSkillFile(roots, scope, nodePath.resolve(sourcePath));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "skill_exists") {
+        return reply.status(409).send({ error: `A ${scope} skill of that name already exists.` });
+      }
+      if (message === "not_a_markdown_file") {
+        return reply.status(400).send({ error: "Pick an existing .md file to import." });
+      }
+      if (message === "invalid_skill_name") {
+        return reply
+          .status(400)
+          .send({ error: "Couldn't derive a valid skill name from the file." });
+      }
+      return reply.status(500).send({ error: message });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true, name };
   });
 
   // Prompt templates: single .md files pi exposes as /prompt:<name>.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
+  FolderInput,
   Grid3x3,
   Pencil,
   Power,
@@ -328,6 +329,9 @@ export function SkillsScreen() {
   const [renameValue, setRenameValue] = useState<string | null>(null);
   // Multi-select for bulk actions (native 7.5), by filePath.
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Local-import path input (native SkillImportSheet); null when not importing.
+  const [importPath, setImportPath] = useState<string | null>(null);
+  const setGlobalError = useAppStore((state) => state.setError);
 
   useEffect(() => {
     const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
@@ -387,6 +391,25 @@ export function SkillsScreen() {
     await Promise.all(checkedSkills.map((s) => deleteSkill(s.scope, s.name)));
   };
 
+  const doImport = async (): Promise<void> => {
+    const sourcePath = (importPath ?? "").trim();
+    if (!sourcePath) return;
+    try {
+      const res = await fetch("/resources/skills/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope: "global", sourcePath }),
+      });
+      if (!res.ok) {
+        const { error } = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(error ?? "Couldn't import the skill.");
+      }
+      setImportPath(null); // the new skill arrives via the resources_changed refetch
+    } catch (err) {
+      setGlobalError(String(err));
+    }
+  };
+
   const selected = visible.find((s) => s.filePath === selectedKey) ?? visible[0] ?? null;
 
   // Close an open rename if the selected skill changes, so a pending value can't
@@ -439,7 +462,39 @@ export function SkillsScreen() {
           >
             <Plus size={15} />
           </button>
+          <button
+            data-testid="skill-import"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border-strong text-text-secondary hover:text-text-primary"
+            title="Import a local .md file as a skill"
+            onClick={() => setImportPath((v) => (v === null ? "" : null))}
+          >
+            <FolderInput size={15} />
+          </button>
         </div>
+        {importPath !== null ? (
+          <div className="mx-3 mb-2 flex gap-2">
+            <input
+              autoFocus
+              data-testid="skill-import-path"
+              className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+              placeholder="/path/to/skill.md"
+              value={importPath}
+              onChange={(event) => setImportPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void doImport();
+                if (event.key === "Escape") setImportPath(null);
+              }}
+            />
+            <button
+              data-testid="skill-import-confirm"
+              className="rounded-capsule border border-border-strong px-2.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+              disabled={!importPath.trim()}
+              onClick={() => void doImport()}
+            >
+              Import
+            </button>
+          </div>
+        ) : null}
         {checkedSkills.length > 0 ? (
           <div
             className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-border-strong bg-surface-elevated px-2.5 py-1.5 text-xs"

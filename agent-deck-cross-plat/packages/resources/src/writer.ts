@@ -398,3 +398,52 @@ export function renameSkillDir(
   }
   return to;
 }
+
+/**
+ * Import a local .md file as a new global/project skill (native SkillImportSheet
+ * Local tab): the skill name comes from the file's frontmatter `name` (else its
+ * filename), and its SKILL.md is written into the catalog with the name synced.
+ * Returns the imported name. Throws "not_a_markdown_file" (bad source),
+ * "invalid_skill_name" (can't derive a valid name), or "skill_exists".
+ */
+/** The content after a leading `---\n…\n---\n` frontmatter block, VERBATIM
+ *  (parseFrontmatter trims its body, losing e.g. a leading indented code block). */
+function rawBodyAfterFrontmatter(content: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content);
+  return match ? content.slice(match[0].length) : content;
+}
+
+export function importSkillFile(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  sourcePath: string,
+): string {
+  if (!sourcePath.endsWith(".md") || !existsSync(sourcePath) || !statSync(sourcePath).isFile()) {
+    throw new Error("not_a_markdown_file");
+  }
+  const content = readFileSync(sourcePath, "utf8");
+  const parsed = parseFrontmatter(content);
+  const fromFrontmatter =
+    typeof parsed.frontmatter.name === "string" ? parsed.frontmatter.name.trim() : "";
+  const name = fromFrontmatter || path.basename(sourcePath, ".md");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error("invalid_skill_name");
+  const dir = skillDirPath(roots, scope, name);
+  if (existsSync(dir)) throw new Error("skill_exists");
+  // Skills need a description to be discoverable — default one if the file lacks it.
+  const description =
+    typeof parsed.frontmatter.description === "string" && parsed.frontmatter.description.trim()
+      ? parsed.frontmatter.description
+      : "Imported skill";
+  // Write directly (not via writeSkillFile) so the body is preserved VERBATIM —
+  // its .trim() would strip a leading indented code block — and any other
+  // frontmatter the source carried is kept. Only name/description are synced.
+  const frontmatter = { ...parsed.frontmatter, name, description };
+  const rawBody = rawBodyAfterFrontmatter(content);
+  const body = rawBody.endsWith("\n") ? rawBody : `${rawBody}\n`;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, "SKILL.md"),
+    `---\n${serializeFrontmatter(frontmatter)}\n---\n\n${body}`,
+  );
+  return name;
+}
