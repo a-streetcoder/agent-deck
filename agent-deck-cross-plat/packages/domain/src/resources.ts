@@ -19,6 +19,9 @@ export interface AgentInfo {
   description?: string;
   whenToUse?: string;
   model?: string;
+  /** Ordered fallback model identifiers (native fallbackModels) — Agent Deck
+   *  metadata, not passed to pi; persisted so an edit never silently drops it. */
+  fallbackModels?: string[];
   thinking?: string;
   systemPromptMode: "replace" | "append";
   tools?: string[];

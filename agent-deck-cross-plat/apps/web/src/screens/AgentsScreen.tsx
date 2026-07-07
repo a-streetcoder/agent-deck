@@ -351,6 +351,16 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
               <ChipList label="MCP Servers" items={agent.mcpServers} />
             </div>
           ) : null}
+          {/* Native "Fallback Models" config row (AgentManagementViews.swift:1333)
+              — shown only when declared, like native's `if !isEmpty`. */}
+          {agent.fallbackModels?.length ? (
+            <div
+              className="col-span-2 rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3"
+              data-testid="agent-fallback-models"
+            >
+              <ChipList label="Fallback Models" items={agent.fallbackModels} />
+            </div>
+          ) : null}
           {/* Native "Extensions" card (AgentManagementViews.swift:1377) — an
               explicit pi-extension allowlist for the agent's sessions. Shown only
               when declared, like native's `if !extensions.isEmpty`. */}

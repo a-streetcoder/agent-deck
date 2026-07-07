@@ -86,6 +86,31 @@ test("editing an agent's MCP servers persists and round-trips through the editor
   await expect(page.getByTestId("editor-mcp")).toHaveValue("github, linear");
 });
 
+test("editing an agent's fallback models persists and round-trips through the editor", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-agents").click();
+  await page.locator('[data-agent-name="coder"]').click();
+  await page.getByTestId("agent-edit").click();
+
+  // The Fallback models field lives on the default Config tab.
+  await page.getByTestId("editor-fallback-models").fill("anthropic/claude-sonnet-4, openai/gpt-4o");
+  await page.getByTestId("editor-save").click();
+  await expect(page.getByTestId("agent-editor")).toHaveCount(0);
+
+  // The selected agent's detail surfaces the declared fallback models.
+  const fallbackCard = page.getByTestId("agent-fallback-models");
+  await expect(fallbackCard).toContainText("anthropic/claude-sonnet-4");
+  await expect(fallbackCard).toContainText("openai/gpt-4o");
+
+  // Reopen the editor → the Config field shows the persisted value (round-trip).
+  await page.getByTestId("agent-edit").click();
+  await expect(page.getByTestId("editor-fallback-models")).toHaveValue(
+    "anthropic/claude-sonnet-4, openai/gpt-4o",
+  );
+});
+
 test("creating a project agent in the editor lands on disk and is pickable", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId(`project-${path.basename(project)}`).click();

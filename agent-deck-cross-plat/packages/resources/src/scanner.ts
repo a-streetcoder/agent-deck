@@ -53,6 +53,7 @@ export function parseAgentFile(
     description: asString(frontmatter.description),
     whenToUse: asString(frontmatter.whenToUse),
     model: asString(frontmatter.model),
+    fallbackModels: asList(frontmatter.fallbackModels),
     thinking: asString(frontmatter.thinking),
     systemPromptMode: mode === "append" ? "append" : "replace",
     tools: asList(frontmatter.tools),

@@ -180,6 +180,7 @@ const AGENT_FIELD_ORDER = [
   "description",
   "whenToUse",
   "model",
+  "fallbackModels",
   "thinking",
   "systemPromptMode",
   "tools",
@@ -229,6 +230,10 @@ export function writeAgentFile(
   setOrDelete("model", edit.model);
   setOrDelete("thinking", edit.thinking);
   if (edit.systemPromptMode !== undefined) frontmatter.systemPromptMode = edit.systemPromptMode;
+  if (edit.fallbackModels !== undefined) {
+    if (edit.fallbackModels.length > 0) frontmatter.fallbackModels = edit.fallbackModels.join(", ");
+    else delete frontmatter.fallbackModels;
+  }
   if (edit.tools !== undefined) {
     if (edit.tools.length > 0) frontmatter.tools = edit.tools.join(", ");
     else delete frontmatter.tools;

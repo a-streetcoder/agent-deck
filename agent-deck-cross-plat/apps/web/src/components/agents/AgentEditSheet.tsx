@@ -39,6 +39,7 @@ export function AgentEditSheet({
   const [description, setDescription] = useState(agent?.description ?? "");
   const [whenToUse, setWhenToUse] = useState(agent?.whenToUse ?? "");
   const [model, setModel] = useState(agent?.model ?? "");
+  const [fallbackModels, setFallbackModels] = useState((agent?.fallbackModels ?? []).join(", "));
   const [thinking, setThinking] = useState(agent?.thinking ?? "");
   const [mode, setMode] = useState<"replace" | "append">(agent?.systemPromptMode ?? "replace");
   const [tools, setTools] = useState((agent?.tools ?? []).join(", "));
@@ -56,6 +57,7 @@ export function AgentEditSheet({
     description: agent?.description ?? "",
     whenToUse: agent?.whenToUse ?? "",
     model: agent?.model ?? "",
+    fallbackModels: (agent?.fallbackModels ?? []).join(", "),
     thinking: agent?.thinking ?? "",
     mode: agent?.systemPromptMode ?? "replace",
     tools: (agent?.tools ?? []).join(", "),
@@ -67,6 +69,7 @@ export function AgentEditSheet({
     description !== initial.description ||
     whenToUse !== initial.whenToUse ||
     model !== initial.model ||
+    fallbackModels !== initial.fallbackModels ||
     thinking !== initial.thinking ||
     mode !== initial.mode ||
     tools !== initial.tools ||
@@ -134,6 +137,7 @@ export function AgentEditSheet({
             ((live.description ?? "") !== initial.description ||
               (live.whenToUse ?? "") !== initial.whenToUse ||
               (live.model ?? "") !== initial.model ||
+              (live.fallbackModels ?? []).join(", ") !== initial.fallbackModels ||
               (live.thinking ?? "") !== initial.thinking ||
               live.systemPromptMode !== initial.mode ||
               (live.tools ?? []).join(", ") !== initial.tools ||
@@ -158,6 +162,7 @@ export function AgentEditSheet({
             description,
             whenToUse,
             model,
+            fallbackModels: parseList(fallbackModels),
             thinking,
             systemPromptMode: mode,
             tools: parseList(tools),
@@ -309,6 +314,16 @@ export function AgentEditSheet({
                   </select>
                 </label>
               </div>
+              <label className="block text-xs text-text-muted">
+                Fallback models (comma-separated; tried in order if the primary is unavailable)
+                <input
+                  data-testid="editor-fallback-models"
+                  className={inputClass}
+                  placeholder="anthropic/claude-sonnet-4, openai/gpt-4o…"
+                  value={fallbackModels}
+                  onChange={(e) => setFallbackModels(e.target.value)}
+                />
+              </label>
             </>
           ) : null}
 

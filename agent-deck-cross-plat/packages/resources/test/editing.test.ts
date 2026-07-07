@@ -173,6 +173,66 @@ describe("agent/skill file writer", () => {
     expect(scanAgents({ home }).find((a) => a.name === "coder")!.mcpServers).toBeUndefined();
   });
 
+  it("round-trips an agent's fallbackModels through write + scan (no silent loss)", () => {
+    const home = makeHome();
+    const project = mkdtempSync(path.join(tmpdir(), "edit-proj-"));
+    const roots = { home, projectPath: project };
+
+    const filePath = writeAgentFile(roots, "project", "sequencer", {
+      description: "Plans",
+      model: "anthropic/claude-opus-4",
+      fallbackModels: ["anthropic/claude-sonnet-4", "openai/gpt-4o"],
+      body: "You plan.",
+    });
+    // Serialized comma-joined (native AgentPersistence.swift:339), like mcpServers.
+    expect(readFileSync(filePath, "utf8")).toContain(
+      "fallbackModels: anthropic/claude-sonnet-4, openai/gpt-4o",
+    );
+
+    const agent = scanAgents(roots).find((a) => a.name === "sequencer")!;
+    expect(agent.fallbackModels).toEqual(["anthropic/claude-sonnet-4", "openai/gpt-4o"]);
+
+    // A later unrelated edit (the exact silent-loss bug) preserves fallbackModels.
+    writeAgentFile(roots, "project", "sequencer", { description: "Plans better" });
+    expect(readFileSync(filePath, "utf8")).toContain(
+      "fallbackModels: anthropic/claude-sonnet-4, openai/gpt-4o",
+    );
+    expect(scanAgents(roots).find((a) => a.name === "sequencer")!.fallbackModels).toEqual([
+      "anthropic/claude-sonnet-4",
+      "openai/gpt-4o",
+    ]);
+
+    // Clearing removes the field.
+    writeAgentFile(roots, "project", "sequencer", { fallbackModels: [] });
+    expect(readFileSync(filePath, "utf8")).not.toContain("fallbackModels:");
+    expect(scanAgents(roots).find((a) => a.name === "sequencer")!.fallbackModels).toBeUndefined();
+  });
+
+  it("edits a builtin's fallbackModels as a managed override, file untouched", () => {
+    const home = makeHome();
+    const builtinFile = path.join(BUILTIN_AGENTS_DIR, "coder.md");
+    const bytesBefore = readFileSync(builtinFile);
+
+    const base = scanAgents({ home }).find((a) => a.name === "coder" && a.scope === "builtin")!;
+    const override = computeBuiltinOverride(base, {
+      fallbackModels: ["anthropic/claude-sonnet-4"],
+    });
+    expect(override).toEqual({ fallbackModels: ["anthropic/claude-sonnet-4"] });
+    writeBuiltinAgentOverride({ home }, "coder", override);
+
+    expect(readFileSync(builtinFile).equals(bytesBefore)).toBe(true);
+    const coder = scanAgents({ home }).find((a) => a.name === "coder")!;
+    expect(coder.fallbackModels).toEqual(["anthropic/claude-sonnet-4"]);
+
+    // Clearing it (empty list submitted) removes the override again.
+    const cleared = mergeWithUnmanagedOverrideFields(
+      readAgentOverrides({ home }).coder,
+      computeBuiltinOverride(base, { fallbackModels: [] }),
+    );
+    writeBuiltinAgentOverride({ home }, "coder", cleared);
+    expect(scanAgents({ home }).find((a) => a.name === "coder")!.fallbackModels).toBeUndefined();
+  });
+
   it("creates a skill SKILL.md discoverable by pi's loader", () => {
     const home = makeHome();
     const filePath = writeSkillFile({ home }, "global", "notes", {

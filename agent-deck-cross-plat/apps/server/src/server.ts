@@ -189,6 +189,7 @@ const agentEditFields = z.object({
   description: z.string().optional(),
   whenToUse: z.string().optional(),
   model: z.string().optional(),
+  fallbackModels: z.array(z.string()).optional(),
   thinking: z.string().optional(),
   systemPromptMode: z.enum(["replace", "append"]).optional(),
   tools: z.array(z.string()).optional(),
