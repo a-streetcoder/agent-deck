@@ -6,8 +6,9 @@ import { useAppStore } from "../state/store.ts";
 
 /**
  * Prompts screen (native piResources → Prompts): CRUD for prompt-template .md
- * files that pi exposes as `/prompt:<name>` commands. Single markdown files
- * with a name + description; project scope wins over global for the same name.
+ * files that pi exposes as `/<name>` slash commands (native prompt.invocation;
+ * pi matches the file's basename). Single markdown files with a name +
+ * description + optional argument-hint; project scope wins over global.
  */
 
 interface Draft {
@@ -169,7 +170,7 @@ export function PromptsScreen() {
           </button>
         </div>
         <p className="pb-3 text-xs text-text-muted">
-          Reusable prompts pi exposes as <code className="font-mono">/prompt:&lt;name&gt;</code>{" "}
+          Reusable prompts pi exposes as <code className="font-mono">/&lt;name&gt;</code> slash
           commands. Project prompts override global ones of the same name.
         </p>
 
@@ -234,7 +235,7 @@ export function PromptsScreen() {
             >
               {renaming?.name === prompt.name && renaming.scope === prompt.scope ? (
                 <>
-                  <span className="font-mono text-sm text-text-muted">/prompt:</span>
+                  <span className="font-mono text-sm text-text-muted">/</span>
                   <input
                     autoFocus
                     data-testid={`prompt-rename-input-${prompt.name}`}
@@ -270,11 +271,20 @@ export function PromptsScreen() {
                     onClick={() => startEdit(prompt)}
                   >
                     <span
+                      data-testid="prompt-invocation"
                       className="font-mono text-sm font-medium text-text-primary"
                       style={{ fontStretch: "expanded" }}
                     >
-                      /prompt:{prompt.name}
+                      {prompt.invocation}
                     </span>
+                    {prompt.argumentHint ? (
+                      <span
+                        data-testid="prompt-argument-hint"
+                        className="shrink-0 rounded-capsule border border-border-subtle px-1.5 font-mono text-[10px] text-text-muted"
+                      >
+                        {prompt.argumentHint}
+                      </span>
+                    ) : null}
                     <span
                       data-testid="scope-chip"
                       data-scope={prompt.scope}

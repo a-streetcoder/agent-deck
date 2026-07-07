@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
@@ -6,8 +6,8 @@ import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
  * Tier-3 gate (Prompts screen): a prompt template created through the screen
- * lands on disk as a .pi/prompts/<name>.md file (pi's /prompt:<name>), edits
- * persist, and delete removes it.
+ * lands on disk as a .pi/prompts/<name>.md file (pi's /<name> slash command),
+ * edits persist, and delete removes it.
  */
 
 let harness: E2eHarness;
@@ -42,7 +42,7 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
 
   const row = page.locator('[data-prompt-name="review"]');
   await expect(row).toBeVisible();
-  await expect(row).toContainText("/prompt:review");
+  await expect(row.getByTestId("prompt-invocation")).toHaveText("/review");
   await expect(row.getByTestId("scope-chip")).toHaveAttribute("data-scope", "project");
 
   // On disk where pi loads it.
@@ -51,7 +51,7 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
   expect(readFileSync(file, "utf8")).toContain("Please review the diff for bugs.");
 
   // Edit the body.
-  await row.getByText("/prompt:review").click();
+  await row.getByTestId("prompt-invocation").click();
   await page.getByTestId("prompt-body").fill("Please review the diff for security issues.");
   await page.getByTestId("prompt-save").click();
   await expect
@@ -64,7 +64,7 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
   await page.getByTestId("prompt-rename-confirm-review").click();
 
   const renamed = page.locator('[data-prompt-name="audit"]');
-  await expect(renamed).toContainText("/prompt:audit");
+  await expect(renamed.getByTestId("prompt-invocation")).toHaveText("/audit");
   await expect(page.locator('[data-prompt-name="review"]')).toHaveCount(0);
   const auditFile = path.join(project, ".pi", "prompts", "audit.md");
   await expect.poll(() => existsSync(auditFile)).toBe(true);
@@ -76,4 +76,30 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
   await page.getByTestId("prompt-delete-audit").click();
   await expect(page.locator('[data-prompt-name="audit"]')).toHaveCount(0);
   expect(existsSync(auditFile)).toBe(false);
+});
+
+test("surfaces the /invocation and argument-hint for a prompt on disk (native 8.1)", async ({
+  page,
+}) => {
+  // Seed a prompt whose FILE basename differs from its frontmatter name (which
+  // pi ignores), and that declares an argument-hint.
+  const dir = path.join(project, ".pi", "prompts");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, "deploy-svc.md"),
+    "---\nname: Deploy Service\ndescription: Ship a service\nargument-hint: <service> [env]\n---\n\nDeploy $1 to ${2:-staging}.\n",
+  );
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-prompts").click();
+
+  // Identity is the basename (pi ignores the frontmatter name), so the row is
+  // keyed by deploy-svc, the command is /deploy-svc, and the argument-hint
+  // renders beside it. This also guarantees edit/rename/delete target the real
+  // file rather than "Deploy Service.md".
+  const row = page.locator('[data-prompt-name="deploy-svc"]');
+  await expect(row.getByTestId("prompt-invocation")).toHaveText("/deploy-svc");
+  await expect(row.getByTestId("prompt-argument-hint")).toHaveText("<service> [env]");
 });

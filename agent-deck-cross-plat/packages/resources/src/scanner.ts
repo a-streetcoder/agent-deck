@@ -112,12 +112,20 @@ export function scanPrompts(roots: ResourceRoots): PromptInfo[] {
       const filePath = path.join(dir, entry);
       try {
         const { frontmatter, body } = parseFrontmatter(readFileSync(filePath, "utf8"));
+        // A prompt's identity IS its file basename: pi registers the command
+        // under the basename (expandPromptTemplate matches `/<basename>`) and
+        // IGNORES any frontmatter `name`. So `name` (which edit/rename/delete and
+        // the writer key off, as `${name}.md`) must be the basename too — trusting
+        // a divergent frontmatter `name` would target the wrong file.
+        const basename = path.basename(entry, ".md");
         prompts.push({
-          name: asString(frontmatter.name) ?? path.basename(entry, ".md"),
+          name: basename,
           description: asString(frontmatter.description),
           scope,
           filePath,
           body: body.trim(),
+          invocation: `/${basename}`,
+          argumentHint: asString(frontmatter["argument-hint"]),
         });
       } catch {
         // Unreadable/malformed — skip.

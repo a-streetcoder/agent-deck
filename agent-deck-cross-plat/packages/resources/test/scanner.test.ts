@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { agentMatchesFilter } from "@agent-deck/domain";
 import { describe, expect, it } from "vitest";
-import { scanAgents, scanSkills } from "../src/scanner.ts";
+import { scanAgents, scanPrompts, scanSkills } from "../src/scanner.ts";
 
 function makeHome(): string {
   return mkdtempSync(path.join(tmpdir(), "res-home-"));
@@ -76,5 +76,54 @@ describe("scanSkills", () => {
     const skills = scanSkills({ home, projectPath: project });
     expect(skills.find((s) => s.name === "web-research")).toMatchObject({ scope: "global" });
     expect(skills.find((s) => s.name === "deploy")).toMatchObject({ scope: "project" });
+  });
+});
+
+describe("scanPrompts (native prompt.invocation + argument-hint, §8.1)", () => {
+  function writePrompt(dir: string, file: string, content: string): void {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, file), content);
+  }
+
+  it("derives the invocation from the FILE basename and reads argument-hint", () => {
+    const home = makeHome();
+    const dir = path.join(home, ".pi", "agent", "prompts");
+    writePrompt(
+      dir,
+      "review.md",
+      "---\ndescription: Review a PR\nargument-hint: <pr-number>\n---\n\nReview #$1.\n",
+    );
+
+    const prompts = scanPrompts({ home });
+    const review = prompts.find((p) => p.name === "review")!;
+    expect(review.invocation).toBe("/review");
+    expect(review.argumentHint).toBe("<pr-number>");
+    expect(review.description).toBe("Review a PR");
+  });
+
+  it("identity is the basename — a divergent frontmatter `name` is ignored (matches pi)", () => {
+    // pi registers the command under the basename and ignores a frontmatter
+    // name, so `name` (which edit/rename/delete + the writer key off as
+    // `${name}.md`) must be the basename — otherwise those actions target the
+    // wrong file. A hand-authored divergent frontmatter name must not leak in.
+    const home = makeHome();
+    const dir = path.join(home, ".pi", "agent", "prompts");
+    writePrompt(
+      dir,
+      "ship-it.md",
+      "---\nname: Ship It\ndescription: Ship\n---\n\nShip the build.\n",
+    );
+
+    const prompt = scanPrompts({ home }).find((p) => p.invocation === "/ship-it")!;
+    expect(prompt).toBeDefined();
+    expect(prompt.name).toBe("ship-it"); // the basename, NOT "Ship It"
+    expect(prompt.invocation).toBe("/ship-it");
+  });
+
+  it("leaves argumentHint undefined when there's no argument-hint frontmatter", () => {
+    const home = makeHome();
+    const dir = path.join(home, ".pi", "agent", "prompts");
+    writePrompt(dir, "note.md", "---\ndescription: A note\n---\n\nJust a note.\n");
+    expect(scanPrompts({ home }).find((p) => p.name === "note")!.argumentHint).toBeUndefined();
   });
 });

@@ -60,6 +60,14 @@ export interface PromptInfo {
   filePath: string;
   /** Markdown body (frontmatter stripped) — the editor's initial state. */
   body: string;
+  /**
+   * The slash command that runs this template (native prompt.invocation).
+   * pi matches `/<filename>` (expandPromptTemplate compares against the file's
+   * basename, NOT any frontmatter `name`), so this is `/` + the basename.
+   */
+  invocation: string;
+  /** pi's `argument-hint` frontmatter — a usage hint shown next to the command. */
+  argumentHint?: string;
 }
 
 export type AgentFilter =
