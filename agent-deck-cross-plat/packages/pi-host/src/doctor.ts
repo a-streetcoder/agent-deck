@@ -270,5 +270,36 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
     fixCommand: signedInProviders.length > 0 ? undefined : "export ANTHROPIC_API_KEY=YOUR_KEY_HERE",
   });
 
+  // pi's settings.json (native Doctor "Settings Files"): pi's SettingsManager
+  // reads ~/.pi/agent/settings.json on startup with strict JSON.parse. Absent is
+  // fine (pi uses defaults). A malformed file does NOT crash pi — it catches the
+  // parse error, falls back to {}, and emits a warning-level diagnostic — but the
+  // user's custom settings are then silently dropped, so it's a "warn" (matching
+  // pi's own severity), not an "error". Never writes/exposes the contents.
+  const settingsPath = path.join(home, ".pi", "agent", "settings.json");
+  if (!existsSync(settingsPath)) {
+    checks.push({
+      id: "settings",
+      label: "pi settings.json",
+      status: "ok",
+      detail: "not present — pi uses built-in defaults",
+    });
+  } else {
+    let valid = true;
+    try {
+      JSON.parse(readFileSync(settingsPath, "utf8"));
+    } catch {
+      valid = false;
+    }
+    checks.push({
+      id: "settings",
+      label: "pi settings.json",
+      status: valid ? "ok" : "warn",
+      detail: valid
+        ? "valid JSON"
+        : `malformed JSON at ${settingsPath} — pi ignores it and falls back to built-in defaults, so your custom settings won't apply; fix or remove it`,
+    });
+  }
+
   return { checks, signedInProviders };
 }

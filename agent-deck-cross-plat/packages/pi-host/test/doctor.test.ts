@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,6 +26,34 @@ describe("runDoctor", () => {
       expect(check!.detail).not.toBe("");
       expect(["ok", "warn", "error"]).toContain(check!.status);
     }
+  });
+
+  it("validates pi's settings.json (native Doctor Settings Files)", async () => {
+    // Absent → ok (pi uses defaults).
+    const absent = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
+    const absentCheck = (await runDoctor(absent)).checks.find((c) => c.id === "settings");
+    expect(absentCheck?.status).toBe("ok");
+    expect(absentCheck?.detail).toMatch(/not present/i);
+
+    // Valid JSON → ok.
+    const good = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
+    const goodAgent = path.join(good, ".pi", "agent");
+    mkdirSync(goodAgent, { recursive: true });
+    writeFileSync(path.join(goodAgent, "settings.json"), '{"subagents":{"agentOverrides":{}}}');
+    const goodCheck = (await runDoctor(good)).checks.find((c) => c.id === "settings");
+    expect(goodCheck?.status).toBe("ok");
+    expect(goodCheck?.detail).toMatch(/valid/i);
+
+    // Malformed JSON → warn (pi doesn't crash — it falls back to {} and warns —
+    // but the user's custom settings are silently dropped).
+    const bad = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
+    const badAgent = path.join(bad, ".pi", "agent");
+    mkdirSync(badAgent, { recursive: true });
+    writeFileSync(path.join(badAgent, "settings.json"), "{ not: valid json, ");
+    const badCheck = (await runDoctor(bad)).checks.find((c) => c.id === "settings");
+    expect(badCheck?.status).toBe("warn");
+    expect(badCheck?.detail).toMatch(/malformed/i);
+    expect(badCheck?.detail).toMatch(/custom settings won't apply/i);
   });
 
   it("includes a Node.js runtime check (this runner meets pi's minimum)", async () => {

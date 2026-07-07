@@ -74,6 +74,13 @@ test("doctor reports a healthy pi binary with a version", async ({ page }) => {
   await expect(nodeCheck).toHaveAttribute("data-check-status", "ok");
   await expect(nodeCheck).toContainText("Node.js");
 
+  // pi settings.json validity check (native Doctor Settings Files): the hermetic
+  // home has no settings.json, so it reports ok ("uses defaults").
+  const settingsCheck = page.locator('[data-check-id="settings"]');
+  await expect(settingsCheck).toBeVisible();
+  await expect(settingsCheck).toHaveAttribute("data-check-status", "ok");
+  await expect(settingsCheck).toContainText("settings.json");
+
   // The GitHub CLI check is surfaced (its ok/warn verdict depends on the host's
   // gh install/auth, so only its presence is asserted here).
   const githubCheck = page.locator('[data-check-id="github"]');
