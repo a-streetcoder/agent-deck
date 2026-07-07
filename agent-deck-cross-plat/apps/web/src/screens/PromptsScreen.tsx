@@ -460,7 +460,11 @@ export function PromptsScreen() {
                     data-testid={`prompt-delete-${prompt.name}`}
                     className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:text-[var(--color-role-error)] group-hover:opacity-100"
                     title="Delete"
-                    onClick={() => void remove(prompt)}
+                    onClick={() => {
+                      if (confirm(`Delete prompt "${prompt.name}"? This removes its file.`)) {
+                        void remove(prompt);
+                      }
+                    }}
                   >
                     <Trash2 size={13} />
                   </button>

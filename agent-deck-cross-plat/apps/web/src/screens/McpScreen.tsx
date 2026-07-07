@@ -209,7 +209,15 @@ export function McpScreen() {
                 data-testid={`mcp-remove-${server.id}`}
                 className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
                 title="Remove"
-                onClick={() => void remove(server.id)}
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Remove MCP server "${server.id}"? This clears its project and agent assignments.`,
+                    )
+                  ) {
+                    void remove(server.id);
+                  }
+                }}
               >
                 <Trash2 size={13} />
               </button>

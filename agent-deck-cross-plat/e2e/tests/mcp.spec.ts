@@ -45,7 +45,8 @@ test("lists a configured MCP server as connected and removes it", async ({ page 
   // The echo tool the mock server exposes is listed.
   await expect(row).toContainText("mcp__mock__echo");
 
-  // Remove it → the row disappears and the empty state shows.
+  // Remove it (confirm-gated, native parity) → the row disappears + empty state.
+  page.once("dialog", (dialog) => void dialog.accept());
   await page.getByTestId("mcp-remove-mock").click();
   await expect(page.getByTestId("mcp-mock")).toHaveCount(0);
   await expect(page.getByTestId("mcp-empty")).toBeVisible();

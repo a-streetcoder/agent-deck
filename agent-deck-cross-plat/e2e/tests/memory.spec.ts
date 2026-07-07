@@ -80,7 +80,8 @@ test("lists a project's memories and pins, edits, and deletes one", async ({ pag
   await page.getByTestId("memory-save").click();
   await expect(row).toContainText("pnpm workspaces exclusively");
 
-  // Delete it → the row disappears.
+  // Delete it (confirm-gated, native parity) → the row disappears.
+  page.once("dialog", (dialog) => void dialog.accept());
   await page.getByTestId(`memory-delete-${memory.id}`).click();
   await expect(page.getByTestId(`memory-${memory.id}`)).toHaveCount(0);
   await expect(page.getByTestId("memory-empty")).toBeVisible();

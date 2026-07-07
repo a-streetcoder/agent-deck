@@ -146,6 +146,11 @@ test("multi-select bulk-deletes skills (7.5)", async ({ page }) => {
   await page.getByTestId("skill-check-bulk-a").check();
   await page.getByTestId("skill-check-bulk-b").check();
   await expect(page.getByTestId("skills-bulk-bar")).toContainText("2 selected");
+  // Bulk delete is confirm-gated (native parity, like single-skill delete).
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toContain("Delete 2 skills");
+    void dialog.accept();
+  });
   await page.getByTestId("skills-bulk-delete").click();
 
   await expect(page.locator('[data-skill-name="bulk-a"]')).toHaveCount(0);

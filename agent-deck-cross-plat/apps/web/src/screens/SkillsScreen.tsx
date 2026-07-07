@@ -568,7 +568,12 @@ export function SkillsScreen() {
             <button
               data-testid="skills-bulk-delete"
               className="flex items-center gap-1 rounded-capsule border border-border-strong px-2 py-0.5 text-text-muted hover:text-[var(--color-role-error)]"
-              onClick={() => void bulkDelete()}
+              onClick={() => {
+                const n = checkedSkills.length;
+                if (confirm(`Delete ${n} skill${n === 1 ? "" : "s"}? This removes their files.`)) {
+                  void bulkDelete();
+                }
+              }}
             >
               <Trash2 size={12} /> Delete
             </button>

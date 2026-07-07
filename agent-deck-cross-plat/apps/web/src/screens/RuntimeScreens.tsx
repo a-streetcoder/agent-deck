@@ -221,7 +221,11 @@ export function EnvironmentScreen() {
                   data-testid={`env-delete-${entry.key}`}
                   className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
                   title="Delete"
-                  onClick={() => void deleteVar(entry.scope, entry.key)}
+                  onClick={() => {
+                    if (confirm(`Delete environment key "${entry.key}"?`)) {
+                      void deleteVar(entry.scope, entry.key);
+                    }
+                  }}
                 >
                   <Trash2 size={12} />
                 </button>

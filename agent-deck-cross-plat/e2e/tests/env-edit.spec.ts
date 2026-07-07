@@ -77,6 +77,8 @@ test("delete a var removes it from the file", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-environment").click();
 
+  // Delete is confirm-gated (native parity).
+  page.once("dialog", (dialog) => void dialog.accept());
   await page.getByTestId("env-delete-NEW_TOKEN").click();
   await expect(page.locator('[data-env-key="NEW_TOKEN"]')).toHaveCount(0);
   expect(readFileSync(globalEnvPath(), "utf8")).not.toContain("NEW_TOKEN");

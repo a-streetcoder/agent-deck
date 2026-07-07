@@ -384,7 +384,11 @@ export function MemoryScreen() {
                         data-testid={`memory-delete-${memory.id}`}
                         className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
                         title="Delete"
-                        onClick={() => void remove(memory.id)}
+                        onClick={() => {
+                          if (confirm("Delete this memory? This removes its file from disk.")) {
+                            void remove(memory.id);
+                          }
+                        }}
                       >
                         <Trash2 size={13} />
                       </button>

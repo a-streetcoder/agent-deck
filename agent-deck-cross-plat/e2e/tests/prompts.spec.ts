@@ -79,7 +79,17 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
   // Body carried across the rename.
   expect(readFileSync(auditFile, "utf8")).toContain("Please review the diff for security issues.");
 
-  // Delete the renamed prompt.
+  // Delete is confirm-gated (native parity): dismissing keeps the prompt.
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toContain(`Delete prompt "audit"`);
+    void dialog.dismiss();
+  });
+  await page.getByTestId("prompt-delete-audit").click();
+  await expect(page.locator('[data-prompt-name="audit"]')).toHaveCount(1);
+  expect(existsSync(auditFile)).toBe(true);
+
+  // Accepting the confirm actually deletes it (file + row gone).
+  page.once("dialog", (dialog) => void dialog.accept());
   await page.getByTestId("prompt-delete-audit").click();
   await expect(page.locator('[data-prompt-name="audit"]')).toHaveCount(0);
   expect(existsSync(auditFile)).toBe(false);
