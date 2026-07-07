@@ -490,22 +490,51 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   // Fan out several subagents at once. Each runs as its own child pi; the count
   // is capped so a single call can't spawn an unbounded number of processes.
-  const parallelParams = z.object({ tasks: z.array(z.string().trim().min(1)).min(1).max(8) });
+  const parallelParams = z.object({
+    tasks: z
+      .array(
+        // `.strict()` matches the item schema's additionalProperties:false, so an
+        // unexpected field is rejected rather than silently stripped.
+        z
+          .object({
+            task: z.string().trim().min(1),
+            agent: z.string().trim().min(1).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(8),
+  });
   bridge.register(
     {
       name: "managed_parallel",
       label: "Parallel subagents",
       description:
-        "Run several self-contained tasks in parallel, each in its own fresh subagent, and get all their results back together. Use when the tasks are independent.",
+        "Run several self-contained tasks in parallel, each in its own fresh subagent, and get all their results back together. Use when the tasks are independent. Each task may optionally name an `agent` to delegate to (it adopts that agent's persona).",
       parameters: {
         type: "object",
         properties: {
           tasks: {
             type: "array",
-            items: { type: "string" },
+            items: {
+              type: "object",
+              properties: {
+                task: {
+                  type: "string",
+                  description: "A complete, self-contained task description.",
+                },
+                agent: {
+                  type: "string",
+                  description:
+                    "Optional: the name of an installed agent to delegate this task to; the subagent adopts its persona.",
+                },
+              },
+              required: ["task"],
+              additionalProperties: false,
+            },
             minItems: 1,
             maxItems: 8,
-            description: "Independent, self-contained task descriptions (max 8).",
+            description: "Independent, self-contained tasks to run in parallel (max 8).",
           },
         },
         required: ["tasks"],
@@ -523,7 +552,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
       // allSettled: one failing subagent doesn't drop the others' results.
       const settled = await Promise.allSettled(
-        parsed.data.tasks.map((task) => sessions.runSubagent(ctx.sessionId, task)),
+        parsed.data.tasks.map((t) => sessions.runSubagent(ctx.sessionId, t.task, t.agent)),
       );
       const anyOk = settled.some((r) => r.status === "fulfilled");
       const rendered = settled
