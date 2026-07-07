@@ -68,6 +68,9 @@ export function IssuesScreen() {
   // filter the already-loaded board, never re-query gh.
   const [labelFilters, setLabelFilters] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
+  // Native free-text search (IssuesScreen.searchFiltered): a lowercased substring
+  // match over each item's searchableHaystack, applied AFTER the facet filters.
+  const [searchQuery, setSearchQuery] = useState("");
   // Monotonic request token: a slow fetch for a stale project/filter must not
   // clobber the result of a newer one (the filter buttons stay clickable).
   const reqRef = useRef(0);
@@ -116,6 +119,7 @@ export function IssuesScreen() {
     // The old repo's labels/assignees don't apply to the new one.
     setLabelFilters([]);
     setAssigneeFilter(null);
+    setSearchQuery("");
   }, [currentProjectId]);
 
   const start = async (issue: Issue): Promise<void> => {
@@ -199,16 +203,26 @@ export function IssuesScreen() {
     [issues],
   );
 
-  // Client-side filter (native filteredBoardItems): label OR + assignee contains.
+  // Client-side filter (native filteredBoardItems + searchFiltered): label OR +
+  // assignee contains, then a lowercased substring search over the item's
+  // haystack. The list model carries title/number/labels/assignees (body/author
+  // are detail-only), so the haystack is that faithful subset of native's.
+  const search = searchQuery.trim().toLowerCase();
   const visibleIssues = useMemo(
     () =>
       issues.filter((issue) => {
         if (assigneeFilter && !issue.assignees.includes(assigneeFilter)) return false;
         if (labelFilters.length && !labelFilters.some((l) => issue.labels.includes(l)))
           return false;
+        if (search) {
+          const haystack = [issue.title, `#${issue.number}`, ...issue.assignees, ...issue.labels]
+            .join(" ")
+            .toLowerCase();
+          if (!haystack.includes(search)) return false;
+        }
         return true;
       }),
-    [issues, assigneeFilter, labelFilters],
+    [issues, assigneeFilter, labelFilters, search],
   );
   const filtersActive = labelFilters.length > 0 || assigneeFilter !== null;
   const clearFilters = (): void => {
@@ -432,6 +446,18 @@ export function IssuesScreen() {
               Select one to start a session on it.
             </p>
 
+            {/* Native free-text search (searchableHaystack): filters the loaded
+                board client-side by title / #number / labels / assignees. */}
+            {!error ? (
+              <input
+                data-testid="issues-search"
+                className="mb-3 w-full rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                placeholder="Search issues by title, #number, label, or assignee…"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+            ) : null}
+
             {/* Native label + assignee facet filters (client-side over the loaded
                 board). Only shown when the board actually offers a facet. */}
             {!error && (availableLabels.length > 0 || availableAssignees.length > 0) ? (
@@ -533,11 +559,15 @@ export function IssuesScreen() {
                     className="py-8 text-center text-sm text-text-muted"
                     data-testid="issues-empty"
                   >
-                    {filtersActive
-                      ? "No issues match these filters. Try clearing the filters or changing the state."
-                      : stateFilter === "all"
-                        ? "No issues."
-                        : `No ${stateFilter} issues.`}
+                    {/* Native emptyStateMessage priority: search query wins,
+                        then active facets, then the plain no-issues copy. */}
+                    {search
+                      ? `No issues match “${searchQuery.trim()}”.`
+                      : filtersActive
+                        ? "Try clearing the filters or changing the state."
+                        : stateFilter === "all"
+                          ? "No issues."
+                          : `No ${stateFilter} issues.`}
                   </div>
                 ) : null}
               </div>

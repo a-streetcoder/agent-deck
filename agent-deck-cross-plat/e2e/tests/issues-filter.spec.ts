@@ -96,3 +96,47 @@ test("label (OR) + assignee facet filters narrow the loaded board client-side", 
   await expect(page.getByTestId("issue-2")).toBeVisible();
   await expect(page.getByTestId("issue-3")).toBeVisible();
 });
+
+test("free-text search filters the loaded board over title / #number / label / assignee", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-issues").click();
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+
+  // Title substring (case-insensitive) → only #2 "Add dark mode".
+  await page.getByTestId("issues-search").fill("DARK");
+  await expect(page.getByTestId("issue-2")).toBeVisible();
+  await expect(page.getByTestId("issue-1")).toHaveCount(0);
+  await expect(page.getByTestId("issue-3")).toHaveCount(0);
+
+  // #number match → only #3.
+  await page.getByTestId("issues-search").fill("#3");
+  await expect(page.getByTestId("issue-3")).toBeVisible();
+  await expect(page.getByTestId("issue-1")).toHaveCount(0);
+
+  // Assignee text → marty is only on #1.
+  await page.getByTestId("issues-search").fill("marty");
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+  await expect(page.getByTestId("issue-2")).toHaveCount(0);
+
+  // Search AND facets compose: label "bug" (→ #1,#3) then search "flaky" (→ #3).
+  await page.getByTestId("issues-search").fill("");
+  await page.getByTestId("issues-label-bug").click();
+  await page.getByTestId("issues-search").fill("flaky");
+  await expect(page.getByTestId("issue-3")).toBeVisible();
+  await expect(page.getByTestId("issue-1")).toHaveCount(0);
+
+  // No match → the query-specific empty state (native emptyStateMessage).
+  await page.getByTestId("issues-search").fill("nonexistent-xyz");
+  await expect(page.getByTestId("issues-empty")).toContainText("No issues match");
+  await expect(page.getByTestId("issues-empty")).toContainText("nonexistent-xyz");
+
+  // Clearing the search (facet still active) restores the facet's matches.
+  await page.getByTestId("issues-search").fill("");
+  await expect(page.getByTestId("issue-1")).toBeVisible();
+  await expect(page.getByTestId("issue-3")).toBeVisible();
+  await expect(page.getByTestId("issue-2")).toHaveCount(0);
+});
