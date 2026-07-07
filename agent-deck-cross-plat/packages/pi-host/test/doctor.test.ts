@@ -2,7 +2,13 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MIN_NODE_VERSION, meetsMinNode, parseNodeVersion, runDoctor } from "../src/doctor.ts";
+import {
+  MIN_NODE_VERSION,
+  meetsMinNode,
+  parseNodeVersion,
+  runDoctor,
+  summarizeSettings,
+} from "../src/doctor.ts";
 
 /**
  * The environment doctor probes real host tools. bash + git are cross-platform
@@ -35,14 +41,34 @@ describe("runDoctor", () => {
     expect(absentCheck?.status).toBe("ok");
     expect(absentCheck?.detail).toMatch(/not present/i);
 
-    // Valid JSON → ok.
+    // Valid but empty → ok, plain "valid JSON" (no summary).
     const good = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
     const goodAgent = path.join(good, ".pi", "agent");
     mkdirSync(goodAgent, { recursive: true });
     writeFileSync(path.join(goodAgent, "settings.json"), '{"subagents":{"agentOverrides":{}}}');
     const goodCheck = (await runDoctor(good)).checks.find((c) => c.id === "settings");
     expect(goodCheck?.status).toBe("ok");
-    expect(goodCheck?.detail).toMatch(/valid/i);
+    expect(goodCheck?.detail).toBe("valid JSON");
+
+    // Valid with notable content → ok, and the detail summarizes it (native
+    // "Settings Files": overrides, disableBuiltins, packages, extra prompts).
+    const rich = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
+    const richAgent = path.join(rich, ".pi", "agent");
+    mkdirSync(richAgent, { recursive: true });
+    writeFileSync(
+      path.join(richAgent, "settings.json"),
+      JSON.stringify({
+        subagents: { agentOverrides: { coder: { description: "x" } }, disableBuiltins: true },
+        packages: ["pkg-a"],
+        prompts: ["a", "b"],
+      }),
+    );
+    const richCheck = (await runDoctor(rich)).checks.find((c) => c.id === "settings");
+    expect(richCheck?.status).toBe("ok");
+    expect(richCheck?.detail).toContain("1 agent override");
+    expect(richCheck?.detail).toContain("builtin agents disabled");
+    expect(richCheck?.detail).toContain("1 package");
+    expect(richCheck?.detail).toContain("2 extra prompt paths");
 
     // Malformed JSON → warn (pi doesn't crash — it falls back to {} and warns —
     // but the user's custom settings are silently dropped).
@@ -65,6 +91,44 @@ describe("runDoctor", () => {
     // The test runner necessarily runs on Node ≥ pi's minimum, so this is "ok".
     expect(node!.status).toBe("ok");
     expect(node!.detail).toContain(MIN_NODE_VERSION);
+  });
+});
+
+describe("summarizeSettings (native Settings Files summary)", () => {
+  it("returns empty for non-objects, null, and an empty settings object", () => {
+    expect(summarizeSettings(null)).toBe("");
+    expect(summarizeSettings("nope")).toBe("");
+    expect(summarizeSettings(42)).toBe("");
+    expect(summarizeSettings({})).toBe("");
+    expect(summarizeSettings({ subagents: {} })).toBe("");
+  });
+
+  it("counts overrides/packages/prompts and flags disableBuiltins, pluralizing", () => {
+    expect(summarizeSettings({ subagents: { agentOverrides: { a: {} } } })).toBe(
+      "1 agent override",
+    );
+    expect(summarizeSettings({ subagents: { agentOverrides: { a: {}, b: {} } } })).toBe(
+      "2 agent overrides",
+    );
+    expect(summarizeSettings({ subagents: { disableBuiltins: true } })).toBe(
+      "builtin agents disabled",
+    );
+    // disableBuiltins:false is not notable.
+    expect(summarizeSettings({ subagents: { disableBuiltins: false } })).toBe("");
+    expect(summarizeSettings({ packages: ["x", "y"], prompts: ["p"] })).toBe(
+      "2 packages, 1 extra prompt path",
+    );
+  });
+
+  it("is defensive against mistyped fields", () => {
+    // Wrong types must not throw or count.
+    expect(summarizeSettings({ subagents: "oops", packages: "nope", prompts: 3 })).toBe("");
+    // A wrong-shaped agentOverrides ARRAY must be rejected (not counted by its
+    // indices) — empty AND non-empty.
+    expect(summarizeSettings({ subagents: { agentOverrides: [] } })).toBe("");
+    expect(summarizeSettings({ subagents: { agentOverrides: ["x", "y"] } })).toBe("");
+    // A subagents value that is itself an array is likewise not an object map.
+    expect(summarizeSettings({ subagents: ["nope"] })).toBe("");
   });
 });
 

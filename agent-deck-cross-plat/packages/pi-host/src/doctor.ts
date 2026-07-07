@@ -45,6 +45,34 @@ export function parseNodeVersion(raw: string | null): [number, number, number] |
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+/**
+ * A compact human summary of the notable bits of a parsed pi settings.json
+ * (native Doctor "Settings Files": builtin-agent overrides, disableBuiltins,
+ * packages, extra prompt-template paths). Purely read-only and fully defensive
+ * against missing/mistyped fields; returns "" when nothing notable is set.
+ */
+export function summarizeSettings(parsed: unknown): string {
+  if (typeof parsed !== "object" || parsed === null) return "";
+  const s = parsed as Record<string, unknown>;
+  // Only a plain (non-array) object counts — subagents / agentOverrides are
+  // `{...}` maps, never arrays, so a wrong-shaped array value must NOT be counted
+  // by its indices.
+  const asObject = (v: unknown): Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+  const parts: string[] = [];
+  const subagents = asObject(s.subagents);
+  const overrideCount = Object.keys(asObject(subagents.agentOverrides)).length;
+  if (overrideCount > 0) parts.push(plural(overrideCount, "agent override"));
+  if (subagents.disableBuiltins === true) parts.push("builtin agents disabled");
+  const packageCount = Array.isArray(s.packages) ? s.packages.length : 0;
+  if (packageCount > 0) parts.push(plural(packageCount, "package"));
+  const promptCount = Array.isArray(s.prompts) ? s.prompts.length : 0;
+  if (promptCount > 0) parts.push(plural(promptCount, "extra prompt path"));
+  return parts.join(", ");
+}
+
 /** True iff the given version is >= MIN_NODE_VERSION (lexicographic by part). */
 export function meetsMinNode(version: [number, number, number]): boolean {
   for (let i = 0; i < 3; i++) {
@@ -285,20 +313,30 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
       detail: "not present — pi uses built-in defaults",
     });
   } else {
+    let parsed: unknown;
     let valid = true;
     try {
-      JSON.parse(readFileSync(settingsPath, "utf8"));
+      parsed = JSON.parse(readFileSync(settingsPath, "utf8"));
     } catch {
       valid = false;
     }
-    checks.push({
-      id: "settings",
-      label: "pi settings.json",
-      status: valid ? "ok" : "warn",
-      detail: valid
-        ? "valid JSON"
-        : `malformed JSON at ${settingsPath} — pi ignores it and falls back to built-in defaults, so your custom settings won't apply; fix or remove it`,
-    });
+    if (valid) {
+      // Surface a read-only summary of the notable bits (native "Settings Files").
+      const summary = summarizeSettings(parsed);
+      checks.push({
+        id: "settings",
+        label: "pi settings.json",
+        status: "ok",
+        detail: summary ? `valid JSON — ${summary}` : "valid JSON",
+      });
+    } else {
+      checks.push({
+        id: "settings",
+        label: "pi settings.json",
+        status: "warn",
+        detail: `malformed JSON at ${settingsPath} — pi ignores it and falls back to built-in defaults, so your custom settings won't apply; fix or remove it`,
+      });
+    }
   }
 
   return { checks, signedInProviders };
