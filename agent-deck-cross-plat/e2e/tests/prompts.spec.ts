@@ -44,6 +44,8 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
   await expect(row).toBeVisible();
   await expect(row.getByTestId("prompt-invocation")).toHaveText("/review");
   await expect(row.getByTestId("scope-chip")).toHaveAttribute("data-scope", "project");
+  // "All Projects" default is a global-only concept — a project prompt has no toggle.
+  await expect(row.getByTestId("prompt-default-review")).toHaveCount(0);
 
   // On disk where pi loads it.
   const file = path.join(project, ".pi", "prompts", "review.md");
@@ -102,4 +104,49 @@ test("surfaces the /invocation and argument-hint for a prompt on disk (native 8.
   const row = page.locator('[data-prompt-name="deploy-svc"]');
   await expect(row.getByTestId("prompt-invocation")).toHaveText("/deploy-svc");
   await expect(row.getByTestId("prompt-argument-hint")).toHaveText("<service> [env]");
+});
+
+test("the All Projects toggle sets a prompt as a default (native defaultPromptTemplateNames)", async ({
+  page,
+}) => {
+  // Seed a global prompt in the hermetic pi home.
+  const dir = path.join(harness.piHome, ".pi", "agent", "prompts");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, "changelog-note.md"),
+    "---\ndescription: Draft a changelog note\n---\n\nWrite a changelog note.\n",
+  );
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await expect(page.getByTestId("session-cwd")).toHaveText(project);
+  await page.getByTestId("nav-prompts").click();
+
+  const toggle = page.getByTestId("prompt-default-changelog-note");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+  // Enable → the toggle flips and the setting persists server-side.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(async () => {
+      const { settings } = (await (await fetch(`${harness.baseUrl}/settings`)).json()) as {
+        settings: { defaultPromptTemplates?: string[] };
+      };
+      return settings.defaultPromptTemplates ?? [];
+    })
+    .toContain("changelog-note");
+
+  // Disable → removed again.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect
+    .poll(async () => {
+      const { settings } = (await (await fetch(`${harness.baseUrl}/settings`)).json()) as {
+        settings: { defaultPromptTemplates?: string[] };
+      };
+      return settings.defaultPromptTemplates ?? [];
+    })
+    .not.toContain("changelog-note");
 });

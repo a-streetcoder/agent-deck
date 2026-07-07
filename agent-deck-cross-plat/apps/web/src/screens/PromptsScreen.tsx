@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Check, MessageSquareText, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Globe, MessageSquareText, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { PromptInfo } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
@@ -27,6 +27,10 @@ export function PromptsScreen() {
   const setError = useAppStore((state) => state.setError);
   const [prompts, setPrompts] = useState<PromptInfo[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // "All Projects" default prompt templates (native defaultPromptTemplateNames):
+  // enabled ones are injected into every project's parent sessions as
+  // --prompt-template flags. Tracked by name, read from app settings.
+  const [defaultPrompts, setDefaultPrompts] = useState<string[]>([]);
   // Inline rename target (native RenameResourceSheet): the prompt being renamed.
   const [renaming, setRenaming] = useState<{
     name: string;
@@ -46,9 +50,60 @@ export function PromptsScreen() {
     }
   }, [currentProjectId, setError]);
 
+  // Monotonic token: a slow /settings GET must not clobber a newer optimistic
+  // flip or a newer refresh. Bumped on every refresh AND on every toggle.
+  const defaultsSeq = useRef(0);
+  const refreshDefaults = useCallback(async (): Promise<void> => {
+    const seq = ++defaultsSeq.current;
+    try {
+      const response = await fetch("/settings");
+      if (!response.ok) return;
+      const { settings } = (await response.json()) as {
+        settings: { defaultPromptTemplates?: string[] };
+      };
+      if (seq === defaultsSeq.current) setDefaultPrompts(settings.defaultPromptTemplates ?? []);
+    } catch {
+      // Non-fatal: the toggle just won't reflect state until the next refresh.
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load, resourcesVersion]);
+    void refreshDefaults();
+  }, [load, refreshDefaults, resourcesVersion]);
+
+  // Toggle a prompt's "All Projects" default (native defaultPromptTemplateNames).
+  // The PATCH RESPONSE returns the authoritative updated settings, so we apply
+  // that (not a separate GET) under a per-toggle token — the latest toggle wins
+  // and no interleaved refresh can land stale state over a newer flip.
+  const toggleDefault = async (name: string, enabled: boolean): Promise<void> => {
+    const seq = ++defaultsSeq.current;
+    // Optimistic — the toggle must flip immediately.
+    setDefaultPrompts((prev) =>
+      enabled ? [...new Set([...prev, name])] : prev.filter((n) => n !== name),
+    );
+    try {
+      const response = await fetch("/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ setDefaultPromptTemplate: { name, enabled } }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const { settings } = (await response.json()) as {
+        settings: { defaultPromptTemplates?: string[] };
+      };
+      // Reconcile to the server's authoritative list only if still the latest.
+      if (seq === defaultsSeq.current) setDefaultPrompts(settings.defaultPromptTemplates ?? []);
+    } catch (err) {
+      // Revert the optimistic flip so the UI can't claim a change that failed.
+      if (seq === defaultsSeq.current) {
+        setDefaultPrompts((prev) =>
+          enabled ? prev.filter((n) => n !== name) : [...new Set([...prev, name])],
+        );
+      }
+      setError(String(err));
+    }
+  };
 
   // Close the editor when the project changes so an in-progress edit can't be
   // saved against a different project than it was opened in.
@@ -303,6 +358,33 @@ export function PromptsScreen() {
                       </span>
                     ) : null}
                   </button>
+                  {/* "All Projects" default is a GLOBAL concept — the backend
+                      resolves a default name global-first, so the toggle is only
+                      meaningful (and only shown) for global-scope prompts. */}
+                  {prompt.scope === "global" &&
+                    (() => {
+                      const on = defaultPrompts.includes(prompt.name);
+                      return (
+                        <button
+                          data-testid={`prompt-default-${prompt.name}`}
+                          aria-pressed={on}
+                          className={cn(
+                            "flex shrink-0 items-center gap-1 rounded-capsule border px-1.5 py-0.5 text-[10px] transition-colors",
+                            on
+                              ? "border-border-strong bg-[var(--color-selection-fill)] text-text-primary"
+                              : "border-border-subtle text-text-muted opacity-0 hover:text-text-primary group-hover:opacity-100",
+                          )}
+                          title={
+                            on
+                              ? "Enabled for All Projects — remove"
+                              : "Enable this prompt for All Projects (injected as --prompt-template)"
+                          }
+                          onClick={() => void toggleDefault(prompt.name, !on)}
+                        >
+                          <Globe size={11} /> All Projects
+                        </button>
+                      );
+                    })()}
                   <button
                     data-testid={`prompt-rename-${prompt.name}`}
                     className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
