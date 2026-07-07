@@ -1,3 +1,5 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { writeQuestionCommandExtension } from "@agent-deck/testkit";
@@ -68,4 +70,28 @@ test("adding an extension loads its command; disabling excludes it", async ({ pa
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
   const id2 = await newSessionId(before2);
   await expect.poll(() => commandNames(id2), { timeout: 20_000 }).not.toContain("ask-test");
+});
+
+test("flags two enabled extensions that share a filename (§16.2)", async ({ page }) => {
+  // Same basename, different directories → pi would load a duplicate.
+  const dupName = "dup-ext.ts";
+  const a = path.join(mkdtempSync(path.join(tmpdir(), "ext-a-")), dupName);
+  const b = path.join(mkdtempSync(path.join(tmpdir(), "ext-b-")), dupName);
+  writeFileSync(a, "export default {};\n");
+  writeFileSync(b, "export default {};\n");
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-extensions").click();
+  for (const p of [a, b]) {
+    await page.getByTestId("extension-add").click();
+    await page.getByTestId("extension-path").fill(p);
+    await page.getByTestId("extension-add-confirm").click();
+  }
+
+  // Both same-named rows are flagged as conflicting.
+  await expect(page.getByTestId("extension-conflict")).toHaveCount(2);
+
+  // Disabling one resolves the conflict for both (only one is loaded now).
+  await page.getByTestId(`extension-toggle-${dupName}`).first().click();
+  await expect(page.getByTestId("extension-conflict")).toHaveCount(0);
 });

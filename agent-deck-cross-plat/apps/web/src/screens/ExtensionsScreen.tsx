@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plug, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Plug, Plus, Trash2 } from "lucide-react";
+import { conflictingExtensionNames } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
 
@@ -73,6 +74,9 @@ export function ExtensionsScreen() {
     await load();
   };
 
+  // Names loaded by 2+ enabled extensions — pi would load duplicates (§16.2).
+  const conflicts = conflictingExtensionNames(extensions);
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="extensions-screen">
       <div className="mx-auto max-w-3xl">
@@ -135,47 +139,61 @@ export function ExtensionsScreen() {
         ) : null}
 
         <div className="space-y-1.5" data-testid="extension-list">
-          {extensions.map((ext) => (
-            <div
-              key={ext.path}
-              data-extension-name={ext.name}
-              className={cn(
-                "flex items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5",
-                ext.disabled && "opacity-55",
-              )}
-            >
-              <div className="min-w-0 flex-1">
-                <div
-                  className="truncate text-sm font-medium text-text-primary"
-                  style={{ fontStretch: "expanded" }}
-                >
-                  {ext.name}
+          {extensions.map((ext) => {
+            const conflicting = !ext.disabled && conflicts.has(ext.name);
+            return (
+              <div
+                key={ext.path}
+                data-extension-name={ext.name}
+                data-conflict={conflicting ? "true" : "false"}
+                className={cn(
+                  "flex items-center gap-3 rounded-[14px] border bg-surface px-3.5 py-2.5",
+                  conflicting ? "border-[var(--color-warning)]" : "border-border-subtle",
+                  ext.disabled && "opacity-55",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="truncate text-sm font-medium text-text-primary"
+                    style={{ fontStretch: "expanded" }}
+                  >
+                    {ext.name}
+                  </div>
+                  <div className="truncate font-mono text-[11px] text-text-muted">{ext.path}</div>
                 </div>
-                <div className="truncate font-mono text-[11px] text-text-muted">{ext.path}</div>
+                {conflicting ? (
+                  <span
+                    data-testid="extension-conflict"
+                    title="Another enabled extension has the same filename. pi loads both (it keys by path), but two extensions sharing a name is usually a mistake — disable or remove one."
+                    className="flex items-center gap-1 rounded-capsule border border-[var(--color-warning)] px-1.5 text-[10px] text-[var(--color-warning)]"
+                  >
+                    <AlertTriangle size={10} /> conflict
+                  </span>
+                ) : null}
+                {!ext.exists ? (
+                  <span className="rounded-capsule border border-[var(--color-role-error)] px-1.5 text-[10px] text-[var(--color-role-error)]">
+                    missing
+                  </span>
+                ) : null}
+                <button
+                  data-testid={`extension-toggle-${ext.name}`}
+                  data-enabled={!ext.disabled}
+                  className="rounded-capsule border border-border-strong px-2 py-0.5 text-xs text-text-secondary hover:text-text-primary"
+                  onClick={() => void toggle(ext)}
+                >
+                  {ext.disabled ? "Enable" : "Disable"}
+                </button>
+                <button
+                  data-testid={`extension-remove-${ext.name}`}
+                  className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
+                  title="Remove"
+                  onClick={() => void remove(ext)}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
-              {!ext.exists ? (
-                <span className="rounded-capsule border border-[var(--color-role-error)] px-1.5 text-[10px] text-[var(--color-role-error)]">
-                  missing
-                </span>
-              ) : null}
-              <button
-                data-testid={`extension-toggle-${ext.name}`}
-                data-enabled={!ext.disabled}
-                className="rounded-capsule border border-border-strong px-2 py-0.5 text-xs text-text-secondary hover:text-text-primary"
-                onClick={() => void toggle(ext)}
-              >
-                {ext.disabled ? "Enable" : "Disable"}
-              </button>
-              <button
-                data-testid={`extension-remove-${ext.name}`}
-                className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
-                title="Remove"
-                onClick={() => void remove(ext)}
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+            );
+          })}
           {extensions.length === 0 && !adding ? (
             <div className="py-8 text-center text-sm text-text-muted">
               No extensions added. Point at a pi extension file to load it into sessions.

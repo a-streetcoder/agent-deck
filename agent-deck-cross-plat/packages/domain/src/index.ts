@@ -6,3 +6,4 @@ export * from "./ingest.ts";
 export * from "./protocol.ts";
 export * from "./resources.ts";
 export * from "./memory.ts";
+export * from "./extensions.ts";
