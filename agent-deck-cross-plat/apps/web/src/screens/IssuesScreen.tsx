@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, CircleDot, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  CircleDot,
+  CircleSlash,
+  MessageSquare,
+  RefreshCw,
+  Sparkles,
+  User,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAppStore } from "../state/store.ts";
@@ -44,6 +53,7 @@ export function IssuesScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const projects = useAppStore((state) => state.projects);
   const setView = useAppStore((state) => state.setView);
+  const setGlobalError = useAppStore((state) => state.setError);
   const setPendingComposerText = useAppStore((state) => state.setPendingComposerText);
   const project = projects.find((p) => p.id === currentProjectId) ?? null;
 
@@ -139,6 +149,34 @@ export function IssuesScreen() {
     setDetailError(null);
   };
 
+  // Close the open issue (native 10.9 split-button: completed / not planned).
+  const closeIssue = async (reason: "completed" | "not_planned"): Promise<void> => {
+    if (!currentProjectId || !detail) return;
+    // Token identifies the current selection (bumped on project switch AND on
+    // opening any issue), so a delayed response can't touch a newer selection —
+    // e.g. the SAME issue number in a different project after a switch.
+    const req = detailReq.current;
+    const res = await fetch(
+      `/projects/${encodeURIComponent(currentProjectId)}/issues/${detail.number}/close`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason }),
+      },
+    );
+    if (detailReq.current !== req) return; // selection changed — ignore this response
+    if (!res.ok) {
+      const { error } = (await res.json().catch(() => ({}))) as { error?: string };
+      // Surface on the GLOBAL banner, NOT the detail-error slot — a failed close
+      // must keep the still-open issue (and its close buttons) on screen.
+      setGlobalError(error ?? "Couldn't close the issue.");
+      return;
+    }
+    // Reflect the close locally (the list re-filters by the server's state on
+    // its next load).
+    setDetail((current) => (current ? { ...current, state: "CLOSED" } : current));
+  };
+
   if (!project) {
     return (
       <div
@@ -218,18 +256,38 @@ export function IssuesScreen() {
                     </span>
                   ))}
                 </div>
-                <button
-                  data-testid="issue-open-in-pi"
-                  className="mt-3 flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
-                  style={{
-                    background:
-                      "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
-                    color: "var(--color-accent-foreground)",
-                  }}
-                  onClick={() => void start(detail)}
-                >
-                  <Sparkles size={13} /> Open in Pi
-                </button>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    data-testid="issue-open-in-pi"
+                    className="flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
+                    style={{
+                      background:
+                        "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                      color: "var(--color-accent-foreground)",
+                    }}
+                    onClick={() => void start(detail)}
+                  >
+                    <Sparkles size={13} /> Open in Pi
+                  </button>
+                  {detail.state.toLowerCase() === "open" ? (
+                    <>
+                      <button
+                        data-testid="issue-close-completed"
+                        className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                        onClick={() => void closeIssue("completed")}
+                      >
+                        <CheckCircle2 size={13} /> Close as completed
+                      </button>
+                      <button
+                        data-testid="issue-close-not-planned"
+                        className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-muted hover:text-text-primary"
+                        onClick={() => void closeIssue("not_planned")}
+                      >
+                        <CircleSlash size={13} /> Not planned
+                      </button>
+                    </>
+                  ) : null}
+                </div>
                 <div
                   className="mt-4 rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3"
                   data-testid="issue-detail-body"

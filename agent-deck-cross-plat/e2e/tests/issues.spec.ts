@@ -30,7 +30,9 @@ sub="$2"
 num="$3"
 state=open
 while [ $# -gt 0 ]; do case "$1" in --state) shift; state="$1" ;; esac; shift; done
-if [ "$sub" = "view" ]; then
+if [ "$sub" = "close" ]; then
+exit 0
+elif [ "$sub" = "view" ]; then
 cat <<JSON
 {"number":$num,"title":"Fix the flux capacitor","body":"Steps to reproduce the flux leak.","state":"OPEN","url":"https://github.com/x/y/issues/$num","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}],"author":{"login":"doc"},"comments":[{"author":{"login":"marty"},"body":"Confirmed on my machine too.","createdAt":"2026-02-01T09:30:00Z"}]}
 JSON
@@ -93,6 +95,13 @@ test("opens an issue's detail and starts a seeded session from it", async ({ pag
   await expect(comment).toHaveCount(1);
   await expect(comment).toContainText("Confirmed on my machine too.");
   await expect(comment).toContainText("marty");
+
+  // Close the open issue (native 10.9): the state pill flips and the close
+  // actions disappear.
+  await expect(page.getByTestId("issue-close-completed")).toBeVisible();
+  await page.getByTestId("issue-close-completed").click();
+  await expect(page.getByTestId("issue-detail-state")).toHaveText("closed");
+  await expect(page.getByTestId("issue-close-completed")).toHaveCount(0);
 
   // Back returns to the list; re-open and use "Open in Pi" to seed a session.
   await page.getByTestId("issue-detail-back").click();

@@ -1717,6 +1717,35 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
   });
 
+  // Close an issue (native Issues close split-button 10.9): completed or not
+  // planned. `gh issue close <n> --reason <reason>`.
+  fastify.post("/projects/:id/issues/:number/close", async (request, reply) => {
+    const { id, number } = request.params as { id: string; number: string };
+    const project = projects.find((p) => p.id === id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    if (!/^\d+$/.test(number)) return reply.status(400).send({ error: "invalid issue number" });
+    const parsed = z
+      .object({ reason: z.enum(["completed", "not_planned"]) })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: "invalid close reason" });
+    // gh spells the reason with a space; our API uses a snake_case enum.
+    const ghReason = parsed.data.reason === "completed" ? "completed" : "not planned";
+    const ghBin = process.env.AGENT_DECK_GH_BIN || "gh";
+    try {
+      await execFileAsync(ghBin, ["issue", "close", number, "--reason", ghReason], {
+        cwd: project.path,
+        timeout: 15_000,
+        maxBuffer: 8_000_000,
+      });
+    } catch {
+      return reply.status(502).send({
+        error:
+          "Couldn't close the issue — needs the gh CLI installed, authenticated, and a remote.",
+      });
+    }
+    return { ok: true };
+  });
+
   fastify.get("/sessions", async (request) => {
     const { projectId } = request.query as { projectId?: string };
     // Live sessions win over persisted index entries (same id).
