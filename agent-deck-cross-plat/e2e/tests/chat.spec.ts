@@ -72,6 +72,15 @@ test("shows the session context-usage indicator (native, from get_session_stats)
   const chip = page.getByTestId("context-usage");
   await expect(chip).toBeVisible({ timeout: 15_000 });
   await expect(chip).toContainText("% ctx");
+
+  // Same get_session_stats also carries the cumulative token total + cost
+  // (native footer metrics). The mock reports a real total_tokens, so the token
+  // chip appears; the free custom provider prices at 0, which — matching native's
+  // nonnil-cost display — surfaces as a "$0.00" chip (not hidden).
+  const tokens = page.getByTestId("session-tokens");
+  await expect(tokens).toBeVisible({ timeout: 15_000 });
+  await expect(tokens).toContainText("tokens");
+  await expect(page.getByTestId("session-cost")).toContainText("$0.00");
 });
 
 test("abort stops a streaming reply and returns to idle", async ({ page }) => {

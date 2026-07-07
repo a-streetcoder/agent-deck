@@ -42,6 +42,13 @@ async function fileToImage(file: File): Promise<PendingImage | null> {
   };
 }
 
+/** Native `PiAgentRuntimeFooter.compact`: 1_234 → "1k", 2_500_000 → "2.5M". */
+function compactTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${Math.floor(value / 1_000)}k`;
+  return `${value}`;
+}
+
 /**
  * The composer, styled per the native PiAgentComposerBox: a single radius-20
  * content surface with the text editor on top and a footer chip bar (agent,
@@ -68,6 +75,13 @@ export function Composer() {
     tokens: number | null;
     contextWindow: number;
     percent: number | null;
+  } | null>(null);
+  // Cumulative session token + cost totals (native composer footer: "{n} tokens"
+  // and "$x.xx"). null until the first turn establishes a count; cost is null
+  // when the provider reports no pricing (free/custom providers price at 0).
+  const [sessionTotals, setSessionTotals] = useState<{
+    tokens: number;
+    cost: number | null;
   } | null>(null);
   const sessionId = session?.id ?? null;
   // Guards against a stale session's response/timer clobbering the new one.
@@ -116,10 +130,26 @@ export function Composer() {
       const { stats } = (await response.json()) as {
         stats: {
           contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+          tokens?: { total?: number };
+          cost?: number;
         };
       };
       if (activeSessionRef.current !== sessionId || seq !== statsSeqRef.current) return;
       setContextUsage(stats.contextUsage ?? null);
+      // Native hides the token metric until a real count exists (totalTokens !=
+      // nil); pi reports 0 pre-turn, so gate on > 0. Cost mirrors native's
+      // `if let cost` nil-guard exactly: pi's SessionStats.cost is a non-optional
+      // number, so it shows whenever present — a free/custom provider reports 0,
+      // which native surfaces as "$0.00" (only a truly absent cost → null).
+      const total = stats.tokens?.total;
+      setSessionTotals(
+        typeof total === "number" && total > 0
+          ? {
+              tokens: total,
+              cost: typeof stats.cost === "number" ? stats.cost : null,
+            }
+          : null,
+      );
     } catch {
       // Session may be mid-restart; the next refresh wins.
     }
@@ -130,6 +160,7 @@ export function Composer() {
     setPiState(null);
     setModels([]);
     setContextUsage(null);
+    setSessionTotals(null);
     prevAgentStatusRef.current = null;
     if (!sessionId) return;
     void refreshPiState();
@@ -354,6 +385,26 @@ export function Composer() {
               }
             >
               {Math.round(contextUsage.percent)}% ctx
+            </span>
+          ) : null}
+          {/* Cumulative session token + cost totals (native footer metrics).
+              Shown once a turn has reported tokens; cost only when priced. */}
+          {sessionTotals ? (
+            <span
+              data-testid="session-tokens"
+              className={chipClass()}
+              title={`${sessionTotals.tokens.toLocaleString()} tokens this session`}
+            >
+              {compactTokens(sessionTotals.tokens)} tokens
+            </span>
+          ) : null}
+          {sessionTotals && sessionTotals.cost != null ? (
+            <span
+              data-testid="session-cost"
+              className={chipClass()}
+              title={`$${sessionTotals.cost.toFixed(4)} this session`}
+            >
+              ${sessionTotals.cost.toFixed(2)}
             </span>
           ) : null}
           <div className="flex-1" />
