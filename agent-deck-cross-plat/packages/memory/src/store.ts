@@ -4,6 +4,7 @@ import path from "node:path";
 import { parseMemory, serializeMemory } from "./frontmatter.ts";
 import { isSafeMemoryId, memoryFilePath, projectMemoryDir } from "./paths.ts";
 import { scanForSecrets } from "./secrets.ts";
+import { centeredCosineScores, type Embedder } from "./semantic.ts";
 import {
   fuzzyMatchedTerms,
   informativeTerms,
@@ -269,6 +270,61 @@ export function searchMemories(
       sharedTerms: shared,
     });
   }
+  hits.sort((a, b) => b.score - a.score || b.record.updatedAt.localeCompare(a.record.updatedAt));
+  return hits.slice(0, limit);
+}
+
+/** Text embedded for a memory's semantic vector — title + summary + body. */
+function memoryEmbedText(record: MemoryRecord): string {
+  return [record.title, record.summary, record.body].filter(Boolean).join("\n");
+}
+
+/**
+ * Semantic recall (native AgentMemoryEmbedder): rank memories by mean-centered
+ * cosine of an embedding, BLENDED with the lexical signal so exact-term hits
+ * still win when they exist while a semantically-related query with no shared
+ * words is still recalled. The Embedder is injected (a real on-device model in
+ * production; a stub in tests). Falls back to pure lexical if embedding fails.
+ */
+export async function semanticSearchMemories(
+  store: MemoryStore,
+  query: string,
+  embedder: Embedder,
+  options: { limit?: number; semanticWeight?: number } = {},
+): Promise<MemorySearchHit[]> {
+  const limit = Math.max(0, options.limit ?? DEFAULT_SEARCH_LIMIT);
+  const semanticWeight = Math.min(1, Math.max(0, options.semanticWeight ?? 0.7));
+  const records = injectable(listMemories(store));
+  if (records.length === 0 || !query.trim()) return [];
+
+  let semanticScores: number[];
+  try {
+    const vectors = await embedder.embed([query, ...records.map(memoryEmbedText)]);
+    const [queryVec, ...docVecs] = vectors;
+    if (!queryVec || docVecs.length !== records.length) throw new Error("embedding shape mismatch");
+    // Centered cosine is ~[-1,1]; normalize to [0,1] to blend with the lexical score.
+    semanticScores = centeredCosineScores(queryVec, docVecs).map((s) => (s + 1) / 2);
+  } catch {
+    // Embedding unavailable/failed — fall back to the lexical ranking.
+    return searchMemories(store, query, limit);
+  }
+
+  // Normalize the lexical scores into [0,1] so the blend weight is meaningful.
+  const lexicalById = new Map(
+    searchMemories(store, query, records.length).map((hit) => [hit.record.id, hit.score]),
+  );
+  const maxLexical = Math.max(1, ...lexicalById.values());
+
+  const hits: MemorySearchHit[] = records.map((record, index) => {
+    const semantic = semanticScores[index] ?? 0;
+    const lexical = (lexicalById.get(record.id) ?? 0) / maxLexical;
+    const pin = record.status === "pinned" ? 0.05 : 0;
+    return {
+      record,
+      score: semanticWeight * semantic + (1 - semanticWeight) * lexical + pin,
+      sharedTerms: sharedTerms(informativeTerms(query), memoryTerms(record)),
+    };
+  });
   hits.sort((a, b) => b.score - a.score || b.record.updatedAt.localeCompare(a.record.updatedAt));
   return hits.slice(0, limit);
 }
