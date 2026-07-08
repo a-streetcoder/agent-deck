@@ -1,4 +1,5 @@
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -112,5 +113,69 @@ describe("loop run engine (real pi)", () => {
     expect(run.stopReason).toBe("validationFailedAfterFinalIteration");
     expect(run.iterations).toHaveLength(2);
     expect(run.iterations.every((i) => i.validationPassed === false)).toBe(true);
+  });
+
+  it("runs in an isolated git worktree (writeTarget newWorktree), keeping the branch", async () => {
+    // A git repo project — `git worktree add` needs a repo with a branch.
+    const gitProject = mkdtempSync(path.join(tmpdir(), "pi-loop-wt-"));
+    const git = (args: string[]): void => void execFileSync("git", args, { cwd: gitProject });
+    execFileSync("git", ["init", "-b", "main", gitProject]);
+    git(["config", "user.email", "t@t.local"]);
+    git(["config", "user.name", "T"]);
+    writeFileSync(path.join(gitProject, "README.md"), "# x\n");
+    git(["add", "-A"]);
+    git(["commit", "-m", "init"]);
+    const wtProjectId = (
+      (await (
+        await fetch(`${base}/projects`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: gitProject }),
+        })
+      ).json()) as { project: { id: string } }
+    ).project.id;
+
+    await fetch(`${base}/loops`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "wt-loop",
+        goal: "Do the work.",
+        validationCommand: "exit 0",
+        maxIterations: 2,
+        writeTarget: "newWorktree",
+      }),
+    });
+
+    const runRes = await fetch(`${base}/loops/wt-loop/run`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: wtProjectId,
+        provider: MOCK_PROVIDER_ID,
+        model: MOCK_MODEL_ID,
+        extensions: [process.env.AGENT_DECK_PROVIDER_EXTENSIONS],
+        env: { HOME: tmpHome, USERPROFILE: tmpHome, PI_SKIP_VERSION_CHECK: "1" },
+      }),
+    });
+    expect(runRes.status).toBe(201);
+    const { run, worktree } = (await runRes.json()) as {
+      run: LoopRun;
+      worktree: { path: string; branch: string; sourceBranch: string } | null;
+    };
+    expect(worktree).toBeTruthy();
+    expect(worktree!.branch).toMatch(/^agent-deck\/loop-/);
+    expect(worktree!.sourceBranch).toBe("main");
+
+    const final = await waitTerminal(run.id);
+    expect(final.status).toBe("completed");
+
+    // The branch is kept (committed work survives) and the worktree dir is gone.
+    const branches = execFileSync("git", ["branch", "--list"], {
+      cwd: gitProject,
+      encoding: "utf8",
+    });
+    expect(branches).toContain(worktree!.branch);
+    await expect.poll(() => existsSync(worktree!.path), { timeout: 15_000 }).toBe(false);
   });
 });

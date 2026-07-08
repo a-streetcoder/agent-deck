@@ -70,7 +70,16 @@ import {
   type ResourceRoots,
 } from "@agent-deck/resources";
 import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
-import { gitCloneShallow, gitCommitAll, gitPush, gitStatus } from "./git.ts";
+import {
+  gitCloneShallow,
+  gitCommitAll,
+  gitCurrentBranch,
+  gitPush,
+  gitStatus,
+  gitWorktreeAdd,
+  gitWorktreeRemove,
+  type GitWorktree,
+} from "./git.ts";
 import { LoopEngine } from "./loopEngine.ts";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -1729,7 +1738,30 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     const project = projects.find((p) => p.id === body.projectId);
     if (!project) return reply.status(404).send({ error: "unknown project" });
-    const cwd = project.path;
+    // writeTarget "newWorktree": run the loop in an isolated git worktree on a
+    // fresh branch off the current one (native PiAgentSessionWorktreeService), so
+    // the agent's work never touches the main checkout. The branch is kept after
+    // the run; only the worktree directory is removed.
+    let cwd = project.path;
+    let worktree: GitWorktree | null = null;
+    if (loop.writeTarget === "newWorktree") {
+      const suffix = randomUUID().slice(0, 8);
+      const target = nodePath.join(tmpdir(), `agent-deck-worktree-${suffix}`);
+      try {
+        const sourceBranch = await gitCurrentBranch(project.path);
+        if (sourceBranch === "HEAD") throw new Error("detached HEAD — check out a branch first");
+        const branch = `agent-deck/loop-${loop.name.replace(/[^A-Za-z0-9]+/g, "-")}-${suffix}`;
+        await gitWorktreeAdd(project.path, target, branch, sourceBranch);
+        worktree = { path: target, branch, sourceBranch };
+        cwd = target;
+      } catch (error) {
+        // Best-effort: clean any partial worktree git created before failing.
+        await gitWorktreeRemove(project.path, target);
+        return reply.status(400).send({
+          error: `Couldn't create a worktree for this loop: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
     // Default to the configured default + provider-registration extensions so a
     // plain run (just a projectId) still has its model provider registered.
     const baseExtensions = body.extensions ?? [
@@ -1756,13 +1788,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // Tear down the transient parent session once the run reaches a terminal
     // state (whatever the outcome): stop the pi process AND drop it from the
     // session index/list so this internal helper never surfaces in the UI.
-    void loopEngine.settled(run.id).finally(() => {
-      void sessions.destroy(parent.meta.id);
+    void loopEngine.settled(run.id).finally(async () => {
+      // Await destroy so the pi process has released the worktree dir before we
+      // remove it (a live process would block the removal, esp. on Windows). A
+      // destroy failure must not skip the rest of the cleanup.
+      try {
+        await sessions.destroy(parent.meta.id);
+      } catch {
+        // Best-effort — proceed with index/worktree cleanup regardless.
+      }
       index.remove(parent.meta.id);
       bridgeTokens.delete(parent.meta.id);
       broadcast({ type: "session_removed", sessionId: parent.meta.id });
+      // Remove the isolated worktree dir; its branch is kept so committed work
+      // survives.
+      if (worktree) await gitWorktreeRemove(project.path, worktree.path);
     });
-    return reply.status(201).send({ run });
+    return reply.status(201).send({ run, worktree });
   });
 
   fastify.get("/loops/runs/:id", async (request, reply) => {

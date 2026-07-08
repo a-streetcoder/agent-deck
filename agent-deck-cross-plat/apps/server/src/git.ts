@@ -109,6 +109,52 @@ export async function gitCommitAll(cwd: string, message: string): Promise<{ comm
   return { committed: true };
 }
 
+/** The current branch name, or "HEAD" when detached (native readCurrentBranch). */
+export async function gitCurrentBranch(cwd: string): Promise<string> {
+  return (await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+}
+
+export interface GitWorktree {
+  /** The isolated checkout directory. */
+  path: string;
+  /** The new branch the worktree is on. */
+  branch: string;
+  /** The branch the worktree was forked from. */
+  sourceBranch: string;
+}
+
+/**
+ * Add a worktree on a NEW branch off sourceBranch (native
+ * PiAgentSessionWorktreeService worktree add -b). `targetPath` must not exist —
+ * git creates it. Throws "not_a_repo" / a git error on failure.
+ */
+export async function gitWorktreeAdd(
+  projectDir: string,
+  targetPath: string,
+  branch: string,
+  sourceBranch: string,
+): Promise<void> {
+  await runGit(projectDir, ["worktree", "add", "-b", branch, targetPath, sourceBranch]);
+}
+
+/**
+ * Remove a worktree directory + prune stale entries (native removeWorktree,
+ * without the branch delete — the branch is kept so committed work is never
+ * lost). Best-effort: a missing worktree is not an error.
+ */
+export async function gitWorktreeRemove(projectDir: string, targetPath: string): Promise<void> {
+  try {
+    await runGit(projectDir, ["worktree", "remove", "--force", targetPath]);
+  } catch {
+    // Already gone / not a worktree — fall through to prune.
+  }
+  try {
+    await runGit(projectDir, ["worktree", "prune"]);
+  } catch {
+    // Best-effort.
+  }
+}
+
 /** The git stderr from a failed execFile, else the error message — for surfacing. */
 function gitErrorText(error: unknown): string {
   const stderr = (error as { stderr?: string }).stderr;
