@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/cn";
 import { chooseDirectory, isElectron, isMacDesktop } from "@/lib/native";
 import { useAppStore, type AppView } from "../state/store.ts";
+import { ProjectTypeIcon } from "./ProjectTypeIcon.tsx";
 import { addProject, switchToProject } from "../state/wsBridge.ts";
 import {
   PANEL_FADE,
@@ -191,12 +192,14 @@ export function Sidebar() {
                     data-testid={`project-${project.name}`}
                     onClick={() => void switchToProject(project.id)}
                   >
-                    <Folder
+                    <ProjectTypeIcon
+                      type={project.type}
                       size={15}
-                      style={{
-                        color:
-                          currentProjectId === project.id ? "var(--color-brand-accent)" : undefined,
-                      }}
+                      className={
+                        currentProjectId === project.id
+                          ? "text-[var(--color-brand-accent)]"
+                          : undefined
+                      }
                     />
                     <span className="truncate" style={{ fontStretch: "expanded" }}>
                       {project.name}

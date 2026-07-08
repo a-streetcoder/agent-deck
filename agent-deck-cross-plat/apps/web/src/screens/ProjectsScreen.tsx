@@ -1,18 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  EyeOff,
-  Folder,
-  Github,
-  Plus,
-  RefreshCw,
-  Search,
-  Send,
-  WandSparkles,
-  X,
-} from "lucide-react";
+import { EyeOff, Github, Plus, RefreshCw, Search, Send, WandSparkles, X } from "lucide-react";
 import type { DiscoveredProject, ProjectMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { chooseDirectory, isElectron } from "@/lib/native";
+import { ProjectTypeIcon } from "../components/ProjectTypeIcon.tsx";
 import { useAppStore } from "../state/store.ts";
 import { addProject, refreshProjects, updateProject } from "../state/wsBridge.ts";
 
@@ -244,7 +235,11 @@ function DiscoveryPanel() {
             data-testid="discovery-candidate"
             data-candidate-name={candidate.name}
           >
-            <Folder size={16} className="shrink-0 text-text-secondary" />
+            <ProjectTypeIcon
+              type={candidate.type}
+              size={15}
+              className="shrink-0 text-text-secondary"
+            />
             <span
               className="text-sm font-medium text-text-primary"
               style={{ fontStretch: "expanded" }}
@@ -421,7 +416,11 @@ export function ProjectsScreen() {
                 data-testid="project-row"
                 data-project-name={project.name}
               >
-                <Folder size={22} className="shrink-0 text-text-secondary" />
+                <ProjectTypeIcon
+                  type={project.type}
+                  size={20}
+                  className="shrink-0 text-text-secondary"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span
