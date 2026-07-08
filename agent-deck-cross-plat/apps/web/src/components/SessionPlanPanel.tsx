@@ -1,4 +1,5 @@
 import type { PlanItemStatus, SessionPlanItem } from "@agent-deck/domain";
+import { ProgressRing } from "./ProgressRing.tsx";
 import { useAppStore } from "../state/store.ts";
 
 /**
@@ -54,7 +55,6 @@ export function SessionPlanPanel() {
   if (plan.length === 0) return null;
 
   const done = plan.filter((it) => isComplete(it.status)).length;
-  const pct = Math.round((done / plan.length) * 100);
 
   return (
     <section
@@ -64,15 +64,12 @@ export function SessionPlanPanel() {
     >
       <div className="flex items-center justify-between">
         <div className="text-xs font-medium uppercase tracking-wide text-text-muted">Plan</div>
-        <div className="text-xs tabular-nums text-text-muted" data-testid="plan-progress">
-          {done}/{plan.length}
+        <div className="flex items-center gap-2">
+          <span className="text-xs tabular-nums text-text-muted" data-testid="plan-progress">
+            {done}/{plan.length}
+          </span>
+          <ProgressRing done={done} total={plan.length} />
         </div>
-      </div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-border-strong">
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${pct}%`, background: "var(--color-accent)" }}
-        />
       </div>
       <ul className="mt-3 space-y-1.5">
         {plan.map((item) => (
