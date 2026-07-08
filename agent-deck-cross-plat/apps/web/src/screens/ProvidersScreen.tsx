@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { SkeletonRows } from "../components/Skeleton.tsx";
 import { useAppStore } from "../state/store.ts";
 
 /**
@@ -24,6 +25,7 @@ export function ProvidersScreen() {
   const setError = useAppStore((state) => state.setError);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -33,6 +35,8 @@ export function ProvidersScreen() {
       setProviders(data.providers);
     } catch (err) {
       setError(String(err));
+    } finally {
+      setLoaded(true);
     }
   }, [setError]);
 
@@ -71,6 +75,7 @@ export function ProvidersScreen() {
         </p>
 
         <div className="space-y-1.5" data-testid="provider-list">
+          {!loaded ? <SkeletonRows count={3} /> : null}
           {providers.map((provider) => (
             <div
               key={provider.id}
@@ -116,7 +121,7 @@ export function ProvidersScreen() {
               ) : null}
             </div>
           ))}
-          {providers.length === 0 ? (
+          {loaded && providers.length === 0 ? (
             <div className="py-8 text-center text-sm text-text-muted" data-testid="provider-empty">
               No OAuth-capable providers registered.
             </div>

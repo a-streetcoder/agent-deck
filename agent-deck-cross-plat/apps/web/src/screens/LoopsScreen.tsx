@@ -11,6 +11,7 @@ import {
   type LoopDefinition,
   type LoopRun,
 } from "@agent-deck/domain";
+import { SkeletonRows } from "../components/Skeleton.tsx";
 import { useAppStore } from "../state/store.ts";
 
 /**
@@ -61,6 +62,7 @@ export function LoopsScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const pushToast = useAppStore((state) => state.pushToast);
   const [loops, setLoops] = useState<LoopDefinition[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState<LoopDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [activeRun, setActiveRun] = useState<LoopRun | null>(null);
@@ -76,6 +78,8 @@ export function LoopsScreen() {
       setLoops(data.loops);
     } catch (err) {
       setError(String(err));
+    } finally {
+      setLoaded(true);
     }
   }, [setError]);
 
@@ -303,6 +307,7 @@ export function LoopsScreen() {
         ) : null}
 
         <div className="space-y-1.5" data-testid="loop-list">
+          {!loaded ? <SkeletonRows count={3} /> : null}
           {loops.map((loop) => (
             <div
               key={loop.id}
@@ -352,7 +357,7 @@ export function LoopsScreen() {
               </button>
             </div>
           ))}
-          {loops.length === 0 ? (
+          {loaded && loops.length === 0 ? (
             <div className="py-8 text-center text-sm text-text-muted" data-testid="loop-empty">
               No loops yet. Create one to iterate an agent toward a checked goal.
             </div>
