@@ -4,15 +4,23 @@ import SwiftUI
 /// by the expanded panel's full list and the collapsed panel's recents so the
 /// toolbar search filters both identically.
 extension PiAgentSessionRecord {
-    static let activeUserMessageInterval: TimeInterval = 1_800
+    static let activeActivityInterval: TimeInterval = 1_800
 
-    func hasRecentUserMessage(referenceDate: Date = Date()) -> Bool {
-        guard let lastUserMessageAt else { return false }
-        return lastUserMessageAt >= referenceDate.addingTimeInterval(-Self.activeUserMessageInterval)
+    var lastActivityAt: Date {
+        [lastUserMessageAt, Optional(updatedAt), lastNotificationAt].compactMap { $0 }.max() ?? updatedAt
     }
 
-    func matchesActiveSessionsFilter(referenceDate: Date = Date(), hasPendingUIRequest: Bool = false) -> Bool {
-        status == .draft || hasRecentUserMessage(referenceDate: referenceDate) || needsAttention || hasPendingUIRequest
+    func hasRecentActivity(referenceDate: Date = Date()) -> Bool {
+        lastActivityAt >= referenceDate.addingTimeInterval(-Self.activeActivityInterval)
+    }
+
+    func matchesActiveSessionsFilter(
+        referenceDate: Date = Date(),
+        isWorking: Bool = false,
+        hasActiveLoop: Bool = false,
+        hasPendingUIRequest: Bool = false
+    ) -> Bool {
+        status == .draft || status.isActive || isWorking || hasActiveLoop || hasRecentActivity(referenceDate: referenceDate) || needsAttention || hasPendingUIRequest
     }
 
     func matchesSessionSearch(_ query: String) -> Bool {
@@ -165,6 +173,8 @@ struct CodingAgentCollapsedPanel: View {
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildRecents() }
         .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildRecents() }
         .onChange(of: store.uiRequestsBySessionID) { _, _ in rebuildRecents() }
+        .onChange(of: store.subagentRunsRevision) { _, _ in rebuildRecents() }
+        .onChange(of: store.loopRunsRevision) { _, _ in rebuildRecents() }
         // The expanded panel stays mounted while this one shows (and vice
         // versa), so collapsing is the moment to re-sync this list's scroll
         // offset with whatever session was picked in the expanded list.
@@ -243,9 +253,12 @@ struct CodingAgentCollapsedPanel: View {
         if viewModel.showPiAgentActiveOnly {
             let now = Date()
             let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
+            let activeLoopSessionIDs = activeLoopSessionIDs(in: scoped)
             scoped = scoped.filter {
                 $0.matchesActiveSessionsFilter(
                     referenceDate: now,
+                    isWorking: viewModel.piAgentSessionIsWorking($0),
+                    hasActiveLoop: activeLoopSessionIDs.contains($0.id),
                     hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
                 )
             }
@@ -271,9 +284,10 @@ struct CodingAgentCollapsedPanel: View {
     /// recency order, then the remaining sessions in recency order. Used only
     /// for the All-Projects compact strip.
     private func interleaveByLiveness(_ sessions: [PiAgentSessionRecord]) -> [PiAgentSessionRecord] {
-        let recentCutoff = Date().addingTimeInterval(-1_800)
+        let recentCutoff = Date().addingTimeInterval(-PiAgentSessionRecord.activeActivityInterval)
+        let activeLoopSessionIDs = activeLoopSessionIDs(in: sessions)
         let liveIDs = Set(sessions.filter {
-            viewModel.piAgentSessionIsWorking($0) || $0.updatedAt >= recentCutoff
+            viewModel.piAgentSessionIsWorking($0) || activeLoopSessionIDs.contains($0.id) || $0.lastActivityAt >= recentCutoff
         }.map(\.id))
         let sortRecency: (PiAgentSessionRecord, PiAgentSessionRecord) -> Bool = {
             PiAgentSessionRecord.sessionListPrecedes($0, $1)
@@ -281,6 +295,13 @@ struct CodingAgentCollapsedPanel: View {
         let live = sessions.filter { liveIDs.contains($0.id) }.sorted(by: sortRecency)
         let rest = sessions.filter { !liveIDs.contains($0.id) }.sorted(by: sortRecency)
         return live + rest
+    }
+
+    private func activeLoopSessionIDs(in sessions: [PiAgentSessionRecord]) -> Set<UUID> {
+        let sessionIDs = Set(sessions.map(\.id))
+        return Set(store.loopRunsBySessionID.compactMap { sessionID, runs in
+            sessionIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
+        })
     }
 }
 

@@ -107,6 +107,8 @@ final class PiAgentSessionStore {
     /// re-evaluate a filtered/sorted layout. Views should `.onChange(of:)` /
     /// `.task(id:)` this counter and re-read the dict in the handler.
     private(set) var subagentRunsRevision: Int = 0
+    /// De-noised broad change signal for loop runs used by filtered session lists.
+    private(set) var loopRunsRevision: Int = 0
     /// Same broad revision for supervisor requests. Transcript item memoization
     /// reads this instead of hashing every full request record on each body pass.
     private(set) var supervisorRequestsRevision: Int = 0
@@ -130,7 +132,9 @@ final class PiAgentSessionStore {
     }
     private(set) var sessionPlansBySessionID: [UUID: PiSessionPlanRecord] = [:]
     private(set) var sessionPlanEventsBySessionID: [UUID: [PiSessionPlanEventRecord]] = [:]
-    private(set) var loopRunsBySessionID: [UUID: [LoopRun]] = [:]
+    private(set) var loopRunsBySessionID: [UUID: [LoopRun]] = [:] {
+        didSet { loopRunsRevision &+= 1 }
+    }
     /// Live, RPC-derived activity for sessions with a turn in flight. Not persisted —
     /// it only describes the current process and is cleared when a turn ends.
     private(set) var processingActivityBySessionID: [UUID: PiAgentProcessingActivity] = [:]
@@ -714,6 +718,7 @@ final class PiAgentSessionStore {
         let preTitle = sessions[index].title
         let preProjectPath = sessions[index].projectPath
         let preStatus = sessions[index].status
+        let preLastNotificationAt = sessions[index].lastNotificationAt
         let preLastUserMessageAt = sessions[index].lastUserMessageAt
         mutate(&sessions[index])
         if bumpUpdatedAt {
@@ -731,6 +736,7 @@ final class PiAgentSessionStore {
             // row showing a stale ACTIVE badge. Only transitions reach here (no change
             // → no bump), so streaming's steady .running stays cheap.
             || sessions[index].status != preStatus
+            || sessions[index].lastNotificationAt != preLastNotificationAt
             || sessions[index].lastUserMessageAt != preLastUserMessageAt {
             bumpSessionListRevision()
         }

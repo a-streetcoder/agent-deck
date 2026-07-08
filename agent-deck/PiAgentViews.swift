@@ -4232,6 +4232,8 @@ struct CodingAgentExpandedPanel: View {
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: store.uiRequestsBySessionID) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
+        .onChange(of: store.subagentRunsRevision) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
+        .onChange(of: store.loopRunsRevision) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.expandedProjects) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.collapsedProjects) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         // Projects load asynchronously after sessions on first launch; without
@@ -4436,9 +4438,12 @@ struct CodingAgentExpandedPanel: View {
         if viewModel.showPiAgentActiveOnly {
             let now = Date()
             let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
+            let activeLoopSessionIDs = activeLoopSessionIDs(in: source)
             source = source.filter {
                 $0.matchesActiveSessionsFilter(
                     referenceDate: now,
+                    isWorking: viewModel.piAgentSessionIsWorking($0),
+                    hasActiveLoop: activeLoopSessionIDs.contains($0.id),
                     hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
                 )
             }
@@ -4484,9 +4489,13 @@ struct CodingAgentExpandedPanel: View {
     }
 
     private var activeLoopSessionIDs: Set<UUID> {
-        let visibleIDs = Set(visibleSessions.map(\.id))
+        activeLoopSessionIDs(in: visibleSessions)
+    }
+
+    private func activeLoopSessionIDs(in sessions: [PiAgentSessionRecord]) -> Set<UUID> {
+        let sessionIDs = Set(sessions.map(\.id))
         return Set(store.loopRunsBySessionID.compactMap { sessionID, runs in
-            visibleIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
+            sessionIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
         })
     }
 
@@ -4942,12 +4951,25 @@ struct PiAgentScreen: View {
 
     private func computedSections() -> [PiAgentSessionListSection] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let source = viewModel.showPiAgentAttentionOnly ? scopedSessions.filter(\.needsAttention) : scopedSessions
+        var source = viewModel.showPiAgentAttentionOnly ? scopedSessions.filter(\.needsAttention) : scopedSessions
+        if viewModel.showPiAgentActiveOnly {
+            let now = Date()
+            let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
+            let activeLoopSessionIDs = activeLoopSessionIDs(in: source)
+            source = source.filter {
+                $0.matchesActiveSessionsFilter(
+                    referenceDate: now,
+                    isWorking: viewModel.piAgentSessionIsWorking($0),
+                    hasActiveLoop: activeLoopSessionIDs.contains($0.id),
+                    hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
+                )
+            }
+        }
         let filtered = query.isEmpty ? source : source.filter { sessionMatchesSearch($0, query: query) }
         // Cap previews only in All-Projects browsing — searching or filtering by
-        // attention bypasses the cap (the user is hunting), and a scoped project
+        // attention/active bypasses the cap (the user is hunting), and a scoped project
         // keeps its full flat list exactly as before.
-        let capPreviews = isAllProjects && query.isEmpty && !viewModel.showPiAgentAttentionOnly
+        let capPreviews = isAllProjects && query.isEmpty && !viewModel.showPiAgentAttentionOnly && !viewModel.showPiAgentActiveOnly
         return PiAgentSessionGrouping.sections(
             from: filtered,
             projectByPath: viewModel.projectByPath,
@@ -5245,9 +5267,13 @@ struct PiAgentScreen: View {
     }
 
     private var activeLoopSessionIDs: Set<UUID> {
-        let visibleIDs = Set(visibleSessions.map(\.id))
+        activeLoopSessionIDs(in: visibleSessions)
+    }
+
+    private func activeLoopSessionIDs(in sessions: [PiAgentSessionRecord]) -> Set<UUID> {
+        let sessionIDs = Set(sessions.map(\.id))
         return Set(store.loopRunsBySessionID.compactMap { sessionID, runs in
-            visibleIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
+            sessionIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
         })
     }
 
