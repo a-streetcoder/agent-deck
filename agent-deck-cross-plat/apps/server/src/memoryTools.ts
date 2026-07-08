@@ -2,11 +2,20 @@ import {
   markStale,
   searchMemories,
   writeMemory,
+  type MemorySearchHit,
   type MemoryStore,
   type MemoryType,
 } from "@agent-deck/memory";
 import { z } from "zod";
 import type { BridgeRegistry } from "./bridge.ts";
+
+/** Ranks a project's memories for a query. Async so a semantic (embedding-backed)
+ *  ranker can be injected; defaults to the lexical+fuzzy searchMemories. */
+export type MemorySearch = (
+  store: MemoryStore,
+  query: string,
+  limit?: number,
+) => Promise<MemorySearchHit[]>;
 
 /**
  * Registers the native memory tools (agent_deck_memory_write / _search /
@@ -48,6 +57,8 @@ export function registerMemoryTools(
   bridge: BridgeRegistry,
   baseDir: string,
   resolveProjectPath: (sessionId: string) => string | undefined,
+  search: MemorySearch = (store, query, limit) =>
+    Promise.resolve(searchMemories(store, query, limit)),
 ): void {
   const storeFor = (sessionId: string): MemoryStore | null => {
     const projectPath = resolveProjectPath(sessionId);
@@ -133,7 +144,7 @@ export function registerMemoryTools(
       },
       promptSnippet: "agent_deck_memory_search — pull relevant project memory mid-conversation.",
     },
-    (params, ctx) => {
+    async (params, ctx) => {
       const store = storeFor(ctx.sessionId);
       if (!store) return { content: "No project memory (no project set).", details: { hits: 0 } };
       const parsed = searchParams.safeParse(params);
@@ -143,7 +154,7 @@ export function registerMemoryTools(
           isError: true,
         };
       }
-      const hits = searchMemories(store, parsed.data.query, parsed.data.limit);
+      const hits = await search(store, parsed.data.query, parsed.data.limit);
       if (hits.length === 0)
         return { content: "No matching project memory.", details: { hits: 0 } };
       const rendered = hits

@@ -91,13 +91,18 @@ import { z } from "zod";
 import {
   buildMemoryPreamble,
   buildRecalledMemories,
+  createOnDeviceEmbedder,
+  EmbedderUnavailableError,
   deleteMemory,
   getMemory,
   injectableIndex,
   listMemories,
   searchMemories,
+  semanticSearchMemories,
   setMemoryStatus,
   writeMemory,
+  type Embedder,
+  type MemorySearchHit,
   type MemoryStore,
   type MemoryType,
 } from "@agent-deck/memory";
@@ -324,6 +329,12 @@ export interface StartServerOptions {
   dataDir?: string;
   /** Serve a built web app (apps/web/dist) at /. */
   staticDir?: string;
+  /**
+   * Inject a semantic-recall embedder (tests). In production, semantic recall is
+   * opt-in via AGENT_DECK_SEMANTIC_MEMORY=1, which lazily loads the real
+   * on-device embedder; absent both, recall stays lexical+fuzzy (the default).
+   */
+  memoryEmbedder?: Embedder;
 }
 
 export async function startServer(options: StartServerOptions = {}): Promise<AgentDeckServer> {
@@ -360,6 +371,51 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // the app data dir. AGENT_DECK_MEMORY=0 disables it entirely.
   const memoryEnabled = process.env.AGENT_DECK_MEMORY !== "0";
   const memoryBaseDir = nodePath.join(options.dataDir ?? defaultDataDir(), "memory");
+
+  // Recall engine. Lexical+fuzzy is the always-on default; SEMANTIC recall is
+  // opt-in — an injected embedder (tests) or AGENT_DECK_SEMANTIC_MEMORY=1 (which
+  // lazily loads the real on-device embedder, kept out of the base install). The
+  // embedder is loaded once and reused; if it fails to load, recall silently
+  // stays lexical. Every search path (bridge tool, /memory/search, recall hook)
+  // routes through recallMemories so semantic applies everywhere when enabled.
+  const semanticMemoryEnabled =
+    options.memoryEmbedder !== undefined || process.env.AGENT_DECK_SEMANTIC_MEMORY === "1";
+  let embedderPromise: Promise<Embedder> | undefined;
+  let embedderFailed = false;
+  async function resolveEmbedder(): Promise<Embedder | undefined> {
+    if (options.memoryEmbedder) return options.memoryEmbedder;
+    if (process.env.AGENT_DECK_SEMANTIC_MEMORY !== "1" || embedderFailed) return undefined;
+    if (!embedderPromise) embedderPromise = createOnDeviceEmbedder();
+    try {
+      return await embedderPromise;
+    } catch (error) {
+      embedderPromise = undefined;
+      const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof EmbedderUnavailableError) {
+        // A missing optional dep can't appear without a restart — stop retrying.
+        embedderFailed = true;
+        console.warn(`[memory] semantic recall unavailable, using lexical: ${message}`);
+      } else {
+        // A transient init failure (e.g. first-run model download) — allow retry.
+        console.warn(
+          `[memory] semantic embedder init failed (will retry), using lexical: ${message}`,
+        );
+      }
+      return undefined;
+    }
+  }
+  async function recallMemories(
+    store: MemoryStore,
+    query: string,
+    limit?: number,
+  ): Promise<MemorySearchHit[]> {
+    if (!semanticMemoryEnabled) return searchMemories(store, query, limit);
+    const embedder = await resolveEmbedder();
+    // semanticSearchMemories itself falls back to lexical if an embed call throws.
+    return embedder
+      ? semanticSearchMemories(store, query, embedder, limit === undefined ? {} : { limit })
+      : searchMemories(store, query, limit);
+  }
   const sessions = new SessionManager(
     receipts,
     (meta) => {
@@ -523,7 +579,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // session's project via its cwd. The launch-time index/policy injection is
   // handled by the parent-append factory above.
   if (memoryEnabled) {
-    registerMemoryTools(bridge, memoryBaseDir, (sessionId) => sessions.get(sessionId)?.meta.cwd);
+    registerMemoryTools(
+      bridge,
+      memoryBaseDir,
+      (sessionId) => sessions.get(sessionId)?.meta.cwd,
+      recallMemories,
+    );
   }
 
   // Native subagents (native-subagent-bridge.md): a parent session can launch a
@@ -1304,16 +1365,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { memories: listMemories(store) };
   });
 
-  // Memory recall search (native Memory search 11.8): runs the SAME lexical+fuzzy
-  // engine the agent recalls with (searchMemories) and returns the ranked hits —
-  // active/pinned only, abstaining (empty) when nothing matches.
+  // Memory recall search (native Memory search 11.8): runs the SAME recall engine
+  // the agent recalls with (recallMemories — lexical+fuzzy, or semantic when
+  // opted in) and returns the ranked hits — active/pinned only, abstaining
+  // (empty) when nothing matches.
   fastify.get("/memory/search", async (request, reply) => {
     const { projectId, q } = request.query as { projectId?: string; q?: string };
     const store = memoryStoreFor(projectId);
     if (!store) return reply.code(400).send({ error: "memory requires a known project" });
     const query = (q ?? "").trim();
     if (!query) return { memories: [] };
-    return { memories: searchMemories(store, query).map((hit) => hit.record) };
+    return { memories: (await recallMemories(store, query)).map((hit) => hit.record) };
   });
 
   fastify.post("/memory", async (request, reply) => {
@@ -3073,17 +3135,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   }
 
   // Memory recall for the before_agent_start hook: rank the session project's
-  // memories by lexical relevance to the user's message and return the top ones'
-  // full bodies as an injectable block (empty → the hook injects nothing). The
-  // launch index carries only titles; this surfaces the relevant bodies per turn.
+  // memories for the user's message (recallMemories — lexical+fuzzy, or semantic
+  // when opted in) and return the top ones' full bodies as an injectable block
+  // (empty → the hook injects nothing). The launch index carries only titles;
+  // this surfaces the relevant bodies per turn.
   const RECALL_LIMIT = 4;
-  function handleRecall(sessionId: string, params: Record<string, unknown>): { content: string } {
+  async function handleRecall(
+    sessionId: string,
+    params: Record<string, unknown>,
+  ): Promise<{ content: string }> {
     if (!memoryEnabled) return { content: "" };
     const query = typeof params.query === "string" ? params.query : "";
     const cwd = sessions.get(sessionId)?.meta.cwd;
     if (!cwd || !query.trim()) return { content: "" };
     const store: MemoryStore = { baseDir: memoryBaseDir, projectPath: cwd };
-    const hits = searchMemories(store, query, RECALL_LIMIT);
+    const hits = await recallMemories(store, query, RECALL_LIMIT);
     return { content: buildRecalledMemories(hits.map((h) => h.record)) };
   }
 
@@ -3110,7 +3176,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // The before_agent_start recall hook asks for the memories most relevant to
     // the user's message (not a model-callable tool — an internal hook channel).
     if (parsed.data.tool === "__recall__") {
-      return handleRecall(parsed.data.sessionId, parsed.data.params);
+      return await handleRecall(parsed.data.sessionId, parsed.data.params);
     }
     return await bridge.dispatch(parsed.data);
   });
