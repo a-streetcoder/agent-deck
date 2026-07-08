@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ProviderLoginSheet } from "../components/ProviderLoginSheet.tsx";
+import { ProviderLogo } from "../components/ProviderLogo.tsx";
 import { SkeletonRows } from "../components/Skeleton.tsx";
 import { useAppStore } from "../state/store.ts";
 
@@ -85,6 +86,11 @@ export function ProvidersScreen() {
               data-signed-in={provider.signedIn ? "true" : "false"}
               className="flex items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5"
             >
+              <ProviderLogo
+                providerId={provider.id}
+                size={22}
+                className="shrink-0 text-text-primary"
+              />
               <div className="min-w-0 flex-1">
                 <div
                   className="truncate text-sm font-medium text-text-primary"

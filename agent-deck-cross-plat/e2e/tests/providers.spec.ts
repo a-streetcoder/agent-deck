@@ -68,3 +68,37 @@ test("lists providers, reflects a seeded sign-in, and logs out", async ({ page }
 
   rmSync(authPath(), { force: true });
 });
+
+test("renders native provider logos (and a monogram fallback for unknowns)", async ({ page }) => {
+  await page.route("**/runtime/providers", async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: {
+        providers: [
+          { id: "anthropic", name: "Anthropic", signedIn: false, configured: true },
+          { id: "openai", name: "OpenAI", signedIn: false, configured: true },
+          { id: "github-copilot", name: "GitHub Copilot", signedIn: false, configured: true },
+          { id: "acme-unknown", name: "Acme", signedIn: false, configured: true },
+        ],
+      },
+    });
+  });
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-providers").click();
+
+  // Real brand logos render as inline SVGs (anthropic → the claude mark).
+  const anthropic = page.getByTestId("provider-logo-anthropic");
+  await expect(anthropic).toHaveAttribute("data-logo", "claude");
+  await expect(anthropic.locator("svg path").first()).toBeVisible();
+  await expect(page.getByTestId("provider-logo-openai")).toHaveAttribute("data-logo", "openai");
+  await expect(page.getByTestId("provider-logo-github-copilot")).toHaveAttribute(
+    "data-logo",
+    "copilot",
+  );
+  // An unknown provider falls back to a monogram tile.
+  await expect(page.getByTestId("provider-logo-acme-unknown")).toHaveAttribute(
+    "data-logo",
+    "fallback",
+  );
+});
