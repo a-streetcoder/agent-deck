@@ -128,6 +128,53 @@ final class PiAgentSessionStoreTests: XCTestCase {
         })
     }
 
+    func testToolTextMarkdownImagesDoNotMaterialize() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Tool Text Images", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(
+            sessionID: session.id,
+            role: .tool,
+            title: "Tool: read",
+            text: #"renderMarkdownPreview("![Alt](https://example.com/image.png)")"#
+        ))
+
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertTrue(entry.imageReferences.isEmpty)
+    }
+
+    func testToolErrorTextMarkdownImagesDoNotMaterialize() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Tool Error Text Images", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(
+            sessionID: session.id,
+            role: .error,
+            title: "Tool: read",
+            text: #"failed while reading: ![Alt](https://example.com/image.png)"#
+        ))
+
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertTrue(entry.imageReferences.isEmpty)
+    }
+
+    func testToolStructuredRawJSONImagesStillMaterialize() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Tool Raw Images", project: try PiTestSupport.makeProject(), repository: nil)
+        let rawJSON = #"{"content":[{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}]}"#
+
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: screenshot", text: "Captured screenshot", rawJSON: rawJSON))
+        store.append(.init(sessionID: session.id, role: .error, title: "Tool: screenshot", text: "Captured screenshot fallback", rawJSON: rawJSON))
+
+        let entries = try XCTUnwrap(store.transcriptsBySessionID[session.id])
+        XCTAssertEqual(entries.count, 2)
+        for entry in entries {
+            let reference = try XCTUnwrap(entry.imageReferences.first)
+            XCTAssertEqual(reference.name, "pixel.png")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
+        }
+    }
+
     func testUserTranscriptRemoteImageUsesPlaceholderAndSafeDownloadPath() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "User Remote", project: try PiTestSupport.makeProject(), repository: nil)

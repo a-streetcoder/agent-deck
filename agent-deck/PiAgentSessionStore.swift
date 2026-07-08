@@ -3063,7 +3063,8 @@ final class PiAgentSessionStore {
         guard entry.imageReferences.isEmpty, shouldMaterializeImages(for: entry) else { return entry }
         let candidates = Self.transcriptImageCandidates(
             text: entry.text,
-            rawJSON: entry.rawJSON
+            rawJSON: entry.rawJSON,
+            includeTextImages: shouldExtractTextImageSyntax(for: entry)
         )
         guard !candidates.isEmpty else { return entry }
         var copy = entry
@@ -3086,8 +3087,8 @@ final class PiAgentSessionStore {
         var source: String?
     }
 
-    private nonisolated static func transcriptImageCandidates(text: String, rawJSON: String?) -> [TranscriptImageCandidate] {
-        var candidates = markdownImageCandidates(in: text)
+    private nonisolated static func transcriptImageCandidates(text: String, rawJSON: String?, includeTextImages: Bool) -> [TranscriptImageCandidate] {
+        var candidates = includeTextImages ? markdownImageCandidates(in: text) : []
         if let rawJSON, let data = rawJSON.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data),
            let value = JSONValue.fromFoundation(object) {
@@ -3406,6 +3407,10 @@ final class PiAgentSessionStore {
 
     private func shouldMaterializeImages(for entry: PiAgentTranscriptEntry) -> Bool {
         entry.role == .user || entry.role == .assistant || entry.role == .tool || entry.isToolError
+    }
+
+    private func shouldExtractTextImageSyntax(for entry: PiAgentTranscriptEntry) -> Bool {
+        entry.role == .user || entry.role == .assistant
     }
 
     private func modifyTranscriptEntries(for sessionID: UUID, _ mutate: (inout [PiAgentTranscriptEntry]) -> Void) {
