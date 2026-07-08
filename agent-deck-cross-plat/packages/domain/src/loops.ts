@@ -79,3 +79,41 @@ export function clampMaxIterations(value: number): number {
   if (!Number.isFinite(value)) return LOOP_DEFAULT_MAX_ITERATIONS;
   return Math.min(LOOP_MAX_ITERATIONS_LIMIT, Math.max(1, Math.floor(value)));
 }
+
+/** A live/finished loop run (native LoopRun, minimal single-agent form). */
+export type LoopRunStatus = "running" | "stopping" | "completed" | "failed" | "stopped";
+
+/** Why a run ended (native LoopStopReason, the subset the single-agent engine hits). */
+export type LoopStopReason =
+  | "success"
+  | "validationFailedAfterFinalIteration"
+  | "validationUnavailable"
+  | "agentFailed"
+  | "userStopped";
+
+export interface LoopRunIteration {
+  index: number;
+  /** The agent's output for this iteration. */
+  output: string;
+  /** Whether the validation command passed (exit 0); null when not run. */
+  validationPassed: boolean | null;
+}
+
+export interface LoopRun {
+  id: string;
+  loopName: string;
+  projectId?: string;
+  status: LoopRunStatus;
+  /** 0 before the first iteration starts. */
+  currentIteration: number;
+  maxIterations: number;
+  iterations: LoopRunIteration[];
+  stopReason?: LoopStopReason;
+  startedAt: string;
+  endedAt?: string;
+}
+
+/** True once a run has reached a terminal state (no longer running/stopping). */
+export function isLoopRunTerminal(status: LoopRunStatus): boolean {
+  return status === "completed" || status === "failed" || status === "stopped";
+}
