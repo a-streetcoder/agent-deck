@@ -71,6 +71,7 @@ import {
 } from "@agent-deck/resources";
 import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
 import { gitCloneShallow, gitCommitAll, gitPush, gitStatus } from "./git.ts";
+import { LoopEngine } from "./loopEngine.ts";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -435,6 +436,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       return agent ? { body: agent.body, model: agent.model } : undefined;
     },
   );
+  // Loop run engine (native single-agent loop). Each run's agent executor is
+  // built per-run, bound to a parent session in the project cwd.
+  const loopEngine = new LoopEngine();
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
 
@@ -1696,6 +1700,76 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     deleteLoopFile(rootsFor(), parsed.data.name);
     broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Run a loop (native single-agent loop engine). Each iteration drives the
+  // loop's agent to completion via a per-run parent session in the project cwd,
+  // then runs the validation command; exit 0 stops the run successfully.
+  fastify.post("/loops/:name/run", async (request, reply) => {
+    const name = (request.params as { name: string }).name;
+    const loop = scanLoops(rootsFor()).find((l) => l.name === name);
+    if (!loop) return reply.status(404).send({ error: `unknown loop: ${name}` });
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        provider: z.string().optional(),
+        model: z.string().optional(),
+        extensions: z.array(z.string()).optional(),
+        env: z.record(z.string()).optional(),
+      })
+      .safeParse(request.body ?? {});
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const body = parsed.data;
+    const defaults = envDefaults();
+    // A loop runs its agent + shell validation command in a project's working
+    // tree — require an explicit project so it never executes in the server's cwd.
+    if (!body.projectId) {
+      return reply.status(400).send({ error: "projectId is required to run a loop" });
+    }
+    const project = projects.find((p) => p.id === body.projectId);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    const cwd = project.path;
+    const baseExtensions = body.extensions ?? defaults.extensions ?? [];
+    const finalizedBase = finalizeExtensions([...baseExtensions, ...settings.enabledExtensions()]);
+    const parent = sessions.create({
+      cwd,
+      projectId: body.projectId,
+      env: { ...defaults.env, ...body.env },
+      plan: {
+        kind: "parent",
+        provider: body.provider ?? defaults.provider,
+        model: body.model ?? defaults.model,
+        extensions: finalizedBase.length > 0 ? finalizedBase : undefined,
+      },
+    });
+    const run = loopEngine.start(loop, cwd, {
+      projectId: body.projectId,
+      executeAgent: (definition) =>
+        sessions.runSubagent(parent.meta.id, definition.goal, definition.agentName || undefined),
+    });
+    // Tear down the transient parent session once the run reaches a terminal
+    // state (whatever the outcome): stop the pi process AND drop it from the
+    // session index/list so this internal helper never surfaces in the UI.
+    void loopEngine.settled(run.id).finally(() => {
+      void sessions.destroy(parent.meta.id);
+      index.remove(parent.meta.id);
+      bridgeTokens.delete(parent.meta.id);
+      broadcast({ type: "session_removed", sessionId: parent.meta.id });
+    });
+    return reply.status(201).send({ run });
+  });
+
+  fastify.get("/loops/runs/:id", async (request, reply) => {
+    const run = loopEngine.get((request.params as { id: string }).id);
+    if (!run) return reply.status(404).send({ error: "unknown loop run" });
+    return { run };
+  });
+
+  fastify.post("/loops/runs/:id/stop", async (request, reply) => {
+    const run = loopEngine.get((request.params as { id: string }).id);
+    if (!run) return reply.status(404).send({ error: "unknown loop run" });
+    loopEngine.stop(run.id);
     return { ok: true };
   });
 

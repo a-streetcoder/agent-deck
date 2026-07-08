@@ -33,24 +33,39 @@ export async function runValidationCommand(cwd: string, command: string): Promis
   }
 }
 
+export type ExecuteAgent = (
+  loop: LoopDefinition,
+  cwd: string,
+  projectId?: string,
+) => Promise<string>;
+
 export interface LoopEngineDeps {
-  /** Drive the loop's agent on its goal to completion; returns its output. Throws on failure. */
-  executeAgent: (loop: LoopDefinition, cwd: string, projectId?: string) => Promise<string>;
+  /** Default agent executor (tests inject one here). Each run can override it. */
+  executeAgent?: ExecuteAgent;
   /** Run the validation command in cwd; true = passed (exit 0). Defaults to the real shell. */
   runValidation?: (cwd: string, command: string) => Promise<boolean>;
   /** Injectable clock (defaults to the wall clock). */
   now?: () => string;
 }
 
+export interface LoopStartOptions {
+  projectId?: string;
+  /** Per-run agent executor (the server builds one bound to a parent session). */
+  executeAgent?: ExecuteAgent;
+}
+
+/** Cap on retained runs; oldest terminal runs are evicted past this. */
+const MAX_RETAINED_RUNS = 200;
+
 export class LoopEngine {
   private readonly runs = new Map<string, LoopRun>();
   private readonly settledPromises = new Map<string, Promise<void>>();
-  private readonly executeAgent: LoopEngineDeps["executeAgent"];
+  private readonly defaultExecuteAgent?: ExecuteAgent;
   private readonly runValidation: (cwd: string, command: string) => Promise<boolean>;
   private readonly now: () => string;
 
-  constructor(deps: LoopEngineDeps) {
-    this.executeAgent = deps.executeAgent;
+  constructor(deps: LoopEngineDeps = {}) {
+    this.defaultExecuteAgent = deps.executeAgent;
     this.runValidation = deps.runValidation ?? runValidationCommand;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
@@ -74,12 +89,28 @@ export class LoopEngine {
     if (run && run.status === "running") run.status = "stopping";
   }
 
+  // Bound memory: drop the oldest TERMINAL runs once we exceed the cap (a live
+  // run is never evicted). Map iteration is insertion order = oldest first.
+  private evictOldRuns(): void {
+    if (this.runs.size < MAX_RETAINED_RUNS) return;
+    for (const [id, run] of this.runs) {
+      if (this.runs.size < MAX_RETAINED_RUNS) break;
+      if (isLoopRunTerminal(run.status)) {
+        this.runs.delete(id);
+        this.settledPromises.delete(id);
+      }
+    }
+  }
+
   /** Start a run (executes in the background); returns the initial run record. */
-  start(loop: LoopDefinition, cwd: string, projectId?: string): LoopRun {
+  start(loop: LoopDefinition, cwd: string, options: LoopStartOptions = {}): LoopRun {
+    const executeAgent = options.executeAgent ?? this.defaultExecuteAgent;
+    if (!executeAgent) throw new Error("no agent executor configured for this loop run");
+    this.evictOldRuns();
     const run: LoopRun = {
       id: randomUUID(),
       loopName: loop.name,
-      projectId,
+      projectId: options.projectId,
       status: "running",
       currentIteration: 0,
       maxIterations: clampMaxIterations(loop.maxIterations),
@@ -87,7 +118,7 @@ export class LoopEngine {
       startedAt: this.now(),
     };
     this.runs.set(run.id, run);
-    this.settledPromises.set(run.id, this.execute(run, loop, cwd, projectId));
+    this.settledPromises.set(run.id, this.execute(run, loop, cwd, executeAgent, options.projectId));
     return run;
   }
 
@@ -107,6 +138,7 @@ export class LoopEngine {
     run: LoopRun,
     loop: LoopDefinition,
     cwd: string,
+    executeAgent: ExecuteAgent,
     projectId?: string,
   ): Promise<void> {
     // Outer guard: this runs fire-and-forget (its promise is only awaited by
@@ -122,7 +154,7 @@ export class LoopEngine {
 
         let output: string;
         try {
-          output = await this.executeAgent(loop, cwd, projectId);
+          output = await executeAgent(loop, cwd, projectId);
         } catch (error) {
           run.iterations.push({
             index,
