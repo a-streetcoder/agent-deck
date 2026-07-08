@@ -180,7 +180,53 @@ const EXTENSION_FILE_RE = /\.(ts|mts|cts|js|mjs|cjs)$/i;
  * never scanned here, so a user can't see or disable them. A project entry wins
  * over a global one at the same path (there is none — paths are absolute), and
  * duplicates are de-duped by absolute path.
+ * App-generated bridge extensions written into a scanned dir are EXCLUDED: a
+ * `.agent-deck-manifest.json` (a filename→content-hash map that Agent Deck writes
+ * alongside the extensions it generates) marks them as app-owned, not user
+ * extensions. Re-discovering + injecting them would duplicate/shadow the app's
+ * own freshly-generated bridges (and a stale/broken one would crash pi), so they
+ * are skipped — the same separation native gets by keeping its bridges apart.
  */
+
+/** The bridge filenames Agent Deck generates — a conservative fallback for when a
+ *  manifest EXISTS in a dir (so it holds app bridges) but can't be parsed. */
+const KNOWN_APP_BRIDGE_NAMES = new Set([
+  "agent-deck-bridge.ts",
+  "agent-deck-ask-user-bridge.ts",
+  "agent-deck-mcp-bridge.ts",
+  "agent-deck-memory-bridge.ts",
+  "agent-deck-openai-fast.ts",
+  "agent-deck-web-access.ts",
+  "agent-deck-web-fetch.ts",
+  "contact-supervisor-bridge.ts",
+  "create-agent-deck-command.ts",
+  "managed-subagent-bridge.ts",
+  "optimize-agents-md.ts",
+  "system-prompt-audit-bridge.ts",
+]);
+
+/** Filenames Agent Deck generated in `dir` (from its manifest); empty if none. */
+function appGeneratedExtensionNames(dir: string): Set<string> {
+  let raw: string;
+  try {
+    raw = readFileSync(path.join(dir, ".agent-deck-manifest.json"), "utf8");
+  } catch {
+    return new Set(); // no manifest → this dir has no app-generated extensions
+  }
+  try {
+    const manifest: unknown = JSON.parse(raw);
+    if (manifest && typeof manifest === "object" && !Array.isArray(manifest)) {
+      return new Set(Object.keys(manifest));
+    }
+  } catch {
+    // Manifest present but unparseable (mid-write/corrupt) — fall through.
+  }
+  // A manifest EXISTS, so this dir DOES hold app-generated bridges; we just can't
+  // read the exact list. Exclude the known app-bridge names rather than risk
+  // re-injecting a stale/broken bridge (which crashes pi).
+  return KNOWN_APP_BRIDGE_NAMES;
+}
+
 export function scanExtensions(roots: ResourceRoots): DiscoveredExtension[] {
   const found: DiscoveredExtension[] = [];
   const seen = new Set<string>();
@@ -191,8 +237,10 @@ export function scanExtensions(roots: ResourceRoots): DiscoveredExtension[] {
     } catch {
       continue; // the dir doesn't exist — nothing to discover there
     }
+    const appGenerated = appGeneratedExtensionNames(dir);
     for (const entry of entries) {
       if (!entry.isFile() || !EXTENSION_FILE_RE.test(entry.name)) continue;
+      if (appGenerated.has(entry.name)) continue; // app's own bridge, not a user extension
       const full = path.join(dir, entry.name);
       if (seen.has(full)) continue;
       seen.add(full);

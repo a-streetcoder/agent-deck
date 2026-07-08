@@ -50,6 +50,35 @@ describe("scanExtensions", () => {
     expect(names).toEqual(["keep.mjs"]);
   });
 
+  it("excludes app-generated bridges listed in .agent-deck-manifest.json", () => {
+    const home = makeHome();
+    const dir = path.join(home, ".pi", "agent", "extensions");
+    write(dir, "my-ext.ts"); // the user's own extension
+    write(dir, "agent-deck-web-fetch.ts"); // an app-generated bridge
+    write(dir, "agent-deck-memory-bridge.ts"); // another app bridge
+    writeFileSync(
+      path.join(dir, ".agent-deck-manifest.json"),
+      JSON.stringify({ "agent-deck-web-fetch.ts": "sha1", "agent-deck-memory-bridge.ts": "sha2" }),
+    );
+
+    // Only the user's extension is discovered; the manifest-listed bridges aren't.
+    expect(scanExtensions({ home }).map((e) => e.name)).toEqual(["my-ext.ts"]);
+  });
+
+  it("still excludes known app bridges when the manifest exists but is corrupt", () => {
+    const home = makeHome();
+    const dir = path.join(home, ".pi", "agent", "extensions");
+    write(dir, "my-ext.ts");
+    write(dir, "agent-deck-web-fetch.ts"); // a known app bridge
+    writeFileSync(path.join(dir, ".agent-deck-manifest.json"), "{ not valid json"); // mid-write/corrupt
+
+    // The manifest's presence means this dir holds app bridges; the known-names
+    // fallback keeps the app bridge out while still surfacing the user's ext.
+    const names = scanExtensions({ home }).map((e) => e.name);
+    expect(names).toContain("my-ext.ts");
+    expect(names).not.toContain("agent-deck-web-fetch.ts");
+  });
+
   it("returns nothing when the extension dirs don't exist (no throw)", () => {
     expect(scanExtensions({ home: makeHome(), projectPath: makeProject() })).toEqual([]);
   });
