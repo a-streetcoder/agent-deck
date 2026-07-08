@@ -1,5 +1,7 @@
 import {
+  cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -416,6 +418,87 @@ export function renameSkillDir(
 function rawBodyAfterFrontmatter(content: string): string {
   const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content);
   return match ? content.slice(match[0].length) : content;
+}
+
+/** Recursively find directories that contain a SKILL.md (skipping .git / node_modules). */
+function findSkillDirs(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    if (entries.includes("SKILL.md")) found.push(dir);
+    for (const entry of entries) {
+      if (entry === ".git" || entry === "node_modules") continue;
+      const full = path.join(dir, entry);
+      try {
+        // lstat (not stat): a symlinked directory returns false for isDirectory,
+        // so we never follow a symlink out of the clone or into a symlink cycle.
+        if (lstatSync(full).isDirectory()) walk(full);
+      } catch {
+        // Unreadable entry — skip.
+      }
+    }
+  };
+  walk(root);
+  return found;
+}
+
+export interface SkillImportResult {
+  imported: string[];
+  skipped: string[];
+}
+
+/**
+ * Import every skill found in a cloned repo dir into the scope's skill catalog
+ * (native SkillRepositorySync). Rule (native): a SKILL.md at the repo root means
+ * the whole repo is ONE skill; otherwise every SKILL.md's parent dir is a skill.
+ * Each skill's directory is copied whole (assets included) with the .git dir
+ * excluded. Names come from SKILL.md frontmatter `name`, else the dir basename
+ * (or `repoName` for the root case). Existing + invalid names are skipped.
+ */
+export function importSkillsFromClone(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  cloneDir: string,
+  repoName: string,
+): SkillImportResult {
+  const skillDirs = existsSync(path.join(cloneDir, "SKILL.md"))
+    ? [cloneDir] // root SKILL.md → the whole repo is a single skill
+    : findSkillDirs(cloneDir);
+  const catalog = skillDirFor(roots, scope);
+  const imported: string[] = [];
+  const skipped: string[] = [];
+  for (const srcDir of skillDirs) {
+    let name: string;
+    try {
+      const fm = parseFrontmatter(readFileSync(path.join(srcDir, "SKILL.md"), "utf8")).frontmatter;
+      name =
+        typeof fm.name === "string" && fm.name.trim()
+          ? fm.name.trim()
+          : srcDir === cloneDir
+            ? repoName
+            : path.basename(srcDir);
+    } catch {
+      name = srcDir === cloneDir ? repoName : path.basename(srcDir);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+      skipped.push(name);
+      continue;
+    }
+    const dest = path.join(catalog, name);
+    if (existsSync(dest)) {
+      skipped.push(name);
+      continue;
+    }
+    mkdirSync(catalog, { recursive: true });
+    cpSync(srcDir, dest, { recursive: true, filter: (src) => path.basename(src) !== ".git" });
+    imported.push(name);
+  }
+  return { imported, skipped };
 }
 
 export function importSkillFile(

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { agentMatchesFilter } from "@agent-deck/domain";
@@ -11,7 +11,7 @@ import {
   writeBuiltinAgentOverride,
 } from "../src/overrides.ts";
 import { scanAgents } from "../src/scanner.ts";
-import { writeAgentFile, writeSkillFile } from "../src/writer.ts";
+import { importSkillsFromClone, writeAgentFile, writeSkillFile } from "../src/writer.ts";
 
 function makeHome(): string {
   return mkdtempSync(path.join(tmpdir(), "edit-home-"));
@@ -231,6 +231,55 @@ describe("agent/skill file writer", () => {
     );
     writeBuiltinAgentOverride({ home }, "coder", cleared);
     expect(scanAgents({ home }).find((a) => a.name === "coder")!.fallbackModels).toBeUndefined();
+  });
+
+  it("imports each SKILL.md subdirectory from a cloned repo, copying assets", () => {
+    const home = makeHome();
+    const clone = mkdtempSync(path.join(tmpdir(), "skillrepo-"));
+    mkdirSync(path.join(clone, "alpha"), { recursive: true });
+    writeFileSync(
+      path.join(clone, "alpha", "SKILL.md"),
+      "---\nname: alpha\ndescription: A\n---\nAlpha body",
+    );
+    writeFileSync(path.join(clone, "alpha", "helper.py"), "print(1)\n"); // an asset
+    mkdirSync(path.join(clone, "nested", "beta"), { recursive: true });
+    writeFileSync(
+      path.join(clone, "nested", "beta", "SKILL.md"),
+      "---\nname: beta\ndescription: B\n---\nBeta body",
+    );
+
+    const result = importSkillsFromClone({ home }, "global", clone, "myrepo");
+    expect(result.imported.sort()).toEqual(["alpha", "beta"]);
+    expect(result.skipped).toEqual([]);
+
+    const skillsRoot = path.join(home, ".pi", "agent", "skills");
+    expect(existsSync(path.join(skillsRoot, "alpha", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(skillsRoot, "alpha", "helper.py"))).toBe(true); // asset copied
+    expect(existsSync(path.join(skillsRoot, "beta", "SKILL.md"))).toBe(true);
+
+    // A second import of the same names is skipped, not clobbered.
+    const again = importSkillsFromClone({ home }, "global", clone, "myrepo");
+    expect(again.imported).toEqual([]);
+    expect(again.skipped.sort()).toEqual(["alpha", "beta"]);
+  });
+
+  it("a root SKILL.md imports the whole repo as one skill, .git excluded", () => {
+    const home = makeHome();
+    const clone = mkdtempSync(path.join(tmpdir(), "skillrepo-root-"));
+    writeFileSync(
+      path.join(clone, "SKILL.md"),
+      "---\nname: rootskill\ndescription: R\n---\nRoot body",
+    );
+    writeFileSync(path.join(clone, "data.txt"), "asset\n");
+    mkdirSync(path.join(clone, ".git"), { recursive: true });
+    writeFileSync(path.join(clone, ".git", "config"), "[core]\n");
+
+    const result = importSkillsFromClone({ home }, "global", clone, "fallback-name");
+    expect(result.imported).toEqual(["rootskill"]);
+    const dest = path.join(home, ".pi", "agent", "skills", "rootskill");
+    expect(existsSync(path.join(dest, "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(dest, "data.txt"))).toBe(true);
+    expect(existsSync(path.join(dest, ".git"))).toBe(false); // .git never copied
   });
 
   it("creates a skill SKILL.md discoverable by pi's loader", () => {

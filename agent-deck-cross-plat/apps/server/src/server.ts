@@ -54,6 +54,7 @@ import {
   renameAgentFile,
   renameSkillDir,
   importSkillFile,
+  importSkillsFromClone,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -66,7 +67,7 @@ import {
   type ResourceRoots,
 } from "@agent-deck/resources";
 import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
-import { gitCommitAll, gitStatus } from "./git.ts";
+import { gitCloneShallow, gitCommitAll, gitStatus } from "./git.ts";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -915,6 +916,66 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     broadcast({ type: "resources_changed" });
     return { ok: true, name };
+  });
+
+  // Import skills from a git repository (native SkillRepositorySync, import half):
+  // shallow-clone to a temp dir, copy each SKILL.md-bearing directory into the
+  // scope's catalog, then discard the clone. Push/update-sync is a follow-up.
+  fastify.post("/resources/skills/import-git", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        url: z.string().trim().min(1).max(2000),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, url } = parsed.data;
+    const roots = rootsFor(projectId);
+    if (scope === "project" && !roots.projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    // Only used as a fallback skill name for a root-level SKILL.md that lacks a
+    // frontmatter name. Sanitize to the catalog name charset AND guarantee it
+    // starts with an alnum, so a valid root skill is never silently skipped.
+    const repoName =
+      (
+        url
+          .replace(/\.git$/, "")
+          .replace(/[/\\]+$/, "")
+          .split(/[/\\]/)
+          .pop() || "repository"
+      )
+        .replace(/[^A-Za-z0-9._-]/g, "-")
+        .replace(/^[^A-Za-z0-9]+/, "") || "repository";
+    const tmp = mkdtempSync(nodePath.join(tmpdir(), "agent-deck-skillrepo-"));
+    const cloneDir = nodePath.join(tmp, "repo");
+    try {
+      await gitCloneShallow(url, cloneDir);
+      const result = importSkillsFromClone(roots, scope, cloneDir, repoName);
+      if (result.imported.length === 0 && result.skipped.length === 0) {
+        return reply.status(400).send({ error: "No SKILL.md found in that repository." });
+      }
+      broadcast({ type: "resources_changed" });
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "clone_failed") {
+        return reply.status(400).send({
+          error:
+            "Couldn't clone that repository — check the URL (private repos aren't supported yet).",
+        });
+      }
+      return reply.status(500).send({ error: message });
+    } finally {
+      // Best-effort cleanup: a failure to remove the temp clone (e.g. a Windows
+      // file lock) must never mask the real result or error.
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch {
+        // Leave the temp dir; the OS will reclaim it.
+      }
+    }
   });
 
   // Prompt templates: single .md files pi exposes as /prompt:<name>.

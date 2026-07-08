@@ -50,6 +50,8 @@ export {
   renameAgentFile,
   renameSkillDir,
   importSkillFile,
+  importSkillsFromClone,
+  type SkillImportResult,
   type WritableScope,
 } from "./writer.ts";
 export { scanEnv, writeEnvVar, type EnvEntry, type EnvScope } from "./env.ts";

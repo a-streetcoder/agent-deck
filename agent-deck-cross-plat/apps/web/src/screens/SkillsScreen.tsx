@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   FolderInput,
+  GitBranch,
   Grid3x3,
   Pencil,
   Power,
@@ -355,6 +356,9 @@ export function SkillsScreen() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   // Local-import path input (native SkillImportSheet); null when not importing.
   const [importPath, setImportPath] = useState<string | null>(null);
+  // Git-repo import URL input (native SkillRepositorySync); null when not importing.
+  const [gitUrl, setGitUrl] = useState<string | null>(null);
+  const [gitImporting, setGitImporting] = useState(false);
   const setGlobalError = useAppStore((state) => state.setError);
 
   useEffect(() => {
@@ -431,6 +435,28 @@ export function SkillsScreen() {
       setImportPath(null); // the new skill arrives via the resources_changed refetch
     } catch (err) {
       setGlobalError(String(err));
+    }
+  };
+
+  const doGitImport = async (): Promise<void> => {
+    const url = (gitUrl ?? "").trim();
+    if (!url) return;
+    setGitImporting(true);
+    try {
+      const res = await fetch("/resources/skills/import-git", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope: "global", url }),
+      });
+      if (!res.ok) {
+        const { error } = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(error ?? "Couldn't import from that repository.");
+      }
+      setGitUrl(null); // the imported skills arrive via the resources_changed refetch
+    } catch (err) {
+      setGlobalError(String(err));
+    } finally {
+      setGitImporting(false);
     }
   };
 
@@ -527,6 +553,14 @@ export function SkillsScreen() {
           >
             <FolderInput size={15} />
           </button>
+          <button
+            data-testid="skill-import-git"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border-strong text-text-secondary hover:text-text-primary"
+            title="Import skills from a git repository"
+            onClick={() => setGitUrl((v) => (v === null ? "" : null))}
+          >
+            <GitBranch size={15} />
+          </button>
         </div>
         {importPath !== null ? (
           <div className="mx-3 mb-2 flex gap-2">
@@ -549,6 +583,30 @@ export function SkillsScreen() {
               onClick={() => void doImport()}
             >
               Import
+            </button>
+          </div>
+        ) : null}
+        {gitUrl !== null ? (
+          <div className="mx-3 mb-2 flex gap-2">
+            <input
+              autoFocus
+              data-testid="skill-import-git-url"
+              className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+              placeholder="https://github.com/owner/repo(.git)"
+              value={gitUrl}
+              onChange={(event) => setGitUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void doGitImport();
+                if (event.key === "Escape") setGitUrl(null);
+              }}
+            />
+            <button
+              data-testid="skill-import-git-confirm"
+              className="rounded-capsule border border-border-strong px-2.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+              disabled={!gitUrl.trim() || gitImporting}
+              onClick={() => void doGitImport()}
+            >
+              {gitImporting ? "Importing…" : "Import"}
             </button>
           </div>
         ) : null}

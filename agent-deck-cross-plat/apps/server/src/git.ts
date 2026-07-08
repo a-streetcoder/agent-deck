@@ -82,6 +82,24 @@ export async function gitStatus(cwd: string): Promise<GitStatus> {
  * the work tree is clean (native noChanges) and "not_a_repo" outside a repo, so
  * the route maps them to a 400 with a clear message.
  */
+/**
+ * Shallow-clone a repository (or a local path — the hermetic test form) into an
+ * empty destination dir. GIT_TERMINAL_PROMPT=0 makes a private/auth-required
+ * remote fail fast instead of hanging on a credential prompt (native
+ * SkillRepositorySyncService). Throws "clone_failed" on any git error.
+ */
+export async function gitCloneShallow(source: string, destDir: string): Promise<void> {
+  try {
+    await execFileAsync(gitBin(), ["clone", "--depth", "1", source, destDir], {
+      timeout: 120_000,
+      maxBuffer: 8_000_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+  } catch {
+    throw new Error("clone_failed");
+  }
+}
+
 export async function gitCommitAll(cwd: string, message: string): Promise<{ committed: true }> {
   const status = await gitStatus(cwd);
   if (!status.repo) throw new Error("not_a_repo");
