@@ -20,6 +20,7 @@ interface GitStatus {
 
 export function GitScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const pushToast = useAppStore((state) => state.pushToast);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const setError = useAppStore((state) => state.setError);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -55,6 +56,7 @@ export function GitScreen() {
       });
       if (!response.ok) throw new Error(await response.text());
       setMessage("");
+      pushToast({ kind: "success", message: push ? "Committed & pushed" : "Committed" });
       await load();
     } catch (err) {
       setError(String(err));

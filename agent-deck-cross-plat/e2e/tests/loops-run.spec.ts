@@ -57,4 +57,6 @@ test("runs a loop from the Bank and the panel reaches completed", async ({ page 
   });
   // The first iteration passed validation.
   await expect(page.getByTestId("loop-run-iterations")).toContainText("✓");
+  // A completion toast fires.
+  await expect(page.getByTestId("toast")).toHaveText(/completed/);
 });

@@ -2,6 +2,7 @@ import { Composer } from "./components/Composer.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { Toaster } from "./components/Toaster.tsx";
 import { Transcript } from "./components/Transcript.tsx";
 import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
@@ -201,6 +202,7 @@ export function App() {
           ) : null}
         </main>
       </div>
+      <Toaster />
     </div>
   );
 }

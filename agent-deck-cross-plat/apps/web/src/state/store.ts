@@ -26,6 +26,14 @@ export type AppView =
   | "mcp"
   | "doctor";
 
+export type ToastKind = "success" | "error" | "info";
+
+export interface Toast {
+  id: string;
+  message: string;
+  kind: ToastKind;
+}
+
 export interface AppState {
   connection: ConnectionStatus;
   view: AppView;
@@ -54,6 +62,8 @@ export interface AppState {
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
   lastSeq: number;
   error: string | null;
+  /** Transient notifications (native toasts), newest last; auto-dismissed by the Toaster. */
+  toasts: Toast[];
   setConnection(connection: ConnectionStatus): void;
   setView(view: AppView): void;
   setPanelExpanded(expanded: boolean): void;
@@ -70,6 +80,9 @@ export interface AppState {
   setTranscript(state: TranscriptState, seq: number): void;
   resetTranscript(): void;
   setError(error: string | null): void;
+  /** Queue a transient toast; returns its id. */
+  pushToast(toast: Omit<Toast, "id">): string;
+  dismissToast(id: string): void;
 }
 
 const PANEL_KEY = "agentdeck-panel-expanded";
@@ -98,6 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
   transcript: emptyTranscript(),
   lastSeq: 0,
   error: null,
+  toasts: [],
   setConnection: (connection) => set({ connection }),
   // Leaving chat for another nav section auto-collapses the panel (revealing the
   // nav it covers); staying in chat — e.g. selecting a session — leaves the
@@ -133,4 +147,10 @@ export const useAppStore = create<AppState>((set) => ({
   setTranscript: (transcript, lastSeq) => set({ transcript, lastSeq }),
   resetTranscript: () => set({ transcript: emptyTranscript(), lastSeq: 0 }),
   setError: (error) => set({ error }),
+  pushToast: (toast) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }));
+    return id;
+  },
+  dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 }));

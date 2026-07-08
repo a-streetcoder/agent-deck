@@ -58,6 +58,12 @@ test("shows working-tree changes and commits them", async ({ page }) => {
   await expect(commitButton).toBeEnabled();
   await commitButton.click();
 
+  // A success toast confirms the commit, then auto-dismisses.
+  const toast = page.getByTestId("toast");
+  await expect(toast).toHaveText(/Committed/);
+  await expect(toast).toHaveAttribute("data-kind", "success");
+  await expect(toast).toHaveCount(0, { timeout: 6_000 }); // auto-dismissed
+
   // The working tree goes clean and the file leaves the list.
   await expect(page.getByTestId("git-clean")).toBeVisible();
   await expect(page.locator('[data-git-path="feature.ts"]')).toHaveCount(0);

@@ -59,11 +59,14 @@ export function LoopsScreen() {
   const setError = useAppStore((state) => state.setError);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const pushToast = useAppStore((state) => state.pushToast);
   const [loops, setLoops] = useState<LoopDefinition[]>([]);
   const [draft, setDraft] = useState<LoopDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [activeRun, setActiveRun] = useState<LoopRun | null>(null);
   const runIdRef = useRef<string | null>(null);
+  // Runs we've already toasted on completion, so a terminal state toasts once.
+  const toastedRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -176,6 +179,14 @@ export function LoopsScreen() {
             setActiveRun((prev) =>
               prev && prev.id === run.id && isLoopRunTerminal(prev.status) ? prev : run,
             );
+            // Toast once when a run reaches a terminal state.
+            if (isLoopRunTerminal(run.status) && !toastedRef.current.has(run.id)) {
+              toastedRef.current.add(run.id);
+              pushToast({
+                kind: run.status === "completed" ? "success" : "error",
+                message: `Loop "${run.loopName}" ${run.status}`,
+              });
+            }
           }
         } catch {
           // Transient — the next tick retries.
