@@ -516,6 +516,9 @@ struct PiAgentSessionRow: View, Equatable {
         }
         .saturation(seenAppearanceAmount)
         .opacity(seenContentOpacity)
+        // Keep the text column clear of the trailing attention/delete slot,
+        // which is painted as an overlay rather than participating in layout.
+        .padding(.trailing, 30)
         // 6 (AppList inset) + 8 = 14pt from the panel edge, left-aligning the
         // title with the header's project icon.
         .padding(.horizontal, 8)
