@@ -15,6 +15,7 @@ export type AppView =
   | "projects"
   | "instructions"
   | "issues"
+  | "git"
   | "prompts"
   | "models"
   | "extensions"

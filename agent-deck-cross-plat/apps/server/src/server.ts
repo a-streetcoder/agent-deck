@@ -66,6 +66,7 @@ import {
   type ResourceRoots,
 } from "@agent-deck/resources";
 import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
+import { gitCommitAll, gitStatus } from "./git.ts";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -1520,6 +1521,38 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // providers pi knows about, plus each one's sign-in status read from the
   // global ~/.pi/agent/auth.json. Interactive OAuth sign-in is a follow-up; this
   // covers the read side + logout (disconnect a stored credential).
+  // Git automation (native GitRepositoryService): the working-tree status of a
+  // project + commit-all. Push/remote is a follow-up. Project-scoped: git runs
+  // in the project's path.
+  fastify.get("/projects/:id/git/status", async (request, reply) => {
+    const project = projects.find((p) => p.id === (request.params as { id: string }).id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    return gitStatus(project.path);
+  });
+
+  fastify.post("/projects/:id/git/commit", async (request, reply) => {
+    const project = projects.find((p) => p.id === (request.params as { id: string }).id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    const parsed = z
+      .object({ message: z.string().trim().min(1, "a commit message is required").max(10_000) })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    try {
+      const result = await gitCommitAll(project.path, parsed.data.message);
+      broadcast({ type: "resources_changed" });
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "nothing_to_commit") {
+        return reply.status(400).send({ error: "There are no changes to commit." });
+      }
+      if (message === "not_a_repo") {
+        return reply.status(400).send({ error: "This project isn't a git repository." });
+      }
+      return reply.status(500).send({ error: message });
+    }
+  });
+
   fastify.get("/runtime/providers", async () => ({ providers: listProviders(rootsFor()) }));
 
   // Disconnect a stored provider credential (native logout). Only a known
