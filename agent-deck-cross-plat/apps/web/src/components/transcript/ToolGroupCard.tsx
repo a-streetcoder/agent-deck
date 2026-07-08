@@ -29,8 +29,10 @@ export interface ToolGroupCardProps {
   body?: ReactNode;
   /** Open by default — used for streaming tool calls. */
   defaultExpanded?: boolean;
-  /** Card variant — picks the leading icon and slot styling. */
+  /** Card variant — picks the slot styling and the fallback leading icon. */
   variant?: ToolGroupVariant;
+  /** Per-tool leading icon; overrides the variant's default when set. */
+  icon?: (props: { className: string }) => ReactNode;
   className?: string;
 }
 
@@ -75,12 +77,13 @@ export const ToolGroupCard = forwardRef<HTMLDivElement, ToolGroupCardProps>(func
     body,
     defaultExpanded = false,
     variant = "generic",
+    icon,
     className,
   },
   ref,
 ) {
   const [open, setOpen] = useState(defaultExpanded);
-  const Icon = VARIANT_ICON[variant];
+  const Icon = icon ?? VARIANT_ICON[variant];
 
   return (
     <div

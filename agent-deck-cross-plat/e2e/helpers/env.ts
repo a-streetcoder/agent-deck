@@ -33,6 +33,8 @@ export async function startHarness(options?: {
   chunkDelayMs?: number;
   /** Extra pi extensions loaded into every UI-created session. */
   extraExtensions?: string[];
+  /** Drive a real pi tool call (e.g. read/bash) — see MockProviderOptions.toolCall. */
+  toolCall?: NonNullable<Parameters<typeof startMockProvider>[0]>["toolCall"];
 }): Promise<E2eHarness> {
   if (!existsSync(path.join(WEB_DIST, "index.html"))) {
     execSync("pnpm --filter @agent-deck/web build", { cwd: WORKSPACE_ROOT, stdio: "inherit" });
@@ -40,6 +42,7 @@ export async function startHarness(options?: {
 
   const mock = await startMockProvider({
     reply: options?.reply ? (m) => options.reply!(m) : undefined,
+    toolCall: options?.toolCall,
     chunkDelayMs: options?.chunkDelayMs ?? 120,
   });
   const tmpHome = mkdtempSync(path.join(tmpdir(), "pi-e2e-home-"));

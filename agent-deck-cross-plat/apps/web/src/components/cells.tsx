@@ -11,6 +11,7 @@ import {
 import { balance } from "@/design-system/markdown/balancer";
 import { MessageBubble } from "@/components/transcript/MessageBubble";
 import { ToolGroupCard, type ToolGroupStatus } from "@/components/transcript/ToolGroupCard";
+import { toolFilePath, toolPresentation } from "@/components/transcript/toolPresentation";
 import { RunMeta } from "./RunMeta.tsx";
 import { sendSupervisorAnswer, sendUiResponse } from "../state/wsBridge.ts";
 
@@ -19,6 +20,10 @@ const TOOL_STATUS: Record<ToolCell["status"], ToolGroupStatus> = {
   done: "result",
   error: "failed",
 };
+
+// Only these tools show a file-path header — so a non-file tool that happens to
+// carry a `path`-like arg (e.g. bash) doesn't get a spurious one.
+const FILE_TOOLS = new Set(["read", "edit", "write"]);
 
 function ToolCellView({ cell }: { cell: ToolCell }) {
   const argsText =
@@ -36,15 +41,35 @@ function ToolCellView({ cell }: { cell: ToolCell }) {
   // Agent Deck memory tools render as native "Memory Stored / Searched / …"
   // cards (Brain icon, friendly label) instead of the raw tool name.
   const memoryLabel = memoryToolCardLabel(cell);
+  // Every other tool gets a friendly name + a distinct icon (native toolVerb /
+  // toolIcon) instead of the raw tool name under one generic terminal glyph.
+  const preso = memoryLabel ? null : toolPresentation(cell.toolName);
+  const PresoIcon = preso?.Icon;
+  const filePath = FILE_TOOLS.has(cell.toolName.toLowerCase())
+    ? toolFilePath(cell.args)
+    : undefined;
   return (
-    <div data-testid="tool-cell" data-memory-card={memoryLabel ?? undefined}>
+    <div
+      data-testid="tool-cell"
+      data-memory-card={memoryLabel ?? undefined}
+      data-tool={memoryLabel ? undefined : cell.toolName}
+    >
       <ToolGroupCard
-        name={memoryLabel ?? cell.toolName}
-        variant={memoryLabel ? "memory" : "generic"}
+        name={memoryLabel ?? preso!.name}
+        variant={memoryLabel ? "memory" : preso!.variant}
+        icon={PresoIcon ? ({ className }) => <PresoIcon className={className} /> : undefined}
         status={TOOL_STATUS[cell.status]}
         defaultExpanded={cell.status === "running"}
         body={
           <div className="space-y-2">
+            {filePath ? (
+              <div
+                className="font-mono text-[11px] text-text-secondary"
+                data-testid="tool-file-path"
+              >
+                {filePath}
+              </div>
+            ) : null}
             {argsText}
             {resultText}
           </div>
