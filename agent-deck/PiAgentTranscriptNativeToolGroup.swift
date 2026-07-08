@@ -449,6 +449,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
     private var expandedDiffRows: Set<String> = []
 
     private static let inlineLinkLimit = 5
+    private static let imagesCardIdentifier = NSUserInterfaceItemIdentifier("PiAgentNativeToolGroupImagesCard")
     // Quiet hairline transcript-card surface — see `AppTheme.Chat.cardFill`.
     // Computed (not `static let`) so each sub-card build re-resolves against the
     // active theme rather than snapshotting the launch theme.
@@ -502,7 +503,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         if let web = model.web { sections.addArrangedSubview(buildWebCard(web)) }
         if let images = model.images { sections.addArrangedSubview(buildImagesCard(images)) }
         if let diff = model.diff { sections.addArrangedSubview(buildDiffCard(diff)) }
-        for view in sections.arrangedSubviews {
+        for view in sections.arrangedSubviews where view.identifier != Self.imagesCardIdentifier {
             view.widthAnchor.constraint(equalTo: sections.widthAnchor).isActive = true
         }
     }
@@ -705,6 +706,10 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
 
     private func buildImagesCard(_ images: NativeToolGroupModel.Images) -> NSView {
         let card = makeSubCard()
+        card.identifier = Self.imagesCardIdentifier
+        card.setContentHuggingPriority(.required, for: .horizontal)
+        card.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         let stack = NSStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
@@ -722,16 +727,28 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         if images.hiddenCount > 0 {
             header.addArrangedSubview(Self.label("+\(images.hiddenCount) more", font: NativeTranscriptFont.caption2(), color: .tertiaryLabelColor, wraps: false))
         }
-        header.addArrangedSubview(NSView())
         stack.addArrangedSubview(header)
 
         let thumbnails = mcpImageStrip(images.references) ?? NSView()
         stack.addArrangedSubview(thumbnails)
         thumbnails.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 23).isActive = true
         thumbnails.trailingAnchor.constraint(lessThanOrEqualTo: stack.trailingAnchor).isActive = true
+        thumbnails.widthAnchor.constraint(equalToConstant: imageStripWidth(for: images.references)).isActive = true
 
         embed(stack, in: card, hInset: 12, vInset: 10)
         return card
+    }
+
+    private func imageStripWidth(for references: [PiAgentTranscriptImageReference]) -> CGFloat {
+        let shownCount = min(references.count, 6)
+        guard shownCount > 0 else { return 0 }
+        let tileWidth: CGFloat = 104
+        let spacing: CGFloat = 8
+        let naturalWidth = CGFloat(shownCount) * tileWidth + CGFloat(max(0, shownCount - 1)) * spacing
+        // Keep the card content-hugged for short image summaries, but cap it to the
+        // reply column so larger sets wrap instead of overflowing the transcript row.
+        let availableWidth = max(tileWidth, sectionsWidthC.constant - 12 * 2 - 23)
+        return min(naturalWidth, availableWidth)
     }
 
     private var mcpResultByRowID: [String: (server: String, tool: String, result: String)] = [:]
