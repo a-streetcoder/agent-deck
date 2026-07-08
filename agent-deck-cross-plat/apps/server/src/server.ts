@@ -1730,7 +1730,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const project = projects.find((p) => p.id === body.projectId);
     if (!project) return reply.status(404).send({ error: "unknown project" });
     const cwd = project.path;
-    const baseExtensions = body.extensions ?? defaults.extensions ?? [];
+    // Default to the configured default + provider-registration extensions so a
+    // plain run (just a projectId) still has its model provider registered.
+    const baseExtensions = body.extensions ?? [
+      ...(defaults.extensions ?? []),
+      ...(defaults.providerExtensions ?? []),
+    ];
     const finalizedBase = finalizeExtensions([...baseExtensions, ...settings.enabledExtensions()]);
     const parent = sessions.create({
       cwd,
