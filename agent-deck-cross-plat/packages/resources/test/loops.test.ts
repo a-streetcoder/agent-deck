@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { deleteLoopFile, loopsDir, scanLoops, writeLoopFile } from "../src/loops.ts";
+import { deleteLoopFile, duplicateLoop, loopsDir, scanLoops, writeLoopFile } from "../src/loops.ts";
 
 function makeHome(): string {
   return mkdtempSync(path.join(tmpdir(), "loops-home-"));
@@ -97,6 +97,34 @@ describe("loop definition store", () => {
     // Delete by name removes the actual file.
     deleteLoopFile(roots, "Renamed Loop");
     expect(existsSync(oddPath)).toBe(false);
+  });
+
+  it("duplicates a loop as 'Copy of X', de-duplicating on repeat", () => {
+    const home = makeHome();
+    const roots = { home };
+    writeLoopFile(roots, {
+      name: "Nightly",
+      goal: "run nightly",
+      maxIterations: 4,
+      validationCommand: "make check",
+      agentName: "coder",
+    });
+
+    const first = duplicateLoop(roots, "Nightly");
+    expect(first).toBe("Copy of Nightly");
+    const copy = scanLoops(roots).find((l) => l.name === "Copy of Nightly")!;
+    expect(copy).toMatchObject({
+      goal: "run nightly",
+      maxIterations: 4,
+      validationCommand: "make check",
+      agentName: "coder",
+    });
+
+    // A second duplicate of the same source gets a numbered name.
+    expect(duplicateLoop(roots, "Nightly")).toBe("Copy of Nightly (2)");
+    expect(scanLoops(roots)).toHaveLength(3);
+
+    expect(() => duplicateLoop(roots, "Ghost")).toThrow("loop_not_found");
   });
 
   it("rejects a different name that collides on the same slug", () => {

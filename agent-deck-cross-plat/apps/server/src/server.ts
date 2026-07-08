@@ -66,6 +66,7 @@ import {
   scanLoops,
   writeLoopFile,
   deleteLoopFile,
+  duplicateLoop,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
@@ -1754,6 +1755,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     deleteLoopFile(rootsFor(), parsed.data.name);
     broadcast({ type: "resources_changed" });
     return { ok: true };
+  });
+
+  fastify.post("/loops/:name/duplicate", async (request, reply) => {
+    const name = (request.params as { name: string }).name;
+    try {
+      const copyName = duplicateLoop(rootsFor(), name);
+      broadcast({ type: "resources_changed" });
+      return { name: copyName };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "loop_not_found") {
+        return reply.status(404).send({ error: `unknown loop: ${name}` });
+      }
+      return reply.status(500).send({ error: message });
+    }
   });
 
   // Run a loop (native single-agent loop engine). Each iteration drives the

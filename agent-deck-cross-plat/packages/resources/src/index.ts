@@ -75,5 +75,6 @@ export {
   scanLoops,
   writeLoopFile,
   deleteLoopFile,
+  duplicateLoop,
   type LoopEdit,
 } from "./loops.ts";

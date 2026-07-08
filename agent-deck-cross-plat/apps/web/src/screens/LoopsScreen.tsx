@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Plus, Repeat, Square, Trash2 } from "lucide-react";
+import { Copy, Play, Plus, Repeat, Square, Trash2 } from "lucide-react";
 import {
   isLoopRunTerminal,
   LOOP_DEFAULT_MAX_ITERATIONS,
@@ -116,6 +116,18 @@ export function LoopsScreen() {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: loop.name }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await load();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const duplicate = async (loop: LoopDefinition): Promise<void> => {
+    try {
+      const response = await fetch(`/loops/${encodeURIComponent(loop.name)}/duplicate`, {
+        method: "POST",
       });
       if (!response.ok) throw new Error(await response.text());
       await load();
@@ -310,6 +322,14 @@ export function LoopsScreen() {
                 onClick={() => void startRun(loop)}
               >
                 <Play size={12} /> Run
+              </button>
+              <button
+                data-testid={`loop-duplicate-${loop.name}`}
+                className="rounded p-1 text-text-muted hover:text-text-primary"
+                title="Duplicate loop"
+                onClick={() => void duplicate(loop)}
+              >
+                <Copy size={13} />
               </button>
               <button
                 data-testid={`loop-delete-${loop.name}`}

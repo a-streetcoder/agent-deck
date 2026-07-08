@@ -57,7 +57,15 @@ test("creates, edits, and deletes a loop through the Bank", async ({ page }) => 
   await expect(row).toContainText("10×");
   expect(readFileSync(loopFile(), "utf8")).toContain("maxIterations: 10");
 
-  // Delete (confirm-gated).
+  // Duplicate → a "Copy of …" appears alongside the original.
+  await page.getByTestId("loop-duplicate-Green Suite").click();
+  await expect(page.locator('[data-loop-name="Copy of Green Suite"]')).toBeVisible();
+  await expect(row).toBeVisible();
+
+  // Delete both (confirm-gated).
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByTestId("loop-delete-Copy of Green Suite").click();
+  await expect(page.locator('[data-loop-name="Copy of Green Suite"]')).toHaveCount(0);
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByTestId("loop-delete-Green Suite").click();
   await expect(row).toHaveCount(0);

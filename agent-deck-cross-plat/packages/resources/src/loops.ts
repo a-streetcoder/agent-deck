@@ -185,3 +185,31 @@ export function deleteLoopFile(roots: ResourceRoots, name: string): void {
   const filePath = loopPathByName(roots, name) ?? loopFilePath(roots, name);
   rmSync(filePath, { force: true });
 }
+
+/**
+ * Duplicate a loop as a new "Copy of <name>" (native duplicateUserDefinition),
+ * de-duplicating the name if a copy already exists. Returns the new loop's name.
+ * Throws "loop_not_found" if the source doesn't exist.
+ */
+export function duplicateLoop(roots: ResourceRoots, name: string): string {
+  const loops = scanLoops(roots);
+  const source = loops.find((loop) => loop.name === name);
+  if (!source) throw new Error("loop_not_found");
+  // De-dup by SLUG (the filename key), not name — otherwise a name-unique copy
+  // could still collide on disk with a differently-named loop and throw.
+  const existingSlugs = new Set(loops.map((loop) => loopSlug(loop.name)));
+  let copyName = `Copy of ${name}`;
+  for (let n = 2; existingSlugs.has(loopSlug(copyName)); n += 1)
+    copyName = `Copy of ${name} (${n})`;
+  writeLoopFile(roots, {
+    name: copyName,
+    description: source.description,
+    goal: source.goal,
+    structure: source.structure,
+    agentName: source.agentName,
+    maxIterations: source.maxIterations,
+    validationCommand: source.validationCommand,
+    writeTarget: source.writeTarget,
+  });
+  return copyName;
+}
