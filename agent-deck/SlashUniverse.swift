@@ -84,6 +84,46 @@ extension SlashItem {
         }
     }
 
+    /// Returns true for slash items that can be composed together. Commands,
+    /// prompts, and loops remain singleton selections.
+    var allowsMultiSelection: Bool {
+        switch payload {
+        case .skill, .skillCollection: return true
+        case .command, .prompt, .loopCreateNew, .loopDefinition: return false
+        }
+    }
+
+    /// Returns the next composer selection set after accepting `item`. Skills and
+    /// skill collections accumulate; commands, prompts, and loops replace any
+    /// existing selection.
+    static func selections(afterAdding item: SlashItem, to existing: [SlashItem]) -> [SlashItem] {
+        guard item.allowsMultiSelection else { return [item] }
+        guard existing.allSatisfy(\.allowsMultiSelection) else { return [item] }
+        guard !existing.contains(where: { $0.id == item.id }) else { return existing }
+        return existing + [item]
+    }
+
+    /// Materializes the composer's selected slash items. A single selection keeps
+    /// existing item-specific behavior (including active `/skill:name` calls).
+    /// Multiple selections are only valid for skills/skill collections and are
+    /// inlined as bodies before the user's text.
+    static func materialize(selections: [SlashItem], userText: String) -> String {
+        guard !selections.isEmpty else { return userText.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard selections.count > 1 else { return selections[0].materialize(userText: userText) }
+
+        let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bodies = selections.compactMap { item -> String? in
+            switch item.payload {
+            case .skill(_, let body, _, _), .skillCollection(_, _, let body):
+                let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmedBody.isEmpty ? nil : trimmedBody
+            case .command, .prompt, .loopCreateNew, .loopDefinition:
+                return nil
+            }
+        }
+        return (bodies + (trimmed.isEmpty ? [] : [trimmed])).joined(separator: "\n\n")
+    }
+
     /// Source text for automatic chat titles. Unlike `materialize`, this must
     /// not include inlined skill/prompt bodies or command implementation text.
     func titleGenerationSource(userText: String) -> String {
@@ -103,6 +143,12 @@ extension SlashItem {
         case .loopCreateNew, .loopDefinition:
             return trimmed
         }
+    }
+
+    static func titleGenerationSource(selections: [SlashItem], userText: String) -> String {
+        guard !selections.isEmpty else { return userText.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard selections.count > 1 else { return selections[0].titleGenerationSource(userText: userText) }
+        return userText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func matches(query lowercasedQuery: String) -> Bool {

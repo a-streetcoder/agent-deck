@@ -4624,9 +4624,9 @@ struct PiAgentScreen: View {
     @State private var slashRowsCacheKey: SlashSuggestionRowsCacheKey?
     @State private var cachedSlashRows: [SlashSuggestionRow] = []
     @State private var cachedSlashSelectableRows: [SlashSuggestionRow] = []
-    /// The picked slash item — when non-nil, the composer shows it as a glass
-    /// capsule chip above the editor and includes it in the send payload.
-    @State private var slashSelection: SlashItem?
+    /// Picked slash items — rendered as glass capsule chips above the editor and
+    /// included in the send payload. Only skills/skill collections can stack.
+    @State private var slashSelections: [SlashItem] = []
     @State private var isLoopLaunchSheetPresented = false
     @State private var loopLaunchDraft = LoopDraft()
     @State private var loopLaunchDefinition: LoopDefinition?
@@ -6701,7 +6701,7 @@ struct PiAgentScreen: View {
                 isRunning: isRunning,
                 isDisabled: isCompacting,
                 placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
-                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || slashSelection != nil),
+                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || !slashSelections.isEmpty),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: piAgentNewSessionProjects,
                 onFiles: addFileAttachments,
@@ -6710,8 +6710,8 @@ struct PiAgentScreen: View {
                 footerSession: store.selectedSession,
                 supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
                 metricsSession: runtimeFooterSession(isRunning: isRunning),
-                slashSelection: slashSelection,
-                onRemoveSlashSelection: { slashSelection = nil },
+                slashSelections: slashSelections,
+                onRemoveSlashSelection: { item in slashSelections.removeAll { $0.id == item.id } },
                 onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
                 onStop: { viewModel.stopSelectedPiAgentSession() },
                 onCreateSession: createSessionFromComposer,
@@ -6907,7 +6907,7 @@ struct PiAgentScreen: View {
                 if let sessionID = store.selectedSession?.id {
                     store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
-                slashSelection = nil
+                slashSelections = []
                 slashState = SlashSuggestionState()
                 slashUniverse = .empty
                 composerSuggestionsDismissed = true
@@ -6915,7 +6915,7 @@ struct PiAgentScreen: View {
             }
             loopLaunchDraft = LoopDraft()
             loopLaunchDefinition = nil
-            slashSelection = nil
+            slashSelections = []
             slashState = SlashSuggestionState()
             slashUniverse = .empty
             composerSuggestionsDismissed = true
@@ -6926,7 +6926,7 @@ struct PiAgentScreen: View {
                 if let sessionID = store.selectedSession?.id {
                     store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
-                slashSelection = nil
+                slashSelections = []
                 slashState = SlashSuggestionState()
                 slashUniverse = .empty
                 composerSuggestionsDismissed = true
@@ -6934,7 +6934,7 @@ struct PiAgentScreen: View {
             }
             loopLaunchDraft = definition.makeDraft()
             loopLaunchDefinition = definition
-            slashSelection = nil
+            slashSelections = []
             slashState = SlashSuggestionState()
             slashUniverse = .empty
             composerSuggestionsDismissed = true
@@ -6952,7 +6952,7 @@ struct PiAgentScreen: View {
             composerText = composerText.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(composerText)"
         }
 
-        slashSelection = currentItem
+        slashSelections = SlashItem.selections(afterAdding: currentItem, to: slashSelections)
         slashState = SlashSuggestionState()
         composerSuggestionsDismissed = true
     }
@@ -6988,7 +6988,7 @@ struct PiAgentScreen: View {
     }
 
     private func resetSlashComposerState() {
-        slashSelection = nil
+        slashSelections = []
         slashUniverse = .empty
         slashUniverseRevision &+= 1
         slashState = SlashSuggestionState()
@@ -7280,7 +7280,7 @@ struct PiAgentScreen: View {
         composerFolders = []
         composerIssueAttachment = nil
         composerAttachmentError = nil
-        slashSelection = nil
+        slashSelections = []
         slashState = SlashSuggestionState()
     }
 
@@ -7314,13 +7314,13 @@ struct PiAgentScreen: View {
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let baseMessage = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseTranscript = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentSlashSelection = slashSelection.map { item in
+        let currentSlashSelections = slashSelections.map { item in
             if case .prompt = item.payload { return item }
             return viewModel.refreshedSlashItemForUse(item, projectPath: store.selectedSession?.projectPathForProjectFeatures)
         }
-        let message = currentSlashSelection?.materialize(userText: baseMessage) ?? baseMessage
-        let transcriptMessage = currentSlashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
-        let titleSource = currentSlashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
+        let message = SlashItem.materialize(selections: currentSlashSelections, userText: baseMessage)
+        let transcriptMessage = SlashItem.materialize(selections: currentSlashSelections, userText: baseTranscript)
+        let titleSource = SlashItem.titleGenerationSource(selections: currentSlashSelections, userText: baseTranscript)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
@@ -7600,7 +7600,7 @@ private struct PiAgentComposerPanel: View {
     @State private var slashRowsCacheKey: SlashSuggestionRowsCacheKey?
     @State private var cachedSlashRows: [SlashSuggestionRow] = []
     @State private var cachedSlashSelectableRows: [SlashSuggestionRow] = []
-    @State private var slashSelection: SlashItem?
+    @State private var slashSelections: [SlashItem] = []
     @State private var isLoopLaunchSheetPresented = false
     @State private var loopLaunchDraft = LoopDraft()
     @State private var loopLaunchDefinition: LoopDefinition?
@@ -7704,7 +7704,7 @@ private struct PiAgentComposerPanel: View {
                     isRunning: isRunning,
                     isDisabled: isCompacting,
                     placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
-                    canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || slashSelection != nil),
+                    canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || !slashSelections.isEmpty),
                     canCreateSession: !isCompacting && store.selectedSession == nil,
                     createSessionProjects: piAgentNewSessionProjects,
                     onFiles: addFileAttachments,
@@ -7713,8 +7713,8 @@ private struct PiAgentComposerPanel: View {
                     footerSession: store.selectedSession,
                     supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
                     metricsSession: runtimeFooterSession(isRunning: isRunning),
-                    slashSelection: slashSelection,
-                    onRemoveSlashSelection: { slashSelection = nil },
+                    slashSelections: slashSelections,
+                    onRemoveSlashSelection: { item in slashSelections.removeAll { $0.id == item.id } },
                     onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
                     onStop: { viewModel.stopSelectedPiAgentSession() },
                     onCreateSession: createSessionFromComposer,
@@ -8028,7 +8028,7 @@ private struct PiAgentComposerPanel: View {
                 if let sessionID = store.selectedSession?.id {
                     store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
-                slashSelection = nil
+                slashSelections = []
                 slashState = SlashSuggestionState()
                 slashUniverse = .empty
                 composerSuggestionsDismissed = true
@@ -8036,7 +8036,7 @@ private struct PiAgentComposerPanel: View {
             }
             loopLaunchDraft = LoopDraft()
             loopLaunchDefinition = nil
-            slashSelection = nil
+            slashSelections = []
             slashState = SlashSuggestionState()
             slashUniverse = .empty
             composerSuggestionsDismissed = true
@@ -8047,7 +8047,7 @@ private struct PiAgentComposerPanel: View {
                 if let sessionID = store.selectedSession?.id {
                     store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
-                slashSelection = nil
+                slashSelections = []
                 slashState = SlashSuggestionState()
                 slashUniverse = .empty
                 composerSuggestionsDismissed = true
@@ -8055,7 +8055,7 @@ private struct PiAgentComposerPanel: View {
             }
             loopLaunchDraft = definition.makeDraft()
             loopLaunchDefinition = definition
-            slashSelection = nil
+            slashSelections = []
             slashState = SlashSuggestionState()
             slashUniverse = .empty
             composerSuggestionsDismissed = true
@@ -8073,7 +8073,7 @@ private struct PiAgentComposerPanel: View {
             composerText = composerText.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(composerText)"
         }
 
-        slashSelection = currentItem
+        slashSelections = SlashItem.selections(afterAdding: currentItem, to: slashSelections)
         slashState = SlashSuggestionState()
         composerSuggestionsDismissed = true
     }
@@ -8109,7 +8109,7 @@ private struct PiAgentComposerPanel: View {
     }
 
     private func resetSlashComposerState() {
-        slashSelection = nil
+        slashSelections = []
         slashUniverse = .empty
         slashUniverseRevision &+= 1
         slashState = SlashSuggestionState()
@@ -8283,7 +8283,7 @@ private struct PiAgentComposerPanel: View {
         // The slash selection is not part of a persisted composer draft. Drop
         // it whenever a draft is loaded (session switch, window re-key, etc.)
         // so a skill chip from session A never leaks into session B.
-        slashSelection = nil
+        slashSelections = []
 
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
@@ -8327,7 +8327,7 @@ private struct PiAgentComposerPanel: View {
         composerFolders = []
         composerIssueAttachment = nil
         composerAttachmentError = nil
-        slashSelection = nil
+        slashSelections = []
         slashState = SlashSuggestionState()
     }
 
@@ -8358,13 +8358,13 @@ private struct PiAgentComposerPanel: View {
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let baseMessage = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseTranscript = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentSlashSelection = slashSelection.map { item in
+        let currentSlashSelections = slashSelections.map { item in
             if case .prompt = item.payload { return item }
             return viewModel.refreshedSlashItemForUse(item, projectPath: store.selectedSession?.projectPathForProjectFeatures)
         }
-        let message = currentSlashSelection?.materialize(userText: baseMessage) ?? baseMessage
-        let transcriptMessage = currentSlashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
-        let titleSource = currentSlashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
+        let message = SlashItem.materialize(selections: currentSlashSelections, userText: baseMessage)
+        let transcriptMessage = SlashItem.materialize(selections: currentSlashSelections, userText: baseTranscript)
+        let titleSource = SlashItem.titleGenerationSource(selections: currentSlashSelections, userText: baseTranscript)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }

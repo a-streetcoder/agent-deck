@@ -73,11 +73,10 @@ struct PiAgentComposerBox: View {
     let footerSession: PiAgentSessionRecord?
     let supportedThinkingLevels: [String]
     let metricsSession: PiAgentSessionRecord?
-    /// Picked `/`-suggestion (skill / prompt / command). Rendered as a glass
-    /// capsule chip above the editor; included in the send payload by the
-    /// caller, not by this view.
-    var slashSelection: SlashItem? = nil
-    var onRemoveSlashSelection: () -> Void = {}
+    /// Picked `/`-suggestions. Rendered as glass capsule chips above the editor;
+    /// included in the send payload by the caller, not by this view.
+    var slashSelections: [SlashItem] = []
+    var onRemoveSlashSelection: (SlashItem) -> Void = { _ in }
     let onSend: () -> Void
     let onStop: () -> Void
     let onCreateSession: () -> Void
@@ -137,11 +136,13 @@ struct PiAgentComposerBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if slashSelection != nil || !images.isEmpty || !files.isEmpty || !folders.isEmpty || issueAttachment != nil {
+            if !slashSelections.isEmpty || !images.isEmpty || !files.isEmpty || !folders.isEmpty || issueAttachment != nil {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        if let slashSelection {
-                            PiAgentSlashSelectionChip(item: slashSelection, onRemove: onRemoveSlashSelection)
+                        ForEach(slashSelections) { slashSelection in
+                            PiAgentSlashSelectionChip(item: slashSelection) {
+                                onRemoveSlashSelection(slashSelection)
+                            }
                         }
                         if let issueAttachment {
                             PiAgentIssueAttachmentChip(issue: issueAttachment) {
