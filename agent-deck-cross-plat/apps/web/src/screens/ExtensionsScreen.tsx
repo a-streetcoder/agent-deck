@@ -21,11 +21,22 @@ interface ExtensionEntry {
   bridgeConflict?: string | null;
 }
 
+/** An app-generated bridge (native "Agent Deck bridges" card) — read-only. */
+interface AppBridge {
+  id: string;
+  displayName: string;
+  summary: string;
+  condition: string;
+  toolNames: string[];
+  active: boolean;
+}
+
 export function ExtensionsScreen() {
   const setError = useAppStore((state) => state.setError);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const [extensions, setExtensions] = useState<ExtensionEntry[]>([]);
+  const [bridges, setBridges] = useState<AppBridge[]>([]);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -47,6 +58,19 @@ export function ExtensionsScreen() {
   useEffect(() => {
     void load();
   }, [load, resourcesVersion]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await fetch("/runtime/bridges");
+        if (!response.ok) return;
+        const data = (await response.json()) as { bridges: AppBridge[] };
+        setBridges(data.bridges);
+      } catch {
+        // Non-critical: the bridge inventory is informational only.
+      }
+    })();
+  }, [resourcesVersion]);
 
   const add = async (): Promise<void> => {
     const path = draft.trim();
@@ -117,6 +141,58 @@ export function ExtensionsScreen() {
           pi extension files loaded into every new session. Disabled ones stay listed but don&apos;t
           load.
         </p>
+
+        {bridges.length > 0 ? (
+          <div className="mb-4" data-testid="app-bridges">
+            <div className="pb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+              Agent Deck bridges
+            </div>
+            <p className="pb-2 text-[11px] text-text-muted">
+              Features Agent Deck injects into pi over its own bridge (not your files). Read-only.
+            </p>
+            <div className="space-y-1.5">
+              {bridges.map((b) => (
+                <div
+                  key={b.id}
+                  data-testid={`bridge-${b.id}`}
+                  data-active={b.active ? "true" : "false"}
+                  className={cn(
+                    "rounded-[14px] border border-border-subtle bg-surface-subtle px-3.5 py-2.5",
+                    !b.active && "opacity-55",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-sm font-medium text-text-primary"
+                      style={{ fontStretch: "expanded" }}
+                    >
+                      {b.displayName}
+                    </span>
+                    <span
+                      data-testid={`bridge-state-${b.id}`}
+                      className={cn(
+                        "rounded-capsule border px-1.5 text-[10px]",
+                        b.active
+                          ? "border-[var(--color-success)] text-[var(--color-success)]"
+                          : "border-border-subtle text-text-muted",
+                      )}
+                    >
+                      {b.active ? "active" : "off"}
+                    </span>
+                  </div>
+                  <div className="pt-0.5 text-[11px] text-text-muted">{b.summary}</div>
+                  {b.toolNames.length > 0 ? (
+                    <div className="truncate pt-0.5 font-mono text-[11px] text-text-muted">
+                      {b.toolNames.join(", ")}
+                    </div>
+                  ) : (
+                    <div className="pt-0.5 text-[11px] text-text-muted italic">{b.condition}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {adding ? (
           <div className="mb-3 flex gap-2">

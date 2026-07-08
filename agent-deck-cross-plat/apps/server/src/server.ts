@@ -1368,6 +1368,61 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { ok: true };
   });
 
+  // The app's OWN generated bridge extensions (native "Agent Deck bridges" card):
+  // a read-only inventory so a user SEES what Agent Deck injects into pi over the
+  // bridge, separate from their own extensions. Live: each group's tools + active
+  // state are derived from what's actually registered on the bridge right now, so
+  // it reflects real config (memory off, no MCP server, etc.).
+  const APP_BRIDGE_GROUPS = [
+    {
+      id: "memory",
+      displayName: "Memory",
+      summary: "Stores and recalls durable project memory the agent writes and reads.",
+      condition: "When memory is enabled (AGENT_DECK_MEMORY≠0)",
+      match: (name: string): boolean => name.startsWith("agent_deck_memory_"),
+    },
+    {
+      id: "deck_agents",
+      displayName: "Deck agents",
+      summary:
+        "Lets the agent delegate to your named agents (subagents), run them in parallel, and maintain a session plan; a subagent reports back over a supervisor channel.",
+      condition: "Always on for parent sessions",
+      match: (name: string): boolean =>
+        [
+          "managed_subagent",
+          "managed_parallel",
+          "set_session_plan",
+          "update_session_plan",
+        ].includes(name),
+    },
+    {
+      id: "mcp",
+      displayName: "MCP",
+      summary: "Proxies your configured MCP servers' tools into sessions as mcp__<server>__<tool>.",
+      condition: "When at least one MCP server is connected",
+      match: (name: string): boolean => name.startsWith("mcp__"),
+    },
+  ];
+  fastify.get("/runtime/bridges", async () => {
+    const specs = bridge.specs();
+    return {
+      bridges: APP_BRIDGE_GROUPS.map((group) => {
+        const toolNames = specs
+          .filter((s) => group.match(s.name))
+          .map((s) => s.name)
+          .sort();
+        return {
+          id: group.id,
+          displayName: group.displayName,
+          summary: group.summary,
+          condition: group.condition,
+          toolNames,
+          active: toolNames.length > 0,
+        };
+      }),
+    };
+  });
+
   // Memory inspection: browse and manage a project's stored memories (the
   // visible half of memory.md). Project-scoped by the project's path — the same
   // key its sessions write under — so one project never sees another's.

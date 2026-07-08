@@ -141,3 +141,17 @@ test("shows a discovered extension with its source label + a bridge-conflict war
   // The bridge-conflicting one is flagged as shadowed.
   await expect(page.getByTestId("extension-bridge-conflict-rogue.ts")).toBeVisible();
 });
+
+test("shows the read-only Agent Deck bridges inventory (memory active)", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-extensions").click();
+
+  // The app-bridges section lists what Agent Deck injects over its own bridge.
+  await expect(page.getByTestId("app-bridges")).toBeVisible();
+  await expect(page.getByTestId("bridge-memory")).toBeVisible();
+  await expect(page.getByTestId("bridge-state-memory")).toHaveText("active");
+  await expect(page.getByTestId("bridge-memory")).toContainText("agent_deck_memory_write");
+  // Deck-agents bridge is always on; MCP is off with no server configured.
+  await expect(page.getByTestId("bridge-state-deck_agents")).toHaveText("active");
+  await expect(page.getByTestId("bridge-state-mcp")).toHaveText("off");
+});
