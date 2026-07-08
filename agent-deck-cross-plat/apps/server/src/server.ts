@@ -67,7 +67,7 @@ import {
   type ResourceRoots,
 } from "@agent-deck/resources";
 import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
-import { gitCloneShallow, gitCommitAll, gitStatus } from "./git.ts";
+import { gitCloneShallow, gitCommitAll, gitPush, gitStatus } from "./git.ts";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -1595,13 +1595,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const project = projects.find((p) => p.id === (request.params as { id: string }).id);
     if (!project) return reply.status(404).send({ error: "unknown project" });
     const parsed = z
-      .object({ message: z.string().trim().min(1, "a commit message is required").max(10_000) })
+      .object({
+        message: z.string().trim().min(1, "a commit message is required").max(10_000),
+        push: z.boolean().optional(),
+      })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     try {
-      const result = await gitCommitAll(project.path, parsed.data.message);
-      broadcast({ type: "resources_changed" });
-      return result;
+      await gitCommitAll(project.path, parsed.data.message);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message === "nothing_to_commit") {
@@ -1612,6 +1613,37 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
       return reply.status(500).send({ error: message });
     }
+    // The commit landed; a subsequent push failure is reported separately so the
+    // user knows the commit is safe locally even if the push didn't go out.
+    if (parsed.data.push) {
+      try {
+        await gitPush(project.path);
+      } catch (error) {
+        broadcast({ type: "resources_changed" });
+        return reply.status(502).send({
+          error: `Committed, but the push failed: ${error instanceof Error ? error.message : String(error)}`,
+          committed: true,
+          pushed: false,
+        });
+      }
+    }
+    broadcast({ type: "resources_changed" });
+    return { committed: true, pushed: parsed.data.push === true };
+  });
+
+  // Push the current branch (native pushCurrentBranch). Used on its own to push
+  // already-made commits when the tree is clean.
+  fastify.post("/projects/:id/git/push", async (request, reply) => {
+    const project = projects.find((p) => p.id === (request.params as { id: string }).id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    try {
+      await gitPush(project.path);
+    } catch (error) {
+      return reply
+        .status(502)
+        .send({ error: `Push failed: ${error instanceof Error ? error.message : String(error)}` });
+    }
+    return { pushed: true };
   });
 
   fastify.get("/runtime/providers", async () => ({ providers: listProviders(rootsFor()) }));

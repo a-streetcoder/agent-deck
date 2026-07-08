@@ -108,3 +108,36 @@ export async function gitCommitAll(cwd: string, message: string): Promise<{ comm
   await runGit(cwd, ["commit", "-m", message]);
   return { committed: true };
 }
+
+/** The git stderr from a failed execFile, else the error message — for surfacing. */
+function gitErrorText(error: unknown): string {
+  const stderr = (error as { stderr?: string }).stderr;
+  if (typeof stderr === "string" && stderr.trim()) return stderr.trim();
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Push the current branch (native pushCurrentBranch). Try a plain `git push`;
+ * if the branch has no upstream (common for a fresh branch), retry with
+ * `-u origin <branch>`. Any other failure (no remote, rejected, auth) throws
+ * with the git stderr so the caller can surface it.
+ */
+export async function gitPush(cwd: string): Promise<void> {
+  try {
+    await runGit(cwd, ["push"]);
+    return;
+  } catch (firstError) {
+    const stderr = String((firstError as { stderr?: string }).stderr ?? "").toLowerCase();
+    const missingUpstream =
+      stderr.includes("no upstream") ||
+      stderr.includes("set-upstream") ||
+      stderr.includes("has no upstream");
+    if (!missingUpstream) throw new Error(gitErrorText(firstError));
+    const branch = (await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    try {
+      await runGit(cwd, ["push", "-u", "origin", branch]);
+    } catch (secondError) {
+      throw new Error(gitErrorText(secondError));
+    }
+  }
+}

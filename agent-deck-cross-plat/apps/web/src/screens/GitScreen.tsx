@@ -25,6 +25,7 @@ export function GitScreen() {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [message, setMessage] = useState("");
   const [committing, setCommitting] = useState(false);
+  const [pushing, setPushing] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     if (!currentProjectId) return;
@@ -41,7 +42,7 @@ export function GitScreen() {
     void load();
   }, [load, resourcesVersion]);
 
-  const commit = async (): Promise<void> => {
+  const commit = async (push: boolean): Promise<void> => {
     if (!currentProjectId || !message.trim()) return;
     setCommitting(true);
     setError(null);
@@ -49,7 +50,7 @@ export function GitScreen() {
       const response = await fetch(`/projects/${encodeURIComponent(currentProjectId)}/git/commit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: message.trim() }),
+        body: JSON.stringify({ message: message.trim(), push }),
       });
       if (!response.ok) throw new Error(await response.text());
       setMessage("");
@@ -58,6 +59,22 @@ export function GitScreen() {
       setError(String(err));
     } finally {
       setCommitting(false);
+    }
+  };
+
+  const push = async (): Promise<void> => {
+    if (!currentProjectId) return;
+    setPushing(true);
+    setError(null);
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(currentProjectId)}/git/push`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(await response.text());
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setPushing(false);
     }
   };
 
@@ -136,19 +153,38 @@ export function GitScreen() {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
               />
-              <button
-                data-testid="git-commit"
-                className="self-end rounded-capsule px-4 py-1.5 text-sm font-medium shadow-capsule disabled:opacity-40"
-                style={{
-                  background:
-                    "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
-                  color: "var(--color-accent-foreground)",
-                }}
-                disabled={committing || status?.clean || !message.trim()}
-                onClick={() => void commit()}
-              >
-                {committing ? "Committing…" : "Commit all"}
-              </button>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  data-testid="git-push"
+                  className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  disabled={committing || pushing}
+                  onClick={() => void push()}
+                  title="Push the current branch's commits"
+                >
+                  {pushing ? "Pushing…" : "Push"}
+                </button>
+                <button
+                  data-testid="git-commit"
+                  className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  disabled={committing || status?.clean || !message.trim()}
+                  onClick={() => void commit(false)}
+                >
+                  {committing ? "Committing…" : "Commit all"}
+                </button>
+                <button
+                  data-testid="git-commit-push"
+                  className="rounded-capsule px-4 py-1.5 text-sm font-medium shadow-capsule disabled:opacity-40"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                    color: "var(--color-accent-foreground)",
+                  }}
+                  disabled={committing || status?.clean || !message.trim()}
+                  onClick={() => void commit(true)}
+                >
+                  Commit &amp; Push
+                </button>
+              </div>
             </div>
           </>
         )}
