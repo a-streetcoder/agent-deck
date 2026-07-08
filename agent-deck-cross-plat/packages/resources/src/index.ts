@@ -69,6 +69,13 @@ export {
   type ProviderAuthInfo,
 } from "./providers.ts";
 export {
+  ProviderLoginManager,
+  type LoginEvent,
+  type LoginStatus,
+  type ProviderLoginFn,
+  type ProviderLoginCallbacks,
+} from "./providerLogin.ts";
+export {
   loopsDir,
   loopSlug,
   parseLoopFile,

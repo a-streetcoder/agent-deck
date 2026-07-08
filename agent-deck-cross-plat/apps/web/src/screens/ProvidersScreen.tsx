@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { ProviderLoginSheet } from "../components/ProviderLoginSheet.tsx";
 import { SkeletonRows } from "../components/Skeleton.tsx";
 import { useAppStore } from "../state/store.ts";
 
@@ -26,6 +27,7 @@ export function ProvidersScreen() {
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loginProvider, setLoginProvider] = useState<ProviderEntry | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -118,7 +120,20 @@ export function ProvidersScreen() {
                 >
                   Log out
                 </button>
-              ) : null}
+              ) : (
+                <button
+                  data-testid={`provider-login-${provider.id}`}
+                  className="rounded-capsule px-2.5 py-0.5 text-xs font-medium shadow-capsule"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                    color: "var(--color-accent-foreground)",
+                  }}
+                  onClick={() => setLoginProvider(provider)}
+                >
+                  Sign in
+                </button>
+              )}
             </div>
           ))}
           {loaded && providers.length === 0 ? (
@@ -128,6 +143,13 @@ export function ProvidersScreen() {
           ) : null}
         </div>
       </div>
+      {loginProvider ? (
+        <ProviderLoginSheet
+          provider={loginProvider}
+          onClose={() => setLoginProvider(null)}
+          onDone={() => void load()}
+        />
+      ) : null}
     </div>
   );
 }

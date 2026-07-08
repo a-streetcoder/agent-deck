@@ -63,6 +63,7 @@ import {
   listProviders,
   isKnownProvider,
   logoutProvider,
+  ProviderLoginManager,
   scanLoops,
   writeLoopFile,
   deleteLoopFile,
@@ -457,6 +458,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // Loop run engine (native single-agent loop). Each run's agent executor is
   // built per-run, bound to a parent session in the project cwd.
   const loopEngine = new LoopEngine();
+  // Interactive provider OAuth login relay (native PiProviderLoginService).
+  const providerLogin = new ProviderLoginManager();
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
 
@@ -1895,6 +1898,42 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       return reply.status(500).send({ error: String(error) });
     }
     broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Interactive OAuth login (native PiProviderLoginService). start → a pollable
+  // session that relays pi's AuthStorage.login callbacks (auth-url / device-code
+  // / prompt / select / progress) to the client and threads responses back.
+  fastify.post("/runtime/providers/:id/login", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!isKnownProvider(rootsFor(), id)) {
+      return reply.status(404).send({ error: `unknown provider: ${id}` });
+    }
+    const loginId = providerLogin.start(rootsFor(), id);
+    return reply.status(201).send({ loginId });
+  });
+
+  fastify.get("/runtime/providers/login/:loginId", async (request, reply) => {
+    const { loginId } = request.params as { loginId: string };
+    const since = Number((request.query as { since?: string }).since ?? 0);
+    const result = providerLogin.poll(loginId, Number.isFinite(since) ? since : 0);
+    if (!result) return reply.status(404).send({ error: "unknown login session" });
+    // A finished login changes auth.json — nudge the Providers list to refresh.
+    if (result.status === "done") broadcast({ type: "resources_changed" });
+    return result;
+  });
+
+  fastify.post("/runtime/providers/login/:loginId/respond", async (request, reply) => {
+    const { loginId } = request.params as { loginId: string };
+    const parsed = z.object({ value: z.string().optional() }).safeParse(request.body ?? {});
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const ok = providerLogin.respond(loginId, parsed.data.value);
+    return { ok };
+  });
+
+  fastify.post("/runtime/providers/login/:loginId/cancel", async (request) => {
+    const { loginId } = request.params as { loginId: string };
+    providerLogin.cancel(loginId);
     return { ok: true };
   });
 
