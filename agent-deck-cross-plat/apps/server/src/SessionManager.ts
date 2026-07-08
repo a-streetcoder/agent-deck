@@ -40,13 +40,37 @@ export type ChildBridgeFactory = (
   route: { parentSessionId: string; cellId: string },
 ) => { extension: string; dispose: () => void } | undefined;
 
-/** Resolves a named agent (for `managed_subagent{agent}`) to its persona body
- * and declared model, scoped to the delegating session's project. Returns
- * undefined if not found. */
+/** Resolves a named agent (for `managed_subagent{agent}`) to the launch inputs a
+ * delegated child adopts — its persona body, model, thinking level, declared
+ * tools, and resolved skill dirs — scoped to the delegating session's project.
+ * Returns undefined if not found. `tools` are the agent's real pi tools (the
+ * child adds `contact_supervisor` and drops parent-only bridge tools itself);
+ * skills only surface when the child also has the `read` tool, so the two are
+ * threaded together. */
 export type AgentResolver = (
   name: string,
   projectId?: string,
-) => { body: string; model?: string } | undefined;
+) =>
+  | {
+      body: string;
+      model?: string;
+      thinking?: AgentSessionPlan["thinking"];
+      tools?: string[];
+      skillDirs?: string[];
+    }
+  | undefined;
+
+/** Bridge tools a delegated child must never receive: parent-only channels and
+ * the subagent spawners (a child can't recurse). `contact_supervisor` is its one
+ * allowed bridge tool and is added back explicitly. */
+const CHILD_FORBIDDEN_TOOLS = new Set([
+  "managed_subagent",
+  "managed_parallel",
+  "set_session_plan",
+  "update_session_plan",
+  "contact_supervisor",
+  "ask_user",
+]);
 
 export interface CreateSessionOptions {
   cwd: string;
@@ -348,8 +372,9 @@ export class ManagedSession {
     // Named delegation (native named subagents): resolve the agent's persona and
     // compose it INTO the subagent operating prompt (never replacing it — that
     // prompt carries the contact_supervisor / self-contained-result contract).
-    // v1 borrows only the persona body + name; the agent's tools/model are out of
-    // scope (they'd conflict with the supervisor-channel tool allowlist).
+    // The child adopts the agent's persona body + model + thinking level + skills;
+    // tools/extensions stay out of scope for now (they'd conflict with the
+    // supervisor-channel tool allowlist and need their own verified slice).
     const resolved = agentName ? this.resolveAgent?.(agentName, this.meta.projectId) : undefined;
     if (agentName && !resolved) {
       throw new Error(`unknown agent: ${agentName}`);
@@ -377,21 +402,42 @@ export class ManagedSession {
         const promptFile = join(promptDir, "system.md");
         writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}${persona}\n\nTask:\n${task}`);
 
+        // A delegated named agent runs with ITS declared tools (dropping the
+        // recursion-risky / parent-only bridge tools) PLUS the supervisor channel
+        // — so it can actually do work, and its assigned skills surface (pi only
+        // injects the skills section when the `read` tool is present). An
+        // anonymous subagent, or a named agent that declares no tools, keeps the
+        // v1 lockdown: the supervisor tool alone (allowlist of one — verified
+        // against real pi that an extension tool is callable this way while
+        // --no-tools would strip it), or tool-less. Either way it can't recurse
+        // into managed_subagent.
+        const agentTools = resolved?.tools?.filter((tool) => !CHILD_FORBIDDEN_TOOLS.has(tool));
+        const childTools =
+          agentTools && agentTools.length > 0
+            ? childBridge
+              ? [...agentTools, "contact_supervisor"]
+              : agentTools
+            : childBridge
+              ? ["contact_supervisor"]
+              : [];
+
         const child = new PiSession({
           binPath: resolvePiBinary().path,
           args: buildLaunchArgs({
             kind: "agent",
             systemPrompt: { mode: "replace", text: promptFile },
-            // With a supervisor channel the child's ONLY tool is contact_supervisor
-            // (an allowlist of one — verified against real pi that an extension tool
-            // is callable this way while --no-tools would strip it). Without a
-            // channel it runs tool-less. Either way it can't reach managed_subagent.
-            tools: childBridge ? ["contact_supervisor"] : [],
+            tools: childTools,
             // A delegated named agent runs on ITS declared model (same provider —
             // pi resolves the model string against available models, exactly as
             // the parent agent-launch does); else the parent's inherited model.
+            // Its frontmatter thinking level applies too (suffixed onto the model
+            // when known, else --thinking), matching the parent agent-launch.
             provider: this.helperContext?.provider,
             model: resolved?.model ?? this.helperContext?.model,
+            thinking: resolved?.thinking,
+            // The agent's assigned skills inject into the child (they surface only
+            // because the agent's `read` tool is now in the allowlist above).
+            skills: resolved?.skillDirs,
             // Provider-registration extensions (ambient discovery disabled), plus
             // the child bridge that carries contact_supervisor.
             extensions: childBridge

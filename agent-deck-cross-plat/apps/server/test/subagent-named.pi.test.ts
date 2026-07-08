@@ -24,6 +24,7 @@ import { startServer, type AgentDeckServer } from "../src/index.ts";
 process.env.AGENT_DECK_TEST = "1";
 
 const PERSONA_SENTINEL = "PERSONA_SENTINEL: You are Reviewer Bot, a meticulous code reviewer.";
+const SKILL_SENTINEL = "SKILL_SENTINEL_REVIEW_CHECKLIST";
 
 let mock: MockProviderServer;
 let server: AgentDeckServer;
@@ -58,14 +59,25 @@ beforeAll(async () => {
   });
   process.env.AGENT_DECK_PROVIDER_EXTENSIONS = writeMockProviderExtension(mock.baseUrl);
 
-  // A named project agent with a distinctive persona body.
+  // A project skill the agent will carry into its delegated child. Its
+  // description is injected into the base system prompt (pi buildSystemPrompt
+  // gets loadedSkills), so a distinctive sentinel proves it reached the child.
+  const skillDir = path.join(project, ".pi", "skills", "review-checklist");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    `---\nname: review-checklist\ndescription: ${SKILL_SENTINEL} — run each review step in order\n---\n\nWork through the checklist strictly.\n`,
+  );
+
+  // A named project agent with a distinctive persona body, a declared model
+  // distinct from the session default (proves the child runs on the AGENT's
+  // model), an assigned skill, and a thinking level — all of which the child
+  // must adopt via the shared named-agent resolver.
   const agentsDir = path.join(project, ".pi", "agents");
   mkdirSync(agentsDir, { recursive: true });
-  // Declares a model distinct from the session default so we can prove the child
-  // runs on the AGENT's model, not the parent's inherited one.
   writeFileSync(
     path.join(agentsDir, "reviewer-bot.md"),
-    `---\nname: reviewer-bot\ndescription: Meticulous reviewer\nmodel: ${MOCK_NOREASON_MODEL_ID}\n---\n\n${PERSONA_SENTINEL}\n`,
+    `---\nname: reviewer-bot\ndescription: Meticulous reviewer\nmodel: ${MOCK_NOREASON_MODEL_ID}\nthinking: low\ntools: read\nskills: review-checklist\n---\n\n${PERSONA_SENTINEL}\n`,
   );
 
   server = await startServer({ dataDir });
@@ -116,6 +128,12 @@ describe("managed_subagent{agent}: named delegation", () => {
     const childSystem = systemText(childRequest!);
     expect(childSystem).toContain(PERSONA_SENTINEL);
     expect(childSystem).toContain("focused subagent launched by Agent Deck");
+
+    // The child inherited the agent's TOOLS + SKILL together: pi only injects the
+    // skills section when `read` is in the allowlist, so the skill sentinel in the
+    // child's system prompt proves BOTH the agent's `read` tool AND its assigned
+    // skill were threaded into the child launch.
+    expect(childSystem).toContain(SKILL_SENTINEL);
 
     // The child ran on the AGENT's declared model, not the session default.
     expect(childRequest!.model).toBe(MOCK_NOREASON_MODEL_ID);

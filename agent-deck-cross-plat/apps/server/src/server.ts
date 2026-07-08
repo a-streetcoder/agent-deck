@@ -449,10 +449,19 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     },
     // Resolve a named agent for `managed_subagent{agent}` delegation, scoped to
     // the delegating session's project. Invoked only at subagent-run time, so the
-    // forward reference to `rootsFor` (defined below) is resolved by then.
+    // forward reference to `resolveNamedAgent`/`rootsFor` (defined below) is
+    // resolved by then. A disabled or missing agent isn't delegatable → undefined.
     (name, projectId) => {
-      const agent = scanAgents(rootsFor(projectId)).find((a) => a.name === name && !a.shadowed);
-      return agent ? { body: agent.body, model: agent.model } : undefined;
+      const resolved = resolveNamedAgent(name, projectId);
+      if (resolved.status !== "ok") return undefined;
+      const { agent } = resolved;
+      return {
+        body: agent.body,
+        model: agent.model,
+        thinking: asThinkingLevel(agent.thinking),
+        tools: agent.tools,
+        skillDirs: agent.skillDirs,
+      };
     },
   );
   // Loop run engine (native single-agent loop). Each run's agent executor is
@@ -462,6 +471,51 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   const providerLogin = new ProviderLoginManager();
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
+
+  // Resolve a named agent to the launch inputs a session (parent-backed OR a
+  // delegated subagent) adopts, scoped to a project. One source of truth for
+  // "launch a pi session from a named agent definition" — the agent-backed
+  // /sessions route and the managed_subagent{agent} delegation share it, so a
+  // subagent inherits the SAME persona/model/thinking/skills the parent launch
+  // would. `not_found`/`disabled` are distinguished for the route's status codes.
+  interface NamedAgentLaunch {
+    body: string;
+    systemPromptMode: "replace" | "append";
+    model?: string;
+    thinking?: string;
+    /** Real pi tools the agent declares (bridge-only tools filtered out). */
+    tools?: string[];
+    /** Resolved skill base dirs, disabled skills removed. */
+    skillDirs: string[];
+    extensions: string[];
+  }
+  function resolveNamedAgent(
+    name: string,
+    projectId?: string,
+  ): { status: "ok"; agent: NamedAgentLaunch } | { status: "not_found" } | { status: "disabled" } {
+    const roots = rootsFor(projectId);
+    const agent = scanAgents(roots).find((a) => a.name === name && !a.shadowed);
+    if (!agent) return { status: "not_found" };
+    if (agent.disabled) return { status: "disabled" };
+    const skillsByName = new Map(scanSkills(roots).map((s) => [s.name, s]));
+    const disabledSkills = new Set(settings.get().disabledSkills);
+    const skillDirs = (agent.skills ?? [])
+      .filter((skillName) => !disabledSkills.has(skillName)) // disabled skills never inject
+      .map((skillName) => skillsByName.get(skillName)?.baseDir)
+      .filter((p): p is string => Boolean(p));
+    return {
+      status: "ok",
+      agent: {
+        body: agent.body,
+        systemPromptMode: agent.systemPromptMode,
+        model: agent.model,
+        thinking: agent.thinking,
+        tools: agent.tools?.filter((tool) => !BRIDGE_ONLY_TOOLS.has(tool)),
+        skillDirs,
+        extensions: agent.extensions ?? [],
+      },
+    };
+  }
 
   // Native memory tools (memory.md), registered on the bridge and scoped to each
   // session's project via its cwd. The launch-time index/policy injection is
@@ -2615,25 +2669,22 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (body.agentName) {
       // Agent-backed session: the picked agent's body becomes the system
       // prompt; frontmatter tools/skills/model apply per the launch contract.
-      const roots = rootsFor(body.projectId);
-      const agent = scanAgents(roots).find((a) => a.name === body.agentName && !a.shadowed);
-      if (!agent) return reply.status(404).send({ error: `unknown agent: ${body.agentName}` });
-      if (agent.disabled) {
+      // Resolved via the same helper the subagent delegation uses, so both paths
+      // stay in lock-step.
+      const resolved = resolveNamedAgent(body.agentName, body.projectId);
+      if (resolved.status === "not_found") {
+        return reply.status(404).send({ error: `unknown agent: ${body.agentName}` });
+      }
+      if (resolved.status === "disabled") {
         return reply.status(409).send({ error: `agent is disabled: ${body.agentName}` });
       }
-      const skillsByName = new Map(scanSkills(roots).map((s) => [s.name, s]));
-      const disabledSkills = new Set(settings.get().disabledSkills);
-      const agentSkillPaths = (agent.skills ?? [])
-        .filter((name) => !disabledSkills.has(name)) // disabled skills never inject
-        .map((name) => skillsByName.get(name)?.baseDir)
-        .filter((p): p is string => Boolean(p));
-      const effectiveTools = agent.tools?.filter((tool) => !BRIDGE_ONLY_TOOLS.has(tool));
+      const { agent } = resolved;
       plan = {
         kind: "agent",
         systemPrompt: { mode: agent.systemPromptMode, text: agent.body },
-        tools: effectiveTools,
-        extensions: finalizeExtensions([...(extensions ?? []), ...(agent.extensions ?? [])]),
-        skills: agentSkillPaths,
+        tools: agent.tools,
+        extensions: finalizeExtensions([...(extensions ?? []), ...agent.extensions]),
+        skills: agent.skillDirs,
         provider,
         // Agent model, else the inherited default; frontmatter thinking applies
         // either way (suffix when a model is known, --thinking otherwise).
