@@ -4,6 +4,7 @@ import {
   StdioClientTransport,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 /**
@@ -79,10 +80,20 @@ export class McpClient {
     return await McpClient.connect(transport);
   }
 
-  /** Connect to a remote MCP server over Streamable HTTP. */
-  static async connectHttp(config: HttpServerConfig): Promise<McpClient> {
+  /**
+   * Connect to a remote MCP server over Streamable HTTP. Pass an `authProvider`
+   * (an McpOAuthProvider) for a server behind OAuth: the transport then drives
+   * the SDK handshake, and on an unauthenticated server it throws
+   * UnauthorizedError after calling the provider's redirectToAuthorization — the
+   * caller runs the relay, calls transport.finishAuth(code), and reconnects.
+   */
+  static async connectHttp(
+    config: HttpServerConfig,
+    options: { authProvider?: OAuthClientProvider } = {},
+  ): Promise<McpClient> {
     const transport = new StreamableHTTPClientTransport(new URL(config.url), {
       requestInit: config.headers ? { headers: config.headers } : undefined,
+      authProvider: options.authProvider,
     });
     return await McpClient.connect(transport);
   }
