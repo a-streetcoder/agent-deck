@@ -109,3 +109,36 @@ describe("mcp config routes", () => {
     expect((await api("DELETE", "/mcp/mock")).status).toBe(404);
   });
 });
+
+describe("mcp oauth routes", () => {
+  const HTTP_ID = "authsrv";
+
+  it("reports per-server auth state and guards the login/callback/logout routes", async () => {
+    // Add an http server. Its connect fails against the dead url — fine: the
+    // config is stored, so httpUrlFor resolves and the OAuth routes are reachable
+    // and its OAuth provider (unauthenticated) exists.
+    const add = await api("POST", "/mcp", { name: HTTP_ID, url: "http://127.0.0.1:1/sse" });
+    expect(add.status).toBe(201);
+
+    // GET /mcp augments each server with its auth state — http is unauthenticated.
+    const list = (await (await api("GET", "/mcp")).json()) as {
+      servers: Array<{ id: string; transport: string; auth: { status: string } }>;
+    };
+    const httpServer = list.servers.find((s) => s.id === HTTP_ID);
+    expect(httpServer?.transport).toBe("http");
+    expect(httpServer?.auth.status).toBe("unauthenticated");
+
+    // Callback with no code → 400 (schema). With a code but a state never minted →
+    // 400 (CSRF guard rejects the mismatch).
+    expect((await api("POST", `/mcp/${HTTP_ID}/login/callback`, {})).status).toBe(400);
+    expect(
+      (await api("POST", `/mcp/${HTTP_ID}/login/callback`, { code: "x", state: "nope" })).status,
+    ).toBe(400);
+
+    // login / logout on an unknown server → 404.
+    expect((await api("POST", "/mcp/ghost/login", {})).status).toBe(404);
+    expect((await api("POST", "/mcp/ghost/logout", {})).status).toBe(404);
+
+    await api("DELETE", `/mcp/${HTTP_ID}`);
+  });
+});

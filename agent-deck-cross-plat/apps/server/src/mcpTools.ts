@@ -1,4 +1,9 @@
-import { McpClient, type HttpServerConfig, type StdioServerConfig } from "@agent-deck/mcp";
+import {
+  McpClient,
+  type HttpServerConfig,
+  type McpOAuthProvider,
+  type StdioServerConfig,
+} from "@agent-deck/mcp";
 import { isValidHttpMcpUrl } from "@agent-deck/resources";
 import type { BridgeRegistry } from "./bridge.ts";
 
@@ -101,8 +106,21 @@ export class McpManager {
   private readonly servers = new Map<string, ServerState>();
   /** Per-id operation chain so connect/refresh/remove for one id never interleave. */
   private readonly locks = new Map<string, Promise<unknown>>();
+  /** Supplies the OAuth provider for an authed http server (undefined → none). */
+  private readonly httpAuthProvider?: (id: string) => McpOAuthProvider | undefined;
 
-  constructor(private readonly bridge: BridgeRegistry) {}
+  constructor(
+    private readonly bridge: BridgeRegistry,
+    options: { httpAuthProvider?: (id: string) => McpOAuthProvider | undefined } = {},
+  ) {
+    this.httpAuthProvider = options.httpAuthProvider;
+  }
+
+  /** The Streamable-HTTP url a configured server connects to (for OAuth), if any. */
+  httpUrlFor(id: string): string | undefined {
+    const config = this.servers.get(id)?.config;
+    return config && isHttpConfig(config) ? config.url : undefined;
+  }
 
   /** Serialize an operation for one server id behind any in-flight op for it. */
   private serialize<T>(id: string, op: () => Promise<T>): Promise<T> {
@@ -158,7 +176,9 @@ export class McpManager {
     this.servers.set(config.id, state);
     try {
       const client = await withTimeout(
-        isHttpConfig(config) ? McpClient.connectHttp(config) : McpClient.connectStdio(config),
+        isHttpConfig(config)
+          ? McpClient.connectHttp(config, { authProvider: this.httpAuthProvider?.(config.id) })
+          : McpClient.connectStdio(config),
         MCP_CONNECT_TIMEOUT_MS,
         `MCP connect "${config.id}"`,
       );

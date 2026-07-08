@@ -1,12 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformationFull,
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+
+// Re-export the SDK's OAuth driver + metadata type so consumers (apps/server)
+// reach them through this package rather than depending on the SDK directly.
+export { auth as runMcpAuth };
+export type { OAuthClientMetadata, OAuthTokens };
 
 /**
  * OAuth for authed HTTP MCP servers (native MCPOAuthService + MCPAuth). pi has

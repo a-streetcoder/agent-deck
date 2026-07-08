@@ -108,6 +108,8 @@ import {
   scopeMcpBridgeSpecs,
   type McpServerConfig,
 } from "./mcpTools.ts";
+import { FileMcpOAuthStore } from "@agent-deck/mcp";
+import { McpOAuthCoordinator } from "./mcpOAuth.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { SupervisorLog, type SupervisorMethod } from "./supervisor.ts";
@@ -816,7 +818,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       ),
     ).values(),
   ];
-  const mcp = new McpManager(bridge);
+  // MCP OAuth (native MCPOAuthService): authed http servers get a per-server
+  // OAuth provider whose tokens persist under the app data dir. The redirect
+  // target is where the browser lands after authorization; the loopback capture
+  // of that redirect is finalized in the UI slice (env-overridable meanwhile).
+  const mcpOAuth = new McpOAuthCoordinator({
+    store: new FileMcpOAuthStore(nodePath.join(options.dataDir ?? defaultDataDir(), "mcp-oauth")),
+    redirectUrl:
+      process.env.AGENT_DECK_MCP_OAUTH_REDIRECT ?? "http://127.0.0.1:33418/mcp/oauth/callback",
+  });
+  const mcp = new McpManager(bridge, {
+    httpAuthProvider: (id) => mcpOAuth.providerFor(id),
+  });
   await mcp.connectAll(mcpConfigs);
 
   const fastify = Fastify({ logger: false });
@@ -1371,7 +1384,56 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   ]);
 
   fastify.get("/mcp", async () => {
-    return { servers: mcp.status() };
+    // Augment each server with its OAuth state so the UI can show a Sign-in
+    // affordance for authed http servers (stdio/anonymous servers stay "none").
+    return {
+      servers: mcp.status().map((server) => ({
+        ...server,
+        auth: server.transport === "http" ? mcpOAuth.state(server.id) : { status: "none" },
+      })),
+    };
+  });
+
+  // Begin OAuth for an authed http server: returns the authorization URL to open.
+  // The browser redirect's code is submitted to /mcp/:id/login/callback.
+  fastify.post("/mcp/:id/login", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const serverUrl = mcp.httpUrlFor(id);
+    if (!serverUrl) return reply.code(404).send({ error: "unknown http MCP server" });
+    const state = await mcpOAuth.beginAuth(id, serverUrl);
+    if (state.status === "error") return reply.code(502).send({ error: state.error });
+    return { auth: state };
+  });
+
+  // Complete OAuth with the code (and state, verified for CSRF) from the redirect,
+  // then reconnect the server so its now-authorized tools register.
+  const mcpCallbackBody = z.object({ code: z.string().min(1), state: z.string().optional() });
+  fastify.post("/mcp/:id/login/callback", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const serverUrl = mcp.httpUrlFor(id);
+    if (!serverUrl) return reply.code(404).send({ error: "unknown http MCP server" });
+    const parsed = mcpCallbackBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });
+    if (!mcpOAuth.verifyState(id, parsed.data.state)) {
+      return reply.code(400).send({ error: "state mismatch (possible CSRF) — restart sign-in" });
+    }
+    const state = await mcpOAuth.submitCode(id, serverUrl, parsed.data.code);
+    if (state.status !== "authorized")
+      return reply.code(502).send({ error: state.error, auth: state });
+    const server = await mcp.refresh(id);
+    broadcast({ type: "resources_changed" });
+    return { auth: state, server };
+  });
+
+  // Forget a server's OAuth tokens (logout), then reconnect so it drops to
+  // unauthenticated + un-registers its tools.
+  fastify.post("/mcp/:id/logout", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!mcp.has(id)) return reply.code(404).send({ error: "unknown MCP server" });
+    mcpOAuth.clear(id);
+    await mcp.refresh(id);
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   fastify.post("/mcp", async (request, reply) => {

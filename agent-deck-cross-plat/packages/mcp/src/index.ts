@@ -9,7 +9,10 @@ export {
   FileMcpOAuthStore,
   McpOAuthProvider,
   MemoryMcpOAuthStore,
+  runMcpAuth,
   type McpOAuthProviderOptions,
   type McpOAuthRecord,
   type McpOAuthStore,
+  type OAuthClientMetadata,
+  type OAuthTokens,
 } from "./oauth.ts";
