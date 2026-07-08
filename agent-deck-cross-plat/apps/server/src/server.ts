@@ -2710,9 +2710,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (live?.isRunning) return { session: live.meta };
     const meta = live?.meta ?? index.find((s) => s.id === id);
     if (!meta) return reply.status(404).send({ error: "unknown session" });
-    if (!meta.piSessionFile) {
-      return reply.status(409).send({ error: "session has no pi session file to resume" });
-    }
+    // A session with no pi session file never ran a turn (a draft, or an old
+    // entry from before session files existed). It has nothing to restore, but
+    // opening it should still work — sessions.resume launches a FRESH parent pi
+    // (resumeSessionPath is undefined) with the session's project/agent context
+    // and an empty transcript, rather than erroring.
     const defaults = envDefaults();
     try {
       const session = await sessions.resume(
@@ -2722,7 +2724,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           resumeSessionPath: meta.piSessionFile,
           provider: defaults.provider,
           model: defaults.model,
-          extensions: defaults.extensions,
+          // Include provider-registration extensions so a session with no stored
+          // launch plan (old/draft) still relaunches with its provider available.
+          extensions: [...(defaults.extensions ?? []), ...(defaults.providerExtensions ?? [])],
         },
         defaults.env,
       );
