@@ -66,19 +66,42 @@ function wasDismissed(): boolean {
   }
 }
 
+/**
+ * Force the onboarding to show regardless of projects/dismissed state — a way to
+ * replay it (the flow otherwise only appears on genuine first run). Triggered by
+ * `?onboarding` in the URL or `localStorage['agentdeck-onboarding-force']='1'`
+ * (set via devtools in the desktop app, where the URL is fixed).
+ */
+const FORCE_KEY = "agentdeck-onboarding-force";
+function onboardingForced(): boolean {
+  try {
+    if (new URLSearchParams(window.location.search).has("onboarding")) return true;
+    return localStorage.getItem(FORCE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function OnboardingOverlay() {
   const projects = useAppStore((state) => state.projects);
   const projectsLoaded = useAppStore((state) => state.projectsLoaded);
   const setView = useAppStore((state) => state.setView);
-  const [dismissed, setDismissed] = useState(wasDismissed);
+  const forced = onboardingForced();
+  // When forced, ignore a prior dismissal so a returning user can still replay it.
+  const [dismissed, setDismissed] = useState(() => (forced ? false : wasDismissed()));
   const [page, setPage] = useState(0);
 
+  // A close during this session always wins (even when forced via ?onboarding,
+  // where the URL param would otherwise keep re-showing it).
+  if (dismissed) return null;
   // Wait for the initial fetch so a returning user never flashes the overlay.
-  if (!projectsLoaded || projects.length > 0 || dismissed) return null;
+  // `forced` (?onboarding / force flag) replays it regardless — used for testing.
+  if (!forced && (!projectsLoaded || projects.length > 0)) return null;
 
   const dismiss = (): void => {
     try {
       localStorage.setItem(KEY, "1");
+      localStorage.removeItem(FORCE_KEY); // clear the replay flag so it doesn't reappear
     } catch {
       // Storage disabled — it just won't be remembered across reloads.
     }
