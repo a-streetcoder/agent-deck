@@ -3,12 +3,14 @@ export {
   appendSystemPromptPath,
   BUILTIN_AGENTS_DIR,
   defaultRoots,
+  extensionCatalogDirs,
   piAgentHome,
   projectWatchDirs,
   promptCatalogDirs,
   skillCatalogDirs,
   watchDirs,
   type AgentCatalogDir,
+  type ExtensionCatalogDir,
   type PromptCatalogDir,
   type ResourceRoots,
   type SkillCatalogDir,
@@ -26,7 +28,14 @@ export {
   type McpServerInput,
   type McpTransport,
 } from "./mcp.ts";
-export { parseAgentFile, scanAgents, scanPrompts, scanSkills } from "./scanner.ts";
+export {
+  parseAgentFile,
+  scanAgents,
+  scanExtensions,
+  scanPrompts,
+  scanSkills,
+  type DiscoveredExtension,
+} from "./scanner.ts";
 export { ensureDirs, watchResources } from "./watcher.ts";
 export {
   applyAgentOverride,

@@ -90,6 +90,25 @@ export function skillCatalogDirs(roots: ResourceRoots): SkillCatalogDir[] {
   return dirs;
 }
 
+export interface ExtensionCatalogDir {
+  dir: string;
+  scope: ResourceScope;
+}
+
+/** The standard pi extension locations to DISCOVER user extensions in: the
+ *  global ~/.pi/agent/extensions and the project's .pi/extensions. (App-generated
+ *  bridge extensions live elsewhere and are never scanned, so a user can't see or
+ *  disable them here.) */
+export function extensionCatalogDirs(roots: ResourceRoots): ExtensionCatalogDir[] {
+  const dirs: ExtensionCatalogDir[] = [
+    { dir: path.join(piAgentHome(roots), "extensions"), scope: "global" },
+  ];
+  if (roots.projectPath) {
+    dirs.push({ dir: path.join(roots.projectPath, ".pi", "extensions"), scope: "project" });
+  }
+  return dirs;
+}
+
 export interface PromptCatalogDir {
   dir: string;
   scope: ResourceScope;

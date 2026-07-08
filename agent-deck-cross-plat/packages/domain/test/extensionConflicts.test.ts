@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conflictingExtensionNames } from "../src/extensions.ts";
+import { conflictingExtensionNames, extensionBridgeConflict } from "../src/extensions.ts";
 
 /**
  * Extensions conflict flagging (native §16.2): two ENABLED extensions with the
@@ -42,5 +42,28 @@ describe("conflictingExtensionNames", () => {
         { name: "b.ts", disabled: false },
       ]).size,
     ).toBe(0);
+  });
+});
+
+describe("extensionBridgeConflict", () => {
+  it("flags an extension registering an app-bridge tool name", () => {
+    expect(
+      extensionBridgeConflict(`pi.registerTool({ name: "agent_deck_memory_write" }, fn)`),
+    ).toBe("agent_deck_memory_write");
+    expect(extensionBridgeConflict(`pi.registerTool({ name: 'managed_subagent' }, fn)`)).toBe(
+      "managed_subagent",
+    );
+  });
+
+  it("flags an mcp__ proxy tool literal", () => {
+    expect(extensionBridgeConflict('const t = "mcp__github__create_issue";')).toBe(
+      "mcp__github__create_issue",
+    );
+  });
+
+  it("returns null for an extension that touches no bridge tool", () => {
+    expect(extensionBridgeConflict(`pi.on("before_agent_start", () => ({}))`)).toBeNull();
+    // A substring that isn't a quoted literal doesn't false-positive.
+    expect(extensionBridgeConflict(`// mentions managed_subagent in a comment`)).toBeNull();
   });
 });

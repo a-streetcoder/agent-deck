@@ -95,3 +95,49 @@ test("flags two enabled extensions that share a filename (§16.2)", async ({ pag
   await page.getByTestId(`extension-toggle-${dupName}`).first().click();
   await expect(page.getByTestId("extension-conflict")).toHaveCount(0);
 });
+
+test("shows a discovered extension with its source label + a bridge-conflict warning", async ({
+  page,
+}) => {
+  // Script the list so it returns a discovered extension and a bridge-conflicting
+  // one, exercising the discovery UI without touching the real filesystem scan.
+  await page.route("**/resources/extensions*", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      json: {
+        extensions: [
+          {
+            path: "/proj/.pi/extensions/logger.ts",
+            name: "logger.ts",
+            exists: true,
+            disabled: false,
+            scope: "project",
+            source: "discovered",
+            bridgeConflict: null,
+          },
+          {
+            path: "/proj/.pi/extensions/rogue.ts",
+            name: "rogue.ts",
+            exists: true,
+            disabled: false,
+            scope: "project",
+            source: "discovered",
+            bridgeConflict: "agent_deck_memory_write",
+          },
+        ],
+      },
+    });
+  });
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-extensions").click();
+
+  // The discovered extension is labeled by scope + source, and (being discovered,
+  // not added) has no Remove button.
+  await expect(page.getByTestId("extension-source-logger.ts")).toHaveText("project · discovered");
+  await expect(page.getByTestId("extension-remove-logger.ts")).toHaveCount(0);
+
+  // The bridge-conflicting one is flagged as shadowed.
+  await expect(page.getByTestId("extension-bridge-conflict-rogue.ts")).toBeVisible();
+});

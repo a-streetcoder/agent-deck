@@ -17,6 +17,7 @@ import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
 import {
   clientMessageSchema,
+  extensionBridgeConflict,
   type ProjectMeta,
   type ServerMessage,
   type SessionMeta,
@@ -39,6 +40,7 @@ import {
   projectWatchDirs,
   readAgentOverrides,
   scanAgents,
+  scanExtensions,
   scanSkills,
   scanPrompts,
   watchResources,
@@ -573,6 +575,34 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         extensions: agent.extensions ?? [],
       },
     };
+  }
+
+  // Which app-bridge tool a user extension conflicts with (else null). Reading the
+  // source is best-effort: an unreadable file simply isn't flagged. pi hard-fails
+  // to launch when two extensions register the same tool, so a conflicting one is
+  // excluded from the launch (below) rather than allowed to crash the session.
+  function extensionBridgeConflictAt(filePath: string): string | null {
+    try {
+      return extensionBridgeConflict(readFileSync(filePath, "utf8"));
+    } catch {
+      return null;
+    }
+  }
+
+  // The user extensions to inject at launch: the manually-added registry PLUS the
+  // ones DISCOVERED in the standard pi dirs (global + this project's), minus any
+  // disabled or bridge-conflicting, deduped by absolute path. (App-generated
+  // bridge extensions are added separately by the launch, never here.) A disabled
+  // flag is keyed by the absolute path, so it applies to discovered and added
+  // alike. Excluding bridge-conflicting extensions is a SAFETY requirement: pi
+  // crashes if a user extension re-registers a bridge tool name.
+  function enabledExtensionPaths(projectId?: string): string[] {
+    const disabled = new Set(settings.get().disabledExtensions);
+    const registry = settings.get().extensions;
+    const discovered = scanExtensions(rootsFor(projectId)).map((e) => e.path);
+    return [...new Set([...registry, ...discovered])].filter(
+      (p) => !disabled.has(p) && extensionBridgeConflictAt(p) === null,
+    );
   }
 
   // Native memory tools (memory.md), registered on the bridge and scoped to each
@@ -1280,14 +1310,30 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   // Extensions: user-added pi extension files (.ts/.js) merged into every
   // session's --extension list. Enable/disable without removing the entry.
-  fastify.get("/resources/extensions", async () => {
+  fastify.get("/resources/extensions", async (request) => {
+    const projectId = (request.query as { projectId?: string }).projectId;
     const disabled = new Set(settings.get().disabledExtensions);
+    // Merge the manually-added registry with the ones DISCOVERED in the standard
+    // pi dirs (global + this project's), so a user sees their existing extensions
+    // without adding each by hand. Deduped by absolute path; a discovered file
+    // that was also added manually is shown once, marked as added.
+    const registry = new Set(settings.get().extensions);
+    const discovered = scanExtensions(rootsFor(projectId));
+    const scopeByPath = new Map(discovered.map((e) => [e.path, e.scope]));
+    const paths = [...new Set([...settings.get().extensions, ...discovered.map((e) => e.path)])];
     return {
-      extensions: settings.get().extensions.map((filePath) => ({
+      extensions: paths.map((filePath) => ({
         path: filePath,
         name: nodePath.basename(filePath),
         exists: existsSync(filePath),
         disabled: disabled.has(filePath),
+        // Where it came from, so the UI can label it (native scope/source).
+        scope: scopeByPath.get(filePath) ?? "global",
+        source: registry.has(filePath) ? "added" : "discovered",
+        // The app-bridge tool this extension re-registers (else null). A
+        // conflicting extension is NOT injected (it would crash pi) — the UI
+        // warns that the bridge shadows it (native conflict flag).
+        bridgeConflict: extensionBridgeConflictAt(filePath),
       })),
     };
   });
@@ -2009,7 +2055,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       ...(defaults.extensions ?? []),
       ...(defaults.providerExtensions ?? []),
     ];
-    const finalizedBase = finalizeExtensions([...baseExtensions, ...settings.enabledExtensions()]);
+    const finalizedBase = finalizeExtensions([
+      ...baseExtensions,
+      ...enabledExtensionPaths(body.projectId),
+    ]);
     const parent = sessions.create({
       cwd,
       projectId: body.projectId,
@@ -2724,7 +2773,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // Base extensions (request or env defaults) + the user's enabled ones,
     // deduped and re-validated as real files at launch time.
     const baseExtensions = body.extensions ?? defaults.extensions ?? [];
-    const finalizedBase = finalizeExtensions([...baseExtensions, ...settings.enabledExtensions()]);
+    const finalizedBase = finalizeExtensions([
+      ...baseExtensions,
+      ...enabledExtensionPaths(body.projectId),
+    ]);
     const extensions = finalizedBase.length > 0 ? finalizedBase : undefined;
 
     // Default + project skill assignments become explicit --skill paths on

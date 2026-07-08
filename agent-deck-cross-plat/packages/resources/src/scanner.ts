@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, type Dirent } from "node:fs";
 import path from "node:path";
 import {
   applyShadowing,
@@ -11,6 +11,7 @@ import { loadSkillsFromDir, parseFrontmatter } from "@earendil-works/pi-coding-a
 import { applyAgentOverride, readAgentOverrides } from "./overrides.ts";
 import {
   agentCatalogDirs,
+  extensionCatalogDirs,
   promptCatalogDirs,
   skillCatalogDirs,
   type ResourceRoots,
@@ -159,4 +160,44 @@ export function scanSkills(roots: ResourceRoots): SkillInfo[] {
     }
   }
   return skills;
+}
+
+/** A pi extension file discovered in a catalog dir (native PiExtensionCandidate). */
+export interface DiscoveredExtension {
+  name: string;
+  path: string;
+  scope: ResourceScope;
+}
+
+/** pi loads extensions written in TS or JS (any module flavor). */
+const EXTENSION_FILE_RE = /\.(ts|mts|cts|js|mjs|cjs)$/i;
+
+/**
+ * Discover the user's own extension files in the standard pi locations (global
+ * ~/.pi/agent/extensions + the project's .pi/extensions), so they appear in the
+ * Extensions screen without being added by hand — mirroring how agents/skills
+ * are discovered. App-generated bridge extensions are written elsewhere and are
+ * never scanned here, so a user can't see or disable them. A project entry wins
+ * over a global one at the same path (there is none — paths are absolute), and
+ * duplicates are de-duped by absolute path.
+ */
+export function scanExtensions(roots: ResourceRoots): DiscoveredExtension[] {
+  const found: DiscoveredExtension[] = [];
+  const seen = new Set<string>();
+  for (const { dir, scope } of extensionCatalogDirs(roots)) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue; // the dir doesn't exist — nothing to discover there
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !EXTENSION_FILE_RE.test(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (seen.has(full)) continue;
+      seen.add(full);
+      found.push({ name: entry.name, path: full, scope });
+    }
+  }
+  return found;
 }

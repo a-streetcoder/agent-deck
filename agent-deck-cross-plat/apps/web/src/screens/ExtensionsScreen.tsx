@@ -14,25 +14,35 @@ interface ExtensionEntry {
   name: string;
   exists: boolean;
   disabled: boolean;
+  /** Where it was found — a standard pi dir (discovered) or the manual registry. */
+  source?: "discovered" | "added";
+  scope?: "global" | "project" | string;
+  /** The app-bridge tool this extension re-registers, if any (kept out of launch). */
+  bridgeConflict?: string | null;
 }
 
 export function ExtensionsScreen() {
   const setError = useAppStore((state) => state.setError);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const [extensions, setExtensions] = useState<ExtensionEntry[]>([]);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const response = await fetch("/resources/extensions");
+      // Pass the current project so project-scoped extensions are discovered too.
+      const url = currentProjectId
+        ? `/resources/extensions?projectId=${encodeURIComponent(currentProjectId)}`
+        : "/resources/extensions";
+      const response = await fetch(url);
       if (!response.ok) throw new Error(await response.text());
       const data = (await response.json()) as { extensions: ExtensionEntry[] };
       setExtensions(data.extensions);
     } catch (err) {
       setError(String(err));
     }
-  }, [setError]);
+  }, [setError, currentProjectId]);
 
   useEffect(() => {
     void load();
@@ -153,14 +163,34 @@ export function ExtensionsScreen() {
                 )}
               >
                 <div className="min-w-0 flex-1">
-                  <div
-                    className="truncate text-sm font-medium text-text-primary"
-                    style={{ fontStretch: "expanded" }}
-                  >
-                    {ext.name}
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="truncate text-sm font-medium text-text-primary"
+                      style={{ fontStretch: "expanded" }}
+                    >
+                      {ext.name}
+                    </span>
+                    {/* Where it came from (native scope/source label). */}
+                    <span
+                      data-testid={`extension-source-${ext.name}`}
+                      className="rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted"
+                    >
+                      {ext.source === "added"
+                        ? "added"
+                        : `${ext.scope === "project" ? "project" : "global"} · discovered`}
+                    </span>
                   </div>
                   <div className="truncate font-mono text-[11px] text-text-muted">{ext.path}</div>
                 </div>
+                {ext.bridgeConflict ? (
+                  <span
+                    data-testid={`extension-bridge-conflict-${ext.name}`}
+                    title={`This extension registers "${ext.bridgeConflict}", a tool Agent Deck provides through its own bridge. The bridge takes precedence, so this extension is not loaded — rename its tool to use it.`}
+                    className="flex items-center gap-1 rounded-capsule border border-[var(--color-role-error)] px-1.5 text-[10px] text-[var(--color-role-error)]"
+                  >
+                    <AlertTriangle size={10} /> shadowed by bridge
+                  </span>
+                ) : null}
                 {conflicting ? (
                   <span
                     data-testid="extension-conflict"
@@ -183,14 +213,18 @@ export function ExtensionsScreen() {
                 >
                   {ext.disabled ? "Enable" : "Disable"}
                 </button>
-                <button
-                  data-testid={`extension-remove-${ext.name}`}
-                  className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
-                  title="Remove"
-                  onClick={() => void remove(ext)}
-                >
-                  <Trash2 size={13} />
-                </button>
+                {/* Only registry entries can be removed; a discovered file is
+                    managed on disk (disable to exclude it). */}
+                {ext.source !== "discovered" ? (
+                  <button
+                    data-testid={`extension-remove-${ext.name}`}
+                    className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
+                    title="Remove"
+                    onClick={() => void remove(ext)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                ) : null}
               </div>
             );
           })}
