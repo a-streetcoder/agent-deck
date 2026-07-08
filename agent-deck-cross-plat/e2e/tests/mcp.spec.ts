@@ -51,3 +51,70 @@ test("lists a configured MCP server as connected and removes it", async ({ page 
   await expect(page.getByTestId("mcp-mock")).toHaveCount(0);
   await expect(page.getByTestId("mcp-empty")).toBeVisible();
 });
+
+test("signs in to an OAuth http server: open link, paste code, becomes authorized", async ({
+  page,
+}) => {
+  // Script the MCP endpoints so the OAuth flow (needs-auth → login URL → callback
+  // → authorized) is exercised hermetically, without a real MCP provider.
+  let authorized = false;
+  let callbackBody: { code?: string; state?: string } | undefined;
+
+  await page.route("**/mcp", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      json: {
+        servers: [
+          {
+            id: "authsrv",
+            transport: "http",
+            connected: authorized,
+            toolNames: authorized ? ["mcp__authsrv__echo"] : [],
+            auth: { status: authorized ? "authorized" : "unauthenticated" },
+          },
+        ],
+      },
+    });
+  });
+  await page.route("**/mcp/*/login", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      json: {
+        auth: {
+          status: "authorizing",
+          authUrl: "https://auth.test/authorize?client_id=x&state=STATE123",
+        },
+      },
+    });
+  });
+  await page.route("**/mcp/*/login/callback", async (route) => {
+    callbackBody = route.request().postDataJSON() as { code?: string; state?: string };
+    authorized = true;
+    await route.fulfill({ status: 200, json: { auth: { status: "authorized" }, server: {} } });
+  });
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-mcp").click();
+
+  // The http server shows sign-in required, and a Sign in button.
+  await expect(page.getByTestId("mcp-auth-authsrv")).toHaveText("sign-in required");
+  await page.getByTestId("mcp-login-authsrv").click();
+
+  // The panel shows the authorization link to open.
+  await expect(page.getByTestId("mcp-login-url-authsrv")).toHaveAttribute(
+    "href",
+    /auth\.test\/authorize/,
+  );
+
+  // Paste the code and connect → success toast + the badge flips to signed in.
+  await page.getByTestId("mcp-login-code-authsrv").fill("browser-code");
+  await page.getByTestId("mcp-login-submit-authsrv").click();
+  await expect(page.getByTestId("toast")).toContainText(/Signed in to/);
+  await expect(page.getByTestId("mcp-auth-authsrv")).toHaveText("signed in");
+
+  // The UI parsed the OAuth state out of the authorization URL and echoed it back
+  // with the code (CSRF round-trip).
+  expect(callbackBody).toEqual({ code: "browser-code", state: "STATE123" });
+});
