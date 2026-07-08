@@ -63,6 +63,9 @@ import {
   listProviders,
   isKnownProvider,
   logoutProvider,
+  scanLoops,
+  writeLoopFile,
+  deleteLoopFile,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
@@ -1644,6 +1647,56 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         .send({ error: `Push failed: ${error instanceof Error ? error.message : String(error)}` });
     }
     return { pushed: true };
+  });
+
+  // Loop definitions (native LoopDefinitionStore, Bank CRUD half — no run engine
+  // yet). Global: loops live under ~/.pi/agent/loops.
+  const loopEditBody = z.object({
+    name: z.string().trim().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    goal: z.string().max(50_000).optional(),
+    structure: z
+      .enum([
+        "singleAgent",
+        "makerChecker",
+        "agentPipeline",
+        "parallelAgents",
+        "discoveryTriage",
+        "humanApproval",
+      ])
+      .optional(),
+    agentName: z.string().max(200).optional(),
+    maxIterations: z.number().int().optional(),
+    validationCommand: z.string().max(10_000).optional(),
+    writeTarget: z.enum(["artifactMarkdown", "newWorktree", "currentCheckout"]).optional(),
+  });
+
+  fastify.get("/loops", async () => ({ loops: scanLoops(rootsFor()) }));
+
+  fastify.put("/loops", async (request, reply) => {
+    const parsed = loopEditBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    try {
+      writeLoopFile(rootsFor(), parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "loop_slug_conflict") {
+        return reply
+          .status(409)
+          .send({ error: "Another loop already uses a name that resolves to the same file." });
+      }
+      return reply.status(500).send({ error: message });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  fastify.delete("/loops", async (request, reply) => {
+    const parsed = z.object({ name: z.string().min(1) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    deleteLoopFile(rootsFor(), parsed.data.name);
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   fastify.get("/runtime/providers", async () => ({ providers: listProviders(rootsFor()) }));

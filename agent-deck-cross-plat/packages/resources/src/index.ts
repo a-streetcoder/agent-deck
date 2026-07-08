@@ -68,3 +68,12 @@ export {
   logoutProvider,
   type ProviderAuthInfo,
 } from "./providers.ts";
+export {
+  loopsDir,
+  loopSlug,
+  parseLoopFile,
+  scanLoops,
+  writeLoopFile,
+  deleteLoopFile,
+  type LoopEdit,
+} from "./loops.ts";

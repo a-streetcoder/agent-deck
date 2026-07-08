@@ -12,6 +12,7 @@ import { McpScreen } from "./screens/McpScreen.tsx";
 import { MemoryScreen } from "./screens/MemoryScreen.tsx";
 import { ModelsScreen } from "./screens/ModelsScreen.tsx";
 import { GitScreen } from "./screens/GitScreen.tsx";
+import { LoopsScreen } from "./screens/LoopsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { PromptsScreen } from "./screens/PromptsScreen.tsx";
 import { ProvidersScreen } from "./screens/ProvidersScreen.tsx";
@@ -41,6 +42,7 @@ const VIEW_TITLES: Record<string, string> = {
   instructions: "Instructions",
   issues: "Issues",
   git: "Git",
+  loops: "Loops",
   prompts: "Prompts",
   models: "Models",
   extensions: "Extensions",
@@ -176,6 +178,8 @@ export function App() {
                 <IssuesScreen />
               ) : view === "git" ? (
                 <GitScreen />
+              ) : view === "loops" ? (
+                <LoopsScreen />
               ) : view === "prompts" ? (
                 <PromptsScreen />
               ) : view === "models" ? (

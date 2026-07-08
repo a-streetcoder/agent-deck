@@ -8,6 +8,7 @@ import {
   GitBranch,
   Key,
   MessageSquareText,
+  Repeat,
   Plug,
   Plus,
   Send,
@@ -45,6 +46,7 @@ const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = 
   { id: "git", label: "Git", icon: GitBranch },
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
+  { id: "loops", label: "Loops", icon: Repeat },
   { id: "prompts", label: "Prompts", icon: MessageSquareText },
   { id: "memory", label: "Memory", icon: Brain },
 ];
