@@ -395,14 +395,13 @@ struct CodingAgentRecentRow: View, Equatable {
             )
             .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
 
-            Text(session.displayTitle)
+            HoverMarqueeTitleText(text: session.displayTitle, isHovering: isHovering)
                 .font(AppTheme.Font.footnote.weight(.medium))
                 .fontWidth(.expanded)
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
                 // Same seen-inactive dimming as the expanded rows.
                 .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
+                .layoutPriority(1)
 
             Spacer(minLength: 6)
 

@@ -736,7 +736,7 @@ struct PiAgentSessionRow: View, Equatable {
     }
 }
 
-private struct HoverMarqueeTitleText: View {
+struct HoverMarqueeTitleText: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let text: String
