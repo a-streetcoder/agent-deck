@@ -109,6 +109,23 @@ export async function gitCommitAll(cwd: string, message: string): Promise<{ comm
   return { committed: true };
 }
 
+/**
+ * The working-tree status + a diff of all tracked changes vs HEAD, for feeding
+ * a commit-message generator (native PiAgentShipService). The diff is capped so
+ * a huge change set can't blow the helper model's context. On a fresh repo with
+ * no commits (no HEAD), the diff is empty and the status still lists the files.
+ */
+export async function gitStatusAndDiff(cwd: string): Promise<{ status: string; diff: string }> {
+  const status = (await runGit(cwd, ["status", "--porcelain=v1"])).trim();
+  let diff = "";
+  try {
+    diff = (await runGit(cwd, ["diff", "HEAD"])).slice(0, 60_000);
+  } catch {
+    // No HEAD yet (fresh repo) — the status alone describes the changes.
+  }
+  return { status, diff };
+}
+
 /** The current branch name, or "HEAD" when detached (native readCurrentBranch). */
 export async function gitCurrentBranch(cwd: string): Promise<string> {
   return (await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();

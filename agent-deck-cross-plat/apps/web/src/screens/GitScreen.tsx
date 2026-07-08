@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Sparkles } from "lucide-react";
 import { useAppStore } from "../state/store.ts";
 
 /**
@@ -26,6 +26,7 @@ export function GitScreen() {
   const [message, setMessage] = useState("");
   const [committing, setCommitting] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     if (!currentProjectId) return;
@@ -59,6 +60,25 @@ export function GitScreen() {
       setError(String(err));
     } finally {
       setCommitting(false);
+    }
+  };
+
+  const generateMessage = async (): Promise<void> => {
+    if (!currentProjectId) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/projects/${encodeURIComponent(currentProjectId)}/git/generate-message`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const { message: generated } = (await response.json()) as { message: string };
+      setMessage(generated);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -154,6 +174,15 @@ export function GitScreen() {
                 onChange={(e) => setMessage(e.target.value)}
               />
               <div className="flex items-center justify-end gap-2">
+                <button
+                  data-testid="git-generate-message"
+                  className="mr-auto flex items-center gap-1 rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  disabled={generating || committing || status?.clean}
+                  onClick={() => void generateMessage()}
+                  title="Draft a commit message from your changes"
+                >
+                  <Sparkles size={12} /> {generating ? "Generating…" : "Generate"}
+                </button>
                 <button
                   data-testid="git-push"
                   className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"

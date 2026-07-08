@@ -76,6 +76,7 @@ import {
   gitCurrentBranch,
   gitPush,
   gitStatus,
+  gitStatusAndDiff,
   gitWorktreeAdd,
   gitWorktreeRemove,
   type GitWorktree,
@@ -202,6 +203,13 @@ const CONTACT_SUPERVISOR_SPEC = {
 const SUPERVISOR_TIMEOUT_MS = 110_000;
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+// Commit-message generator prompt (native PiAgentShipService.commitMessageSystemPrompt).
+const COMMIT_MESSAGE_SYSTEM_PROMPT = `You are Agent Deck's git commit message generator. Your only job is to write a commit message from the supplied git status and diff.
+
+The commit message must be concise and explanatory: capture the concrete code or product change being committed, not the mechanical act of editing files. Prefer the intended behavior or user-visible outcome when the diff makes it clear.
+
+Output ONLY the commit message — an imperative title (max 72 chars), optionally followed by a blank line and a short body. No preamble, no code fences, no quotes. Do not invent changes not supported by the status or diff.`;
 
 const agentEditFields = z.object({
   description: z.string().optional(),
@@ -1660,6 +1668,42 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         .send({ error: `Push failed: ${error instanceof Error ? error.message : String(error)}` });
     }
     return { pushed: true };
+  });
+
+  // Generate a commit message from the working-tree changes via a one-shot pi
+  // helper (native PiAgentShipService.generateCommitMessage). No side effects —
+  // it reads the diff, it doesn't stage or commit.
+  fastify.post("/projects/:id/git/generate-message", async (request, reply) => {
+    const project = projects.find((p) => p.id === (request.params as { id: string }).id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    let status: string;
+    let diff: string;
+    try {
+      ({ status, diff } = await gitStatusAndDiff(project.path));
+    } catch (error) {
+      return reply.status(400).send({ error: String(error) });
+    }
+    if (!status) return reply.status(400).send({ error: "There are no changes to describe." });
+    const defaults = envDefaults();
+    try {
+      const message = await sessions.runHelper({
+        systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
+        userPrompt: `Generate a git commit message for these changes.\n\nGit status:\n${status}\n\nDiff:\n${diff}`,
+        cwd: project.path,
+        provider: defaults.provider,
+        model: defaults.model,
+        extensions: defaults.providerExtensions,
+        env: defaults.env,
+      });
+      const trimmed = message.trim();
+      if (!trimmed)
+        return reply.status(502).send({ error: "The model returned an empty message." });
+      return { message: trimmed };
+    } catch (error) {
+      return reply.status(502).send({
+        error: `Couldn't generate a message: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   });
 
   // Loop definitions (native LoopDefinitionStore, Bank CRUD half — no run engine

@@ -912,6 +912,59 @@ export class SessionManager {
     return await parent.runChildAgent(task, agentName);
   }
 
+  /**
+   * Run a one-shot pi helper (native commit-message / title generation): an
+   * isolated `--no-session --no-tools` launch that answers a single prompt and
+   * exits — the same shape ManagedSession.generateTitle uses. Returns the final
+   * assistant text; throws on timeout / early exit.
+   */
+  async runHelper(opts: {
+    systemPrompt: string;
+    userPrompt: string;
+    cwd: string;
+    provider?: string;
+    model?: string;
+    extensions?: string[];
+    env?: Record<string, string>;
+    timeoutMs?: number;
+  }): Promise<string> {
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    const helper = new PiSession({
+      binPath: resolvePiBinary().path,
+      args: buildLaunchArgs({
+        kind: "helper",
+        systemPrompt: opts.systemPrompt,
+        provider: opts.provider,
+        model: opts.model,
+        extensions: opts.extensions,
+      }),
+      cwd: opts.cwd,
+      env: opts.env,
+      requestTimeoutMs: timeoutMs,
+    });
+    try {
+      const idle = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("helper timeout")), timeoutMs);
+        timer.unref();
+        helper.on("event", (event) => {
+          if ((event as { type: string }).type === "agent_end") {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        helper.on("exit", () => reject(new Error("helper exited")));
+      });
+      idle.catch(() => {}); // handled up front so a startup exit isn't unhandled
+      helper.start();
+      await helper.prompt(opts.userPrompt);
+      await idle;
+      const { text } = await helper.request({ type: "get_last_assistant_text" });
+      return text ?? "";
+    } finally {
+      await helper.stop();
+    }
+  }
+
   list(): SessionMeta[] {
     return [...this.sessions.values()].map((session) => session.meta);
   }
