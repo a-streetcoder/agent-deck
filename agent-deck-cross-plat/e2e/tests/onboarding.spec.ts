@@ -20,17 +20,28 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the first-run welcome shows and 'Add a project' opens Projects", async ({ page }) => {
+test("the paged illustrated welcome advances and its final CTA opens Projects", async ({
+  page,
+}) => {
   await page.goto(harness.baseUrl);
-  const banner = page.getByTestId("onboarding");
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText("Welcome to Agent Deck");
+  const overlay = page.getByTestId("onboarding");
+  await expect(overlay).toBeVisible();
+  // Page 1: the native illustration + title render.
+  await expect(page.getByTestId("onboarding-image")).toBeVisible();
+  await expect(page.getByTestId("onboarding-title")).toHaveText("Command Pi from Agent Deck");
 
-  // 'Add a project' navigates to Projects but does NOT dismiss — it keeps
-  // nudging until a project actually exists.
+  // Continue advances the pages; the title changes.
+  await page.getByTestId("onboarding-next").click();
+  await expect(page.getByTestId("onboarding-title")).toHaveText("Work in a Coding Chat");
+
+  // Page through to the last page — only there does the primary CTA become
+  // 'Add a project', which opens Projects and completes onboarding.
+  for (let i = 0; i < 4; i += 1) await page.getByTestId("onboarding-next").click();
+  await expect(page.getByTestId("onboarding-title")).toHaveText("Connect the Wider Workflow");
+  await expect(page.getByTestId("onboarding-next")).toHaveCount(0);
   await page.getByTestId("onboarding-add-project").click();
   await expect(page.getByTestId("projects-screen")).toBeVisible();
-  await expect(banner).toBeVisible();
+  await expect(overlay).toBeHidden();
 });
 
 test("Skip dismisses the welcome and it stays dismissed across reloads", async ({ page }) => {
