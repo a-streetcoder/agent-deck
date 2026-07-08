@@ -1206,6 +1206,7 @@ struct PiAgentTranscriptThreadCard: View {
             }
             if visibility.showDiffs {
                 PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+                    .frame(width: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth), alignment: .leading)
             }
         }
     }
