@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -53,6 +53,11 @@ test("chat renders the streamed reply incrementally", async ({ page }) => {
   expect(observedLengths).toEqual([...observedLengths].sort((a, b) => a - b));
   await expect(assistantText).toHaveText(SCRIPTED_REPLY);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // The assistant message header carries the native pi logo (brand mark).
+  await expect(
+    page.getByTestId("assistant-cell").first().getByTestId("brand-icon-pi"),
+  ).toBeVisible();
 });
 
 test("shows the session context-usage indicator (native, from get_session_stats)", async ({

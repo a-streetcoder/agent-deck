@@ -48,6 +48,19 @@ test.beforeAll(async () => {
     env: { ...process.env, PI_SKIP_VERSION_CHECK: "1", AGENT_DECK_DATA_DIR: dataDir },
   });
   electronPid = app.process().pid ?? undefined;
+
+  // A fresh data dir has no projects, so the first-run onboarding modal would
+  // cover the UI and intercept clicks. Pre-dismiss it (this suite tests the shell,
+  // not onboarding — that has its own web e2e).
+  const window = await app.firstWindow();
+  await window.addInitScript(() => {
+    try {
+      localStorage.setItem("agentdeck-onboarding-dismissed", "1");
+    } catch {
+      // Storage disabled — harmless.
+    }
+  });
+  await window.reload();
 });
 
 test.afterAll(async () => {

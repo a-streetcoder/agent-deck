@@ -2,6 +2,7 @@ import { forwardRef, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
+import { BrandIcon } from "../BrandIcon.tsx";
 
 /**
  * Role kinds supported by the message bubble.
@@ -134,10 +135,14 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps>(func
       <div className="flex items-baseline justify-between gap-3">
         <span
           className={cn(
-            "text-[11px] font-semibold uppercase tracking-wide",
+            "flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide",
             ROLE_HEADER_TINT[role],
           )}
         >
+          {/* The pi mark on assistant messages (native assistant header logo). */}
+          {role === "assistant" ? (
+            <BrandIcon name="pi" size={11} className="translate-y-[1px]" />
+          ) : null}
           {label}
         </span>
         {trailing ? <span className="shrink-0 text-[11px] text-text-muted">{trailing}</span> : null}

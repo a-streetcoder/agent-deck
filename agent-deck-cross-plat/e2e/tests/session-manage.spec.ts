@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../helpers/fixtures.ts";
 import type { SessionMeta } from "@agent-deck/domain";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
