@@ -74,6 +74,7 @@ struct GitHubIssueRowContent: View {
                 titleRow
                 metaRow
             }
+            .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,19 +131,25 @@ struct GitHubIssueRowContent: View {
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
                 .lineLimit(2, reservesSpace: true)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
             Spacer(minLength: 4)
             if showsKindBadge {
                 Text(item.kindShortTitle)
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(AppTheme.contentSubtleFill))
+                    .fixedSize(horizontal: true, vertical: false)
                     .help(item.kindTitle)
             }
             Text("#\(item.number)")
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
 

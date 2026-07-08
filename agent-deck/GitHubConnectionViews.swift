@@ -130,6 +130,7 @@ struct GitHubAvatarView: View {
             }
         }
         .frame(width: size, height: size)
+        .fixedSize()
         .clipShape(Circle())
         // Decoded NSImages are cached per URL by GitHubAvatarCache, so
         // scrolling a long issue list doesn't re-decode the same PNG on
