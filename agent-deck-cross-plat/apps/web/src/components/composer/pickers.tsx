@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Brain, ChevronDown, Cpu, Square } from "lucide-react";
 import { THINKING_LEVELS, type ThinkingLevel } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
+import { ProviderLogo } from "../ProviderLogo.tsx";
 
 /**
  * Composer footer chips + send button, styled per the native composer footer
@@ -81,7 +82,11 @@ export function ModelChip({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <Cpu size={12} />
+        {state?.provider ? (
+          <ProviderLogo providerId={state.provider} size={13} />
+        ) : (
+          <Cpu size={12} />
+        )}
         <span className="max-w-[16ch] truncate" data-testid="model-chip-label">
           {state?.modelId ?? "model"}
         </span>
@@ -96,7 +101,8 @@ export function ModelChip({
         >
           {[...byProvider.entries()].map(([provider, providerModels]) => (
             <div key={provider}>
-              <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              <div className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                <ProviderLogo providerId={provider} size={12} className="text-text-secondary" />
                 {provider}
               </div>
               {providerModels.map((model) => (

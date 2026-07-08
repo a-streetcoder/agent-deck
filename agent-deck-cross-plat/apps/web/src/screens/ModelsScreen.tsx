@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Cpu, Eye, EyeOff, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { ProviderLogo } from "../components/ProviderLogo.tsx";
 import { useAppStore } from "../state/store.ts";
 import { sendSetModel } from "../state/wsBridge.ts";
 
@@ -157,7 +158,8 @@ export function ModelsScreen() {
             <div className="space-y-4">
               {[...byProvider.entries()].map(([provider, providerModels]) => (
                 <div key={provider}>
-                  <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  <div className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                    <ProviderLogo providerId={provider} size={13} className="text-text-secondary" />
                     {provider}
                   </div>
                   <div className="space-y-1.5">

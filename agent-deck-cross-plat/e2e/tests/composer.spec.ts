@@ -23,6 +23,8 @@ test("model chip shows pi's current model and lists available models", async ({ 
 
   // Current model comes from pi get_state (the mock provider's model).
   await expect(page.getByTestId("model-chip-label")).toHaveText("mock-model");
+  // The chip carries the provider's brand logo (the "mock" provider has no bundled mark → monogram fallback).
+  await expect(page.getByTestId("model-chip").getByTestId("provider-logo-mock")).toBeVisible();
 
   await page.getByTestId("model-chip").click();
   await expect(page.getByTestId("model-menu")).toBeVisible();

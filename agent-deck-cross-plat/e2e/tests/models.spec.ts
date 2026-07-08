@@ -53,6 +53,10 @@ test("the Models catalog search filters by name/id/provider", async ({ page }) =
   const model = page.getByTestId("model-mock-model");
   await expect(model).toBeVisible();
 
+  // Each provider group carries its brand logo (the "mock" provider has no bundled
+  // mark, so it renders the monogram fallback — the wiring is what's asserted).
+  await expect(page.getByTestId("provider-logo-mock").first()).toBeVisible();
+
   // A matching query keeps the model; a non-match shows the empty state.
   await page.getByTestId("models-search").fill("mock");
   await expect(model).toBeVisible();
