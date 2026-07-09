@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { rmSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { promisify } from "node:util";
 
 /**
@@ -182,9 +182,11 @@ export async function gitWorktreeRemove(projectDir: string, targetPath: string):
   }
   // Native removeWorktree also removes the directory if git left it behind — on
   // Windows `git worktree remove` can succeed at the metadata level but leave the
-  // dir when a handle was briefly held. maxRetries rides out a transient EBUSY.
+  // dir because the just-exited pi process's handle on its cwd lingers. Use the
+  // ASYNC rm (the sync one blocks the event loop during the retries) with a
+  // generous retry budget to ride out that EPERM/EBUSY handle-release lag.
   try {
-    rmSync(targetPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await rm(targetPath, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   } catch {
     // Best-effort: a leftover dir is harmless (git no longer tracks it).
   }
