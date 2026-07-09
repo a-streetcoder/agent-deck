@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -43,7 +43,7 @@ test.afterAll(async () => {
 
 test("picking an agent injects its body as the system prompt", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   // Pick the project agent in the composer.
@@ -80,7 +80,7 @@ test("the agent detail surfaces the system-prompt mode and extensions (native pa
   page,
 }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-agents").click();
 
   // pancake-bot declares no mode → the default "replace"; like native, the badge
@@ -102,7 +102,7 @@ test("an agent-bound session shows the agent name in the expanded panel (native 
   page,
 }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   // Picking an agent binds the session to it (SessionMeta.agentName).

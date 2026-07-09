@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import type { SessionMeta } from "@agent-deck/domain";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
@@ -51,7 +51,7 @@ async function projectId(): Promise<string> {
 
 test("assigning a skill in the UI injects /skill:<name> into new sessions", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   // Assign via the detail pane's per-project checkbox row.
@@ -230,7 +230,7 @@ test("the project default agent is auto-selected on switch", async ({ page }) =>
   expect(patched.status).toBe(200);
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await expect(page.getByTestId("agent-picker")).toHaveValue("syrup-bot");
 

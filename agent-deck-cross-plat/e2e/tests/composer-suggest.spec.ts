@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test, type Page } from "../helpers/fixtures.ts";
+import { expect, selectProject, test, type Page } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -37,7 +37,7 @@ test.afterAll(async () => {
 
 async function openProject(page: Page): Promise<void> {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   // Assign the skill so /skill:deployer is loaded, then a fresh chat picks it up.
   await page.getByTestId("nav-skills").click();

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -72,7 +72,7 @@ test("disabling a builtin agent leaves the bundled file untouched", async ({ pag
 
 test("a disabled agent disappears from the composer picker", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   // toaster is pickable to start.
@@ -95,7 +95,7 @@ test("deleting a project agent removes its file", async ({ page }) => {
   expect(existsSync(agentFile)).toBe(true);
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-agents").click();
   await page.locator('[data-agent-name="toaster"]').click();
 
@@ -109,7 +109,7 @@ test("deleting a project agent removes its file", async ({ page }) => {
 test("disabling a skill excludes it from injection; delete removes its dir", async ({ page }) => {
   const skillDir = path.join(project, ".pi", "skills", "crumbs");
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-skills").click();
 
   // Assign crumbs, then disable it — a new session must NOT load /skill:crumbs.

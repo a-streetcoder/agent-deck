@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -51,7 +51,7 @@ test("label (OR) + assignee facet filters narrow the loaded board client-side", 
   page,
 }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-issues").click();
 
@@ -101,7 +101,7 @@ test("author (single-select) filter narrows the board and composes with labels",
   page,
 }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-issues").click();
   await expect(page.getByTestId("issue-1")).toBeVisible();
@@ -133,7 +133,7 @@ test("free-text search filters the loaded board over title / #number / label / a
   page,
 }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-issues").click();
   await expect(page.getByTestId("issue-1")).toBeVisible();

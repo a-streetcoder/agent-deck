@@ -1,4 +1,4 @@
-import { test as base } from "@playwright/test";
+import { test as base, type Page } from "@playwright/test";
 
 /**
  * Shared e2e test with the first-run onboarding pre-dismissed. The onboarding is
@@ -22,3 +22,13 @@ export const test = base.extend({
 
 export { expect } from "@playwright/test";
 export type { Page } from "@playwright/test";
+
+/**
+ * Select a project via the toolbar project picker (native ProjectPickerPopover).
+ * The picker is a header popover, so a project row is only clickable once the
+ * picker is opened — this opens it then clicks the row.
+ */
+export async function selectProject(page: Page, name: string): Promise<void> {
+  await page.getByTestId("project-picker").click();
+  await page.getByTestId(`project-${name}`).click();
+}

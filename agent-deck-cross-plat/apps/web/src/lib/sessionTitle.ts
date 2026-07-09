@@ -10,11 +10,11 @@ export function sessionDisplayTitle(title: string | undefined, projectName: stri
 }
 
 /**
- * Resolve a session's project name consistently everywhere (sidebar + header):
- * no project id → "Default"; a dangling id (project since removed) → "Unknown
- * project"; otherwise the project's name.
+ * Resolve a session's project name consistently everywhere (picker + header):
+ * no project id → "All Projects" (native's aggregate/no-folder selection); a
+ * dangling id (project since removed) → "Unknown project"; otherwise the name.
  */
 export function projectDisplayName(projects: ProjectMeta[], projectId: string | undefined): string {
-  if (!projectId) return "Default";
+  if (!projectId) return "All Projects";
   return projects.find((p) => p.id === projectId)?.name ?? "Unknown project";
 }

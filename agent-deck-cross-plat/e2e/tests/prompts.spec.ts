@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -29,7 +29,7 @@ test.afterAll(async () => {
 
 test("create, edit, and delete a project prompt template", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-prompts").click();
 
@@ -108,7 +108,7 @@ test("surfaces the /invocation and argument-hint for a prompt on disk (native 8.
   );
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-prompts").click();
 
@@ -133,7 +133,7 @@ test("the All Projects toggle sets a prompt as a default (native defaultPromptTe
   );
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-prompts").click();
 
@@ -177,7 +177,7 @@ test("the editor's per-project availability assigns a global prompt to a project
   );
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-prompts").click();
 

@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -64,7 +64,7 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the Default workspace prompts to pick a project", async ({ page }) => {
+test("the All Projects workspace prompts to pick a project", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-issues").click();
   await expect(page.getByTestId("issues-no-project")).toBeVisible();
@@ -72,7 +72,7 @@ test("the Default workspace prompts to pick a project", async ({ page }) => {
 
 test("opens an issue's detail and starts a seeded session from it", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-issues").click();
 
@@ -120,7 +120,7 @@ test("opens an issue's detail and starts a seeded session from it", async ({ pag
 
 test("the Open / Closed filter re-queries gh for the chosen state", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-issues").click();
 
   // Defaults to open: the open issue shows, the closed one doesn't.

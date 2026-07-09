@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Brain,
   CircleDot,
@@ -10,7 +9,6 @@ import {
   MessageSquareText,
   Repeat,
   Plug,
-  Plus,
   Send,
   Server,
   ShieldCheck,
@@ -18,10 +16,8 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { chooseDirectory, isElectron, isMacDesktop } from "@/lib/native";
+import { isMacDesktop } from "@/lib/native";
 import { useAppStore, type AppView } from "../state/store.ts";
-import { ProjectTypeIcon } from "./ProjectTypeIcon.tsx";
-import { addProject, switchToProject } from "../state/wsBridge.ts";
 import {
   PANEL_FADE,
   PANEL_MOVE,
@@ -62,39 +58,13 @@ const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
 ];
 
 export function Sidebar() {
-  const projects = useAppStore((state) => state.projects);
-  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
   const panelExpanded = useAppStore((state) => state.panelExpanded);
   const setPanelExpanded = useAppStore((state) => state.setPanelExpanded);
-  const [draftPath, setDraftPath] = useState("");
-  const [adding, setAdding] = useState(false);
   // On the macOS desktop build the window's traffic lights overlap the top-left,
   // so drop the wordmark below them and make the strip a drag region.
   const macDesktop = isMacDesktop();
-
-  const submit = async (): Promise<void> => {
-    const path = draftPath.trim();
-    if (!path) return;
-    await addProject(path);
-    setDraftPath("");
-    setAdding(false);
-  };
-
-  // In the desktop app, "Add project" opens the native folder chooser; in a
-  // browser it falls back to the type-a-path input.
-  const startAddProject = async (): Promise<void> => {
-    if (isElectron()) {
-      const [picked] = await chooseDirectory({
-        title: "Add Project",
-        message: "Choose a repo or project root to add",
-      });
-      if (picked) await addProject(picked);
-      return;
-    }
-    setAdding(true);
-  };
 
   const rowClass = (active: boolean): string =>
     cn(
@@ -165,80 +135,6 @@ export function Sidebar() {
                   </button>
                 );
               })}
-            </nav>
-
-            {sectionHeader("Projects")}
-            <nav className="space-y-0.5 px-2">
-              <button
-                className={rowClass(currentProjectId === null)}
-                data-testid="project-default"
-                onClick={() => void switchToProject(null)}
-              >
-                <Folder
-                  size={15}
-                  style={{
-                    color: currentProjectId === null ? "var(--color-brand-accent)" : undefined,
-                  }}
-                />
-                <span style={{ fontStretch: "expanded" }}>Default</span>
-              </button>
-              {projects
-                .filter((project) => project.enabled !== false)
-                .map((project) => (
-                  <button
-                    key={project.id}
-                    className={rowClass(currentProjectId === project.id)}
-                    title={project.path}
-                    data-testid={`project-${project.name}`}
-                    onClick={() => void switchToProject(project.id)}
-                  >
-                    <ProjectTypeIcon
-                      type={project.type}
-                      size={15}
-                      className={
-                        currentProjectId === project.id
-                          ? "text-[var(--color-brand-accent)]"
-                          : undefined
-                      }
-                    />
-                    <span className="truncate" style={{ fontStretch: "expanded" }}>
-                      {project.name}
-                    </span>
-                  </button>
-                ))}
-              {adding ? (
-                <div className="space-y-1.5 px-1 pt-1">
-                  <input
-                    autoFocus
-                    data-testid="add-project-path"
-                    className="w-full rounded-md border border-border-strong bg-surface px-2 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-                    placeholder="/path/to/project"
-                    value={draftPath}
-                    onChange={(event) => setDraftPath(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") void submit();
-                      if (event.key === "Escape") setAdding(false);
-                    }}
-                  />
-                  <button
-                    data-testid="add-project-confirm"
-                    className="w-full rounded-capsule bg-primary px-2 py-1.5 text-xs font-medium"
-                    style={{ color: "var(--color-accent-foreground)" }}
-                    onClick={() => void submit()}
-                  >
-                    Add project
-                  </button>
-                </div>
-              ) : (
-                <button
-                  data-testid="add-project"
-                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] text-text-muted hover:bg-[var(--color-hover-fill)]"
-                  onClick={() => void startAddProject()}
-                >
-                  <Plus size={15} />
-                  <span style={{ fontStretch: "expanded" }}>Add project</span>
-                </button>
-              )}
             </nav>
 
             {sectionHeader("Runtime")}

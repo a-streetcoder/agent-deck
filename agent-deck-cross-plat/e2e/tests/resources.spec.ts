@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -38,7 +38,7 @@ test("agents screen lists builtins and live-updates when files appear on disk", 
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
 
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   await page.getByTestId("nav-agents").click();
@@ -90,7 +90,7 @@ test("agents screen lists builtins and live-updates when files appear on disk", 
 test("skills screen live-updates when a SKILL.md appears on disk", async ({ page }) => {
   await registerProject();
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   await page.getByTestId("nav-skills").click();
@@ -127,7 +127,7 @@ test("skills screen live-updates when a SKILL.md appears on disk", async ({ page
 test("multi-select bulk-deletes skills (7.5)", async ({ page }) => {
   await registerProject();
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-skills").click();
 
   // Two project skills on disk.
@@ -163,7 +163,7 @@ test("multi-select bulk-deletes skills (7.5)", async ({ page }) => {
 test("imports a local .md file as a skill (7.3)", async ({ page }) => {
   await registerProject();
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-skills").click();
 
   // A source .md on disk (outside any catalog).
@@ -196,7 +196,7 @@ test("skill detail flags disable-model-invocation as 'manual only' (native 7.6)"
 }) => {
   await registerProject();
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-skills").click();
 
@@ -234,7 +234,7 @@ test("skill detail flags disable-model-invocation as 'manual only' (native 7.6)"
 test("renaming keeps the detail on the renamed skill in a multi-skill list", async ({ page }) => {
   await registerProject();
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-skills").click();
 

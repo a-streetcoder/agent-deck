@@ -16,7 +16,7 @@ export function SessionStartupCard() {
 
   const project = projects.find((p) => p.id === currentProjectId) ?? null;
   const agentName = currentAgentName ?? session?.agentName ?? "Pi Agent";
-  const projectName = project?.name ?? "Default";
+  const projectName = project?.name ?? "All Projects";
   const skills = project?.assignedSkills ?? [];
 
   return (

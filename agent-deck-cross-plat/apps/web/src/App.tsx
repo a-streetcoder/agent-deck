@@ -1,6 +1,7 @@
 import { Composer } from "./components/Composer.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
+import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Toaster } from "./components/Toaster.tsx";
 import { Transcript } from "./components/Transcript.tsx";
@@ -107,7 +108,9 @@ export function App() {
             macDesktop && "[-webkit-app-region:drag]",
           )}
         >
-          <div className="flex items-baseline gap-3">
+          <div className="flex items-center gap-3">
+            <ProjectPicker />
+            <div className="h-4 w-px bg-border-subtle" />
             <h1
               className="text-sm font-semibold text-text-primary"
               style={{ fontStretch: "expanded" }}

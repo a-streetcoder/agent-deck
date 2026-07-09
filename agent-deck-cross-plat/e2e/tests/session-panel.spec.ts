@@ -81,7 +81,7 @@ test("an untitled session shows a Draft · <project> display title", async ({ pa
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
   await page.getByTestId("new-chat").click();
-  await expect(page.getByTestId("chat-list")).toContainText("Draft · Default");
+  await expect(page.getByTestId("chat-list")).toContainText("Draft · All Projects");
 });
 
 test("the expanded panel filters sessions by title (18.1)", async ({ page }) => {

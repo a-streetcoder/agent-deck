@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -29,7 +29,9 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the Default workspace edits Global; Project scope prompts to pick one", async ({ page }) => {
+test("the All Projects workspace edits Global; Project scope prompts to pick one", async ({
+  page,
+}) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-instructions").click();
   // No project selected → Global scope by default, so the editor is available.
@@ -58,7 +60,7 @@ test("editing Global AGENTS.md writes ~/.pi/agent/AGENTS.md", async ({ page }) =
 
 test("editing a project's AGENTS.md writes it to disk and reloads", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
   await page.getByTestId("nav-instructions").click();
@@ -75,14 +77,14 @@ test("editing a project's AGENTS.md writes it to disk and reloads", async ({ pag
 
   // And it reloads from disk on a fresh visit.
   await page.reload();
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-instructions").click();
   await expect(page.getByTestId("instructions-editor")).toHaveValue(/Always write tidy commits\./);
 });
 
 test("switching projects reloads instructions and never saves stale content", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await page.getByTestId("nav-instructions").click();
   const editor = page.getByTestId("instructions-editor");
   await expect(editor).toBeVisible();
@@ -90,7 +92,7 @@ test("switching projects reloads instructions and never saves stale content", as
 
   // Switch to project B while on the screen: the editor reloads B's (empty)
   // AGENTS.md — A's dirty content must not carry over or be saveable to B.
-  await page.getByTestId(`project-${path.basename(projectB)}`).click();
+  await selectProject(page, path.basename(projectB));
   await expect(editor).toHaveValue("");
   await expect(page.getByTestId("instructions-save")).toHaveText("Saved");
 
@@ -112,7 +114,7 @@ test("edits a project's CLAUDE.md when it has no AGENTS.md", async ({ page }) =>
   if (!res.ok) throw new Error(await res.text());
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(claudeProject)}`).click();
+  await selectProject(page, path.basename(claudeProject));
   await page.getByTestId("nav-instructions").click();
 
   // The editor loads CLAUDE.md's content, and the header names the resolved file.

@@ -117,6 +117,8 @@ test("the desktop shell boots the server and mounts the UI", async () => {
 
 test("adding a project via the native folder picker registers it", async () => {
   const window = await app.firstWindow();
+  // Project selection lives in the toolbar picker popover (native), so open it.
+  await window.getByTestId("project-picker").click({ timeout: 30_000 });
   await expect(window.getByTestId("add-project")).toBeVisible({ timeout: 30_000 });
 
   // Stub the OS folder chooser to return our throwaway project directory, so
@@ -127,7 +129,8 @@ test("adding a project via the native folder picker registers it", async () => {
 
   await window.getByTestId("add-project").click();
 
-  // The picked folder shows up as a registered project in the sidebar.
+  // The picked folder shows up as a registered project; reopen the picker to see it.
+  await window.getByTestId("project-picker").click();
   await expect(window.getByTestId(`project-${projectName}`)).toBeVisible({ timeout: 15_000 });
 });
 

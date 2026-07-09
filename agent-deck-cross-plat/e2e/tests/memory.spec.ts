@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -27,7 +27,7 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the Default workspace prompts to open a project for memory", async ({ page }) => {
+test("the All Projects workspace prompts to open a project for memory", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-memory").click();
   await expect(page.getByTestId("memory-no-project")).toBeVisible();
@@ -54,7 +54,7 @@ test("lists a project's memories and pins, edits, and deletes one", async ({ pag
   const { memory } = (await created.json()) as { memory: { id: string } };
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-memory").click();
 
@@ -120,7 +120,7 @@ test("recall search surfaces the relevant memory and hides the rest (native 11.8
   );
 
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await selectProject(page, path.basename(project));
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await page.getByTestId("nav-memory").click();
 

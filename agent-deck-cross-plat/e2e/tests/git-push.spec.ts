@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "../helpers/fixtures.ts";
+import { expect, selectProject, test } from "../helpers/fixtures.ts";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -59,7 +59,7 @@ test.afterAll(async () => {
 
 test("Commit & Push publishes to the remote via the -u upstream fallback", async ({ page }) => {
   await page.goto(harness.baseUrl);
-  await page.getByTestId(`project-${path.basename(work)}`).click();
+  await selectProject(page, path.basename(work));
   await expect(page.getByTestId("session-cwd")).toHaveText(work);
   await page.getByTestId("nav-git").click();
 

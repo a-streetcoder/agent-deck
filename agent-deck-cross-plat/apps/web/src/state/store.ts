@@ -49,7 +49,7 @@ export interface AppState {
   projects: ProjectMeta[];
   /** True once the initial /projects fetch has settled (avoids first-run flash). */
   projectsLoaded: boolean;
-  /** null = the server's default cwd ("Default" workspace). */
+  /** null = no project selected ("All Projects" — native's aggregate view). */
   currentProjectId: string | null;
   /** null = the default "Pi Agent" session; a name = agent-backed session. */
   currentAgentName: string | null;
