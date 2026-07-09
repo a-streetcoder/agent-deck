@@ -23,6 +23,7 @@ describe("SettingsStore onboarding preferences", () => {
     expect(s.gitAutomation).toBe(true);
     expect(s.defaultModel).toBeNull();
     expect(s.defaultThinking).toBeNull();
+    expect(s.extensionLoadingMode).toBe("useMyExtensions");
   });
 
   it("round-trips every field across a reload", () => {
@@ -33,6 +34,7 @@ describe("SettingsStore onboarding preferences", () => {
       gitAutomation: true,
       defaultModel: "gpt-5.5",
       defaultThinking: "high",
+      extensionLoadingMode: "agentDeckManaged",
     });
     const reloaded = new SettingsStore(dir).get();
     expect(reloaded.autoTitle).toBe(false);
@@ -40,6 +42,7 @@ describe("SettingsStore onboarding preferences", () => {
     expect(reloaded.gitAutomation).toBe(true);
     expect(reloaded.defaultModel).toBe("gpt-5.5");
     expect(reloaded.defaultThinking).toBe("high");
+    expect(reloaded.extensionLoadingMode).toBe("agentDeckManaged");
     // Untouched arrays are preserved (the patch never clobbers them).
     expect(reloaded.defaultSkills).toEqual([]);
   });

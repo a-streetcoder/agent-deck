@@ -615,6 +615,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // alike. Excluding bridge-conflicting extensions is a SAFETY requirement: pi
   // crashes if a user extension re-registers a bridge tool name.
   function enabledExtensionPaths(projectId?: string): string[] {
+    // "agentDeckManaged" (native PiAgentExtensionLoadingMode): load ONLY the app
+    // bridges — the user's own pi extensions stay off (still listed in the UI).
+    if (settings.get().extensionLoadingMode === "agentDeckManaged") return [];
     const disabled = new Set(settings.get().disabledExtensions);
     const registry = settings.get().extensions;
     const discovered = scanExtensions(rootsFor(projectId)).map((e) => e.path);
@@ -2259,6 +2262,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           .enum(["off", "minimal", "low", "medium", "high", "xhigh"])
           .nullable()
           .optional(),
+        extensionLoadingMode: z.enum(["useMyExtensions", "agentDeckManaged"]).optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
@@ -2287,6 +2291,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (d.gitAutomation !== undefined) patch.gitAutomation = d.gitAutomation;
     if (d.defaultModel !== undefined) patch.defaultModel = d.defaultModel;
     if (d.defaultThinking !== undefined) patch.defaultThinking = d.defaultThinking;
+    if (d.extensionLoadingMode !== undefined) patch.extensionLoadingMode = d.extensionLoadingMode;
     return { settings: settings.update(patch) };
   });
 

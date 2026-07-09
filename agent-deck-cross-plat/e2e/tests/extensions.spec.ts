@@ -155,3 +155,32 @@ test("shows the read-only Agent Deck bridges inventory (memory active)", async (
   await expect(page.getByTestId("bridge-state-deck_agents")).toHaveText("active");
   await expect(page.getByTestId("bridge-state-mcp")).toHaveText("off");
 });
+
+test("loading-mode picker + bulk enable/disable (native PiAgentExtensionLoadingMode)", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-extensions").click();
+
+  // The mode picker offers both native modes.
+  await expect(page.getByTestId("extension-mode-useMyExtensions")).toBeVisible();
+  await expect(page.getByTestId("extension-mode-agentDeckManaged")).toBeVisible();
+
+  // Bulk enable flips the extension (left disabled by the first test) to enabled;
+  // bulk disable flips it back.
+  await page.getByTestId("extension-enable-all").click();
+  await expect(page.getByTestId(`extension-toggle-${extName}`)).toContainText("Disable");
+  await page.getByTestId("extension-disable-all").click();
+  await expect(page.getByTestId(`extension-toggle-${extName}`)).toContainText("Enable");
+
+  // Managed mode hides the bulk actions (user extensions stay off); restore the
+  // default so the setting is left as "use my extensions".
+  await page.getByTestId("extension-mode-agentDeckManaged").click();
+  await expect(page.getByTestId("extension-mode-agentDeckManaged")).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+  await expect(page.getByTestId("extension-enable-all")).toHaveCount(0);
+  await page.getByTestId("extension-mode-useMyExtensions").click();
+  await expect(page.getByTestId("extension-enable-all")).toBeVisible();
+});

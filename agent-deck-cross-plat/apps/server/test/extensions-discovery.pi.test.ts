@@ -150,4 +150,29 @@ describe("extension discovery", () => {
     expect(toggle.status).toBe(200);
     expect(await promptAndReadSystem()).not.toContain(SENTINEL);
   });
+
+  it("agentDeckManaged loading mode keeps the user extension off even when enabled", async () => {
+    const setMode = (mode: string) =>
+      fetch(`http://127.0.0.1:${server.port}/settings`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ extensionLoadingMode: mode }),
+      });
+    // Re-enable the extension (the previous test disabled it) so the mode — not
+    // the disabled flag — is what's under test.
+    await fetch(`http://127.0.0.1:${server.port}/resources/extensions/disabled`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: extPath, disabled: false }),
+    });
+
+    // Managed mode → only Agent Deck's bridges load; the enabled user extension
+    // stays off, so its hook never runs.
+    expect((await setMode("agentDeckManaged")).status).toBe(200);
+    expect(await promptAndReadSystem()).not.toContain(SENTINEL);
+
+    // Back to "use my extensions" → the same enabled extension loads again.
+    expect((await setMode("useMyExtensions")).status).toBe(200);
+    expect(await promptAndReadSystem()).toContain(SENTINEL);
+  });
 });

@@ -59,6 +59,48 @@ export function ExtensionsScreen() {
     void load();
   }, [load, resourcesVersion]);
 
+  // Extension loading mode (native PiAgentExtensionLoadingMode): whether the
+  // user's own extensions load alongside Agent Deck's bridges, or only the
+  // bridges do. Read on mount; written optimistically.
+  type LoadingMode = "useMyExtensions" | "agentDeckManaged";
+  // `null` until the setting loads, so the mode section (and its bulk actions)
+  // never flashes the wrong mode first — a flash of the bulk buttons could let a
+  // stray click mutate everything before the real mode arrives.
+  const [loadingMode, setLoadingMode] = useState<LoadingMode | null>(null);
+  useEffect(() => {
+    void fetch("/settings")
+      .then((response) => response.json())
+      .then((data: { settings: { extensionLoadingMode: LoadingMode } }) =>
+        setLoadingMode(data.settings.extensionLoadingMode),
+      )
+      .catch(() => {});
+  }, []);
+  const setMode = async (mode: LoadingMode): Promise<void> => {
+    const prev = loadingMode;
+    setLoadingMode(mode); // optimistic
+    const res = await fetch("/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ extensionLoadingMode: mode }),
+    }).catch(() => null);
+    if (!res || !res.ok) setLoadingMode(prev); // revert on failure
+  };
+  // Bulk enable/disable every listed extension (native All / None).
+  const setAllDisabled = async (disabled: boolean): Promise<void> => {
+    await Promise.all(
+      extensions
+        .filter((ext) => ext.disabled !== disabled)
+        .map((ext) =>
+          fetch("/resources/extensions/disabled", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: ext.path, disabled }),
+          }).catch(() => {}),
+        ),
+    );
+    await load();
+  };
+
   useEffect(() => {
     void (async () => {
       try {
@@ -224,7 +266,66 @@ export function ExtensionsScreen() {
           </div>
         ) : null}
 
-        <div className="space-y-1.5" data-testid="extension-list">
+        {/* Loading mode (native PiAgentExtensionLoadingMode) + bulk enable/disable.
+            Hidden until the setting loads so the wrong mode never flashes. */}
+        {loadingMode !== null ? (
+          <div className="mb-3 rounded-lg border border-border-subtle bg-surface px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium text-text-primary">Loading mode</span>
+              <div className="flex rounded-capsule border border-border-subtle p-0.5" role="group">
+                {(
+                  [
+                    ["useMyExtensions", "Use my extensions"],
+                    ["agentDeckManaged", "Agent Deck managed"],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    data-testid={`extension-mode-${mode}`}
+                    data-active={loadingMode === mode}
+                    className={cn(
+                      "rounded-capsule px-2.5 py-0.5 text-[11px] transition-colors",
+                      loadingMode === mode
+                        ? "bg-[var(--color-selection-fill)] text-text-primary"
+                        : "text-text-secondary hover:text-text-primary",
+                    )}
+                    onClick={() => void setMode(mode)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="mt-1 text-[11px] text-text-muted">
+              {loadingMode === "agentDeckManaged"
+                ? "Only Agent Deck's built-in bridges load. Your own pi extensions stay off (still listed below)."
+                : "Your enabled pi extensions load alongside Agent Deck's bridges. Toggle any off below."}
+            </p>
+            {loadingMode === "useMyExtensions" && extensions.length > 0 ? (
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  data-testid="extension-enable-all"
+                  className="rounded-capsule border border-border-strong px-2.5 py-0.5 text-[11px] text-text-secondary hover:text-text-primary"
+                  onClick={() => void setAllDisabled(false)}
+                >
+                  Enable all
+                </button>
+                <button
+                  data-testid="extension-disable-all"
+                  className="rounded-capsule border border-border-strong px-2.5 py-0.5 text-[11px] text-text-secondary hover:text-text-primary"
+                  onClick={() => void setAllDisabled(true)}
+                >
+                  Disable all
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div
+          className={cn("space-y-1.5", loadingMode === "agentDeckManaged" && "opacity-55")}
+          data-testid="extension-list"
+        >
           {extensions.map((ext) => {
             const conflicting = !ext.disabled && conflicts.has(ext.name);
             return (

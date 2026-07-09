@@ -98,16 +98,23 @@ export interface AppSettings {
    * (provider-qualified "provider:id" so it launches under the right provider) /
    * `defaultThinking` seed every NEW parent ("All Projects" / Pi Agent) session's
    * launch when the request doesn't override them; `autoTitle` gates the
-   * title-helper launch. `worktreeIsolation` / `gitAutomation` are persisted
-   * preferences reserved for the features that will read them — the port has no
-   * session-worktree-isolation or git-automation runtime yet, so they are stored
-   * (surfaced in the UI) but not acted on.
+   * title-helper launch; `worktreeIsolation` runs each session in its own git
+   * worktree; `gitAutomation` gates the Git screen's Commit/Push/Merge actions.
    */
   autoTitle: boolean;
   worktreeIsolation: boolean;
   gitAutomation: boolean;
   defaultModel: string | null;
   defaultThinking: ThinkingLevel | null;
+  /**
+   * How pi extensions load (native PiAgentExtensionLoadingMode). "useMyExtensions"
+   * loads the user's discovered/added enabled extensions alongside Agent Deck's
+   * bridges; "agentDeckManaged" loads ONLY the bridges (the user's Pi extensions
+   * stay off, though still listed). Native defaults to agentDeckManaged; the port
+   * keeps its shipped default of loading discovered extensions and offers the
+   * stricter mode as an opt-in.
+   */
+  extensionLoadingMode: "useMyExtensions" | "agentDeckManaged";
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
@@ -126,6 +133,7 @@ export class SettingsStore {
     gitAutomation: true, // native piAgentGitAutomationEnabled default: git actions shown
     defaultModel: null,
     defaultThinking: null,
+    extensionLoadingMode: "useMyExtensions", // port default: load discovered extensions
   };
 
   constructor(dataDir: string = defaultDataDir()) {
@@ -164,6 +172,10 @@ export class SettingsStore {
             (THINKING_LEVELS as readonly string[]).includes(record.defaultThinking)
               ? (record.defaultThinking as ThinkingLevel)
               : null,
+          extensionLoadingMode:
+            record.extensionLoadingMode === "agentDeckManaged"
+              ? "agentDeckManaged"
+              : "useMyExtensions",
         };
       }
     } catch {
