@@ -5,9 +5,12 @@ import { expect, test } from "@playwright/test";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
- * Tier-5 gate (onboarding): a first-run welcome banner shows while the user has
- * no projects, guides them to add one, and auto-hides once a project exists.
- * Kept non-blocking, so it never covers the composer or nav.
+ * Onboarding (native WelcomeOnboardingSheet): a phased first-run flow — the
+ * illustrated tour, then a functional Setup Check (the /runtime/doctor
+ * dependency probe), then a Final step that smart-routes to whatever still
+ * needs attention. Shows while the user has no projects; auto-hides once one
+ * exists. The onboarding suite imports `test` from @playwright/test directly
+ * (no fixtures pre-dismiss), so it sees the modal.
  */
 
 let harness: E2eHarness;
@@ -20,27 +23,41 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-test("the paged illustrated welcome advances and its final CTA opens Projects", async ({
-  page,
-}) => {
+test("walks the tour, runs the setup check, and finishes from the final step", async ({ page }) => {
   await page.goto(harness.baseUrl);
   const overlay = page.getByTestId("onboarding");
   await expect(overlay).toBeVisible();
-  // Page 1: the native illustration + title render.
+
+  // Tour: the native illustration + title, advancing through the pages.
   await expect(page.getByTestId("onboarding-image")).toBeVisible();
   await expect(page.getByTestId("onboarding-title")).toHaveText("Command Pi from Agent Deck");
-
-  // Continue advances the pages; the title changes.
   await page.getByTestId("onboarding-next").click();
   await expect(page.getByTestId("onboarding-title")).toHaveText("Work in a Coding Chat");
-
-  // Page through to the last page — only there does the primary CTA become
-  // 'Add a project', which opens Projects and completes onboarding.
   for (let i = 0; i < 4; i += 1) await page.getByTestId("onboarding-next").click();
   await expect(page.getByTestId("onboarding-title")).toHaveText("Connect the Wider Workflow");
+
+  // The last tour page's CTA is "Check Setup" (not a project add), which opens
+  // the functional Setup Check step.
   await expect(page.getByTestId("onboarding-next")).toHaveCount(0);
-  await page.getByTestId("onboarding-add-project").click();
-  await expect(page.getByTestId("projects-screen")).toBeVisible();
+  await page.getByTestId("onboarding-check-setup").click();
+
+  // Setup Check: the doctor probe renders real checks, including the pi runtime.
+  await expect(page.getByTestId("onboarding-setup")).toBeVisible();
+  const piCheck = page.locator('[data-check-id="pi-binary"]');
+  await expect(piCheck).toBeVisible();
+  // pi is installed in the e2e environment, so it reads Ready.
+  await expect(piCheck).toHaveAttribute("data-check-status", "ok");
+
+  // Continue to the Final step, which surfaces a smart-routed primary action.
+  await page.getByTestId("onboarding-setup-continue").click();
+  await expect(page.getByTestId("onboarding-final")).toBeVisible();
+  const finish = page.getByTestId("onboarding-finish");
+  await expect(finish).toBeVisible();
+  // The routing target is one of the known views (varies with the environment's
+  // provider/project state); finishing dismisses the overlay.
+  const target = await finish.getAttribute("data-target");
+  expect(["chat", "doctor", "providers", "projects"]).toContain(target);
+  await finish.click();
   await expect(overlay).toBeHidden();
 });
 
