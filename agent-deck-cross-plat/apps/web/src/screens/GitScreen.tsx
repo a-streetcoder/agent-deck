@@ -20,6 +20,7 @@ interface GitStatus {
 
 export function GitScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const session = useAppStore((state) => state.session);
   const pushToast = useAppStore((state) => state.pushToast);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const setError = useAppStore((state) => state.setError);
@@ -28,6 +29,7 @@ export function GitScreen() {
   const [committing, setCommitting] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [merging, setMerging] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     if (!currentProjectId) return;
@@ -100,6 +102,27 @@ export function GitScreen() {
     }
   };
 
+  // Merge the current session's isolated worktree back into its source branch
+  // (native Merge). Only shown when the session runs in a worktree.
+  const merge = async (): Promise<void> => {
+    if (!session?.id) return;
+    setMerging(true);
+    setError(null);
+    try {
+      const response = await fetch(`/sessions/${encodeURIComponent(session.id)}/merge`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const { sourceBranch } = (await response.json()) as { sourceBranch: string };
+      pushToast({ kind: "success", message: `Merged into ${sourceBranch}` });
+      void load();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setMerging(false);
+    }
+  };
+
   if (!currentProjectId) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="git-screen">
@@ -133,6 +156,33 @@ export function GitScreen() {
             </span>
           ) : null}
         </div>
+
+        {session?.worktreeBranch && session.worktreeSourceBranch ? (
+          <div
+            data-testid="git-worktree-banner"
+            className="mb-3 mt-1 flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface px-3 py-2.5"
+          >
+            <div className="min-w-0 text-xs text-text-secondary">
+              This session is isolated on{" "}
+              <span className="font-mono text-text-primary">{session.worktreeBranch}</span>. Merge
+              brings its commits back into{" "}
+              <span className="font-mono text-text-primary">{session.worktreeSourceBranch}</span>.
+            </div>
+            <button
+              data-testid="git-merge"
+              className="shrink-0 rounded-capsule px-3 py-1.5 text-xs font-medium shadow-capsule disabled:opacity-40"
+              style={{
+                background:
+                  "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                color: "var(--color-accent-foreground)",
+              }}
+              disabled={merging}
+              onClick={() => void merge()}
+            >
+              {merging ? "Merging…" : `Merge to ${session.worktreeSourceBranch}`}
+            </button>
+          </div>
+        ) : null}
 
         {status && !status.repo ? (
           <div className="py-10 text-center text-sm text-text-muted" data-testid="git-not-repo">

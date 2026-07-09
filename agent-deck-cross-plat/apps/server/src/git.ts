@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { rmSync } from "node:fs";
 import { promisify } from "node:util";
 
 /**
@@ -179,10 +180,41 @@ export async function gitWorktreeRemove(projectDir: string, targetPath: string):
   } catch {
     // Best-effort.
   }
+  // Native removeWorktree also removes the directory if git left it behind — on
+  // Windows `git worktree remove` can succeed at the metadata level but leave the
+  // dir when a handle was briefly held. maxRetries rides out a transient EBUSY.
+  try {
+    rmSync(targetPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // Best-effort: a leftover dir is harmless (git no longer tracks it).
+  }
+}
+
+/** Commits on `branch` not yet reachable from `base` (native commitsAhead). */
+export async function gitCommitsAhead(cwd: string, branch: string, base: string): Promise<number> {
+  const out = (await runGit(cwd, ["rev-list", "--count", `${base}..${branch}`])).trim();
+  const n = Number.parseInt(out, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Merge a session's worktree `branch` back into `sourceBranch` (native Merge
+ * toolbar action): check out sourceBranch in the project root, then a `--no-ff`
+ * merge with an explicit message (no editor). Throws the git stderr on a dirty
+ * tree / checkout failure / merge conflict so the caller can surface it. The
+ * worktree + branch are left in place (native default keepWorktreeAfterMerge).
+ */
+export async function gitMerge(
+  projectDir: string,
+  branch: string,
+  sourceBranch: string,
+): Promise<void> {
+  await runGit(projectDir, ["checkout", sourceBranch]);
+  await runGit(projectDir, ["merge", "--no-ff", branch, "-m", `Merge ${branch}`]);
 }
 
 /** The git stderr from a failed execFile, else the error message — for surfacing. */
-function gitErrorText(error: unknown): string {
+export function gitErrorText(error: unknown): string {
   const stderr = (error as { stderr?: string }).stderr;
   if (typeof stderr === "string" && stderr.trim()) return stderr.trim();
   return error instanceof Error ? error.message : String(error);

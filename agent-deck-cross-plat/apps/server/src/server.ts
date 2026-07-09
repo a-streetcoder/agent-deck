@@ -77,7 +77,10 @@ import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
 import {
   gitCloneShallow,
   gitCommitAll,
+  gitCommitsAhead,
   gitCurrentBranch,
+  gitErrorText,
+  gitMerge,
   gitPush,
   gitStatus,
   gitStatusAndDiff,
@@ -2815,6 +2818,52 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     broadcast({ type: "session_removed", sessionId: id });
     return { ok: true };
+  });
+
+  // Merge an isolated session's worktree back into its source branch (native
+  // Merge toolbar action): auto-commit the worktree's changes, then a --no-ff
+  // merge into the source branch. The worktree + branch are kept (native default
+  // keepWorktreeAfterMerge) so the user can keep iterating and merge again.
+  fastify.post("/sessions/:id/merge", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const meta = sessions.get(id)?.meta ?? index.find((s) => s.id === id);
+    if (!meta) return reply.status(404).send({ error: "unknown session" });
+    const { worktreePath, worktreeBranch, worktreeSourceBranch, projectId } = meta;
+    if (!worktreePath || !worktreeBranch || !worktreeSourceBranch) {
+      return reply
+        .status(400)
+        .send({ error: "This session isn't running in an isolated worktree." });
+    }
+    const project = projectId ? projects.find((p) => p.id === projectId) : undefined;
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+
+    // 1. Commit any uncommitted worktree work (native auto-commits first);
+    //    nothing-to-commit is fine — earlier turns may already have committed.
+    try {
+      await gitCommitAll(worktreePath, `Agent Deck: ${meta.title ?? "session"} changes`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== "nothing_to_commit") {
+        return reply
+          .status(400)
+          .send({ error: `Couldn't commit the worktree changes: ${gitErrorText(error)}` });
+      }
+    }
+    // 2. Nothing ahead of the source branch → nothing to merge.
+    const ahead = await gitCommitsAhead(project.path, worktreeBranch, worktreeSourceBranch).catch(
+      () => 0,
+    );
+    if (ahead === 0) {
+      return reply.status(400).send({ error: "Nothing to merge — the session made no commits." });
+    }
+    // 3. Merge into the source branch. A dirty parent tree / conflict surfaces
+    //    the git stderr; the committed work stays safe on the session branch.
+    try {
+      await gitMerge(project.path, worktreeBranch, worktreeSourceBranch);
+    } catch (error) {
+      return reply.status(409).send({ error: `Merge failed: ${gitErrorText(error)}` });
+    }
+    return { ok: true, branch: worktreeBranch, sourceBranch: worktreeSourceBranch, commits: ahead };
   });
 
   // Fork/duplicate: copy the source's pi session file and launch an

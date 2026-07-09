@@ -135,4 +135,47 @@ describe("session worktree isolation", () => {
     expect(session.cwd).toBe(repoDir);
     expect(session.worktreeBranch).toBeUndefined();
   });
+
+  async function merge(id: string): Promise<Response> {
+    return fetch(`http://127.0.0.1:${server.port}/sessions/${id}/merge`, { method: "POST" });
+  }
+
+  it("merges the session worktree's work back into the source branch", async () => {
+    const projectId = await addProject();
+    expect((await patchSettings({ worktreeIsolation: true })).status).toBe(200);
+    const session = await createSession(projectId);
+
+    // A change made in the isolated worktree (uncommitted — the merge auto-commits it).
+    writeFileSync(path.join(session.cwd, "feature.txt"), "isolated work\n");
+
+    const res = await merge(session.id);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; sourceBranch: string; commits: number };
+    expect(body.ok).toBe(true);
+    expect(body.sourceBranch).toBe("main");
+    expect(body.commits).toBeGreaterThanOrEqual(1);
+
+    // The project root is now on main with the merged file present.
+    const onBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoDir })
+      .toString()
+      .trim();
+    expect(onBranch).toBe("main");
+    expect(existsSync(path.join(repoDir, "feature.txt"))).toBe(true);
+  });
+
+  it("400s when the isolated session made no commits", async () => {
+    const projectId = await addProject();
+    expect((await patchSettings({ worktreeIsolation: true })).status).toBe(200);
+    const session = await createSession(projectId); // no changes in the worktree
+    const res = await merge(session.id);
+    expect(res.status).toBe(400);
+  });
+
+  it("400s for a session that isn't running in a worktree", async () => {
+    const projectId = await addProject();
+    expect((await patchSettings({ worktreeIsolation: false })).status).toBe(200);
+    const session = await createSession(projectId); // runs in the project root
+    const res = await merge(session.id);
+    expect(res.status).toBe(400);
+  });
 });
