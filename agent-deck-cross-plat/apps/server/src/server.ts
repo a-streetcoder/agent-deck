@@ -83,6 +83,7 @@ import {
   gitStatusAndDiff,
   gitWorktreeAdd,
   gitWorktreeRemove,
+  isGitRepo,
   type GitWorktree,
 } from "./git.ts";
 import { LoopEngine } from "./loopEngine.ts";
@@ -379,6 +380,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // the app data dir. AGENT_DECK_MEMORY=0 disables it entirely.
   const memoryEnabled = process.env.AGENT_DECK_MEMORY !== "0";
   const memoryBaseDir = nodePath.join(options.dataDir ?? defaultDataDir(), "memory");
+  // Persistent home for session worktrees (native "Session Worktrees" dir) — under
+  // the data dir, NOT tmp, so a live session's isolated checkout survives + is
+  // never swept by an OS temp cleanup.
+  const worktreesRoot = nodePath.join(options.dataDir ?? defaultDataDir(), "session-worktrees");
 
   // Recall engine. Lexical+fuzzy is the always-on default; SEMANTIC recall is
   // opt-in — an injected embedder (tests) or AGENT_DECK_SEMANTIC_MEMORY=1 (which
@@ -2800,6 +2805,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         // pi may still hold the file briefly; best-effort.
       }
     }
+    // Remove the session's isolated worktree (native: session-delete removes the
+    // worktree). The BRANCH is deliberately kept so committed-but-unmerged work is
+    // never lost (gitWorktreeRemove doesn't delete it). destroy() above awaited the
+    // pi exit, so the checkout is no longer in use (matters on Windows).
+    if (meta.worktreePath && meta.projectId) {
+      const project = projects.find((p) => p.id === meta.projectId);
+      if (project) await gitWorktreeRemove(project.path, meta.worktreePath).catch(() => {});
+    }
     broadcast({ type: "session_removed", sessionId: id });
     return { ok: true };
   });
@@ -2851,10 +2864,36 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const body = parsed.data;
     const defaults = envDefaults();
     let cwd = body.cwd ?? process.cwd();
+    let project: ProjectMeta | undefined;
     if (body.projectId) {
-      const project = projects.find((p) => p.id === body.projectId);
+      project = projects.find((p) => p.id === body.projectId);
       if (!project) return reply.status(404).send({ error: "unknown project" });
       cwd = project.path;
+    }
+
+    // Worktree isolation (native piAgentSessionsUseWorktree): when on and the
+    // project is a git repo, run this session in its own worktree on a fresh
+    // `agent-deck/session-<id>` branch so its work never touches the main
+    // checkout — the Merge action brings it back. Best-effort: any failure (not
+    // a repo, detached HEAD, git error) falls back to the project root.
+    let worktree: GitWorktree | null = null;
+    if (settings.get().worktreeIsolation && project && (await isGitRepo(project.path))) {
+      const sourceBranch = await gitCurrentBranch(project.path).catch(() => "HEAD");
+      if (sourceBranch !== "HEAD") {
+        const suffix = randomUUID().slice(0, 8);
+        const target = nodePath.join(worktreesRoot, suffix);
+        const branch = `agent-deck/session-${suffix}`;
+        try {
+          mkdirSync(worktreesRoot, { recursive: true }); // git worktree add won't create missing parents
+          await gitWorktreeAdd(project.path, target, branch, sourceBranch);
+          worktree = { path: target, branch, sourceBranch };
+          cwd = target;
+        } catch {
+          // Best-effort cleanup of any partial worktree; NEVER let it fail the
+          // request — fall back to the project root (worktree stays null).
+          await gitWorktreeRemove(project.path, target).catch(() => {});
+        }
+      }
     }
 
     // Resolve provider + model. Precedence: explicit request → the user's default
@@ -2893,7 +2932,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // preservation are still missing here (M2).
     let assignedSkillPaths: string[] | undefined;
     {
-      const project = body.projectId ? projects.find((p) => p.id === body.projectId) : undefined;
       const disabledSkills = new Set(settings.get().disabledSkills);
       const names = [...settings.get().defaultSkills, ...(project?.assignedSkills ?? [])].filter(
         (name) => !disabledSkills.has(name), // disabled skills are never injected
@@ -2925,7 +2963,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // yields the global file.
     let defaultPromptTemplatePaths: string[] | undefined;
     {
-      const project = body.projectId ? projects.find((p) => p.id === body.projectId) : undefined;
       const names = [...settings.get().defaultPromptTemplates, ...(project?.assignedPrompts ?? [])];
       if (names.length > 0) {
         const promptsByName = new Map<string, PromptInfo>();
@@ -2986,6 +3023,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       agentName: body.agentName,
       env: { ...defaults.env, ...body.env },
       plan,
+      // Passed INTO create so the worktree fields land on the initial meta (and
+      // its first persist) atomically with cwd — no window where cwd points at a
+      // worktree that meta doesn't record.
+      ...(worktree ? { worktree } : {}),
     });
     index.upsert(session.meta);
     return reply.status(201).send({ session: session.meta });

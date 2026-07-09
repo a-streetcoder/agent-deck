@@ -79,6 +79,9 @@ export interface CreateSessionOptions {
   agentName?: string;
   /** Extra env for the pi subprocess (merged over process.env). */
   env?: Record<string, string | undefined>;
+  /** Set when this session runs in an isolated git worktree (cwd IS the worktree)
+   *  so the fields persist WITH the initial meta — no orphan window. */
+  worktree?: { path: string; branch: string; sourceBranch: string };
 }
 
 const TITLE_SYSTEM_PROMPT =
@@ -789,6 +792,13 @@ export class SessionManager {
       projectId: options.projectId,
       agentName: options.agentName,
       launchPlan: options.plan,
+      ...(options.worktree
+        ? {
+            worktreePath: options.worktree.path,
+            worktreeBranch: options.worktree.branch,
+            worktreeSourceBranch: options.worktree.sourceBranch,
+          }
+        : {}),
     };
     return this.launch(meta, options.plan, options.env);
   }

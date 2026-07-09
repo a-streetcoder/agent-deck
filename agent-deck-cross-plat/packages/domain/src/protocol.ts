@@ -140,6 +140,16 @@ export interface SessionMeta {
    * of pi's session file. Absent until a plan is set.
    */
   plan?: SessionPlanItem[];
+  /**
+   * Git worktree isolation (native piAgentSessionsUseWorktree). When the setting
+   * is on and the project is a git repo, the session runs in its own worktree on
+   * branch `agent-deck/session-<id>` (cwd = worktreePath) so its work never
+   * touches the main checkout; the Merge action brings it back. Absent when the
+   * session runs in the project root.
+   */
+  worktreePath?: string;
+  worktreeBranch?: string;
+  worktreeSourceBranch?: string;
 }
 
 export type ServerMessage =

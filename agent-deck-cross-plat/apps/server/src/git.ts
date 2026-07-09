@@ -131,6 +131,15 @@ export async function gitCurrentBranch(cwd: string): Promise<string> {
   return (await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
 }
 
+/** True iff `dir` is inside a git working tree (git rev-parse --is-inside-work-tree). */
+export async function isGitRepo(dir: string): Promise<boolean> {
+  try {
+    return (await runGit(dir, ["rev-parse", "--is-inside-work-tree"])).trim() === "true";
+  } catch {
+    return false; // not a repo, or git unavailable
+  }
+}
+
 export interface GitWorktree {
   /** The isolated checkout directory. */
   path: string;
