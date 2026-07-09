@@ -2857,11 +2857,25 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       cwd = project.path;
     }
 
-    const provider = body.provider ?? defaults.provider;
-    // Precedence: explicit request → user's default model (native onboarding
-    // preference) → env default. Applies to plain "Pi Agent"/All-Projects
-    // sessions; an agent-backed launch below still prefers the agent's own model.
-    const model = body.model ?? settings.get().defaultModel ?? defaults.model;
+    // Resolve provider + model. Precedence: explicit request → the user's default
+    // model (native onboarding preference) → env default. The default model is
+    // stored provider-qualified ("provider:id") so it launches under the RIGHT
+    // provider — a bare id can't disambiguate two providers exposing the same id.
+    let provider = body.provider ?? defaults.provider;
+    let model = body.model;
+    if (model === undefined) {
+      const defaultModel = settings.get().defaultModel; // "provider:id" | "id" | null
+      if (defaultModel) {
+        const sep = defaultModel.indexOf(":");
+        if (sep > 0) {
+          if (body.provider === undefined) provider = defaultModel.slice(0, sep);
+          model = defaultModel.slice(sep + 1);
+        } else {
+          model = defaultModel; // unqualified — launch under the resolved provider
+        }
+      }
+    }
+    model = model ?? defaults.model;
     // Base extensions (request or env defaults) + the user's enabled ones,
     // deduped and re-validated as real files at launch time.
     const baseExtensions = body.extensions ?? defaults.extensions ?? [];

@@ -34,17 +34,19 @@ async function patchSettings(body: unknown): Promise<Response> {
   });
 }
 
-async function createSession(): Promise<string> {
+async function createSession(opts: { withProvider?: boolean } = {}): Promise<string> {
+  const body: Record<string, unknown> = {
+    cwd,
+    // No model/thinking in the request — they must come from the settings.
+    extensions: [process.env.AGENT_DECK_PROVIDER_EXTENSIONS],
+    env: { HOME: tmpHome, USERPROFILE: tmpHome, PI_SKIP_VERSION_CHECK: "1" },
+  };
+  // Omit the provider to prove it's derived from the provider-qualified default.
+  if (opts.withProvider !== false) body.provider = MOCK_PROVIDER_ID;
   const res = await fetch(`http://127.0.0.1:${server.port}/sessions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      cwd,
-      provider: MOCK_PROVIDER_ID,
-      // No model/thinking in the request — they must come from the settings.
-      extensions: [process.env.AGENT_DECK_PROVIDER_EXTENSIONS],
-      env: { HOME: tmpHome, USERPROFILE: tmpHome, PI_SKIP_VERSION_CHECK: "1" },
-    }),
+    body: JSON.stringify(body),
   });
   expect(res.status).toBe(201);
   const { session } = (await res.json()) as { session: { id: string } };
@@ -78,18 +80,26 @@ describe("onboarding preferences at session launch", () => {
     expect(settings.settings.autoTitle).toBe(false);
   });
 
-  it("seeds a parent session's model + thinking from the settings", async () => {
+  it("seeds a parent session's provider + model + thinking from the settings", async () => {
+    // The default model is provider-qualified, so the launch derives BOTH the
+    // provider and the model from it even when the request omits the provider.
     expect(
-      (await patchSettings({ defaultModel: MOCK_MODEL_ID, defaultThinking: "low" })).status,
+      (
+        await patchSettings({
+          defaultModel: `${MOCK_PROVIDER_ID}:${MOCK_MODEL_ID}`,
+          defaultThinking: "low",
+        })
+      ).status,
     ).toBe(200);
 
-    const id = await createSession();
+    const id = await createSession({ withProvider: false });
     // launchPlan is persisted structurally (SessionMeta keeps it opaque); read
     // the parent-plan fields we set.
     const plan = server.sessions.get(id)!.meta.launchPlan as
-      | { kind?: string; model?: string; thinking?: string }
+      | { kind?: string; provider?: string; model?: string; thinking?: string }
       | undefined;
     expect(plan?.kind).toBe("parent");
+    expect(plan?.provider).toBe(MOCK_PROVIDER_ID);
     expect(plan?.model).toBe(MOCK_MODEL_ID);
     expect(plan?.thinking).toBe("low");
 

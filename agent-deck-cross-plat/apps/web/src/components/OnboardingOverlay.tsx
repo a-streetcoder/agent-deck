@@ -9,11 +9,13 @@ import {
   RefreshCw,
   Rocket,
   ShieldCheck,
+  SlidersHorizontal,
   Stethoscope,
   TriangleAlert,
   XCircle,
   X,
 } from "lucide-react";
+import { THINKING_LEVELS } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore, type AppView } from "../state/store.ts";
 
@@ -99,7 +101,7 @@ function onboardingForced(): boolean {
   }
 }
 
-type Phase = "tour" | "setup" | "final";
+type Phase = "tour" | "setup" | "preferences" | "final";
 
 interface HealthCheck {
   id: string;
@@ -107,6 +109,21 @@ interface HealthCheck {
   status: "ok" | "warn" | "error";
   detail: string;
   fixCommand?: string;
+}
+
+/** The onboarding-preferences slice of AppSettings (native OnboardingPreferences). */
+interface Prefs {
+  autoTitle: boolean;
+  worktreeIsolation: boolean;
+  gitAutomation: boolean;
+  defaultModel: string | null;
+  defaultThinking: string | null;
+}
+
+interface CatalogModel {
+  provider: string;
+  id: string;
+  name?: string;
 }
 
 // Native SetupCheckStatus mapping: ok → Ready, warn → Optional, error → Missing.
@@ -167,6 +184,7 @@ export function OnboardingOverlay() {
   const projects = useAppStore((state) => state.projects);
   const projectsLoaded = useAppStore((state) => state.projectsLoaded);
   const setView = useAppStore((state) => state.setView);
+  const session = useAppStore((state) => state.session);
   const forced = onboardingForced();
   // When forced, ignore a prior dismissal so a returning user can still replay it.
   const [dismissed, setDismissed] = useState(() => (forced ? false : wasDismissed()));
@@ -174,9 +192,14 @@ export function OnboardingOverlay() {
   const [page, setPage] = useState(0);
   const [checks, setChecks] = useState<HealthCheck[]>([]);
   const [checksLoading, setChecksLoading] = useState(false);
+  const [prefs, setPrefs] = useState<Prefs | null>(null);
+  const [models, setModels] = useState<CatalogModel[]>([]);
   // Monotonic request id: a slow earlier /runtime/doctor response must not
   // overwrite a newer one (rapid Re-check, or the setup→final refetch).
   const checksReq = useRef(0);
+  // Serializes preference PATCHes so two writes to the same key can't land out
+  // of order (last click must win on the server, not last-to-arrive).
+  const patchChain = useRef<Promise<unknown>>(Promise.resolve());
 
   // A close during this session always wins (even when forced via ?onboarding,
   // where the URL param would otherwise keep re-showing it).
@@ -214,9 +237,54 @@ export function OnboardingOverlay() {
         if (req === checksReq.current) setChecksLoading(false);
       });
   };
+  // Load the current preferences + the active session's model catalog (there's no
+  // session-independent model list; the bootstrap session provides one when a
+  // provider is configured, otherwise the picker is empty until one is).
+  const loadPreferences = (): void => {
+    // Load the saved settings ONCE — refetching after the user has toggled would
+    // overwrite the optimistic local edits with (possibly stale) server state.
+    if (prefs === null) {
+      void fetch("/settings")
+        .then((response) => response.json())
+        .then((data: { settings: Prefs }) => {
+          const s = data.settings;
+          setPrefs({
+            autoTitle: s.autoTitle,
+            worktreeIsolation: s.worktreeIsolation,
+            gitAutomation: s.gitAutomation,
+            defaultModel: s.defaultModel,
+            defaultThinking: s.defaultThinking,
+          });
+        })
+        .catch(() => {});
+    }
+    const sid = session?.id;
+    if (sid && models.length === 0) {
+      void fetch(`/sessions/${encodeURIComponent(sid)}/models`)
+        .then((response) => (response.ok ? response.json() : { models: [] }))
+        .then((data: { models: CatalogModel[] }) => setModels(data.models))
+        .catch(() => setModels([]));
+    }
+  };
+  // Optimistic locally; the PATCH is serialized through a chain so two writes to
+  // the same key land in click order. The server merges only the provided fields.
+  const patchPref = (patch: Partial<Prefs>): void => {
+    setPrefs((p) => (p ? { ...p, ...patch } : p));
+    patchChain.current = patchChain.current
+      .catch(() => {})
+      .then(() =>
+        fetch("/settings", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+        }).catch(() => {}),
+      );
+  };
+
   const goto = (next: Phase): void => {
     setPhase(next);
     if (next === "setup" || next === "final") runChecks();
+    if (next === "preferences") loadPreferences();
   };
 
   // Final-step routing gates (native OnboardingFinalView.primaryTarget). pi/node
@@ -399,6 +467,120 @@ export function OnboardingOverlay() {
                 data-testid="onboarding-setup-continue"
                 className={primaryButtonClass}
                 style={primaryButtonStyle}
+                onClick={() => goto("preferences")}
+              >
+                Continue <ArrowRight size={13} aria-hidden />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {phase === "preferences" ? (
+          <div className="flex min-h-0 flex-col" data-testid="onboarding-preferences">
+            <div className="flex items-center gap-2 px-5 pb-1 pt-4">
+              <SlidersHorizontal size={16} className="text-text-secondary" />
+              <h2
+                className="text-base font-semibold text-text-primary"
+                style={{ fontStretch: "expanded" }}
+              >
+                Preferences
+              </h2>
+            </div>
+            <p className="px-5 pb-2 text-xs text-text-muted">
+              Defaults for new sessions — you can change these anytime later.
+            </p>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-3">
+              {prefs ? (
+                <>
+                  <PrefToggle
+                    testid="pref-auto-title"
+                    label="Auto-name sessions"
+                    description="Generate a session title from your first message."
+                    checked={prefs.autoTitle}
+                    onChange={(v) => patchPref({ autoTitle: v })}
+                  />
+                  <PrefToggle
+                    testid="pref-worktree"
+                    label="Isolate sessions in a worktree"
+                    description="Run each session in its own git worktree."
+                    checked={prefs.worktreeIsolation}
+                    onChange={(v) => patchPref({ worktreeIsolation: v })}
+                  />
+                  <PrefToggle
+                    testid="pref-git-automation"
+                    label="Automate git commits"
+                    description="Let sessions stage and commit changes as they work."
+                    checked={prefs.gitAutomation}
+                    onChange={(v) => patchPref({ gitAutomation: v })}
+                  />
+                  <div className="flex flex-col gap-1 pt-1">
+                    <label className="text-sm font-medium text-text-primary" htmlFor="pref-model">
+                      Default model
+                    </label>
+                    <select
+                      id="pref-model"
+                      data-testid="pref-model"
+                      className="rounded-md border border-border-strong bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                      value={prefs.defaultModel ?? ""}
+                      onChange={(event) => patchPref({ defaultModel: event.target.value || null })}
+                    >
+                      <option value="">Pi&apos;s default</option>
+                      {models.map((model) => (
+                        <option
+                          key={`${model.provider}/${model.id}`}
+                          value={`${model.provider}:${model.id}`}
+                        >
+                          {model.name ?? model.id}
+                        </option>
+                      ))}
+                    </select>
+                    {models.length === 0 ? (
+                      <span className="text-[11px] text-text-muted">
+                        Connect a model provider to choose a default model.
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label
+                      className="text-sm font-medium text-text-primary"
+                      htmlFor="pref-thinking"
+                    >
+                      Default thinking
+                    </label>
+                    <select
+                      id="pref-thinking"
+                      data-testid="pref-thinking"
+                      className="rounded-md border border-border-strong bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                      value={prefs.defaultThinking ?? ""}
+                      onChange={(event) =>
+                        patchPref({ defaultThinking: event.target.value || null })
+                      }
+                    >
+                      <option value="">Pi&apos;s default</option>
+                      {THINKING_LEVELS.map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="py-6 text-center text-sm text-text-muted">Loading preferences…</div>
+              )}
+            </div>
+            <div className="flex items-center justify-between border-t border-border-subtle px-5 py-3">
+              <button
+                data-testid="onboarding-preferences-back"
+                className="flex items-center gap-1 rounded-capsule px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                onClick={() => setPhase("setup")}
+              >
+                <ArrowLeft size={13} /> Back
+              </button>
+              <button
+                data-testid="onboarding-preferences-continue"
+                className={primaryButtonClass}
+                style={primaryButtonStyle}
                 onClick={() => goto("final")}
               >
                 Continue <ArrowRight size={13} aria-hidden />
@@ -450,6 +632,48 @@ export function OnboardingOverlay() {
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function PrefToggle({
+  testid,
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  testid: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-text-primary">{label}</div>
+        <div className="text-xs text-text-muted">{description}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        data-testid={testid}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative mt-0.5 h-5 w-9 shrink-0 rounded-capsule transition-colors",
+          checked ? "bg-[var(--color-brand-accent)]" : "bg-border-strong",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all",
+            checked ? "left-[18px]" : "left-0.5",
+          )}
+        />
+      </button>
     </div>
   );
 }

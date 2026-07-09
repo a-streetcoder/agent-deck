@@ -48,8 +48,25 @@ test("walks the tour, runs the setup check, and finishes from the final step", a
   // pi is installed in the e2e environment, so it reads Ready.
   await expect(piCheck).toHaveAttribute("data-check-status", "ok");
 
-  // Continue to the Final step, which surfaces a smart-routed primary action.
+  // Preferences: native OnboardingPreferences toggles/pickers that persist to
+  // /settings. autoTitle defaults on; toggling it off writes through.
   await page.getByTestId("onboarding-setup-continue").click();
+  await expect(page.getByTestId("onboarding-preferences")).toBeVisible();
+  const autoTitle = page.getByTestId("pref-auto-title");
+  await expect(autoTitle).toHaveAttribute("aria-checked", "true");
+  await autoTitle.click();
+  await expect(autoTitle).toHaveAttribute("aria-checked", "false");
+  await expect
+    .poll(async () => {
+      const settings = (await (await fetch(`${harness.baseUrl}/settings`)).json()) as {
+        settings: { autoTitle: boolean };
+      };
+      return settings.settings.autoTitle;
+    })
+    .toBe(false);
+
+  // Continue to the Final step, which surfaces a smart-routed primary action.
+  await page.getByTestId("onboarding-preferences-continue").click();
   await expect(page.getByTestId("onboarding-final")).toBeVisible();
   const finish = page.getByTestId("onboarding-finish");
   await expect(finish).toBeVisible();

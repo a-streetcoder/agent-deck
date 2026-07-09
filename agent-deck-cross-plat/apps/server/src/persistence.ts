@@ -94,7 +94,8 @@ export interface AppSettings {
   /** Models the user hid from the picker, by "<provider>:<id>" key. */
   disabledModels: string[];
   /**
-   * Onboarding-preferences (native OnboardingPreferencesView). `defaultModel` /
+   * Onboarding-preferences (native OnboardingPreferencesView). `defaultModel`
+   * (provider-qualified "provider:id" so it launches under the right provider) /
    * `defaultThinking` seed every NEW parent ("All Projects" / Pi Agent) session's
    * launch when the request doesn't override them; `autoTitle` gates the
    * title-helper launch. `worktreeIsolation` / `gitAutomation` are persisted
