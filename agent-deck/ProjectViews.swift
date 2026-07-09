@@ -187,7 +187,6 @@ struct ProjectIconView: View {
             }
         }
         .frame(width: size, height: size)
-        .fixedSize()
         .background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(AppTheme.contentSubtleFill)

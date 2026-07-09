@@ -3912,6 +3912,7 @@ private struct SessionListContent: View, Equatable {
         ) { session in
             row(session)
         }
+        .animation(.snappy(duration: 0.24), value: sections.flatMap(\.items).map(\.id))
         .bottomEdgeFade(height: 34)
     }
 
@@ -4008,7 +4009,6 @@ private struct PiAgentSessionGroupHeader: View {
                                 .font(AppTheme.Font.footnote.weight(.semibold))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
-                                .layoutPriority(1)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(AppTheme.mutedText)
@@ -4024,7 +4024,6 @@ private struct PiAgentSessionGroupHeader: View {
                         }
                     }
                     .frame(minHeight: 30, alignment: .center)
-                    .layoutPriority(1)
                 }
                 .contentShape(Rectangle())
             }
