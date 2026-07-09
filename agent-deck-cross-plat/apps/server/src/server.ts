@@ -12,6 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -2737,6 +2738,39 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       a.createdAt.localeCompare(b.createdAt),
     );
     return { sessions: projectId ? all.filter((s) => s.projectId === projectId) : all };
+  });
+
+  // Content search across sessions (native Sessions search 18.1 "by title or
+  // content"): scans each session's pi session file — the canonical transcript,
+  // uniform for live and ended sessions — for the query. Title matching stays on
+  // the client; this adds the content half, returning the matching session ids.
+  fastify.get("/sessions/search", async (request) => {
+    const q = String((request.query as { q?: string }).q ?? "")
+      .trim()
+      .toLowerCase();
+    if (!q) return { ids: [] as string[] };
+    const withFiles = index.list().filter((meta) => meta.piSessionFile);
+    const ids: string[] = [];
+    // Scan in bounded batches so a large session history can't exhaust file
+    // descriptors (EMFILE). The message text is embedded as JSON string values,
+    // so a lowercase substring match over the whole file finds it (it may
+    // occasionally match structural JSON — an acceptable false-positive for a
+    // free-text search).
+    const BATCH = 24;
+    for (let i = 0; i < withFiles.length; i += BATCH) {
+      const hits = await Promise.all(
+        withFiles.slice(i, i + BATCH).map(async (meta) => {
+          try {
+            const content = await readFile(meta.piSessionFile!, "utf8");
+            return content.toLowerCase().includes(q) ? meta.id : null;
+          } catch {
+            return null; // unreadable / since-deleted file — skip
+          }
+        }),
+      );
+      for (const id of hits) if (id) ids.push(id);
+    }
+    return { ids };
   });
 
   // Reopen a session: live ones are returned as-is; ended ones are relaunched

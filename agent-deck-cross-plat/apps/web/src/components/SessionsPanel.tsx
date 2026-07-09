@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import type { SessionMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
@@ -282,12 +282,36 @@ export function SessionsExpandedOverlay({
   const { byNewest, currentSession, agentStatus, setView, projectName } = useSessionsData();
   const [search, setSearch] = useState("");
 
-  // Filter by title (native Sessions column search 18.1) — case-insensitive
-  // substring over the displayed title, which falls back to the project name.
+  // Search sessions by title OR content (native Sessions search 18.1 "by title
+  // or content"). Title is matched client-side over the displayed title (falls
+  // back to the project name); content is matched server-side (GET
+  // /sessions/search scans each session's pi file), debounced, and unioned in.
   const query = search.trim().toLowerCase();
+  const [contentIds, setContentIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!query) {
+      setContentIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void fetch(`/sessions/search?q=${encodeURIComponent(query)}`)
+        .then((response) => response.json())
+        .then((data: { ids: string[] }) => {
+          if (!cancelled) setContentIds(new Set(data.ids));
+        })
+        .catch(() => {});
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
   const filtered = query
-    ? byNewest.filter((s) =>
-        sessionDisplayTitle(s.title, projectName(s.projectId)).toLowerCase().includes(query),
+    ? byNewest.filter(
+        (s) =>
+          sessionDisplayTitle(s.title, projectName(s.projectId)).toLowerCase().includes(query) ||
+          contentIds.has(s.id),
       )
     : byNewest;
 
@@ -330,7 +354,7 @@ export function SessionsExpandedOverlay({
         <input
           data-testid="sessions-search"
           className="mb-1.5 w-full rounded-lg border border-border-subtle bg-surface px-2.5 py-1 text-xs text-text-primary outline-none focus:border-accent"
-          placeholder="Search sessions by title…"
+          placeholder="Search sessions by title or content…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
