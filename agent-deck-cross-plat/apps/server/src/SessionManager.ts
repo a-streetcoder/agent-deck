@@ -138,6 +138,9 @@ export class ManagedSession {
     private readonly childBridgeFactory?: ChildBridgeFactory,
     /** Resolves a named agent for `managed_subagent{agent}` delegation. */
     private readonly resolveAgent?: AgentResolver,
+    /** Whether to auto-title this session (native autoTitle preference). Read
+     *  live so toggling the setting affects sessions started afterwards. */
+    private readonly autoTitle: () => boolean = () => true,
   ) {
     pi.on("event", (piEvent) => {
       if (this.seedGate) {
@@ -272,7 +275,7 @@ export class ManagedSession {
       if (domainEvent.type === "agent_status" && domainEvent.status === "idle") {
         this.receipts.emit("idle", this.meta.id);
         this.captureSessionFile();
-        void this.generateTitle();
+        if (this.autoTitle()) void this.generateTitle();
       }
     }
   }
@@ -771,6 +774,9 @@ export class SessionManager {
     /** Resolves a named agent for `managed_subagent{agent}` delegation, threaded
      * to each ManagedSession. */
     private readonly resolveAgent?: AgentResolver,
+    /** Live-read autoTitle preference, threaded to each ManagedSession so a
+     * toggle affects sessions created afterwards (native autoTitle). */
+    private readonly autoTitle: () => boolean = () => true,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -932,6 +938,7 @@ export class SessionManager {
       tempDirs,
       this.childBridgeFactory,
       this.resolveAgent,
+      this.autoTitle,
     );
     // ManagedSession now owns tempDirs cleanup (on pi exit); no leak past here.
     markOwned();

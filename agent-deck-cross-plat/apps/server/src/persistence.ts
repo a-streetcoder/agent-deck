@@ -1,7 +1,12 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import envPaths from "env-paths";
-import type { ProjectMeta, SessionMeta } from "@agent-deck/domain";
+import {
+  THINKING_LEVELS,
+  type ProjectMeta,
+  type SessionMeta,
+  type ThinkingLevel,
+} from "@agent-deck/domain";
 
 /**
  * App-data persistence. pi owns the canonical session files; we keep light
@@ -88,6 +93,20 @@ export interface AppSettings {
   disabledExtensions: string[];
   /** Models the user hid from the picker, by "<provider>:<id>" key. */
   disabledModels: string[];
+  /**
+   * Onboarding-preferences (native OnboardingPreferencesView). `defaultModel` /
+   * `defaultThinking` seed every NEW parent ("All Projects" / Pi Agent) session's
+   * launch when the request doesn't override them; `autoTitle` gates the
+   * title-helper launch. `worktreeIsolation` / `gitAutomation` are persisted
+   * preferences reserved for the features that will read them — the port has no
+   * session-worktree-isolation or git-automation runtime yet, so they are stored
+   * (surfaced in the UI) but not acted on.
+   */
+  autoTitle: boolean;
+  worktreeIsolation: boolean;
+  gitAutomation: boolean;
+  defaultModel: string | null;
+  defaultThinking: ThinkingLevel | null;
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
@@ -101,6 +120,11 @@ export class SettingsStore {
     extensions: [],
     disabledExtensions: [],
     disabledModels: [],
+    autoTitle: true, // native default: sessions are auto-titled by the helper
+    worktreeIsolation: false,
+    gitAutomation: false,
+    defaultModel: null,
+    defaultThinking: null,
   };
 
   constructor(dataDir: string = defaultDataDir()) {
@@ -128,6 +152,17 @@ export class SettingsStore {
           disabledModels: Array.isArray(record.disabledModels)
             ? record.disabledModels.map(String)
             : [],
+          // Booleans default to the native defaults when absent/mistyped.
+          autoTitle: typeof record.autoTitle === "boolean" ? record.autoTitle : true,
+          worktreeIsolation:
+            typeof record.worktreeIsolation === "boolean" ? record.worktreeIsolation : false,
+          gitAutomation: typeof record.gitAutomation === "boolean" ? record.gitAutomation : false,
+          defaultModel: typeof record.defaultModel === "string" ? record.defaultModel : null,
+          defaultThinking:
+            typeof record.defaultThinking === "string" &&
+            (THINKING_LEVELS as readonly string[]).includes(record.defaultThinking)
+              ? (record.defaultThinking as ThinkingLevel)
+              : null,
         };
       }
     } catch {

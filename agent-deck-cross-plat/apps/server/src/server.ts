@@ -118,7 +118,13 @@ import {
 import { FileMcpOAuthStore } from "@agent-deck/mcp";
 import { McpOAuthCoordinator } from "./mcpOAuth.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
-import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
+import {
+  defaultDataDir,
+  ProjectIndex,
+  SessionIndex,
+  SettingsStore,
+  type AppSettings,
+} from "./persistence.ts";
 import { SupervisorLog, type SupervisorMethod } from "./supervisor.ts";
 import { ReceiptBus } from "./receipts.ts";
 import {
@@ -523,6 +529,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         skillDirs: agent.skillDirs,
       };
     },
+    // Live autoTitle preference (native OnboardingPreferencesView). `settings` is
+    // declared below; this closure only runs at title time, long after startup.
+    () => settings.get().autoTitle,
   );
   // Loop run engine (native single-agent loop). Each run's agent executor is
   // built per-run, bound to a parent session in the project cwd.
@@ -2231,6 +2240,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         setDefaultPromptTemplate: z
           .object({ name: RESOURCE_NAME, enabled: z.boolean() })
           .optional(),
+        // Onboarding preferences (native OnboardingPreferencesView). null clears
+        // defaultModel/defaultThinking back to "inherit the runtime default".
+        autoTitle: z.boolean().optional(),
+        worktreeIsolation: z.boolean().optional(),
+        gitAutomation: z.boolean().optional(),
+        defaultModel: z.string().min(1).nullable().optional(),
+        defaultThinking: z
+          .enum(["off", "minimal", "low", "medium", "high", "xhigh"])
+          .nullable()
+          .optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
@@ -2248,7 +2267,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       broadcast({ type: "resources_changed" }); // dims the row, updates assignment
       return { settings: result };
     }
-    return { settings: settings.update(parsed.data) };
+    // Build a patch of ONLY the provided AppSettings fields — never spread
+    // parsed.data directly (its undefined atomic-op keys would clobber existing
+    // arrays like defaultSkills through the object spread in settings.update).
+    const d = parsed.data;
+    const patch: Partial<AppSettings> = {};
+    if (d.defaultSkills !== undefined) patch.defaultSkills = d.defaultSkills;
+    if (d.autoTitle !== undefined) patch.autoTitle = d.autoTitle;
+    if (d.worktreeIsolation !== undefined) patch.worktreeIsolation = d.worktreeIsolation;
+    if (d.gitAutomation !== undefined) patch.gitAutomation = d.gitAutomation;
+    if (d.defaultModel !== undefined) patch.defaultModel = d.defaultModel;
+    if (d.defaultThinking !== undefined) patch.defaultThinking = d.defaultThinking;
+    return { settings: settings.update(patch) };
   });
 
   fastify.get("/projects", async () => ({
@@ -2828,7 +2858,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
 
     const provider = body.provider ?? defaults.provider;
-    const model = body.model ?? defaults.model;
+    // Precedence: explicit request → user's default model (native onboarding
+    // preference) → env default. Applies to plain "Pi Agent"/All-Projects
+    // sessions; an agent-backed launch below still prefers the agent's own model.
+    const model = body.model ?? settings.get().defaultModel ?? defaults.model;
     // Base extensions (request or env defaults) + the user's enabled ones,
     // deduped and re-validated as real files at launch time.
     const baseExtensions = body.extensions ?? defaults.extensions ?? [];
@@ -2896,6 +2929,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       kind: "parent",
       provider,
       model,
+      // The user's default thinking level (native onboarding preference) seeds a
+      // plain parent session; launchPlan encodes it as the `--model model:level`
+      // suffix when a model is known, else `--thinking`.
+      thinking: settings.get().defaultThinking ?? undefined,
       extensions,
       skills: body.skills ?? assignedSkillPaths,
       promptTemplates: defaultPromptTemplatePaths,
@@ -2921,10 +2958,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         extensions: finalizeExtensions([...(extensions ?? []), ...agent.extensions]),
         skills: agent.skillDirs,
         provider,
-        // Agent model, else the inherited default; frontmatter thinking applies
-        // either way (suffix when a model is known, --thinking otherwise).
+        // Agent model/thinking, else the inherited defaults (frontmatter wins;
+        // an agent that specifies neither falls back to the user's default model
+        // AND default thinking, the same precedence a plain parent gets).
         model: agent.model ?? model,
-        thinking: asThinkingLevel(agent.thinking),
+        thinking: asThinkingLevel(agent.thinking) ?? settings.get().defaultThinking ?? undefined,
       };
     }
 
