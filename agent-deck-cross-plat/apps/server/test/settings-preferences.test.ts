@@ -20,7 +20,7 @@ describe("SettingsStore onboarding preferences", () => {
     const s = new SettingsStore(freshDir()).get();
     expect(s.autoTitle).toBe(true);
     expect(s.worktreeIsolation).toBe(false);
-    expect(s.gitAutomation).toBe(false);
+    expect(s.gitAutomation).toBe(true);
     expect(s.defaultModel).toBeNull();
     expect(s.defaultThinking).toBeNull();
   });
@@ -69,7 +69,7 @@ describe("SettingsStore onboarding preferences", () => {
     const s = new SettingsStore(dir).get();
     expect(s.autoTitle).toBe(true);
     expect(s.worktreeIsolation).toBe(false);
-    expect(s.gitAutomation).toBe(false);
+    expect(s.gitAutomation).toBe(true);
     expect(s.defaultModel).toBeNull();
     expect(s.defaultThinking).toBeNull();
     expect(s.defaultSkills).toEqual(["keep"]);

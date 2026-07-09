@@ -123,7 +123,7 @@ export class SettingsStore {
     disabledModels: [],
     autoTitle: true, // native default: sessions are auto-titled by the helper
     worktreeIsolation: false,
-    gitAutomation: false,
+    gitAutomation: true, // native piAgentGitAutomationEnabled default: git actions shown
     defaultModel: null,
     defaultThinking: null,
   };
@@ -157,7 +157,7 @@ export class SettingsStore {
           autoTitle: typeof record.autoTitle === "boolean" ? record.autoTitle : true,
           worktreeIsolation:
             typeof record.worktreeIsolation === "boolean" ? record.worktreeIsolation : false,
-          gitAutomation: typeof record.gitAutomation === "boolean" ? record.gitAutomation : false,
+          gitAutomation: typeof record.gitAutomation === "boolean" ? record.gitAutomation : true,
           defaultModel: typeof record.defaultModel === "string" ? record.defaultModel : null,
           defaultThinking:
             typeof record.defaultThinking === "string" &&

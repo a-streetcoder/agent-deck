@@ -30,6 +30,11 @@ export function GitScreen() {
   const [pushing, setPushing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [merging, setMerging] = useState(false);
+  // Native piAgentGitAutomationEnabled: gates the Commit/Push/Merge actions
+  // (default on). Off → the screen stays a read-only status view. `null` until
+  // the setting loads, so neither the actions nor the "off" note flashes first
+  // (a flash of enabled actions could let a quick click fire while off).
+  const [gitActions, setGitActions] = useState<boolean | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     if (!currentProjectId) return;
@@ -45,6 +50,18 @@ export function GitScreen() {
   useEffect(() => {
     void load();
   }, [load, resourcesVersion]);
+
+  // Whether the git ACTIONS are enabled (native git-automation setting). Read on
+  // mount — the screen mounts on nav, so a toggle in onboarding is picked up next
+  // time you open Git.
+  useEffect(() => {
+    void fetch("/settings")
+      .then((response) => response.json())
+      .then((data: { settings: { gitAutomation: boolean } }) =>
+        setGitActions(data.settings.gitAutomation),
+      )
+      .catch(() => {});
+  }, []);
 
   const commit = async (push: boolean): Promise<void> => {
     if (!currentProjectId || !message.trim()) return;
@@ -157,7 +174,7 @@ export function GitScreen() {
           ) : null}
         </div>
 
-        {session?.worktreeBranch && session.worktreeSourceBranch ? (
+        {gitActions === true && session?.worktreeBranch && session.worktreeSourceBranch ? (
           <div
             data-testid="git-worktree-banner"
             className="mb-3 mt-1 flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface px-3 py-2.5"
@@ -217,56 +234,66 @@ export function GitScreen() {
               ) : null}
             </div>
 
-            <div className="mt-4 flex flex-col gap-2">
-              <textarea
-                data-testid="git-commit-message"
-                className="min-h-[64px] w-full rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-                placeholder="Commit message"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-              />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  data-testid="git-generate-message"
-                  className="mr-auto flex items-center gap-1 rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
-                  disabled={generating || committing || status?.clean}
-                  onClick={() => void generateMessage()}
-                  title="Draft a commit message from your changes"
-                >
-                  <Sparkles size={12} /> {generating ? "Generating…" : "Generate"}
-                </button>
-                <button
-                  data-testid="git-push"
-                  className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
-                  disabled={committing || pushing}
-                  onClick={() => void push()}
-                  title="Push the current branch's commits"
-                >
-                  {pushing ? "Pushing…" : "Push"}
-                </button>
-                <button
-                  data-testid="git-commit"
-                  className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
-                  disabled={committing || status?.clean || !message.trim()}
-                  onClick={() => void commit(false)}
-                >
-                  {committing ? "Committing…" : "Commit all"}
-                </button>
-                <button
-                  data-testid="git-commit-push"
-                  className="rounded-capsule px-4 py-1.5 text-sm font-medium shadow-capsule disabled:opacity-40"
-                  style={{
-                    background:
-                      "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
-                    color: "var(--color-accent-foreground)",
-                  }}
-                  disabled={committing || status?.clean || !message.trim()}
-                  onClick={() => void commit(true)}
-                >
-                  Commit &amp; Push
-                </button>
+            {gitActions === false ? (
+              <div
+                data-testid="git-actions-off"
+                className="mt-4 rounded-lg border border-border-subtle bg-surface px-3 py-2.5 text-xs text-text-muted"
+              >
+                Git actions are turned off. Enable Commit / Push actions in the welcome flow&apos;s
+                Preferences to commit from here.
               </div>
-            </div>
+            ) : gitActions === null ? null : (
+              <div className="mt-4 flex flex-col gap-2">
+                <textarea
+                  data-testid="git-commit-message"
+                  className="min-h-[64px] w-full rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                  placeholder="Commit message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    data-testid="git-generate-message"
+                    className="mr-auto flex items-center gap-1 rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
+                    disabled={generating || committing || status?.clean}
+                    onClick={() => void generateMessage()}
+                    title="Draft a commit message from your changes"
+                  >
+                    <Sparkles size={12} /> {generating ? "Generating…" : "Generate"}
+                  </button>
+                  <button
+                    data-testid="git-push"
+                    className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
+                    disabled={committing || pushing}
+                    onClick={() => void push()}
+                    title="Push the current branch's commits"
+                  >
+                    {pushing ? "Pushing…" : "Push"}
+                  </button>
+                  <button
+                    data-testid="git-commit"
+                    className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary disabled:opacity-40"
+                    disabled={committing || status?.clean || !message.trim()}
+                    onClick={() => void commit(false)}
+                  >
+                    {committing ? "Committing…" : "Commit all"}
+                  </button>
+                  <button
+                    data-testid="git-commit-push"
+                    className="rounded-capsule px-4 py-1.5 text-sm font-medium shadow-capsule disabled:opacity-40"
+                    style={{
+                      background:
+                        "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                      color: "var(--color-accent-foreground)",
+                    }}
+                    disabled={committing || status?.clean || !message.trim()}
+                    onClick={() => void commit(true)}
+                  >
+                    Commit &amp; Push
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

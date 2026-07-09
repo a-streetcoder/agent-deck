@@ -86,3 +86,30 @@ test("rejects an empty commit and reports it", async () => {
   expect(commit.status).toBe(400);
   expect(await commit.text()).toContain("no changes to commit");
 });
+
+test("git-automation setting gates the commit/push actions (native piAgentGitAutomationEnabled)", async ({
+  page,
+}) => {
+  const settings = `${harness.baseUrl}/settings`;
+  const setGit = (on: boolean) =>
+    fetch(settings, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ gitAutomation: on }),
+    });
+
+  // Off → the screen becomes a read-only status view (no commit box).
+  await setGit(false);
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(project));
+  await page.getByTestId("nav-git").click();
+  await expect(page.getByTestId("git-actions-off")).toBeVisible();
+  await expect(page.getByTestId("git-commit-message")).toHaveCount(0);
+
+  // On → the commit action returns. Restored on so the setting is left enabled.
+  await setGit(true);
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(project));
+  await page.getByTestId("nav-git").click();
+  await expect(page.getByTestId("git-commit-message")).toBeVisible();
+});

@@ -508,8 +508,8 @@ export function OnboardingOverlay() {
                   />
                   <PrefToggle
                     testid="pref-git-automation"
-                    label="Automate git commits"
-                    description="Let sessions stage and commit changes as they work."
+                    label="Enable git actions"
+                    description="Show Commit / Push / Merge actions on the Git screen."
                     checked={prefs.gitAutomation}
                     onChange={(v) => patchPref({ gitAutomation: v })}
                   />
