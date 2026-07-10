@@ -1170,7 +1170,7 @@ private struct AutomationsSettingsTab: View {
                     selection: skillDescriptionModelBinding,
                     note: skillDescriptionModelNote
                 ) {
-                    Text("Default (Foundation Models if available)").tag("")
+                    Text("Default model").tag("")
                     ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                         Text(model.displayName).tag(model.identifier)
                     }
@@ -1270,7 +1270,7 @@ private struct AutomationsSettingsTab: View {
     private var skillDescriptionModelNote: String {
         let resolved = viewModel.skillDescriptionGenerationModel()
         guard let resolved else {
-            return "Powers the ✨ summary button in the Import Skills sheet. Pick a model — Apple Foundation Models is unavailable on this Mac, so the button stays hidden until one is selected."
+            return "Powers the ✨ summary button in the Import Skills sheet. Set a Pi default model or pick a model to enable summaries."
         }
         if resolved.identifier == FoundationModelAutomationService.identifier {
             return "Powers the ✨ summary button in the Import Skills sheet. Apple Foundation Models runs locally on-device."

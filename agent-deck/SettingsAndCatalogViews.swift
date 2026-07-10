@@ -477,7 +477,7 @@ struct ModelsScreen: View {
                 description: "Powers the ✨ summary action when importing skills.",
                 models: viewModel.automationAvailableModels,
                 selectedIdentifier: viewModel.appSettings.skillDescriptionModelIdentifier,
-                nilLabel: "Foundation if available",
+                nilLabel: "Default model",
                 isDisabled: false,
                 onSelect: { viewModel.setSkillDescriptionModelIdentifier($0?.identifier) }
             )

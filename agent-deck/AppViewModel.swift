@@ -6720,15 +6720,14 @@ final class AppViewModel: NSObject {
     }
 
     /// Resolves the model used for AI skill summaries. An explicit pick in
-    /// Automations wins; otherwise we use Apple Foundation Models when
-    /// available. Returns `nil` when neither is available — callers should
-    /// hide the magic-button UI rather than fall back silently.
+    /// Automations wins; otherwise follows the user's Pi default model, with
+    /// Apple Foundation Models and then another enabled model as fallbacks.
     func skillDescriptionGenerationModel() -> AvailableModel? {
         if let identifier = appSettings.skillDescriptionModelIdentifier,
            let selected = automationAvailableModels.first(where: { $0.identifier == identifier }) {
             return selected
         }
-        return foundationAutomationModel
+        return defaultPiAgentModel() ?? foundationAutomationModel ?? enabledAvailableModels.first
     }
 
     /// Read full SKILL.md bytes from a discovery clone (git mode).
