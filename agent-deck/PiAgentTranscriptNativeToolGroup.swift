@@ -205,7 +205,7 @@ extension NativeToolGroupModel {
 
     private static func estimatedImagesHeight(_ images: Images, width: CGFloat) -> CGFloat {
         let innerWidth = max(1, width - 24)
-        let strip = estimatedImageStripHeight(count: min(images.references.count, 6), width: max(1, innerWidth - 23))
+        let strip = estimatedImageStripHeight(count: min(images.references.count, 6), width: innerWidth)
         let hidden: CGFloat = images.references.count > 6 ? 5 + estimateSmallLineHeight : 0
         return estimatedSubcardHeight(items: [estimateHeaderHeight, strip + hidden], spacing: 8, vInset: 10)
     }
@@ -731,7 +731,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
 
         let thumbnails = mcpImageStrip(images.references) ?? NSView()
         stack.addArrangedSubview(thumbnails)
-        thumbnails.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 23).isActive = true
+        thumbnails.leadingAnchor.constraint(equalTo: stack.leadingAnchor).isActive = true
         thumbnails.trailingAnchor.constraint(lessThanOrEqualTo: stack.trailingAnchor).isActive = true
         thumbnails.widthAnchor.constraint(equalToConstant: imageStripWidth(for: images.references)).isActive = true
 
@@ -747,7 +747,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         let naturalWidth = CGFloat(shownCount) * tileWidth + CGFloat(max(0, shownCount - 1)) * spacing
         // Keep the card content-hugged for short image summaries, but cap it to the
         // reply column so larger sets wrap instead of overflowing the transcript row.
-        let availableWidth = max(tileWidth, sectionsWidthC.constant - 12 * 2 - 23)
+        let availableWidth = max(tileWidth, sectionsWidthC.constant - 12 * 2)
         return min(naturalWidth, availableWidth)
     }
 
