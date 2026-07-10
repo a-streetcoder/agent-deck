@@ -4730,8 +4730,9 @@ final class AppViewModel: NSObject {
         - For multi-step work, keep a short parent-owned visible plan with `set_session_plan` and `update_session_plan`.
         - If you delegate planning to `planner`, convert its returned implementation plan into `set_session_plan` before implementation unless the user only asked for a report. Planner text alone does not update the visible \(AppBrand.displayName) plan.
         - Update the visible plan when steps start, complete, block, skip, or materially change.
-        - Deck agent runs start fresh by default. Do not assume a later `managed_subagent` call remembers an earlier child run.
-        - The tool result and Deck agent card show a stable Deck agent ID. For a direct follow-up to a previous child, pass that ID as `continueSubagentID` so Agent Deck resumes the same child session and updates the same card.
+        - Fresh Deck agents cannot see this parent conversation, its context window, reasoning, tool results, user decisions, or findings from prior agents. Do not assume a later `managed_subagent` call remembers an earlier child run.
+        - Every fresh delegation must be self-contained in its task: state the goal, relevant requirements/decisions, constraints/findings, expected output, and useful current file reads (use `reads` when known).
+        - The tool result and Deck agent card show a stable Deck agent ID. For a direct follow-up to a previous child, pass that ID as `continueSubagentID`; it restores only that child's own session, never parent context, and updates the same card.
         - If starting fresh for follow-up work, pass a compact continuity packet: prior findings/status, what changed, relevant files/artifact paths, and exact expected output.
         - Prefer fresh runs for independent work; prefer continuation for direct refinement, re-review, debugging, or answering a child-specific follow-up.
 

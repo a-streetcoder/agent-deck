@@ -27,7 +27,7 @@ Blocking requests wait for a human or parent-agent answer. Non-blocking progress
 
 ## Fresh runs and continuation
 
-Native subagents start fresh by default and do not receive parent conversation history. Direct follow-ups can pass a previous Subagent ID as `continueSubagentID`; Agent Deck resumes that child session and updates the same parent chat card. Agent Deck does not use forked parent context for native subagents.
+Native subagents start fresh by default and cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings. Every fresh delegation must therefore be self-contained: its task supplies the goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads. Direct follow-ups can pass a previous Subagent ID as `continueSubagentID`; Agent Deck resumes only that child's own session and updates the same parent chat card. Agent Deck never restores parent context or uses forked parent context for native subagents.
 
 ## Extension isolation
 

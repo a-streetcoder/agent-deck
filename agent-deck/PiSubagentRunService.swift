@@ -1087,6 +1087,7 @@ final class PiSubagentRunService {
     private func nativeBoundaryPrompt(agent: EffectiveAgentRecord) -> String {
         var lines = [
             "This is a delegated child session. Complete only the assigned task; the parent/user remain decision authority.",
+            "You cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings. A continuation restores only your own child session, never parent context.",
             "",
             "Boundaries:",
             "- Do not launch other agents.",

@@ -143,7 +143,7 @@ Agent Deck writes at least:
 The child prompt is split deliberately:
 
 - **System prompt content:** agent Markdown body followed by common child-session boundary instructions. The common boundary avoids defining the agent role; role identity belongs in the agent body.
-- **User task prompt:** concrete task, expected outcome, artifact directory, and read-first hints. Continuation prompts also state that prior child messages are available but the new task is authoritative.
+- **User task prompt:** concrete task, expected outcome, artifact directory, and read-first hints. Fresh delegation tasks must be self-contained with the goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads because children cannot see parent context. Continuation prompts also state that prior child messages are available but the new task is authoritative.
 
 Default child launch shape:
 
@@ -176,7 +176,7 @@ If `systemPromptMode: append`, Agent Deck uses `--append-system-prompt`. In that
 
 Native subagents use normal Pi project context-file discovery. Agent Deck does not pass `--no-context-files` for child sessions.
 
-Direct follow-ups can continue a prior native subagent by Subagent ID. Continuation launches use `--session <prior-child-session-file>` instead of `--session-dir` and update the same parent chat card.
+Direct follow-ups can continue a prior native subagent by Subagent ID. Continuation launches use `--session <prior-child-session-file>` instead of `--session-dir`, restore only that child's own history (never parent context), and update the same parent chat card.
 
 Native subagents always pass `--no-skills` and then explicit `--skill` arguments for skills assigned to that agent. They do not inherit parent Default or Project skills automatically, and they do not use ambient skill discovery.
 

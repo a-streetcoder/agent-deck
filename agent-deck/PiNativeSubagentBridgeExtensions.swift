@@ -552,14 +552,14 @@ struct PiNativeSubagentBridgeExtensions {
 
         const ManagedSubagentParams = Type.Object({
             agent: Type.String({ description: "Name of the Deck agent to run." }),
-            task: Type.String({ description: "Specific task for the Deck agent." }),
-            continueSubagentID: Type.Optional(Type.String({ description: "Stable Deck agent ID to continue for a direct follow-up. Omit to start a fresh child session." })),
-            reads: Type.Optional(Type.Array(Type.String(), { description: "Project-relative files the Deck agent should read first if current and relevant." }))
+            task: Type.String({ description: "Self-contained task: goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads." }),
+            continueSubagentID: Type.Optional(Type.String({ description: "Stable Deck agent ID for a direct follow-up. Restores only that child's session, never parent context. Omit to start fresh." })),
+            reads: Type.Optional(Type.Array(Type.String(), { description: "Useful current project-relative files the fresh Deck agent should read first." }))
         }, { additionalProperties: false });
 
         const ManagedParallelTask = Type.Object({
             agent: Type.String({ description: "Name of the Deck agent to run." }),
-            task: Type.String({ description: "Specific bounded task for this Deck agent." })
+            task: Type.String({ description: "Self-contained task: goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads." })
         }, { additionalProperties: false });
 
         const ManagedParallelParams = Type.Object({
@@ -598,9 +598,10 @@ struct PiNativeSubagentBridgeExtensions {
                 parameters: ManagedSubagentParams,
                 promptSnippet: "managed_subagent(agent, task, continueSubagentID?): delegate to a Deck agent. Omit continueSubagentID to start fresh; provide it for a direct follow-up.",
                 promptGuidelines: [
-                    "Use managed_subagent for separable specialist work; keep tasks narrow and include expected output.",
+                    "Fresh Deck agents cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings.",
+                    "Every fresh delegation must be self-contained: include the goal, relevant requirements/decisions, constraints/findings, expected output, and useful current reads.",
                     "Bundled explorer, planner, and reviewer agents are report-only; use a user-configured writer agent for approved implementation.",
-                    "Deck agents start fresh by default; use continueSubagentID only for direct follow-ups to an existing child session.",
+                    "Use continueSubagentID only for a direct follow-up: it restores that child's own session, never parent context.",
                     "If starting fresh for follow-up work, pass a compact continuity packet instead of assuming prior child memory."
                 ],
                 async execute(toolCallId, params, _signal, onUpdate, ctx) {
@@ -624,7 +625,7 @@ struct PiNativeSubagentBridgeExtensions {
                 description: "Run multiple Deck agents concurrently and return an aggregate result.",
                 parameters: ManagedParallelParams,
                 promptSnippet: "managed_parallel(tasks, concurrency?, worktree?): run bounded Deck agent tasks concurrently.",
-                promptGuidelines: ["Use managed_parallel for independent advisory/research tasks. Use worktree isolation for writer tasks."],
+                promptGuidelines: ["Use managed_parallel for independent advisory/research tasks. Each fresh task must be self-contained with its goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads. Use worktree isolation for writer tasks."],
                 async execute(toolCallId, params, _signal, onUpdate, ctx) {
                     const rawTasks = Array.isArray((params as any).tasks) ? (params as any).tasks : [];
                     const payload = JSON.stringify({

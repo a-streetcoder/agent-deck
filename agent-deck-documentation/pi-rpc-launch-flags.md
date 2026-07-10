@@ -217,9 +217,10 @@ Runtime context/resources:
 
 Context/continuation behavior:
 
-- Native subagents start fresh by default and do not receive parent conversation history.
+- Native subagents start fresh by default and cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings.
+- Every fresh delegation must be self-contained: its task supplies the goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads.
 - Agent Deck does not use `--fork` for native subagents.
-- Direct follow-ups can continue a prior child by passing its Subagent ID through `managed_subagent(..., continueSubagentID)`. Agent Deck resumes the saved child session file with `--session`.
+- Direct follow-ups can continue a prior child by passing its Subagent ID through `managed_subagent(..., continueSubagentID)`. Agent Deck resumes only that child's saved session file with `--session`, never parent context.
 - If a parent starts a fresh child for follow-up work, it should pass a compact continuity packet in the task.
 
 Skills/context behavior:

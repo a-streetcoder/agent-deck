@@ -35,6 +35,9 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         }
 
         XCTAssertTrue(source.contains(#"bridge: "agent_deck_native_subagents""#))
+        XCTAssertTrue(source.contains("Fresh Deck agents cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings."))
+        XCTAssertTrue(source.contains("Every fresh delegation must be self-contained"))
+        XCTAssertTrue(source.contains("Restores only that child's session, never parent context."))
         XCTAssertTrue(source.contains("additionalProperties: false"))
         XCTAssertTrue(source.contains("minItems: 1, maxItems: 8"))
         XCTAssertTrue(source.contains("minItems: 0, maxItems: 12"))

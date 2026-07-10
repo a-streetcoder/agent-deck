@@ -259,6 +259,8 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         let agentRange = try XCTUnwrap(prompt.range(of: "You are `example`, a focused test agent."))
         let commonRange = try XCTUnwrap(prompt.range(of: "This is a delegated child session."))
         XCTAssertLessThan(agentRange.lowerBound, commonRange.lowerBound)
+        XCTAssertTrue(prompt.contains("You cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings."))
+        XCTAssertTrue(prompt.contains("A continuation restores only your own child session, never parent context."))
     }
 
     func testNativeSubagentsAllowProjectContextDiscovery() async throws {
