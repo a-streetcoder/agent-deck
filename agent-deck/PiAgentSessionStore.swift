@@ -2915,8 +2915,12 @@ final class PiAgentSessionStore {
             } else {
                 selectedSessionID = sessions.first?.id
             }
-            persistedTranscriptSessionIDs = Set(transcriptsBySessionID.keys)
-            loopRecoverySessionIDs = persistedTranscriptSessionIDs
+            let embeddedTranscriptSessionIDs = Set(transcriptsBySessionID.keys)
+            persistedTranscriptSessionIDs = embeddedTranscriptSessionIDs
+            loopRecoverySessionIDs = embeddedTranscriptSessionIDs
+            for sessionID in embeddedTranscriptSessionIDs {
+                hydrateLoopRunsFromTranscript(sessionID: sessionID)
+            }
             persistedSubagentTranscriptRunIDs = Set(subagentTranscriptsByRunID.keys)
             writeLoadedTranscriptFilesAndManifest()
             if lazyTranscriptLoadingEnabled {

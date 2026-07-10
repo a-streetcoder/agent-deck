@@ -193,7 +193,11 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         let sessionID = UUID()
         func editGroup(file: String) -> PiAgentThreadToolGroup {
             let entry = PiAgentTranscriptEntry(
-                sessionID: sessionID, role: .tool, title: "Tool: edit", text: file
+                sessionID: sessionID,
+                role: .tool,
+                title: "Tool: edit",
+                text: file,
+                rawJSON: "{\"type\":\"tool_execution_end\",\"toolName\":\"edit\",\"args\":{\"path\":\"\(file)\",\"oldText\":\"let oldValue = true\",\"newText\":\"let newValue = true\"}}"
             )
             let activity = PiAgentTranscriptActivity(
                 id: entry.id, name: "edit", entries: [entry], isError: false,

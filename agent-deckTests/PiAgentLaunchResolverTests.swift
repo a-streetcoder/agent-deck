@@ -29,7 +29,7 @@ final class PiAgentLaunchResolverTests: XCTestCase {
         XCTAssertEqual(coder?.resolutionKind, .globalCustom)
     }
 
-    func testProjectAssignmentOverridesDefaultAgentByName() {
+    func testProjectAssignmentUsesGlobalCatalogAgentByName() {
         let global = agentRecord(name: "reviewer", kind: .global, path: "/tmp/global-reviewer.md")
         let project = agentRecord(name: "reviewer", kind: .project, path: "/tmp/project/.pi/agents/reviewer.md")
         let snapshot = ScanSnapshot.empty.replacing(projectRoot: "/tmp/project")
@@ -43,8 +43,8 @@ final class PiAgentLaunchResolverTests: XCTestCase {
 
         let reviewer = effective.first { $0.name == "reviewer" }
         XCTAssertEqual(reviewer?.globalCustom?.filePath, "/tmp/global-reviewer.md")
-        XCTAssertEqual(reviewer?.projectCustom?.filePath, "/tmp/project/.pi/agents/reviewer.md")
-        XCTAssertEqual(reviewer?.resolutionKind, .projectCustom)
+        XCTAssertNil(reviewer?.projectCustom)
+        XCTAssertEqual(reviewer?.resolutionKind, .globalCustom)
     }
 
     func testProjectBuiltinOverrideMergesGlobalModelOverride() {
