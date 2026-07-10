@@ -752,33 +752,47 @@ struct PiAgentSessionSubagentPickerCard: View {
                 .padding(.top, 10)
                 .padding(.bottom, 17)
 
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Delegation")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(compactDelegationPolicyDescription)
-                        .font(.caption2)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transaction { transaction in
-                            transaction.animation = nil
-                        }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    delegationPolicyDescription
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    delegationPolicyPicker
+                        .frame(minWidth: 180, idealWidth: 220)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Picker("Delegation policy", selection: delegationPolicyBinding) {
-                    ForEach(NativeSubagentDelegationPolicy.allCases) { policy in
-                        Text(policy.displayName).tag(policy)
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    delegationPolicyDescription
+                    delegationPolicyPicker
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .appSegmentedPicker()
-                .labelsHidden()
-                .frame(width: 220)
-                .controlSize(.small)
             }
         }
+    }
+
+    private var delegationPolicyDescription: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Delegation")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+            Text(compactDelegationPolicyDescription)
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(2)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+        }
+    }
+
+    private var delegationPolicyPicker: some View {
+        Picker("Delegation policy", selection: delegationPolicyBinding) {
+            ForEach(NativeSubagentDelegationPolicy.allCases) { policy in
+                Text(policy.displayName).tag(policy)
+            }
+        }
+        .appSegmentedPicker()
+        .labelsHidden()
+        .controlSize(.small)
     }
 
     private var compactDelegationPolicyDescription: String {
@@ -1010,8 +1024,8 @@ private struct PiAgentPickerAvatar: View {
 /// glass capsule revealed on row hover only — same treatment as the session
 /// rows' hover delete — labeled so it doesn't rely on the paperplane glyph
 /// alone. Unchecked rows render desaturated and dimmed, matching the session
-/// list's "seen" treatment. The row has a FIXED height so nothing shifts when
-/// hovering or when launch chips change state.
+/// list's "seen" treatment. The row adapts from its dense inline arrangement
+/// to stacked identity/action and launch-control rows as space narrows.
 private struct PiAgentSubagentPickerRow: View {
     let agent: EffectiveAgentRecord
     let checked: Bool
@@ -1029,54 +1043,14 @@ private struct PiAgentSubagentPickerRow: View {
     @State private var isHovered = false
 
     private static let accent = PiAgentSessionSubagentPickerCard.accent
-    /// Fixed row height so every row is identical — nothing shifts when the
-    /// hover chat button reveals or launch chips change state.
-    private static let rowHeight: CGFloat = 40
-    private static let agentColumnWidth: CGFloat = 340
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // Toggle area = check + avatar + name only, so the launch-control
-            // chips (separate buttons) stay independently tappable.
-            Button(action: onToggle) {
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-                        .font(.body)
-                        .foregroundStyle(checked ? Self.accent : AppTheme.mutedText)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 20, height: 28)
-                    PiAgentPickerAvatar(imageURL: avatarURL)
-                        .saturation(checked ? 1 : 0)
-                    Text(agent.name)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .opacity(checked ? 1 : 0.66)
-                }
-                .frame(width: Self.agentColumnWidth, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            PiAgentPickerLaunchControls(
-                launchDetail: launchDetail,
-                availableModels: availableModels,
-                selectedModelIdentifier: selectedModelIdentifier,
-                selectedThinkingLevel: selectedThinkingLevel,
-                thinkingLevels: thinkingLevels,
-                onSelectModel: onSelectModel,
-                onSelectThinking: onSelectThinking
-            )
-
-            Spacer(minLength: 0)
-
-            chatButton
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
+        ViewThatFits(in: .horizontal) {
+            denseLayout
+            compactLayout
         }
-        .frame(height: Self.rowHeight)
         .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(AppTheme.contentSubtleFill)
@@ -1084,6 +1058,72 @@ private struct PiAgentSubagentPickerRow: View {
         )
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .onHover { isHovered = $0 }
+    }
+
+    private var denseLayout: some View {
+        HStack(alignment: .center, spacing: 10) {
+            // Give the first ViewThatFits candidate a meaningful minimum so it
+            // yields to the compact layout before the name is squeezed out.
+            identityToggle
+                .frame(minWidth: 200, idealWidth: 300, alignment: .leading)
+            launchControls(allowsVerticalFallback: false)
+            Spacer(minLength: 0)
+            chatButton
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+        }
+    }
+
+    private var compactLayout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                identityToggle
+                Spacer(minLength: 0)
+                // Do not reserve scarce compact-row width until the existing
+                // hover affordance is actually revealed.
+                if isHovered {
+                    chatButton
+                }
+            }
+            launchControls(allowsVerticalFallback: true)
+        }
+    }
+
+    // Toggle area = check + avatar + name only, so the launch-control chips
+    // (separate buttons) stay independently tappable.
+    private var identityToggle: some View {
+        Button(action: onToggle) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                    .font(.body)
+                    .foregroundStyle(checked ? Self.accent : AppTheme.mutedText)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 20, height: 28)
+                PiAgentPickerAvatar(imageURL: avatarURL)
+                    .saturation(checked ? 1 : 0)
+                Text(agent.name)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .opacity(checked ? 1 : 0.66)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func launchControls(allowsVerticalFallback: Bool) -> some View {
+        PiAgentPickerLaunchControls(
+            launchDetail: launchDetail,
+            availableModels: availableModels,
+            selectedModelIdentifier: selectedModelIdentifier,
+            selectedThinkingLevel: selectedThinkingLevel,
+            thinkingLevels: thinkingLevels,
+            allowsVerticalFallback: allowsVerticalFallback,
+            onSelectModel: onSelectModel,
+            onSelectThinking: onSelectThinking
+        )
     }
 
     private var chatButton: some View {
@@ -1108,33 +1148,54 @@ private struct PiAgentSubagentPickerRow: View {
 /// opens a popover listing Pi's known models grouped by provider (plus "Pi
 /// default"); the thinking chip lists the levels supported by the current
 /// model (plus "Pi default"). `launchDetail` is the combined summary shown as
-/// the chips' help text. Chips share a FIXED capsule height so the row height
-/// never shifts between selection/model states.
+/// the chips' help text. The controls stack vertically when the two chips no
+/// longer fit side by side.
 private struct PiAgentPickerLaunchControls: View {
     let launchDetail: String
     let availableModels: [AvailableModel]
     let selectedModelIdentifier: String?
     let selectedThinkingLevel: String?
     let thinkingLevels: [String]
+    /// The dense row must remain horizontally measurable so its outer
+    /// `ViewThatFits` can choose the compact row before controls stack.
+    let allowsVerticalFallback: Bool
     let onSelectModel: (String?) -> Void
     let onSelectThinking: (String?) -> Void
 
     @State private var isModelPresented = false
     @State private var isThinkingPresented = false
 
-    private static let chipHeight: CGFloat = 22
-    private static let modelChipWidth: CGFloat = 300
-    private static let thinkingChipWidth: CGFloat = 220
+    private static let chipMinHeight: CGFloat = 22
 
     var body: some View {
+        Group {
+            if allowsVerticalFallback {
+                ViewThatFits(in: .horizontal) {
+                    horizontalControls
+                    verticalControls
+                }
+            } else {
+                horizontalControls
+            }
+        }
+        .help(launchDetail)
+    }
+
+    private var horizontalControls: some View {
         HStack(spacing: 8) {
             modelChip
-                .frame(width: Self.modelChipWidth, alignment: .leading)
+                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             thinkingChip
-                .frame(width: Self.thinkingChipWidth, alignment: .leading)
+                .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: Self.chipHeight)
-        .help(launchDetail)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var verticalControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            modelChip
+            thinkingChip
+        }
     }
 
     private var modelLabel: String {
@@ -1164,7 +1225,7 @@ private struct PiAgentPickerLaunchControls: View {
             .font(AppTheme.Font.caption2.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: Self.chipHeight, maxHeight: Self.chipHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: Self.chipMinHeight, alignment: .leading)
             .glassEffect(.regular, in: Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
         }
@@ -1191,7 +1252,7 @@ private struct PiAgentPickerLaunchControls: View {
             .font(AppTheme.Font.caption2.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: Self.chipHeight, maxHeight: Self.chipHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: Self.chipMinHeight, alignment: .leading)
             .glassEffect(.regular, in: Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
         }
