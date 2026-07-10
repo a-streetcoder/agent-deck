@@ -80,7 +80,7 @@ Every new session can spin up its own git branch and isolated worktree under App
 
 Parent sessions stay orchestration-first. They delegate scoped work — exploration, planning, implementation, review — to native subagents the app launches and tracks directly.
 
-- **Bundled starter pack:** `explorer`, `planner`, `coder`, `reviewer`. Override or replace any of them.
+- **Bundled starter pack:** `explorer`, `planner`, `reviewer`. Override or replace any of them.
 - **Summary cards** in the transcript with per-agent status, tokens, and duration.
 - **Supervisor request cards** render native macOS decision UIs when a child needs human guidance.
 - **Worktree isolation** for write-capable subagents — multiple writers won't clobber each other.

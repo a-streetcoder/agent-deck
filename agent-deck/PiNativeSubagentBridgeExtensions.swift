@@ -599,7 +599,7 @@ struct PiNativeSubagentBridgeExtensions {
                 promptSnippet: "managed_subagent(agent, task, continueSubagentID?): delegate to a Deck agent. Omit continueSubagentID to start fresh; provide it for a direct follow-up.",
                 promptGuidelines: [
                     "Use managed_subagent for separable specialist work; keep tasks narrow and include expected output.",
-                    "When delegating approved implementation to coder, expect direct project edits; use explorer, planner, or reviewer for report-only work.",
+                    "Bundled explorer, planner, and reviewer agents are report-only; use a user-configured writer agent for approved implementation.",
                     "Deck agents start fresh by default; use continueSubagentID only for direct follow-ups to an existing child session.",
                     "If starting fresh for follow-up work, pass a compact continuity packet instead of assuming prior child memory."
                 ],

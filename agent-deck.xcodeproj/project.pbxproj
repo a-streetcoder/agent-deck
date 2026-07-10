@@ -37,7 +37,6 @@
 		9D1B4A5C7E8F901234567892 /* Exceptions for "agent-deck" folder in "agent-deck" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"bundled-agents/coder.md",
 				"bundled-agents/explorer.md",
 				"bundled-agents/planner.md",
 				"bundled-agents/reviewer.md",

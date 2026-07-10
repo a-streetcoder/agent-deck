@@ -272,52 +272,6 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 ]
             ),
             EvalTask(
-                id: "coder-report-only-subagent-eval-patch",
-                agent: "coder",
-                prompt: """
-                Report-only implementation task. Do not edit files. Do not run formatting, tests, or git commands.
-                Work out the exact patch you would make to add an opt-in real RPC eval test for bundled
-                Deck agents, with configurable models and thinking levels.
-                Put all proposed code changes in your final response in a readable file-style format,
-                using paths and fenced Swift snippets or pseudodiff. Agent Deck will save that final response
-                to output.md for analysis; do not write project files yourself.
-                """,
-                expectedFacts: [
-                    "PiNativeBundledSubagentRealRPCEvalTests",
-                    "EvalModelConfig",
-                    "EvalTask",
-                    "off",
-                    "minimal",
-                    "low",
-                    "medium",
-                    "high",
-                    "PiSubagentRunService",
-                    "output.md"
-                ]
-            ),
-            EvalTask(
-                id: "coder-report-only-model-fallback",
-                agent: "coder",
-                prompt: """
-                Report-only implementation task. Do not edit files. Do not run formatting, tests, or git commands.
-                Inspect Deck agent fallback model support and describe the minimal code change
-                required to add ordered fallback retry behavior for child runs if it is not already present.
-                Put all proposed code changes in your final response in a readable file-style format,
-                using paths and fenced Swift snippets or pseudodiff. Agent Deck will save that final response
-                to output.md for analysis; do not write project files yourself.
-                """,
-                expectedFacts: [
-                    "fallbackModels",
-                    "AgentConfig",
-                    "PiSubagentRunService",
-                    "PiSubagentLaunchPlanner",
-                    "provider/model failure",
-                    "retry",
-                    "transcript",
-                    "output.md"
-                ]
-            ),
-            EvalTask(
                 id: "reviewer-agent-rename-commit",
                 agent: "reviewer",
                 prompt: """
@@ -557,11 +511,6 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         // Keep provider/model/thinking inherited from the parent session so this
         // exercises the same default Deck agent path the app uses.
         config.model = nil
-        if base.name == "coder", let tools = config.tools {
-            config.tools = tools.filter { tool in
-                tool != "edit" && tool != "write"
-            }
-        }
         return EffectiveAgentRecord(
             id: "\(base.id):eval",
             name: base.name,
