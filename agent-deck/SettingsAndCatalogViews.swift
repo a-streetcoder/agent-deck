@@ -629,17 +629,21 @@ struct ModelsScreen: View {
 
     private var defaultSelectionSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center) {
+            HStack(alignment: .center, spacing: 8) {
                 Image("pi")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
-                Text("Pi Default Model")
-                    .font(.title3.weight(.bold))
-                    .fontWidth(.expanded)
-                    .foregroundStyle(.primary)
-                Spacer()
+                Spacer(minLength: 12)
+                HStack(spacing: AppTheme.contentSpacing) {
+                    AgentModelColumnHeader("Model")
+                        .frame(width: modelControlWidth, alignment: .leading)
+                    AgentModelColumnHeader("Thinking")
+                        .frame(width: thinkingControlWidth, alignment: .leading)
+                }
+                .frame(width: modelControlWidth + thinkingControlWidth + AppTheme.contentSpacing, alignment: .leading)
+                .padding(.trailing, max(0, AppTheme.cardPadding - 2))
             }
             .padding(.horizontal, 2)
 
@@ -648,11 +652,16 @@ struct ModelsScreen: View {
     }
 
     private var defaultModelCard: some View {
-        HStack(alignment: .top, spacing: AppTheme.contentSpacing) {
-            Spacer(minLength: 12)
-            HStack(alignment: .top, spacing: AppTheme.contentSpacing) {
-                VStack(alignment: .leading, spacing: 5) {
-                    AgentModelColumnHeader("Model")
+        modelsBorderedCard {
+            HStack(alignment: .center, spacing: 12) {
+                Text("Default Model")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                    .lineLimit(1)
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: AppTheme.contentSpacing) {
                     modelPickerWithCapabilityGlyphs(
                         models: viewModel.cachedEnabledAvailableModels,
                         selectedIdentifier: selectedDefaultModel?.identifier,
@@ -664,11 +673,8 @@ struct ModelsScreen: View {
                             defaultModelBinding.wrappedValue = model.identifier
                         }
                     )
-                }
-                .frame(width: modelControlWidth, alignment: .leading)
+                    .frame(width: modelControlWidth, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 5) {
-                    AgentModelColumnHeader("Thinking")
                     if let selectedDefaultModel,
                        selectedDefaultModel.supportsThinking,
                        !selectedDefaultModel.supportedThinkingLevels.isEmpty {
@@ -683,17 +689,10 @@ struct ModelsScreen: View {
                         disabledThinkingPlaceholder()
                     }
                 }
-                .frame(width: thinkingControlWidth, alignment: .leading)
+                .frame(width: modelControlWidth + thinkingControlWidth + AppTheme.contentSpacing, alignment: .leading)
             }
-            .frame(width: modelControlWidth + thinkingControlWidth + AppTheme.contentSpacing, alignment: .leading)
+            .padding(.vertical, 10)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, AppTheme.cardPadding)
-        .padding(.vertical, 16)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .stroke(AppTheme.contentStroke, lineWidth: 1)
-        )
     }
 
     private var defaultModelBinding: Binding<String> {
