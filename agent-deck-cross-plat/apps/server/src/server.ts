@@ -77,9 +77,10 @@ import {
 } from "@agent-deck/resources";
 import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
 import {
-  gitCloneShallow,
+  gitClonePersistent,
   gitCommitAll,
   gitCommitsAhead,
+  gitHead,
   gitCurrentBranch,
   gitErrorText,
   gitMerge,
@@ -389,6 +390,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // the data dir, NOT tmp, so a live session's isolated checkout survives + is
   // never swept by an OS temp cleanup.
   const worktreesRoot = nodePath.join(options.dataDir ?? defaultDataDir(), "session-worktrees");
+  // Persistent clones of git-imported skill repos, kept for re-sync (native
+  // SkillRepositorySyncService keeps the clone; the copy lands in the catalog).
+  const skillReposRoot = nodePath.join(options.dataDir ?? defaultDataDir(), "skill-repos");
 
   // Recall engine. Lexical+fuzzy is the always-on default; SEMANTIC recall is
   // opt-in — an injected embedder (tests) or AGENT_DECK_SEMANTIC_MEMORY=1 (which
@@ -1163,19 +1167,45 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       )
         .replace(/[^A-Za-z0-9._-]/g, "-")
         .replace(/^[^A-Za-z0-9]+/, "") || "repository";
-    const tmp = mkdtempSync(nodePath.join(tmpdir(), "agent-deck-skillrepo-"));
-    const cloneDir = nodePath.join(tmp, "repo");
+    // Clone into a PERSISTENT dir kept for re-sync (native keeps the clone; the
+    // copy lands in the catalog). The clone is removed only on failure below or
+    // when the repo is later forgotten.
+    const repoId = randomUUID();
+    const clonePath = nodePath.join(skillReposRoot, repoId);
+    const cleanupClone = (): void => {
+      try {
+        rmSync(clonePath, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        // Best-effort — a leftover clone dir is harmless.
+      }
+    };
+    mkdirSync(skillReposRoot, { recursive: true });
     try {
-      await gitCloneShallow(source.cloneUrl, cloneDir, source.ref);
+      await gitClonePersistent(source.cloneUrl, clonePath, source.ref);
       // A subdir (from a deep link) scopes discovery to that subtree.
-      const scanDir = source.subdir ? nodePath.join(cloneDir, source.subdir) : cloneDir;
+      const scanDir = source.subdir ? nodePath.join(clonePath, source.subdir) : clonePath;
       const result = importSkillsFromClone(roots, scope, scanDir, repoName);
       if (result.imported.length === 0 && result.skipped.length === 0) {
+        cleanupClone();
         return reply.status(400).send({ error: "No SKILL.md found in that repository." });
       }
+      // Record provenance so the repo can be checked for + pulled updates later.
+      settings.upsertImportedSkillRepository({
+        id: repoId,
+        remoteUrl: source.cloneUrl,
+        ref: source.ref,
+        subdir: source.subdir,
+        scope,
+        projectPath: roots.projectPath,
+        clonePath,
+        skillNames: result.imported,
+        lastSyncedCommit: await gitHead(clonePath).catch(() => ""),
+        importedAt: new Date().toISOString(),
+      });
       broadcast({ type: "resources_changed" });
-      return result;
+      return { ...result, repoId };
     } catch (error) {
+      cleanupClone();
       const message = error instanceof Error ? error.message : String(error);
       if (message === "clone_failed") {
         return reply.status(400).send({
@@ -1184,15 +1214,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         });
       }
       return reply.status(500).send({ error: message });
-    } finally {
-      // Best-effort cleanup: a failure to remove the temp clone (e.g. a Windows
-      // file lock) must never mask the real result or error.
-      try {
-        rmSync(tmp, { recursive: true, force: true });
-      } catch {
-        // Leave the temp dir; the OS will reclaim it.
-      }
     }
+  });
+
+  // Imported skill repositories (native importedSkillRepositories) — the git repos
+  // a user synced skills from, so the UI can offer re-sync + forget.
+  fastify.get("/resources/skill-repos", async () => {
+    return {
+      repos: settings.get().importedSkillRepositories.map((r) => ({
+        id: r.id,
+        remoteUrl: r.remoteUrl,
+        ref: r.ref,
+        scope: r.scope,
+        skillNames: r.skillNames,
+        lastSyncedCommit: r.lastSyncedCommit,
+        importedAt: r.importedAt,
+      })),
+    };
   });
 
   // Prompt templates: single .md files pi exposes as /prompt:<name>.

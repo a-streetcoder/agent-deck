@@ -24,6 +24,7 @@ describe("SettingsStore onboarding preferences", () => {
     expect(s.defaultModel).toBeNull();
     expect(s.defaultThinking).toBeNull();
     expect(s.extensionLoadingMode).toBe("useMyExtensions");
+    expect(s.importedSkillRepositories).toEqual([]);
   });
 
   it("round-trips every field across a reload", () => {

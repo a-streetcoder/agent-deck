@@ -107,6 +107,46 @@ export async function gitCloneShallow(
   }
 }
 
+/**
+ * Clone a repo into a PERSISTENT dir kept for later re-sync (native
+ * SkillRepositorySyncService.cloneForDiscovery). Uses a blobless partial clone
+ * (`--filter=blob:none`) so only reachable trees download up front; if the source
+ * rejects the filter (common for a local path), retries a plain clone. `ref`
+ * pins the tracked branch. Throws "clone_failed" on failure.
+ */
+export async function gitClonePersistent(
+  source: string,
+  destDir: string,
+  ref?: string,
+): Promise<void> {
+  const branchArgs = ref ? ["--branch", ref, "--single-branch"] : [];
+  const opts = {
+    timeout: 180_000,
+    maxBuffer: 8_000_000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  };
+  try {
+    await execFileAsync(
+      gitBin(),
+      ["clone", "--filter=blob:none", ...branchArgs, source, destDir],
+      opts,
+    );
+  } catch {
+    // Partial-clone filter rejected (e.g. a local source) — retry a plain clone.
+    await rm(destDir, { recursive: true, force: true }).catch(() => {});
+    try {
+      await execFileAsync(gitBin(), ["clone", ...branchArgs, source, destDir], opts);
+    } catch {
+      throw new Error("clone_failed");
+    }
+  }
+}
+
+/** The HEAD commit sha of a clone (native rev-parse HEAD). */
+export async function gitHead(dir: string): Promise<string> {
+  return (await runGit(dir, ["rev-parse", "HEAD"])).trim();
+}
+
 export async function gitCommitAll(cwd: string, message: string): Promise<{ committed: true }> {
   const status = await gitStatus(cwd);
   if (!status.repo) throw new Error("not_a_repo");

@@ -75,6 +75,33 @@ export class ProjectIndex extends JsonArrayStore<ProjectMeta> {
   }
 }
 
+/**
+ * Provenance for a git-imported skill repository (native ImportedSkillRepository):
+ * the persistent clone kept so the repo can be re-synced, plus which skills came
+ * from it and the commit they're at. There is no on-disk lockfile — this record
+ * (persisted in AppSettings) IS the manifest.
+ */
+export interface ImportedSkillRepository {
+  id: string;
+  /** The clone URL (for ls-remote update checks). */
+  remoteUrl: string;
+  /** The tracked branch, when the import pinned one. */
+  ref?: string;
+  /** A repo subdirectory the import was scoped to (a deep link), if any. */
+  subdir?: string;
+  /** Where the imported skills landed. */
+  scope: "global" | "project";
+  /** For project scope: the project the skills were imported into. */
+  projectPath?: string;
+  /** The persistent clone dir, re-fetched on update. */
+  clonePath: string;
+  /** The catalog skill names imported from this repo. */
+  skillNames: string[];
+  /** The clone's HEAD commit at the last successful sync. */
+  lastSyncedCommit: string;
+  importedAt: string;
+}
+
 export interface AppSettings {
   /** Skills injected into EVERY project's parent sessions ("All Projects"). */
   defaultSkills: string[];
@@ -115,6 +142,8 @@ export interface AppSettings {
    * stricter mode as an opt-in.
    */
   extensionLoadingMode: "useMyExtensions" | "agentDeckManaged";
+  /** Provenance for git-imported skill repos (native importedSkillRepositories). */
+  importedSkillRepositories: ImportedSkillRepository[];
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
@@ -134,6 +163,7 @@ export class SettingsStore {
     defaultModel: null,
     defaultThinking: null,
     extensionLoadingMode: "useMyExtensions", // port default: load discovered extensions
+    importedSkillRepositories: [],
   };
 
   constructor(dataDir: string = defaultDataDir()) {
@@ -176,6 +206,9 @@ export class SettingsStore {
             record.extensionLoadingMode === "agentDeckManaged"
               ? "agentDeckManaged"
               : "useMyExtensions",
+          importedSkillRepositories: Array.isArray(record.importedSkillRepositories)
+            ? (record.importedSkillRepositories as ImportedSkillRepository[])
+            : [],
         };
       }
     } catch {
@@ -267,6 +300,23 @@ export class SettingsStore {
     if (disabled) next.add(extPath);
     else next.delete(extPath);
     this.settings = { ...this.settings, disabledExtensions: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Record (or replace-by-id) an imported skill repository's provenance. */
+  upsertImportedSkillRepository(repo: ImportedSkillRepository): AppSettings {
+    const rest = this.settings.importedSkillRepositories.filter((r) => r.id !== repo.id);
+    this.settings = { ...this.settings, importedSkillRepositories: [...rest, repo] };
+    this.flush();
+    return this.settings;
+  }
+
+  removeImportedSkillRepository(id: string): AppSettings {
+    this.settings = {
+      ...this.settings,
+      importedSkillRepositories: this.settings.importedSkillRepositories.filter((r) => r.id !== id),
+    };
     this.flush();
     return this.settings;
   }
