@@ -48,7 +48,6 @@ private struct CodingAgentPanelLayers<Nav: View, Panel: View>: View {
                 .allowsHitTesting(!isPanelExpanded)
 
             panel(isPanelExpanded)
-                .scaleEffect(isPanelExpanded ? 1 : 0.94, anchor: .bottom)
                 .offset(y: isPanelExpanded ? 0 : 52)
                 .animation(PanelTransition.move, value: isPanelExpanded)
                 .opacity(isPanelExpanded ? 1 : 0)
