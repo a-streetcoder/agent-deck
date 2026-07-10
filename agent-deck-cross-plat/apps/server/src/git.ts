@@ -296,6 +296,91 @@ export async function gitMerge(
   await runGit(projectDir, ["merge", "--no-ff", branch, "-m", `Merge ${branch}`]);
 }
 
+/** Propose the next patch/minor/major version off the latest `vX.Y.Z` tag
+ *  (semver; native uses a single-digit-minor scheme, generalized here). */
+export function nextReleaseVersions(latestTag: string | null): {
+  patch: string;
+  minor: string;
+  major: string;
+} {
+  const match = latestTag ? /^v(\d+)\.(\d+)\.(\d+)$/.exec(latestTag) : null;
+  if (!match) return { patch: "v0.1.0", minor: "v0.1.0", major: "v1.0.0" }; // first release
+  const [maj, min, pat] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return {
+    patch: `v${maj}.${min}.${pat + 1}`,
+    minor: `v${maj}.${min + 1}.0`,
+    major: `v${maj + 1}.0.0`,
+  };
+}
+
+/** Fetch tags from the remote (best-effort; no remote / offline is not fatal). */
+export async function gitFetchTags(cwd: string): Promise<void> {
+  try {
+    await runGit(cwd, ["fetch", "--tags", "--quiet"]);
+  } catch {
+    // No remote / offline — release preflight still works off local tags.
+  }
+}
+
+/** The newest `vX.Y.Z` version tag (native latestVersionTag), or null if none. */
+export async function gitLatestVersionTag(cwd: string): Promise<string | null> {
+  try {
+    const out = (
+      await runGit(cwd, ["tag", "-l", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname"])
+    ).trim();
+    // The glob also matches prerelease tags (v1.2.3-rc), which sort ahead of the
+    // plain release — scan for the newest STRICT vX.Y.Z, not just the first line.
+    const first = out
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => /^v\d+\.\d+\.\d+$/.test(line));
+    return first ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a tag exists locally OR on the remote (so a release can't clobber). */
+export async function gitTagExists(cwd: string, tag: string): Promise<boolean> {
+  try {
+    await runGit(cwd, ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`]);
+    return true;
+  } catch {
+    try {
+      return (await runGit(cwd, ["ls-remote", "--tags", "origin", tag])).trim().length > 0;
+    } catch {
+      return false; // no remote reachable — the local check already said no
+    }
+  }
+}
+
+/** Commit subjects in `range` (e.g. "v1.2.0..HEAD"), newest first, no merges —
+ *  the input to release-notes generation (native commitSubjects). */
+export async function gitCommitSubjects(cwd: string, range: string): Promise<string[]> {
+  const out = await runGit(cwd, ["log", "--no-merges", "--pretty=format:%s", range]);
+  return out
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Create an annotated tag with `--cleanup=verbatim` (native createAnnotatedTag) so
+ * the message's markdown `#`/`###` lines survive git's default comment-stripping,
+ * then push it. Throws the git stderr on failure.
+ */
+export async function gitTagAndPush(cwd: string, tag: string, message: string): Promise<void> {
+  await runGit(cwd, ["tag", "-a", "--cleanup=verbatim", tag, "-m", message || tag]);
+  try {
+    await runGit(cwd, ["push", "origin", tag]);
+  } catch (error) {
+    // Release is tag+push as one unit — if the push fails, roll back the local tag
+    // so a retry isn't trapped by our own gitTagExists (409) check. Best-effort.
+    await runGit(cwd, ["tag", "-d", tag]).catch(() => {});
+    throw new Error(`Release failed — couldn't push ${tag}: ${gitErrorText(error)}`);
+  }
+}
+
 /** The git stderr from a failed execFile, else the error message — for surfacing. */
 export function gitErrorText(error: unknown): string {
   const stderr = (error as { stderr?: string }).stderr;

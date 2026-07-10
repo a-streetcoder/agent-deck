@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { GitBranch, Sparkles } from "lucide-react";
+import { GitBranch, Sparkles, Tag } from "lucide-react";
 import { useAppStore } from "../state/store.ts";
 
 /**
@@ -16,6 +16,13 @@ interface GitStatus {
   branch?: string;
   files: GitFileChange[];
   clean: boolean;
+}
+type ReleaseBump = "patch" | "minor" | "major";
+interface ReleasePreflight {
+  branch: string | null;
+  latestTag: string | null;
+  nextVersions: Record<ReleaseBump, string>;
+  blocker: string | null;
 }
 
 export function GitScreen() {
@@ -35,6 +42,14 @@ export function GitScreen() {
   // the setting loads, so neither the actions nor the "off" note flashes first
   // (a flash of enabled actions could let a quick click fire while off).
   const [gitActions, setGitActions] = useState<boolean | null>(null);
+  // Native ReleaseService (generalized to any repo): tag a version + AI notes.
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [preflight, setPreflight] = useState<ReleasePreflight | null>(null);
+  const [bump, setBump] = useState<ReleaseBump>("patch");
+  const [notes, setNotes] = useState("");
+  const [preflighting, setPreflighting] = useState(false);
+  const [draftingNotes, setDraftingNotes] = useState(false);
+  const [releasing, setReleasing] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     if (!currentProjectId) return;
@@ -140,6 +155,76 @@ export function GitScreen() {
     }
   };
 
+  // Open the release panel and load preflight (latest tag + proposed versions).
+  const openRelease = async (): Promise<void> => {
+    if (!currentProjectId) return;
+    setReleaseOpen(true);
+    setPreflighting(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/projects/${encodeURIComponent(currentProjectId)}/release/preflight`,
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const data = (await response.json()) as ReleasePreflight;
+      setPreflight(data);
+    } catch (err) {
+      setError(String(err));
+      setReleaseOpen(false);
+    } finally {
+      setPreflighting(false);
+    }
+  };
+
+  const draftNotes = async (): Promise<void> => {
+    if (!currentProjectId || !preflight) return;
+    setDraftingNotes(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/projects/${encodeURIComponent(currentProjectId)}/release/notes`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ version: preflight.nextVersions[bump] }),
+        },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const { notes: drafted } = (await response.json()) as { notes: string };
+      setNotes(drafted);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setDraftingNotes(false);
+    }
+  };
+
+  const release = async (): Promise<void> => {
+    if (!currentProjectId || !preflight) return;
+    const tag = preflight.nextVersions[bump];
+    setReleasing(true);
+    setError(null);
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(currentProjectId)}/release`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tag, notes: notes.trim() || undefined }),
+      });
+      if (!response.ok) {
+        if (response.status === 409) throw new Error(`${tag} already exists.`);
+        throw new Error(await response.text());
+      }
+      pushToast({ kind: "success", message: `Released ${tag}` });
+      setReleaseOpen(false);
+      setPreflight(null);
+      setNotes("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setReleasing(false);
+    }
+  };
+
   if (!currentProjectId) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="git-screen">
@@ -172,7 +257,110 @@ export function GitScreen() {
               {status.branch}
             </span>
           ) : null}
+          {gitActions === true && status?.repo && !releaseOpen ? (
+            <button
+              data-testid="git-release"
+              className="ml-auto flex items-center gap-1 rounded-capsule border border-border-strong px-3 py-1 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+              disabled={preflighting}
+              onClick={() => void openRelease()}
+              title="Tag a version and generate release notes"
+            >
+              <Tag size={12} /> {preflighting ? "Preparing…" : "Release"}
+            </button>
+          ) : null}
         </div>
+
+        {releaseOpen ? (
+          <div
+            data-testid="git-release-panel"
+            className="mb-3 mt-2 flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface px-3.5 py-3"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-text-secondary">
+                {preflight?.latestTag ? (
+                  <>
+                    Latest release{" "}
+                    <span className="font-mono text-text-primary">{preflight.latestTag}</span>
+                  </>
+                ) : (
+                  "No releases yet — this will be the first."
+                )}
+              </div>
+              <button
+                data-testid="git-release-close"
+                className="text-xs text-text-muted hover:text-text-primary"
+                onClick={() => setReleaseOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {preflight?.blocker ? (
+              <div
+                data-testid="git-release-blocker"
+                className="rounded-md border border-border-subtle bg-surface-raised px-2.5 py-2 text-xs text-text-muted"
+              >
+                {preflight.blocker}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Version bump">
+              {(["patch", "minor", "major"] as const).map((kind) => (
+                <button
+                  key={kind}
+                  data-testid={`git-release-version-${kind}`}
+                  role="radio"
+                  aria-checked={bump === kind}
+                  className={`flex-1 rounded-md border px-2.5 py-1.5 text-left text-xs ${
+                    bump === kind
+                      ? "border-accent text-text-primary"
+                      : "border-border-subtle text-text-secondary hover:text-text-primary"
+                  }`}
+                  onClick={() => setBump(kind)}
+                >
+                  <div className="capitalize">{kind}</div>
+                  <div className="font-mono text-[11px] text-text-muted">
+                    {preflight?.nextVersions[kind] ?? "…"}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <textarea
+                data-testid="git-release-notes"
+                className="min-h-[112px] w-full rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+                placeholder="Release notes (optional — Generate drafts them from your commits)"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  data-testid="git-release-generate"
+                  className="mr-auto flex items-center gap-1 rounded-capsule border border-border-strong px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  disabled={draftingNotes || releasing || !preflight}
+                  onClick={() => void draftNotes()}
+                  title="Draft release notes from commits since the last tag"
+                >
+                  <Sparkles size={12} /> {draftingNotes ? "Drafting…" : "Generate notes"}
+                </button>
+                <button
+                  data-testid="git-release-confirm"
+                  className="rounded-capsule px-4 py-1.5 text-xs font-medium shadow-capsule disabled:opacity-40"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                    color: "var(--color-accent-foreground)",
+                  }}
+                  disabled={releasing || !preflight || Boolean(preflight?.blocker)}
+                  onClick={() => void release()}
+                >
+                  {releasing ? "Releasing…" : `Release ${preflight?.nextVersions[bump] ?? ""}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {gitActions === true && session?.worktreeBranch && session.worktreeSourceBranch ? (
           <div
