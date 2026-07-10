@@ -5913,8 +5913,8 @@ final class AppViewModel: NSObject {
             piAgentSessionStore.sessions
                 .filter { session in
                     guard session.status == .draft, session.piSessionFile == nil else { return false }
-                    let transcript = piAgentSessionStore.transcript(for: session.id)
-                    let hasActivity = !transcript.isEmpty
+                    let hasActivity = piAgentSessionStore.hasPersistedTranscript(for: session.id)
+                        || !piAgentSessionStore.transcript(for: session.id).isEmpty
                         || !(piAgentSessionStore.subagentRunsBySessionID[session.id] ?? []).isEmpty
                         || !(piAgentSessionStore.loopRunsBySessionID[session.id] ?? []).isEmpty
                     return !hasActivity

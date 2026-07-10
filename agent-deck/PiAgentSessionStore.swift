@@ -238,12 +238,10 @@ final class PiAgentSessionStore {
     private func scheduleLoad() {
         let fileURL = self.fileURL
         let transcriptManifestURL = self.transcriptManifestURL
-        let lazy = self.lazyTranscriptLoadingEnabled
         loadTask = Task { @MainActor [weak self] in
             let loaded = await Self.readPersisted(
                 fileURL: fileURL,
-                transcriptManifestURL: transcriptManifestURL,
-                lazyTranscriptLoadingEnabled: lazy
+                transcriptManifestURL: transcriptManifestURL
             )
             self?.applyLoadedPersistedState(loaded)
             self?.loadTask = nil
@@ -261,25 +259,67 @@ final class PiAgentSessionStore {
     /// avoid any cross-actor mutation; the caller applies it on `@MainActor`.
     nonisolated private static func readPersisted(
         fileURL: URL,
-        transcriptManifestURL: URL,
-        lazyTranscriptLoadingEnabled: Bool
+        transcriptManifestURL: URL
     ) async -> LoadedPersistedState {
         await Task.detached(priority: .userInitiated) { () -> LoadedPersistedState in
             guard FileManager.default.fileExists(atPath: fileURL.path) else { return .missing }
             do {
                 let data = try Data(contentsOf: fileURL)
-                if lazyTranscriptLoadingEnabled,
-                   let manifestData = try? Data(contentsOf: transcriptManifestURL),
-                   let manifest = try? JSONDecoder.piAgent.decode(TranscriptManifest.self, from: manifestData) {
-                    let persisted = try JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: data)
-                    return .lazy(persisted, manifest)
+                // Decode the legacy embedded form first. Its fields are a superset of
+                // the index, so decoding the index first would silently discard its
+                // embedded transcripts during migration.
+                if let persisted = try? JSONDecoder.piAgent.decode(PersistedState.self, from: data) {
+                    return .full(persisted)
                 }
-                let persisted = try JSONDecoder.piAgent.decode(PersistedState.self, from: data)
-                return .full(persisted)
+                let persisted = try JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: data)
+                let suppliedManifest: TranscriptManifest?
+                if let manifestData = try? Data(contentsOf: transcriptManifestURL) {
+                    suppliedManifest = try? JSONDecoder.piAgent.decode(TranscriptManifest.self, from: manifestData)
+                } else {
+                    suppliedManifest = nil
+                }
+                return .lazy(
+                    persisted,
+                    reconciledTranscriptManifest(
+                        for: persisted,
+                        suppliedManifest: suppliedManifest,
+                        transcriptsDirectoryURL: transcriptManifestURL.deletingLastPathComponent()
+                    )
+                )
             } catch {
                 return .error(error.localizedDescription)
             }
         }.value
+    }
+
+    /// Rebuilds the manifest from transcript files only when their IDs are known
+    /// by the successfully decoded session index. This repairs interrupted or
+    /// stale manifest writes without adopting orphaned files from disk.
+    nonisolated private static func reconciledTranscriptManifest(
+        for index: PersistedStateIndex,
+        suppliedManifest: TranscriptManifest?,
+        transcriptsDirectoryURL: URL
+    ) -> TranscriptManifest {
+        let validParentSessionIDs = Set(index.sessions.map(\.id))
+        let validSubagentRunIDs = Set((index.subagentRuns ?? []).flatMap { $0.runs.map(\.id) })
+        let filenames = (try? FileManager.default.contentsOfDirectory(atPath: transcriptsDirectoryURL.path)) ?? []
+
+        func discoveredIDs(prefix: String, validIDs: Set<UUID>) -> Set<UUID> {
+            Set(filenames.compactMap { filename in
+                guard filename.hasPrefix(prefix), filename.hasSuffix(".json") else { return nil }
+                let start = filename.index(filename.startIndex, offsetBy: prefix.count)
+                let end = filename.index(filename.endIndex, offsetBy: -5)
+                guard start < end, let id = UUID(uuidString: String(filename[start..<end])) else { return nil }
+                return validIDs.contains(id) ? id : nil
+            })
+        }
+
+        let manifestParentIDs = Set(suppliedManifest?.parentSessionIDs ?? []).intersection(validParentSessionIDs)
+        let manifestSubagentIDs = Set(suppliedManifest?.subagentRunIDs ?? []).intersection(validSubagentRunIDs)
+        return TranscriptManifest(
+            parentSessionIDs: Array(manifestParentIDs.union(discoveredIDs(prefix: "parent-", validIDs: validParentSessionIDs))),
+            subagentRunIDs: Array(manifestSubagentIDs.union(discoveredIDs(prefix: "subagent-", validIDs: validSubagentRunIDs)))
+        )
     }
 
     var selectedSession: PiAgentSessionRecord? {
@@ -793,6 +833,10 @@ final class PiAgentSessionStore {
 
     func hasCachedSubagentTranscript(for runID: UUID) -> Bool {
         subagentTranscriptsByRunID[runID] != nil
+    }
+
+    func hasPersistedTranscript(for sessionID: UUID) -> Bool {
+        persistedTranscriptSessionIDs.contains(sessionID)
     }
 
     func hasPersistedSubagentTranscript(for runID: UUID) -> Bool {
@@ -2969,6 +3013,9 @@ final class PiAgentSessionStore {
             selectedSessionID = sessions.first?.id
         }
         loadInitialTranscriptCache()
+        // Repair a missing, corrupt, or incomplete manifest once the valid
+        // index and on-disk transcript filenames have been reconciled.
+        persistTranscriptManifest()
         // Kick the selected session's transcript load synchronously so
         // `isSelectedTranscriptLoading` is already true by the time the view
         // first renders — otherwise the transcript area is briefly blank.
@@ -3606,11 +3653,6 @@ final class PiAgentSessionStore {
             persistSubagentTranscript(runID)
         }
         persistTranscriptManifest()
-    }
-
-    private func loadTranscriptManifest() -> TranscriptManifest? {
-        guard let data = try? Data(contentsOf: transcriptManifestURL) else { return nil }
-        return try? JSONDecoder.piAgent.decode(TranscriptManifest.self, from: data)
     }
 
     private func persistTranscriptManifest() {

@@ -340,6 +340,104 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(ok)
     }
 
+    func testLazyLoadDiscoversTranscriptOmittedFromValidManifest() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Manifest omission", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.append(.init(sessionID: session.id, role: .user, title: "User", text: "preserved transcript"))
+        firstStore.flushForTesting()
+        try writeManifest(parentSessionIDs: [], subagentRunIDs: [], for: fileURL)
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+
+        XCTAssertTrue(reloadedStore.hasPersistedTranscript(for: session.id))
+        XCTAssertEqual(reloadedStore.transcript(for: session.id).map(\.text), ["preserved transcript"])
+        let manifestWasRewritten = await PiTestSupport.waitUntilAsync {
+            self.manifestParentSessionIDs(for: fileURL).contains(session.id)
+        }
+        XCTAssertTrue(manifestWasRewritten)
+    }
+
+    func testLazyLoadDiscoversSubagentTranscriptOmittedFromValidManifest() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Subagent manifest omission", project: try PiTestSupport.makeProject(), repository: nil)
+        let run = PiSubagentRunRecord.failedPlaceholder(parentSessionID: session.id, agentName: "Test", task: "Recover transcript", error: "Stopped")
+        firstStore.upsertSubagentRun(run)
+        firstStore.appendSubagentTranscript(
+            .init(sessionID: session.id, role: .assistant, title: "Assistant", text: "preserved subagent transcript"),
+            runID: run.id,
+            parentSessionID: session.id
+        )
+        firstStore.flushForTesting()
+        try writeManifest(parentSessionIDs: [], subagentRunIDs: [], for: fileURL)
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+
+        XCTAssertTrue(reloadedStore.hasPersistedSubagentTranscript(for: run.id))
+        XCTAssertEqual(reloadedStore.subagentTranscript(for: run.id).map(\.text), ["preserved subagent transcript"])
+    }
+
+    func testLazyLoadRecoversCurrentIndexWhenManifestIsMissingOrCorrupt() async throws {
+        for corruptManifest in [false, true] {
+            let fileURL = PiTestSupport.temporaryStateFile()
+            let firstStore = PiAgentSessionStore(fileURL: fileURL)
+            let session = firstStore.createSession(kind: .project, title: "Manifest recovery", project: try PiTestSupport.makeProject(), repository: nil)
+            firstStore.append(.init(sessionID: session.id, role: .user, title: "User", text: "preserved transcript"))
+            firstStore.flushForTesting()
+            let manifestURL = transcriptManifestURL(for: fileURL)
+            if corruptManifest {
+                try Data("not JSON".utf8).write(to: manifestURL, options: .atomic)
+            } else {
+                try FileManager.default.removeItem(at: manifestURL)
+            }
+
+            let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+            await reloadedStore.waitForLoadForTesting()
+
+            XCTAssertEqual(reloadedStore.sessions.map(\.id), [session.id])
+            XCTAssertTrue(reloadedStore.hasPersistedTranscript(for: session.id))
+            XCTAssertEqual(reloadedStore.transcript(for: session.id).map(\.text), ["preserved transcript"])
+        }
+    }
+
+    func testLazyLoadIgnoresOrphanTranscriptFile() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Known", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.append(.init(sessionID: session.id, role: .user, title: "User", text: "known transcript"))
+        firstStore.flushForTesting()
+
+        let orphanID = UUID()
+        let directory = transcriptManifestURL(for: fileURL).deletingLastPathComponent()
+        let knownURL = directory.appendingPathComponent("parent-\(session.id.uuidString).json")
+        let orphanURL = directory.appendingPathComponent("parent-\(orphanID.uuidString).json")
+        try FileManager.default.copyItem(at: knownURL, to: orphanURL)
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+
+        XCTAssertTrue(reloadedStore.hasPersistedTranscript(for: session.id))
+        XCTAssertFalse(reloadedStore.hasPersistedTranscript(for: orphanID))
+    }
+
+    func testLegacyEmbeddedStateMigratesWithoutDiscardingTranscript() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        firstStore.configureTranscriptMemory(lazyLoadingEnabled: false, cacheLimit: 1)
+        let session = firstStore.createSession(kind: .project, title: "Legacy", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.append(.init(sessionID: session.id, role: .user, title: "User", text: "legacy transcript"))
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+
+        XCTAssertEqual(reloadedStore.sessions.map(\.id), [session.id])
+        XCTAssertEqual(reloadedStore.transcript(for: session.id).map(\.text), ["legacy transcript"])
+    }
+
     func testTranscriptForCacheUpdateReturnsWarmTranscriptSynchronously() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "Warm", project: try PiTestSupport.makeProject(), repository: nil)
@@ -476,6 +574,28 @@ final class PiAgentSessionStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(store.supervisorRequests(for: session.id).first?.status, .cancelled)
+    }
+
+    private func transcriptManifestURL(for fileURL: URL) -> URL {
+        fileURL.deletingLastPathComponent()
+            .appendingPathComponent("agent-session-transcripts", isDirectory: true)
+            .appendingPathComponent("manifest.json")
+    }
+
+    private func manifestParentSessionIDs(for fileURL: URL) -> Set<UUID> {
+        guard let data = try? Data(contentsOf: transcriptManifestURL(for: fileURL)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawIDs = object["parentSessionIDs"] as? [String] else { return [] }
+        return Set(rawIDs.compactMap(UUID.init(uuidString:)))
+    }
+
+    private func writeManifest(parentSessionIDs: [UUID], subagentRunIDs: [UUID], for fileURL: URL) throws {
+        let object: [String: Any] = [
+            "parentSessionIDs": parentSessionIDs.map(\.uuidString),
+            "subagentRunIDs": subagentRunIDs.map(\.uuidString)
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        try data.write(to: transcriptManifestURL(for: fileURL), options: .atomic)
     }
 
     private func rewritePersistedSelection(in fileURL: URL, selectedSessionID: Any) throws {
