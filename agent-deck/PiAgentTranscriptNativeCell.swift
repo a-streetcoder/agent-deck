@@ -120,6 +120,77 @@ final class NativeRowSpec {
     }
 }
 
+/// Presentation-only filtering for automatically rendered transcript images. It
+/// deliberately leaves the persisted entry and copy text untouched.
+enum PiAgentTranscriptImagePresentation {
+    static func projectedSource(
+        _ source: String,
+        references: [PiAgentTranscriptImageReference],
+        showImages: Bool
+    ) -> String {
+        guard !showImages, !source.isEmpty else { return source }
+
+        struct Token {
+            let range: NSRange
+            let source: String
+            let alwaysImage: Bool
+        }
+
+        let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        let patterns: [(String, Int, Bool)] = [
+            (#"!\[[^\]]*\]\(([^\s\)]+)(?:\s+\"[^\"]*\")?\)"#, 1, true),
+            (#"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>"#, 1, true),
+            (#"data:image/[^\s\)>\"']+"#, 0, true),
+            (#"https://[^\s\)>\"']+"#, 0, false)
+        ]
+        let protectedRanges = protectedRanges(in: source)
+        let tokens: [Token] = patterns.flatMap { (pattern, sourceGroup, alwaysImage) -> [Token] in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+            return regex.matches(in: source, range: fullRange).compactMap { match in
+                guard !protectedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return nil }
+                let sourceRange = match.range(at: sourceGroup)
+                guard sourceRange.location != NSNotFound,
+                      let range = Range(sourceRange, in: source) else { return nil }
+                return Token(range: match.range, source: String(source[range]), alwaysImage: alwaysImage)
+            }
+        }
+
+        let removals = tokens
+            .sorted { $0.range.location < $1.range.location }
+            .reduce(into: [NSRange]()) { ranges, token in
+                guard token.alwaysImage || references.contains(where: { reference in
+                    reference.source == token.source
+                        || (reference.source == "data-url" && token.source.lowercased().hasPrefix("data:image/"))
+                        || reference.remoteURL == token.source
+                        || reference.localPath == token.source
+                        || reference.name == URL(fileURLWithPath: token.source).lastPathComponent
+                }) else { return }
+                guard !ranges.contains(where: { NSIntersectionRange($0, token.range).length > 0 }) else { return }
+                ranges.append(token.range)
+            }
+
+        return removals.reversed().reduce(source) { result, range in
+            guard let stringRange = Range(range, in: result) else { return result }
+            return result.replacingCharacters(in: stringRange, with: "")
+        }
+    }
+
+    /// Matches the native bubble parser's exclusions for URLs that are text/code,
+    /// rather than automatically rendered image tokens.
+    static func protectedRanges(in source: String) -> [NSRange] {
+        let patterns = [
+            #"(?s)```.*?```"#,
+            #"`[^`]*`"#,
+            #"(?<!!)\[[^\]]+\]\([^\)]*\)"#
+        ]
+        let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        return patterns.flatMap { pattern -> [NSRange] in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+            return regex.matches(in: source, range: fullRange).map(\.range)
+        }
+    }
+}
+
 /// Typed payload for a native message bubble. Built once in the items pass; the
 /// cell configures a `PiAgentNativeBubbleView` from it.
 struct NativeBubblePayload {
@@ -132,6 +203,7 @@ struct NativeBubblePayload {
     var iconSymbol: String?
     var markdownSource: String
     var imageReferences: [PiAgentTranscriptImageReference] = []
+    var showInlineImagePreviews: Bool = true
     /// Small bold label above the body (e.g. "Reasoning" for thinking rows).
     var bodyPrefix: String?
     var copyText: String
@@ -725,7 +797,8 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         if let prefix = payload?.bodyPrefix, !prefix.isEmpty {
             h += ceil(prefixLabel.intrinsicContentSize.height) + prefixSpacing
         }
-        let blocks = Self.contentBlocks(source: payload?.markdownSource ?? "", references: payload?.imageReferences ?? [])
+        let presentation = imagePresentation()
+        let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
         var isFirst = true
         var markdownIndex = 0
         for block in blocks {
@@ -762,7 +835,8 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             contentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        let blocks = Self.contentBlocks(source: payload.markdownSource, references: payload.imageReferences)
+        let presentation = imagePresentation()
+        let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
         var markdownIndex = 0
         for block in blocks {
             switch block {
@@ -782,6 +856,18 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             markdownAppliers.removeLast().cancel()
             markdownContainers.removeLast()
         }
+    }
+
+    private func imagePresentation() -> (source: String, references: [PiAgentTranscriptImageReference]) {
+        guard let payload else { return ("", []) }
+        return (
+            PiAgentTranscriptImagePresentation.projectedSource(
+                payload.markdownSource,
+                references: payload.imageReferences,
+                showImages: payload.showInlineImagePreviews
+            ),
+            payload.showInlineImagePreviews ? payload.imageReferences : []
+        )
     }
 
     private func markdownContainer(at index: Int) -> NativeMarkdownTextContainer {
@@ -857,16 +943,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     }
 
     private static func plainImageURLProtectedRanges(in source: String) -> [NSRange] {
-        let patterns = [
-            #"(?s)```.*?```"#,
-            #"`[^`]*`"#,
-            #"(?<!!)\[[^\]]+\]\([^\)]*\)"#
-        ]
-        let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
-        return patterns.flatMap { pattern -> [NSRange] in
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-            return regex.matches(in: source, range: fullRange).map(\.range)
-        }
+        PiAgentTranscriptImagePresentation.protectedRanges(in: source)
     }
 
     private static func htmlAttribute(_ name: String, in tag: String) -> String? {

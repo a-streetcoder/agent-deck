@@ -5689,7 +5689,7 @@ struct PiAgentScreen: View {
                                 for: question, skills: skills, commandSlashNames: commandSlashNames) > 0
                             return hasChips
                                 ? nativeChipQuestionKind(question, skills: skills, commandSlashNames: commandSlashNames)
-                                : nativeQuestionKind(question, skills: skills, commandSlashNames: commandSlashNames)
+                                : nativeQuestionKind(question, skills: skills, commandSlashNames: commandSlashNames, showImages: visibility.showImages)
                         }
                         descriptors.append(PiAgentTranscriptBlockDescriptor(
                             id: blockID,
@@ -5876,7 +5876,8 @@ struct PiAgentScreen: View {
     private func nativeQuestionKind(
         _ question: PiAgentTranscriptEntry,
         skills: [SkillRecord],
-        commandSlashNames: Set<String>
+        commandSlashNames: Set<String>,
+        showImages: Bool
     ) -> PiAgentTranscriptCellKind {
         let text = PiAgentUserMessageContent.displayMessageText(
             for: question, skills: skills, commandSlashNames: commandSlashNames)
@@ -5887,6 +5888,7 @@ struct PiAgentScreen: View {
             iconSymbol: "person.crop.circle",
             markdownSource: text,
             imageReferences: question.imageReferences,
+            showInlineImagePreviews: showImages,
             bodyPrefix: nil,
             copyText: question.text,
             copySide: .leading,
@@ -5934,9 +5936,9 @@ struct PiAgentScreen: View {
     ) -> PiAgentTranscriptCellKind? {
         switch child {
         case .assistant:
-            return nativeReplyPayload(for: child).map { .bubble($0) }
+            return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
         case .thinking:
-            return nativeReplyPayload(for: child).map { .bubble($0) }
+            return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
         case .steering(let entry):
             // Steering messages are user messages, so they render right-aligned
             // like the initial user question. Chip-bearing ones use the native
@@ -5961,6 +5963,7 @@ struct PiAgentScreen: View {
                 iconSymbol: "arrowshape.turn.up.forward.circle",
                 markdownSource: text,
                 imageReferences: entry.imageReferences,
+                showInlineImagePreviews: visibility.showImages,
                 bodyPrefix: nil,
                 copyText: entry.text,
                 copySide: .leading,
@@ -6059,7 +6062,7 @@ struct PiAgentScreen: View {
     /// rows (assistant / thinking). Returns nil for anything that still renders
     /// through the hosted SwiftUI path (subagent summaries, tool groups, status,
     /// errors, retries, steering — handled in later stages).
-    private func nativeReplyPayload(for child: PiAgentThreadChild) -> NativeBubblePayload? {
+    private func nativeReplyPayload(for child: PiAgentThreadChild, showImages: Bool) -> NativeBubblePayload? {
         switch child {
         case .assistant(let entry):
             let text = entry.text
@@ -6069,6 +6072,7 @@ struct PiAgentScreen: View {
                 iconSymbol: nil,
                 markdownSource: text,
                 imageReferences: entry.imageReferences,
+                showInlineImagePreviews: showImages,
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
                 copySide: .trailing,
@@ -6082,6 +6086,7 @@ struct PiAgentScreen: View {
                 iconSymbol: "brain.head.profile",
                 markdownSource: display.isEmpty ? "Pi has not emitted reasoning text yet." : display,
                 imageReferences: entry.imageReferences,
+                showInlineImagePreviews: showImages,
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,

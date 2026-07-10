@@ -1135,9 +1135,9 @@ struct PiNativeSubagentTranscriptSheet: View {
         case .status, .stderr, .raw, .error:
             PiAgentStatusTranscriptRow(entry: entry)
         case .user:
-            PiAgentTranscriptCard(entry: entry, style: .question)
+            PiAgentTranscriptCard(entry: entry, style: .question, showInlineImagePreviews: visibility.showImages)
         default:
-            PiAgentTranscriptCard(entry: entry, style: .threadChild)
+            PiAgentTranscriptCard(entry: entry, style: .threadChild, showInlineImagePreviews: visibility.showImages)
         }
     }
 

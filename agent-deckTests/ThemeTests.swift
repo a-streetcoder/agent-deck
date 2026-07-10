@@ -88,6 +88,7 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(settings.selectedThemeID, Theme.defaultTheme.id)
         XCTAssertTrue(settings.customThemes.isEmpty)
         XCTAssertTrue(settings.piAgentMarkdownHighlightingEnabled)
+        XCTAssertTrue(settings.piAgentTranscriptVisibility.showImages)
     }
 
     func testAppSettingsRoundTripsDisabledMarkdownHighlighting() throws {

@@ -3590,6 +3590,9 @@ struct PiAgentTranscriptCard: View {
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
     var commandSlashNames: Set<String> = []
+    /// Applies only to automatic transcript image markup; user attachment chips
+    /// continue through `PiAgentUserMessageContent` unchanged.
+    var showInlineImagePreviews: Bool = true
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -3657,12 +3660,12 @@ struct PiAgentTranscriptCard: View {
             // subhead. Both renderers MUST stay in lockstep — see
             // `nativeReplyPayload(for:)` for the production path.
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            MarkdownTextView(source: display.isEmpty ? "Pi has not emitted reasoning text yet." : display)
+            MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if entry.role == .user {
             PiAgentUserMessageContent(entry: entry, skills: skills, commandSlashNames: commandSlashNames)
         } else if entry.role == .assistant {
-            MarkdownTextView(source: entry.text)
+            MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(entry.text)
@@ -3672,6 +3675,14 @@ struct PiAgentTranscriptCard: View {
         }
     }
 
+
+    static func projectedImageSource(
+        _ source: String,
+        references: [PiAgentTranscriptImageReference],
+        showImages: Bool
+    ) -> String {
+        PiAgentTranscriptImagePresentation.projectedSource(source, references: references, showImages: showImages)
+    }
 
     private var headerTitle: String {
         if entry.title == "Steering" { return "Steering" }

@@ -103,6 +103,61 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         XCTAssertFalse(font(in: neutral, substring: "Quote")?.fontDescriptor.symbolicTraits.contains(.italic) == true)
     }
 
+    func testImagesOffProjectsAutomaticImageMarkupWithoutChangingCopySource() {
+        let markdownURL = "https://example.com/markdown.png"
+        let htmlURL = "https://example.com/html.png"
+        let plainURL = "https://example.com/plain.png"
+        let source = "Before ![alt](\(markdownURL)) middle <img src=\"\(htmlURL)\"> data:image/png;base64,AAAA after \(plainURL) and https://example.com/keep"
+        let references = [
+            PiAgentTranscriptImageReference(name: "markdown.png", mimeType: "image/png", localPath: nil, remoteURL: markdownURL),
+            PiAgentTranscriptImageReference(name: "html.png", mimeType: "image/png", localPath: nil, remoteURL: htmlURL),
+            PiAgentTranscriptImageReference(name: "plain.png", mimeType: "image/png", localPath: nil, remoteURL: plainURL)
+        ]
+
+        let projected = PiAgentTranscriptImagePresentation.projectedSource(source, references: references, showImages: false)
+        // Token removal deliberately preserves the source's surrounding whitespace.
+        XCTAssertEqual(projected, "Before  middle   after  and https://example.com/keep")
+        XCTAssertEqual(PiAgentTranscriptImagePresentation.projectedSource(source, references: references, showImages: true), source)
+        let payload = NativeBubblePayload(
+            role: .assistant, headerTitle: "Coding Agent", iconSymbol: nil,
+            markdownSource: source, imageReferences: references,
+            showInlineImagePreviews: false, copyText: source,
+            copySide: .trailing, isThreadChild: true
+        )
+        XCTAssertEqual(payload.copyText, source)
+
+        // The Deck-agent sheet uses PiAgentTranscriptCard; it receives the same
+        // projection while its user attachment-chip path remains separate.
+        XCTAssertEqual(
+            PiAgentTranscriptCard.projectedImageSource(source, references: references, showImages: false),
+            projected
+        )
+    }
+
+    func testImagesOffPreservesLinksAndCodeRanges() {
+        let imageURL = "https://example.com/image.png"
+        let dataURL = "data:image/png;base64,AAAA"
+        let source = """
+        [Normal link](\(imageURL))
+        `\(dataURL)`
+        ```text
+        \(imageURL)
+        \(dataURL)
+        ```
+        ![preview](\(imageURL))
+        """
+        let references = [
+            PiAgentTranscriptImageReference(name: "image.png", mimeType: "image/png", localPath: nil, remoteURL: imageURL),
+            PiAgentTranscriptImageReference(name: "inline.png", mimeType: "image/png", localPath: nil, source: "data-url")
+        ]
+
+        let projected = PiAgentTranscriptImagePresentation.projectedSource(source, references: references, showImages: false)
+        XCTAssertTrue(projected.contains("[Normal link](\(imageURL))"))
+        XCTAssertTrue(projected.contains("`\(dataURL)`"))
+        XCTAssertTrue(projected.contains("```text\n\(imageURL)\n\(dataURL)\n```"))
+        XCTAssertFalse(projected.contains("![preview](\(imageURL))"))
+    }
+
     func testSingleLineMarkdownBlockquoteDoesNotExpandVertically() throws {
         let source = """
         The `slkiser/opencode-quota` project supports OpenCode Go, but importantly its README says:
@@ -379,6 +434,26 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         let imageModel = NativeToolGroupModel.make(group: imageGroup, visibility: .init(), projectPath: nil)
         XCTAssertEqual(imageModel?.images?.references, [imageReference])
         XCTAssertTrue(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(imageGroup, visibility: .init(), projectPath: nil))
+
+        var imagesOff = PiAgentTranscriptVisibilitySettings()
+        imagesOff.showImages = false
+        XCTAssertNil(NativeToolGroupModel.make(group: imageGroup, visibility: imagesOff, projectPath: nil))
+        XCTAssertFalse(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(imageGroup, visibility: imagesOff, projectPath: nil))
+
+        let mcpImageEntry = PiAgentTranscriptEntry(
+            sessionID: sessionID,
+            role: .tool,
+            title: "Tool: mcp",
+            text: "Image result",
+            rawJSON: "{\"args\": {\"tool\": \"Pidgeon/preview\", \"args\": {}}}",
+            imageReferences: [imageReference]
+        )
+        let mcpImageGroup = PiAgentThreadToolGroup(
+            id: mcpImageEntry.id,
+            entries: [mcpImageEntry],
+            activities: PiAgentTranscriptActivity.make(from: [mcpImageEntry])
+        )
+        XCTAssertEqual(NativeToolGroupModel.make(group: mcpImageGroup, visibility: imagesOff, projectPath: nil)?.mcp?.rows.first?.imageReferences, [])
 
         // MCP is excluded from the generic tool-call recap (only Read remains)...
         let toolRecap = NativeToolGroupModel.toolCallRecap(from: entries)

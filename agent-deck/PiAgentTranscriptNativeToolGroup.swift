@@ -241,7 +241,7 @@ extension NativeToolGroupModel {
                             server: call.server,
                             tool: call.tool,
                             resultPreview: call.resultPreview,
-                            imageReferences: call.imageReferences,
+                            imageReferences: visibility.showImages ? call.imageReferences : [],
                             isError: call.isError,
                             errorSummary: call.isError ? mcpErrorSummary(call.resultPreview) : nil
                         )
@@ -251,7 +251,7 @@ extension NativeToolGroupModel {
             }
         }
 
-        let allImageReferences = toolActivities.flatMap(\.entries).flatMap(\.imageReferences)
+        let allImageReferences = visibility.showImages ? toolActivities.flatMap(\.entries).flatMap(\.imageReferences) : []
         let images = allImageReferences.isEmpty ? nil : Images(
             references: Array(allImageReferences.prefix(8)),
             hiddenCount: max(0, allImageReferences.count - 8)

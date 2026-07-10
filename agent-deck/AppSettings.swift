@@ -10,6 +10,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
     var showDiffs: Bool = true
     var showMemoryCards: Bool = true
     var showMCPCards: Bool = true
+    var showImages: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case showShortcutsStrip
@@ -21,6 +22,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
         case showDiffs
         case showMemoryCards
         case showMCPCards
+        case showImages
     }
 
     init() {}
@@ -36,6 +38,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
         showDiffs = try container.decodeIfPresent(Bool.self, forKey: .showDiffs) ?? true
         showMemoryCards = try container.decodeIfPresent(Bool.self, forKey: .showMemoryCards) ?? true
         showMCPCards = try container.decodeIfPresent(Bool.self, forKey: .showMCPCards) ?? true
+        showImages = try container.decodeIfPresent(Bool.self, forKey: .showImages) ?? true
     }
 }
 
