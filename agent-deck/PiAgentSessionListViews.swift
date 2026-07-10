@@ -665,10 +665,6 @@ struct PiAgentSessionRow: View, Equatable {
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
                     .layoutPriority(1)
-                Image(systemName: "pencil")
-                    .font(AppTheme.Font.caption2.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .opacity(isTitleHovered ? 0.8 : 0)
             }
             .font(AppTheme.Font.footnote.weight(.medium))
             .fontWidth(.expanded)
