@@ -51,7 +51,7 @@ struct AutoPerfJourneySelection: Equatable {
     }
 }
 
-final class AutoPerfCoordinator {
+final class AutoPerfCoordinator: @unchecked Sendable {
     static let enabled = ProcessInfo.processInfo.environment["AGENTDECK_AUTOPERF"] != nil
     static let shared = AutoPerfCoordinator()
 

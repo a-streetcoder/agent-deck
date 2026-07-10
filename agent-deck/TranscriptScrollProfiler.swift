@@ -49,7 +49,7 @@ final class TranscriptScrollProfiler {
     }
 
     /// Drains DEBUG artifact writes before a consumer reads the perf log.
-    static func flushFileLog(completion: @escaping () -> Void) {
+    static func flushFileLog(completion: @escaping @MainActor () -> Void) {
 #if DEBUG
         DebugArtifactWriter.perfLog.flush(completion: completion)
 #else
