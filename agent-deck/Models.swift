@@ -305,6 +305,19 @@ nonisolated struct EnvKeyRecord: Identifiable, Hashable, Sendable {
     let source: ScopeID
 }
 
+nonisolated enum PiThinkingLevelCatalog {
+    /// Pi's canonical order as of 0.80.6. Individual models expose a subset;
+    /// notably GPT-5.6 adds `max` while earlier reasoning models stop at `xhigh`.
+    static let ordered = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+    /// Levels Pi guarantees for a reasoning model unless its model metadata says
+    /// otherwise. Used only when the exact runtime capability probe cannot run.
+    static let baseline = ["off", "minimal", "low", "medium", "high"]
+
+    static func sortIndex(_ level: String) -> Int {
+        ordered.firstIndex(of: level) ?? Int.max
+    }
+}
+
 nonisolated struct AvailableModel: Identifiable, Hashable, Sendable {
     let provider: String
     let model: String

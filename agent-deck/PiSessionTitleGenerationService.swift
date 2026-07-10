@@ -80,7 +80,7 @@ final class PiSessionTitleGenerationService {
         let trimmedThinking = thinkingLevel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModel.isEmpty, !trimmedThinking.isEmpty else { return trimmedModel }
 
-        let knownThinkingSuffixes = ["off", "minimal", "low", "medium", "high", "xhigh"]
+        let knownThinkingSuffixes = PiThinkingLevelCatalog.ordered
         let baseModel: String
         if let suffix = trimmedModel.split(separator: ":").last,
            knownThinkingSuffixes.contains(String(suffix)) {

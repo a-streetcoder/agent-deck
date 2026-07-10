@@ -157,6 +157,34 @@ anthropic claude-sonnet-4.5 200k 64k no no
     }
 
     @MainActor
+    func testParsesPiExactGPT56ThinkingLevelsIncludingMax() {
+        let output = """
+provider model context output thinking images
+openai-codex gpt-5.6-terra 372K 128K yes yes
+"""
+        let levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+
+        let models = PiModelDiscoveryService.parseAvailableModels(
+            from: output,
+            exactThinkingLevels: ["openai-codex/gpt-5.6-terra": levels]
+        )
+
+        XCTAssertEqual(models.first?.supportedThinkingLevels, levels)
+    }
+
+    @MainActor
+    func testReasoningModelUsesBaselineWhenExactProbeFails() {
+        let output = """
+provider model context output thinking images
+openai-codex gpt-5.6-terra 372K 128K yes yes
+"""
+
+        let models = PiModelDiscoveryService.parseAvailableModels(from: output, exactThinkingLevels: [:])
+
+        XCTAssertEqual(models.first?.supportedThinkingLevels, PiThinkingLevelCatalog.baseline)
+    }
+
+    @MainActor
     func testExtractsProviderAndModelIdentifiers() {
         let output = """
 provider model context output thinking images
@@ -192,6 +220,45 @@ google-vertex gemini-2.5-pro 1M 64K yes yes
         XCTAssertEqual(models.first?.identifier, "google-vertex/gemini-2.5-pro")
         XCTAssertEqual(models.first?.supportedThinkingLevels, ["off", "low", "medium", "high"])
     }
+
+    @MainActor
+    func testCapabilityProbeUsesResolvedNodeExecutable() async throws {
+        let nodeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-deck-node-\(UUID().uuidString)")
+        try "#!/bin/sh\nexit 0\n".write(to: nodeURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nodeURL.path)
+        let previousNodePath = ProcessInfo.processInfo.environment["AGENT_DECK_NODE_PATH"]
+        setenv("AGENT_DECK_NODE_PATH", nodeURL.path, 1)
+        defer {
+            try? FileManager.default.removeItem(at: nodeURL)
+            if let previousNodePath {
+                setenv("AGENT_DECK_NODE_PATH", previousNodePath, 1)
+            } else {
+                unsetenv("AGENT_DECK_NODE_PATH")
+            }
+        }
+
+        let output = """
+provider model context output thinking images
+openai-codex gpt-5.6-terra 372K 128K yes yes
+"""
+        let runner = FakeModelDiscoveryCommandRunner(
+            listOutput: output,
+            nodeOutput: #"{"openai-codex/gpt-5.6-terra":["off","minimal","low","medium","high","xhigh","max"]}"#
+        )
+        let service = PiModelDiscoveryService(
+            commandRunner: runner,
+            piResolver: PiExecutableResolver(candidatesProvider: { [] }, defaultPathDirectories: { [] })
+        )
+
+        let models = await service.loadAvailableModels()
+        let script = await runner.nodeScript ?? ""
+        let nodeCommand = await runner.nodeCommand
+
+        XCTAssertEqual(nodeCommand, nodeURL.path)
+        XCTAssertTrue(script.contains("createRequire(modulePath)"))
+        XCTAssertEqual(models.first?.supportedThinkingLevels.last, "max")
+    }
 }
 
 final class PiProviderCatalogServiceTests: XCTestCase {
@@ -221,6 +288,7 @@ private actor FakeModelDiscoveryCommandRunner: CommandRunning {
     private let listOutput: String
     private let nodeOutput: String
     private(set) var nodeScript: String?
+    private(set) var nodeCommand: String?
 
     init(listOutput: String, nodeOutput: String) {
         self.listOutput = listOutput
@@ -237,7 +305,8 @@ private actor FakeModelDiscoveryCommandRunner: CommandRunning {
         if arguments == ["--list-models"] {
             return CommandResult(stdout: listOutput, stderr: "", exitCode: 0)
         }
-        if command == "node" {
+        if arguments.first == "--input-type=module" {
+            nodeCommand = command
             nodeScript = arguments.last
             return CommandResult(stdout: nodeOutput, stderr: "", exitCode: 0)
         }

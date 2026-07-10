@@ -946,7 +946,7 @@ struct PiAgentSessionSubagentPickerCard: View {
         return discovered.isEmpty ? defaultThinkingLevels : discovered
     }
 
-    private let defaultThinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+    private let defaultThinkingLevels = PiThinkingLevelCatalog.ordered
 
     private func thinkingSortIndex(_ level: String) -> Int {
         defaultThinkingLevels.firstIndex(of: level) ?? Int.max

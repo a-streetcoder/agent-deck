@@ -1237,7 +1237,7 @@ struct AgentModelQuickEditRow: View {
             return selectedModel.supportedThinkingLevels.isEmpty ? ["off"] : selectedModel.supportedThinkingLevels
         }
         let discovered = Array(Set(availableModels.flatMap(\.supportedThinkingLevels))).sorted { thinkingSortIndex($0) < thinkingSortIndex($1) }
-        return discovered.isEmpty ? ["off", "minimal", "low", "medium", "high", "xhigh"] : discovered
+        return discovered.isEmpty ? PiThinkingLevelCatalog.ordered : discovered
     }
 
     private var modelSelectionBinding: Binding<String> {
@@ -1270,6 +1270,6 @@ struct AgentModelQuickEditRow: View {
     }
 
     private func thinkingSortIndex(_ level: String) -> Int {
-        ["off", "minimal", "low", "medium", "high", "xhigh"].firstIndex(of: level) ?? Int.max
+        PiThinkingLevelCatalog.sortIndex(level)
     }
 }

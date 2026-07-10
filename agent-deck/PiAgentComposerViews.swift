@@ -2505,7 +2505,7 @@ private struct PiAgentModelOptionRow: View {
     }
 }
 
-/// Thinking level row: level name + a five-dot intensity gauge (filled dots =
+/// Thinking level row: level name + an intensity gauge (filled dots =
 /// how hard the model thinks) + the standard accent checkmark. The checkmark
 /// slot is always reserved so the dot gauges align in a scannable column.
 private struct PiAgentThinkingLevelRow: View {
@@ -2516,9 +2516,9 @@ private struct PiAgentThinkingLevelRow: View {
     @State private var isHovering = false
 
     private static let intensityByLevel: [String: Int] = [
-        "off": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5
+        "off": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5, "max": 6
     ]
-    private static let maxIntensity = 5
+    private static let maxIntensity = 6
 
     var body: some View {
         Button(action: action) {

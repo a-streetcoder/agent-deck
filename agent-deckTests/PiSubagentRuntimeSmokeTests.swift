@@ -75,6 +75,27 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
     }
 
     @MainActor
+    func testMaxThinkingSuffixIsRecognizedAndNotDuplicated() async throws {
+        let selection = PiSubagentLaunchPlanner.modelSelection(
+            for: PiTestSupport.makeAgent(model: nil, thinking: nil),
+            parentSession: try PiTestSupport.makeParentSession(
+                model: "gpt-5.6-terra:max",
+                provider: "openai-codex",
+                thinking: "max"
+            )
+        )
+
+        XCTAssertEqual(selection.modelArgument, "gpt-5.6-terra:max")
+        XCTAssertEqual(
+            PiSessionTitleGenerationService.runtimeModelArgument(
+                modelID: "gpt-5.6-terra:max",
+                thinkingLevel: "high"
+            ),
+            "gpt-5.6-terra:high"
+        )
+    }
+
+    @MainActor
     func testInheritedLaunchArgumentsIncludeProviderAndModel() async throws {
         let selection = PiSubagentLaunchPlanner.modelSelection(
             for: PiTestSupport.makeAgent(model: nil, thinking: nil),

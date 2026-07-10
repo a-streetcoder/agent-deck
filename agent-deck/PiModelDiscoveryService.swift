@@ -48,6 +48,7 @@ struct PiModelDiscoveryService: Sendable {
         let script = #"""
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 
 const candidates = [];
@@ -102,6 +103,14 @@ const piAiCandidates = [
   resolve(pkgRoot, 'node_modules/@earendil-works/pi-ai/dist/models.js'),
   resolve(pkgRoot, 'node_modules/@mariozechner/pi-ai/dist/models.js'),
 ];
+// Ask Node to resolve Pi's dependency from the model-registry module as well.
+// This covers Bun/pnpm layouts where dependencies are linked outside pkgRoot.
+const requireFromPi = createRequire(modulePath);
+for (const packageName of ['@earendil-works/pi-ai', '@mariozechner/pi-ai']) {
+  try {
+    piAiCandidates.unshift(resolve(dirname(requireFromPi.resolve(packageName)), 'models.js'));
+  } catch {}
+}
 const piAiPath = piAiCandidates.find((p) => existsSync(p));
 const getLevels = piAiPath ? (await import(piAiPath)).getSupportedThinkingLevels : undefined;
 
@@ -128,8 +137,12 @@ process.stdout.write(JSON.stringify(result));
 """#
 
         do {
+            // Finder-launched macOS apps do not inherit the user's shell PATH.
+            // Resolve Node beside npm/Bun/Pi installs instead of invoking a bare
+            // `node`, which previously made every thinking picker unavailable.
+            let nodeCommand = piResolver.resolveNode()?.path ?? "node"
             let result = try await commandRunner.run(
-                "node",
+                nodeCommand,
                 arguments: ["--input-type=module", "--eval", script],
                 currentDirectoryURL: nil,
                 timeout: 8,
@@ -176,7 +189,8 @@ process.stdout.write(JSON.stringify(result));
                     maxOutput: maxOutput,
                     supportsThinking: supportsThinking,
                     supportsImages: parts[5].lowercased() == "yes",
-                    supportedThinkingLevels: exactThinkingLevels[identifier] ?? (supportsThinking ? [] : ["off"])
+                    supportedThinkingLevels: exactThinkingLevels[identifier]
+                        ?? (supportsThinking ? PiThinkingLevelCatalog.baseline : ["off"])
                 )
             }
     }
