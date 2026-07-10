@@ -58,6 +58,7 @@ import {
   renameSkillDir,
   importSkillFile,
   importSkillsFromClone,
+  resolveSkillSource,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -1142,12 +1143,19 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (scope === "project" && !roots.projectPath) {
       return reply.status(400).send({ error: "projectId required for project scope" });
     }
+    // Accept the ways a user names a repo (native resolveSource): owner/repo, a
+    // skills.sh link, an SSH remote, or a web tree URL (whose branch + path pin
+    // the ref + subdir). A plain https URL still resolves to itself.
+    const source = resolveSkillSource(url);
+    if (!source) {
+      return reply.status(400).send({ error: "Couldn't understand that repository reference." });
+    }
     // Only used as a fallback skill name for a root-level SKILL.md that lacks a
     // frontmatter name. Sanitize to the catalog name charset AND guarantee it
     // starts with an alnum, so a valid root skill is never silently skipped.
     const repoName =
       (
-        url
+        source.cloneUrl
           .replace(/\.git$/, "")
           .replace(/[/\\]+$/, "")
           .split(/[/\\]/)
@@ -1158,8 +1166,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const tmp = mkdtempSync(nodePath.join(tmpdir(), "agent-deck-skillrepo-"));
     const cloneDir = nodePath.join(tmp, "repo");
     try {
-      await gitCloneShallow(url, cloneDir);
-      const result = importSkillsFromClone(roots, scope, cloneDir, repoName);
+      await gitCloneShallow(source.cloneUrl, cloneDir, source.ref);
+      // A subdir (from a deep link) scopes discovery to that subtree.
+      const scanDir = source.subdir ? nodePath.join(cloneDir, source.subdir) : cloneDir;
+      const result = importSkillsFromClone(roots, scope, scanDir, repoName);
       if (result.imported.length === 0 && result.skipped.length === 0) {
         return reply.status(400).send({ error: "No SKILL.md found in that repository." });
       }

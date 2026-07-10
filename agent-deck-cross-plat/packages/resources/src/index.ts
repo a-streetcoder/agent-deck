@@ -64,6 +64,7 @@ export {
   type WritableScope,
 } from "./writer.ts";
 export { scanEnv, writeEnvVar, type EnvEntry, type EnvScope } from "./env.ts";
+export { resolveSkillSource, type RemoteSkillSource } from "./skillSource.ts";
 export {
   detectProjectType,
   discoverProjects,

@@ -89,9 +89,15 @@ export async function gitStatus(cwd: string): Promise<GitStatus> {
  * remote fail fast instead of hanging on a credential prompt (native
  * SkillRepositorySyncService). Throws "clone_failed" on any git error.
  */
-export async function gitCloneShallow(source: string, destDir: string): Promise<void> {
+export async function gitCloneShallow(
+  source: string,
+  destDir: string,
+  ref?: string,
+): Promise<void> {
+  // A pinned ref (a `/tree/<branch>` URL) clones just that branch.
+  const branchArgs = ref ? ["--branch", ref, "--single-branch"] : [];
   try {
-    await execFileAsync(gitBin(), ["clone", "--depth", "1", source, destDir], {
+    await execFileAsync(gitBin(), ["clone", "--depth", "1", ...branchArgs, source, destDir], {
       timeout: 120_000,
       maxBuffer: 8_000_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
