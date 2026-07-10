@@ -78,6 +78,17 @@ final class PiAgentRunnerService {
     private let store: PiAgentSessionStore
     private var clientsBySessionID: [UUID: PiRPCClient] = [:]
     private var clientRunIDsBySessionID: [UUID: UUID] = [:]
+    /// Identifies the only startup continuation allowed to register a client for
+    /// a session. Replaced by a newer resume and invalidated by stop().
+    private var launchGenerationsBySessionID: [UUID: UUID] = [:]
+    /// User input submitted while launch-time setup (such as MCP discovery) is
+    /// still awaiting a client. It is recorded immediately, then delivered in
+    /// FIFO order after the registered client's initial startup action.
+    private struct PendingStartupInput {
+        let message: String
+        let images: [PiAgentImageAttachment]
+    }
+    private var pendingStartupInputsBySessionID: [UUID: [PendingStartupInput]] = [:]
     private var afterFinishHookRunIDs: Set<UUID> = []
     private var stoppingClientRunIDsBySessionID: [UUID: UUID] = [:]
     private var parkingClientRunIDsBySessionID: [UUID: UUID] = [:]
@@ -315,7 +326,17 @@ final class PiAgentRunnerService {
         cancelPendingIdle(for: sessionID)
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID] else {
-            store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
+            guard store.sessions.first(where: { $0.id == sessionID })?.status == .starting else {
+                store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
+                return
+            }
+            // A launch may await asynchronous resource discovery before it can
+            // construct and register PiRPCClient. Keep startup input rather than
+            // treating that small window as a stopped session.
+            let effectiveMode: PiAgentInputMode = .steer
+            let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
+            store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: true), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)))
+            pendingStartupInputsBySessionID[sessionID, default: []].append(.init(message: message, images: images))
             return
         }
         let isStreaming = store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true
@@ -386,8 +407,12 @@ final class PiAgentRunnerService {
         store.clearUIRequest(sessionID: sessionID, id: requestID)
     }
 
-    func stop(sessionID: UUID, recordTranscript: Bool = true) {
+    func stop(sessionID: UUID, recordTranscript: Bool = true, shouldDiscardPendingStartupInputs: Bool = true) {
+        launchGenerationsBySessionID[sessionID] = nil
         RPCDebugLog.log("DEBUG-STOP stop() called session=\(sessionID.uuidString) hasClient=\(clientsBySessionID[sessionID] != nil)")
+        if shouldDiscardPendingStartupInputs {
+            discardPendingStartupInputs(sessionID: sessionID, title: "Queued Input Discarded", text: "The session stopped before queued input could be sent")
+        }
         cancelIdleParking(for: sessionID)
         clearStreamingState(sessionID: sessionID)
         pendingConfigurationRestartSessionIDs.remove(sessionID)
@@ -658,7 +683,10 @@ final class PiAgentRunnerService {
     }
 
     func stopAll(recordTranscript: Bool = true) {
-        for id in Array(clientsBySessionID.keys) {
+        let sessionIDs = Set(clientsBySessionID.keys).union(
+            store.sessions.lazy.filter { $0.status == .starting }.map(\.id)
+        )
+        for id in sessionIDs {
             stop(sessionID: id, recordTranscript: recordTranscript)
         }
     }
@@ -667,7 +695,9 @@ final class PiAgentRunnerService {
         // stop() → clearStreamingState wipes processing activity, so capture the
         // pending summary first and re-apply it below once the new run is staged.
         let configurationChangeSummary = pendingConfigurationChangeSummariesBySessionID.removeValue(forKey: session.id)
-        stop(sessionID: session.id, recordTranscript: recordStopTranscript)
+        stop(sessionID: session.id, recordTranscript: recordStopTranscript, shouldDiscardPendingStartupInputs: false)
+        let launchGeneration = UUID()
+        launchGenerationsBySessionID[session.id] = launchGeneration
         cancelIdleParking(for: session.id)
         parkingClientRunIDsBySessionID[session.id] = nil
         stoppingClientRunIDsBySessionID[session.id] = nil
@@ -686,6 +716,8 @@ final class PiAgentRunnerService {
         // fail fast with a transcript error before spawning anything.
         let boundAgent: EffectiveAgentRecord? = session.isAgentBound ? boundAgentProvider?(session) : nil
         if session.isAgentBound, boundAgent == nil {
+            launchGenerationsBySessionID[session.id] = nil
+            discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent could not start before queued input could be sent")
             let missingName = session.agentName ?? "?"
             mark(session.id, status: .failed, error: "Agent '\(missingName)' is no longer available.")
             store.append(.init(
@@ -697,6 +729,8 @@ final class PiAgentRunnerService {
             return
         }
         if let boundAgent, boundAgent.resolved.disabled == true {
+            launchGenerationsBySessionID[session.id] = nil
+            discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent could not start before queued input could be sent")
             mark(session.id, status: .failed, error: "Agent '\(boundAgent.name)' is disabled.")
             store.append(.init(
                 sessionID: session.id,
@@ -752,6 +786,7 @@ final class PiAgentRunnerService {
             // active one, so their assigned servers are connected even when the
             // active-project snapshot wouldn't cover them.
             let mcpCatalog: String? = session.isNoProject ? nil : await mcpCatalogProvider?(session)
+            guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
             if session.isAgentDeckBuilderSession {
                 extraArguments.append(contentsOf: [
                     "--system-prompt", AgentDeckBuilderPrompt.text,
@@ -832,6 +867,7 @@ final class PiAgentRunnerService {
             if !session.isNoProject,
                let parentMemoryAppendPromptsProvider {
                 agentDeckAppendPrompts.append(contentsOf: try await parentMemoryAppendPromptsProvider(session, initialPrompt))
+                guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
             }
             // Single APPEND_SYSTEM.md preservation point. Pi disables automatic
             // APPEND_SYSTEM.md discovery as soon as any explicit append is passed, so
@@ -870,6 +906,7 @@ final class PiAgentRunnerService {
                     injectedExtensionPaths.append(extraArguments[i + 1])
                 }
             }
+            guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
             try AgentDeckBuiltinHooks.preLaunch(.init(
                 session: session,
                 projectURL: projectURL,
@@ -933,10 +970,30 @@ final class PiAgentRunnerService {
             } else {
                 client.getMessages()
             }
+            drainPendingStartupInputs(sessionID: session.id, client: client)
         } catch {
+            guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
+            launchGenerationsBySessionID[session.id] = nil
+            discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent failed to launch before queued input could be sent")
             mark(session.id, status: .failed, error: error.localizedDescription)
             store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
         }
+    }
+
+    private func isCurrentLaunch(sessionID: UUID, generation: UUID) -> Bool {
+        launchGenerationsBySessionID[sessionID] == generation
+    }
+
+    private func drainPendingStartupInputs(sessionID: UUID, client: PiRPCClient) {
+        let inputs = pendingStartupInputsBySessionID.removeValue(forKey: sessionID) ?? []
+        for input in inputs {
+            client.prompt(input.message, images: input.images, streamingBehavior: "steer")
+        }
+    }
+
+    private func discardPendingStartupInputs(sessionID: UUID, title: String, text: String) {
+        guard let inputs = pendingStartupInputsBySessionID.removeValue(forKey: sessionID), !inputs.isEmpty else { return }
+        store.append(.init(sessionID: sessionID, role: .status, title: title, text: "\(text). \(inputs.count) \(inputs.count == 1 ? "message was" : "messages were") not delivered."))
     }
 
     private func migrateLegacyGeneralChatScratchFolderIfNeeded(for session: PiAgentSessionRecord, targetURL: URL) {

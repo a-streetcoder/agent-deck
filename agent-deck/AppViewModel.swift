@@ -5926,7 +5926,8 @@ final class AppViewModel: NSObject {
     }
 
     func deletePiAgentSessions(_ sessionIDs: Set<UUID>, fallbackSelectionID: UUID? = nil) {
-        for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID) {
+        for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID)
+            || piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status == .starting {
             piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)
         }
 

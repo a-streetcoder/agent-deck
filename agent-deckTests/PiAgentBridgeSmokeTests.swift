@@ -71,6 +71,123 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertFalse((store.transcriptsBySessionID[session.id] ?? []).contains { $0.title == "Process Ended" })
     }
 
+    func testConcurrentResumeKeepsOneLaunchAndDrainsStartupInputsInOrder() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-startup-send-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let launchLog = directory.appendingPathComponent("launch.log")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let script = """
+        #!/bin/sh
+        printf 'launch\\n' >> \(PiTestSupport.shellSingleQuoted(launchLog.path))
+        cat > \(PiTestSupport.shellSingleQuoted(stdinLog.path))
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        // Block each discovery independently so the first launch continuation
+        // can only resume after the newer generation is installed.
+        var discoveryContinuations: [CheckedContinuation<Void, Never>] = []
+        var completedDiscoveries = 0
+        runner.mcpCatalogProvider = { _ in
+            await withCheckedContinuation { continuation in
+                discoveryContinuations.append(continuation)
+            }
+            completedDiscoveries += 1
+            return nil
+        }
+        let session = store.createSession(kind: .project, title: "Startup Send", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+
+        runner.resume(session: session)
+        let firstDiscoveryStarted = await PiTestSupport.waitUntilAsync { discoveryContinuations.count == 1 }
+        XCTAssertTrue(firstDiscoveryStarted)
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+        let secondDiscoveryStarted = await PiTestSupport.waitUntilAsync { discoveryContinuations.count == 2 }
+        XCTAssertTrue(secondDiscoveryStarted)
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.status, .starting)
+
+        runner.send("first queued during startup", mode: .steer, to: session.id)
+        runner.send("second queued during startup", mode: .steer, to: session.id)
+        discoveryContinuations.removeFirst().resume()
+        let firstDiscoveryCompleted = await PiTestSupport.waitUntilAsync { completedDiscoveries == 1 }
+        XCTAssertTrue(firstDiscoveryCompleted)
+        discoveryContinuations.removeFirst().resume()
+
+        let delivered = await PiTestSupport.waitUntilAsync {
+            (try? String(contentsOf: stdinLog, encoding: .utf8))?.contains("second queued during startup") == true
+        }
+        XCTAssertTrue(delivered)
+        let stdin = try String(contentsOf: stdinLog, encoding: .utf8)
+        let queuedLines = stdin.split(separator: "\n").filter { $0.contains("queued during startup") }
+        XCTAssertEqual(queuedLines.count, 2)
+        XCTAssertTrue(queuedLines.allSatisfy { $0.contains(#""type":"prompt""#) && $0.contains(#""streamingBehavior":"steer""#) })
+        XCTAssertLessThan(
+            try XCTUnwrap(stdin.range(of: #""type":"get_messages""#)?.lowerBound),
+            try XCTUnwrap(stdin.range(of: "first queued during startup")?.lowerBound)
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(stdin.range(of: "first queued during startup")?.lowerBound),
+            try XCTUnwrap(stdin.range(of: "second queued during startup")?.lowerBound)
+        )
+        XCTAssertEqual((try String(contentsOf: launchLog, encoding: .utf8)).split(separator: "\n").count, 1)
+        XCTAssertFalse((store.transcriptsBySessionID[session.id] ?? []).contains {
+            $0.role == .error && $0.text.contains("Resume the session")
+        })
+    }
+
+    func testStopDuringMCPDiscoveryPreventsStartupLaunchAndQueuedDelivery() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-stop-startup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let launchLog = directory.appendingPathComponent("launch.log")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let script = """
+        #!/bin/sh
+        printf 'launch\\n' >> \(PiTestSupport.shellSingleQuoted(launchLog.path))
+        cat > \(PiTestSupport.shellSingleQuoted(stdinLog.path))
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        var discoveryContinuation: CheckedContinuation<Void, Never>?
+        var completedDiscovery = false
+        runner.mcpCatalogProvider = { _ in
+            await withCheckedContinuation { discoveryContinuation = $0 }
+            completedDiscovery = true
+            return nil
+        }
+        let session = store.createSession(kind: .project, title: "Stop Startup", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+
+        runner.resume(session: session)
+        let discoveryStarted = await PiTestSupport.waitUntilAsync { discoveryContinuation != nil }
+        XCTAssertTrue(discoveryStarted)
+        runner.send("discarded startup input", mode: .steer, to: session.id)
+        runner.stop(sessionID: session.id, recordTranscript: false)
+        discoveryContinuation?.resume()
+        let discoveryCompleted = await PiTestSupport.waitUntilAsync { completedDiscovery }
+        XCTAssertTrue(discoveryCompleted)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launchLog.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stdinLog.path))
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.status, .stopped)
+        XCTAssertTrue((store.transcriptsBySessionID[session.id] ?? []).contains {
+            $0.title == "Queued Input Discarded" && $0.text.contains("1 message was not delivered")
+        })
+    }
+
     func testPromptSendIncludesSteerFallbackWhenLocalStatusIsIdleButClientIsRunning() throws {
         let harness = try PiTestSupport.makeBridgeHarness(event: [
             "type": "response",
