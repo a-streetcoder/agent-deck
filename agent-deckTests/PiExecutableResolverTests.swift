@@ -16,12 +16,24 @@ final class PiExecutableResolverTests: XCTestCase {
         let paths = candidates.map(\.path)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
+        XCTAssertTrue(paths.contains("\(home)/.bun/bin/pi"), "Should include Bun global bin")
         XCTAssertTrue(paths.contains("\(home)/.pi/agent/bin/pi"), "Should include Pi agent bin")
         XCTAssertTrue(paths.contains("\(home)/.volta/bin/pi"), "Should include Volta")
+        XCTAssertTrue(paths.contains("\(home)/.hermes/node/bin/pi"), "Should include Hermes npm prefix")
         XCTAssertTrue(paths.contains("\(home)/.local/bin/pi"), "Should include local bin")
         XCTAssertTrue(paths.contains("\(home)/.npm-global/bin/pi"), "Should include npm global")
         XCTAssertTrue(paths.contains("\(home)/.npm/bin/pi"), "Should include npm bin")
         XCTAssertTrue(paths.contains("\(home)/.nvm/versions/node/current/bin/pi"), "Should include NVM current")
+    }
+
+    func testCommonCandidatesIncludesConfiguredBunGlobalBin() {
+        let customBin = FileManager.default.temporaryDirectory
+            .appendingPathComponent("custom-bun-bin-\(UUID().uuidString)")
+            .path
+        setenv("BUN_INSTALL_BIN", customBin, 1)
+        defer { unsetenv("BUN_INSTALL_BIN") }
+
+        XCTAssertTrue(PiExecutableResolver.commonPiCandidates().map(\.path).contains("\(customBin)/pi"))
     }
 
     func testExecutableResolutionFromEnvVar() {

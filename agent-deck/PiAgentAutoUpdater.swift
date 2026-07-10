@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// Owns the single shared `PiAutoInstaller` and drives the launch-time silent
 /// update of the Pi CLI. The Doctor's manual install/update controls use the
@@ -21,7 +20,6 @@ final class PiAgentAutoUpdater {
     let installer = PiAutoInstaller()
 
     private let updateService = PiAgentUpdateService()
-    private let log = Logger(subsystem: "streetcoding.agent-deck", category: "PiAutoUpdate")
 
     /// Guards against running more than once per launch.
     private var didRunThisLaunch = false
@@ -39,23 +37,15 @@ final class PiAgentAutoUpdater {
         didRunThisLaunch = true
 
         let status = await updateService.loadStatus()
-        guard status.isInstalled, let current = status.currentVersion else {
+        guard status.isInstalled, status.currentVersion != nil else {
             // Nothing to update — install is the Doctor's job, not auto-update's.
             return
         }
         guard case let .updateAvailable(latest) = status.updateState else {
-            log.info("Pi auto-update: already up to date (\(current, privacy: .public)).")
             return
         }
 
-        log.info("Pi auto-update: \(current, privacy: .public) -> \(latest, privacy: .public), updating…")
-        if await installer.update() {
-            let newVersion = await updateService.loadCurrentVersion() ?? latest
-            log.info("Pi auto-update: updated to \(newVersion, privacy: .public).")
-        } else {
-            // The failure (with retry + Terminal fallback) stays on `installer.phase`
-            // so the Doctor surfaces it the next time it's opened.
-            log.error("Pi auto-update failed; see Doctor for detail.")
-        }
+        // Any failure remains on `installer.phase` so the Doctor can surface it.
+        _ = await installer.update(expectedVersion: latest)
     }
 }

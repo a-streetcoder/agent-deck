@@ -3442,6 +3442,14 @@ final class AppViewModel: NSObject {
 
     private func terminalPiSelfUpdateCommand() -> String {
         let piPath = resolvedPiPathForShell()
+        if PiAutoInstaller.isHomebrewOwned(piPath: piPath) {
+            return """
+            brew upgrade pi-coding-agent || { echo "Homebrew could not update Pi. The formula may not have caught up with the latest Pi release yet."; }
+            echo ""
+            echo "Press any key to close."
+            read -k 1
+            """
+        }
         return """
         "\(piPath)" update pi || { echo "Pi not found. Install pi or add it to PATH."; }
         echo ""

@@ -13,13 +13,19 @@ struct PiExecutableResolver: Sendable {
     /// bin locations so the OAuth login bridge still finds `pi`/`node` when
     /// launched with a minimal `PATH`. Injectable so tests can force "not found".
     private nonisolated let defaultPathDirectories: @Sendable () -> [String]
+    /// Production resolution is cached process-wide. Tests with injected
+    /// candidates can disable that cache so a previously resolved real Pi
+    /// cannot leak into a fixture.
+    private nonisolated let cacheResults: Bool
 
     nonisolated init(
         candidatesProvider: @Sendable @escaping () -> [URL] = { PiExecutableResolver.commonPiCandidates() },
-        defaultPathDirectories: @Sendable @escaping () -> [String] = { ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] }
+        defaultPathDirectories: @Sendable @escaping () -> [String] = { ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] },
+        cacheResults: Bool = true
     ) {
         self.candidatesProvider = candidatesProvider
         self.defaultPathDirectories = defaultPathDirectories
+        self.cacheResults = cacheResults
     }
 
     nonisolated func resolve() -> URL? {
@@ -27,7 +33,9 @@ struct PiExecutableResolver: Sendable {
         let cacheKey = Self.cacheKey(for: environment)
 
         PiExecutableResolver.cacheLock.lock()
-        if let cached = PiExecutableResolver.cachedURL, cached.key == cacheKey,
+        if cacheResults,
+           let cached = PiExecutableResolver.cachedURL,
+           cached.key == cacheKey,
            FileManager.default.isExecutableFile(atPath: cached.url.path) {
             PiExecutableResolver.cacheLock.unlock()
             return cached.url
@@ -38,9 +46,11 @@ struct PiExecutableResolver: Sendable {
             return nil
         }
 
-        PiExecutableResolver.cacheLock.lock()
-        PiExecutableResolver.cachedURL = (cacheKey, resolved)
-        PiExecutableResolver.cacheLock.unlock()
+        if cacheResults {
+            PiExecutableResolver.cacheLock.lock()
+            PiExecutableResolver.cachedURL = (cacheKey, resolved)
+            PiExecutableResolver.cacheLock.unlock()
+        }
         return resolved
     }
 
@@ -48,6 +58,8 @@ struct PiExecutableResolver: Sendable {
         [
             environment["AGENT_DECK_PI_PATH"] ?? "",
             environment["PI_CLI_PATH"] ?? "",
+            environment["BUN_INSTALL"] ?? "",
+            environment["BUN_INSTALL_BIN"] ?? "",
             environment["SHELL"] ?? "",
             environment["PATH"] ?? ""
         ].joined(separator: "\u{1f}")
@@ -110,6 +122,7 @@ struct PiExecutableResolver: Sendable {
             "/usr/local/bin/node",
             "/usr/bin/node",
             "\(home)/.volta/bin/node",
+            "\(home)/.hermes/node/bin/node",
             "\(home)/.local/bin/node",
             "\(home)/.nvm/versions/node/current/bin/node"
         ]
@@ -123,15 +136,23 @@ struct PiExecutableResolver: Sendable {
     }
 
     nonisolated static func commonPiCandidates() -> [URL] {
-        var paths = [
+        var paths: [String] = []
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let environment = ProcessInfo.processInfo.environment
+        if let bunBin = environment["BUN_INSTALL_BIN"], !bunBin.isEmpty {
+            paths.append(URL(fileURLWithPath: NSString(string: bunBin).expandingTildeInPath).appendingPathComponent("pi").path)
+        }
+        if let bunInstall = environment["BUN_INSTALL"], !bunInstall.isEmpty {
+            paths.append(URL(fileURLWithPath: NSString(string: bunInstall).expandingTildeInPath).appendingPathComponent("bin/pi").path)
+        }
+        paths.append(contentsOf: [
+            "\(home)/.bun/bin/pi",
             "/opt/homebrew/bin/pi",
             "/usr/local/bin/pi",
-            "/usr/bin/pi"
-        ]
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        paths.append(contentsOf: [
+            "/usr/bin/pi",
             "\(home)/.pi/agent/bin/pi",
             "\(home)/.volta/bin/pi",
+            "\(home)/.hermes/node/bin/pi",
             "\(home)/.local/bin/pi",
             "\(home)/.npm-global/bin/pi",
             "\(home)/.npm/bin/pi",

@@ -324,6 +324,14 @@ struct DoctorScreen: View {
             refreshWebFetchStatus()
             Task { await refreshPiRuntimeStatus() }
         }
+        // The launch auto-updater and this screen share the same installer.
+        // Refresh an already-open Doctor as soon as that background work ends.
+        .onChange(of: piInstaller.phase) { _, phase in
+            guard !skipLiveChecksForPreview else { return }
+            if case .succeeded = phase {
+                Task { await refreshPiRuntimeStatus() }
+            }
+        }
         .sheet(item: $envDraft) { draft in
             EnvEditorSheet(
                 draft: draft,
@@ -410,9 +418,11 @@ struct DoctorScreen: View {
                     if !status.isInstalled {
                         piAutoInstallControls(isUpdate: false)
                     } else {
+                        piRuntimeVersionDetails(status)
+
                         switch status.updateState {
-                        case .some(.updateAvailable):
-                            piAutoInstallControls(isUpdate: true)
+                        case let .some(.updateAvailable(latestVersion)):
+                            piAutoInstallControls(isUpdate: true, targetVersion: latestVersion)
                         case let .some(.unableToCheck(reason)):
                             Text(reason)
                                 .font(.caption.monospaced())
@@ -432,6 +442,37 @@ struct DoctorScreen: View {
         }
     }
 
+    private func piRuntimeVersionDetails(_ status: PiAgentRuntimeStatus) -> some View {
+        let sourceName = status.installationSource?.displayName ?? "Pi"
+        return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
+            GridRow {
+                Text("Installed via")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(sourceName)
+            }
+            GridRow {
+                Text("Current")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(status.currentVersion ?? "Unavailable")
+                    .monospacedDigit()
+            }
+            GridRow {
+                Text("Latest official")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(status.latestOfficialVersion ?? "Unavailable")
+                    .monospacedDigit()
+            }
+            GridRow {
+                Text("Latest via \(sourceName)")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(status.latestSourceVersion ?? "Unavailable")
+                    .monospacedDigit()
+            }
+        }
+        .font(.caption)
+        .textSelection(.enabled)
+    }
+
     /// Opt-in: when on, the app silently updates Pi to the latest release on
     /// launch (same shared installer and method-aware path as the "Update Pi"
     /// button above, so an in-flight launch update shows through those controls).
@@ -440,7 +481,7 @@ struct DoctorScreen: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Automatically update Pi")
                     .font(.callout.weight(.medium))
-                Text("Check for a newer Pi release on launch and install it in the background.")
+                Text("Check for a newer Pi release available through the current installation source and install it in the background.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -471,7 +512,7 @@ struct DoctorScreen: View {
     /// One-click in-app Pi install/update with live progress; the copyable
     /// command and the Terminal flow stay available as explicit fallbacks.
     @ViewBuilder
-    private func piAutoInstallControls(isUpdate: Bool) -> some View {
+    private func piAutoInstallControls(isUpdate: Bool, targetVersion: String? = nil) -> some View {
         switch piInstaller.phase {
         case .running(let method, let runningIsUpdate):
             HStack(spacing: 8) {
@@ -491,7 +532,7 @@ struct DoctorScreen: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
-                    Button("Try Again") { runPiAutoTask(isUpdate: isUpdate) }
+                    Button("Try Again") { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
                         .appPrimaryButton()
                     Button(isUpdate ? "Update in Terminal" : "Install in Terminal") {
                         if isUpdate {
@@ -506,7 +547,7 @@ struct DoctorScreen: View {
         case .idle, .succeeded:
             HStack(spacing: 8) {
                 DoctorCopyCommandButton(command: isUpdate ? piUpdateCommandHint : "npm install -g --ignore-scripts @earendil-works/pi-coding-agent")
-                Button(isUpdate ? "Update Pi" : "Install Pi") { runPiAutoTask(isUpdate: isUpdate) }
+                Button(isUpdate ? "Update Pi" : "Install Pi") { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
                     .appPrimaryButton()
             }
         }
@@ -519,12 +560,12 @@ struct DoctorScreen: View {
         return PiAutoInstaller.isHomebrewOwned(piPath: path) ? "brew upgrade pi-coding-agent" : "pi update pi"
     }
 
-    private func runPiAutoTask(isUpdate: Bool) {
+    private func runPiAutoTask(isUpdate: Bool, targetVersion: String? = nil) {
         if skipLiveChecksForPreview { return }
         Task {
             if isUpdate {
                 let previousVersion = piRuntimeStatus?.currentVersion
-                if await piInstaller.update() {
+                if await piInstaller.update(expectedVersion: targetVersion) {
                     await waitForPiRuntimeChange(afterVersion: previousVersion)
                     await refreshSetupChecks()
                     piInstaller.reset()
@@ -569,6 +610,7 @@ struct DoctorScreen: View {
         guard status.isInstalled else { return "xmark.circle.fill" }
         if case .some(.updateAvailable) = status.updateState { return "arrow.up.circle.fill" }
         if case .some(.unableToCheck) = status.updateState { return "exclamationmark.triangle.fill" }
+        if status.isOfficialReleaseAheadOfSource { return "clock.fill" }
         return "checkmark.circle.fill"
     }
 
@@ -577,6 +619,7 @@ struct DoctorScreen: View {
         guard status.isInstalled else { return .red }
         if case .some(.updateAvailable) = status.updateState { return .orange }
         if case .some(.unableToCheck) = status.updateState { return .orange }
+        if status.isOfficialReleaseAheadOfSource { return .orange }
         return .green
     }
 
@@ -585,6 +628,7 @@ struct DoctorScreen: View {
         guard status.isInstalled else { return "Missing" }
         if case .some(.updateAvailable) = status.updateState { return "Update" }
         if case .some(.unableToCheck) = status.updateState { return "Check Failed" }
+        if status.isOfficialReleaseAheadOfSource { return "Waiting" }
         return "Ready"
     }
 

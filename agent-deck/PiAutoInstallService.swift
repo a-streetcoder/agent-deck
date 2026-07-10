@@ -42,8 +42,13 @@ final class PiAutoInstaller {
         return false
     }
 
-    private let commandRunner = CommandRunner()
-    private let piResolver = PiExecutableResolver()
+    private let commandRunner: CommandRunning
+    private let piResolver: PiExecutableResolver
+
+    init(commandRunner: CommandRunning = CommandRunner(), piResolver: PiExecutableResolver = PiExecutableResolver()) {
+        self.commandRunner = commandRunner
+        self.piResolver = piResolver
+    }
 
     /// Silent install. Returns true when Pi is installed and verified, false
     /// when an attempt ran and failed (`phase` carries the message), and nil
@@ -65,14 +70,14 @@ final class PiAutoInstaller {
     }
 
     /// Silent method-aware update of an existing Pi.
-    func update() async -> Bool {
+    func update(expectedVersion: String? = nil) async -> Bool {
         guard !isRunning else { return false }
         guard let piURL = piResolver.resolve() else {
             phase = .failed(message: "pi is not installed.")
             return false
         }
         let method: PiInstallMethod = Self.isHomebrewOwned(piPath: piURL.path) ? .homebrew : .piSelfUpdate
-        return await run(method: method, isUpdate: true)
+        return await run(method: method, isUpdate: true, expectedVersion: expectedVersion)
     }
 
     /// True when the resolved pi binary belongs to the Homebrew formula. The
@@ -95,15 +100,27 @@ final class PiAutoInstaller {
     }
 
     private func toolWorks(_ tool: String) async -> Bool {
-        ((try? await commandRunner.run(tool, arguments: ["--version"], timeout: 15))?.exitCode == 0)
+        ((try? await commandRunner.run(
+            tool,
+            arguments: ["--version"],
+            currentDirectoryURL: nil,
+            timeout: 15,
+            environment: nil
+        ))?.exitCode == 0)
     }
 
     private func piWorks() async -> Bool {
         let piCommand = piResolver.resolve()?.path ?? "pi"
-        return ((try? await commandRunner.run(piCommand, arguments: ["--help"], timeout: 6))?.exitCode == 0)
+        return ((try? await commandRunner.run(
+            piCommand,
+            arguments: ["--help"],
+            currentDirectoryURL: nil,
+            timeout: 6,
+            environment: nil
+        ))?.exitCode == 0)
     }
 
-    private func run(method: PiInstallMethod, isUpdate: Bool) async -> Bool {
+    private func run(method: PiInstallMethod, isUpdate: Bool, expectedVersion: String? = nil) async -> Bool {
         phase = .running(method: method, isUpdate: isUpdate)
 
         let result: CommandResult
@@ -116,6 +133,7 @@ final class PiAutoInstaller {
                 result = try await commandRunner.run(
                     "brew",
                     arguments: isUpdate ? ["upgrade", "pi-coding-agent"] : ["install", "pi-coding-agent"],
+                    currentDirectoryURL: nil,
                     timeout: 900,
                     environment: [
                         "NONINTERACTIVE": "1",
@@ -129,14 +147,18 @@ final class PiAutoInstaller {
                 result = try await commandRunner.run(
                     "npm",
                     arguments: ["install", "-g", "--ignore-scripts", "@earendil-works/pi-coding-agent"],
-                    timeout: 420
+                    currentDirectoryURL: nil,
+                    timeout: 420,
+                    environment: nil
                 )
             case .piSelfUpdate:
                 let piCommand = piResolver.resolve()?.path ?? "pi"
                 result = try await commandRunner.run(
                     piCommand,
                     arguments: ["update", "pi"],
-                    timeout: 420
+                    currentDirectoryURL: nil,
+                    timeout: 420,
+                    environment: nil
                 )
             }
         } catch {
@@ -158,6 +180,22 @@ final class PiAutoInstaller {
             return false
         }
 
+        if isUpdate, let expectedVersion {
+            let installedVersion = await PiAgentUpdateService(commandRunner: commandRunner, piResolver: piResolver).loadCurrentVersion()
+            guard let installedVersion,
+                  PiAgentUpdateService.isVersion(installedVersion, atLeast: expectedVersion) else {
+                let current = installedVersion ?? "an unknown version"
+                let message: String
+                if method == .homebrew {
+                    message = "Homebrew finished, but Pi is still \(current) instead of \(expectedVersion). The Homebrew formula may not have caught up with the latest Pi release yet. Try again later."
+                } else {
+                    message = "The updater finished, but Pi is still \(current) instead of \(expectedVersion)."
+                }
+                phase = .failed(message: message)
+                return false
+            }
+        }
+
         phase = .succeeded(method: method)
         return true
     }
@@ -173,4 +211,5 @@ final class PiAutoInstaller {
         let message = tail.isEmpty ? "The installer failed without printing an error." : tail
         return message.count > 220 ? String(message.prefix(220)) + "…" : message
     }
+
 }
