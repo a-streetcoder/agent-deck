@@ -32,16 +32,10 @@ nonisolated final class HangWatchdog: @unchecked Sendable {
     nonisolated(unsafe) static var hangMsTotal = 0
     nonisolated(unsafe) static var worstHitchMs = 0
 
-    /// Mirror hang/hitch events to a file (unified log is unreachable in some
-    /// headless/automation contexts). Append-only, best-effort. DEBUG only.
+    /// Mirror hang/hitch events to the shared ordered DEBUG artifact writer.
+    /// The heartbeat must never synchronously append to disk.
     static func fileLog(_ line: String) {
-        guard let data = (line + "\n").data(using: .utf8) else { return }
-        let url = URL(fileURLWithPath: "/tmp/agentdeck-perf.txt")
-        if let h = try? FileHandle(forWritingTo: url) {
-            h.seekToEndOfFile(); h.write(data); try? h.close()
-        } else {
-            try? data.write(to: url)
-        }
+        DebugArtifactWriter.perfLog.append(line: line)
     }
 #endif
 

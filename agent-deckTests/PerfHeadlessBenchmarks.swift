@@ -87,6 +87,32 @@ final class PerfHeadlessBenchmarks: XCTestCase {
     that the toggle writes. Report the invalidation chain and the minimal fix.
     """
 
+    /// Lightweight custom-drawn diff preview: build, size, and rasterize 40
+    /// lines. This keeps the former per-line stack/label hierarchy out of the
+    /// fresh diff-row cost and provides a comparable regression metric.
+    func testNativeDiffPreviewBatchRenderPerformance() {
+        let lines = (0..<40).map { index in
+            NativeDiffPreviewLine(
+                gutter: index.isMultiple(of: 2) ? "+ \(index)" : "- \(index)",
+                content: "let transcriptDiffPreviewLine\(index) = \"A deliberately long line that truncates at the preview edge\"",
+                color: index.isMultiple(of: 2) ? .systemGreen : .systemRed,
+                background: (index.isMultiple(of: 2) ? NSColor.systemGreen : .systemRed).withAlphaComponent(0.2)
+            )
+        }
+        let options = XCTMeasureOptions()
+        options.iterationCount = 10
+        measure(metrics: [XCTClockMetric()], options: options) {
+            let preview = NativeDiffPreviewView(lines: lines)
+            preview.frame = NSRect(x: 0, y: 0, width: 800, height: preview.fittingSize.height)
+            preview.layoutSubtreeIfNeeded()
+            guard let image = preview.bitmapImageRepForCachingDisplay(in: preview.bounds) else {
+                XCTFail("Could not create diff preview bitmap")
+                return
+            }
+            preview.cacheDisplay(in: preview.bounds, to: image)
+        }
+    }
+
     /// Single native run card: configure → measure → layout. This is the exact
     /// flow `NSTableView` runs per visible row when it vends/recycles a cell and
     /// re-resolves its height (the documented cause of scroll hitches).

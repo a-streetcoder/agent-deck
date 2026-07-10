@@ -58,6 +58,7 @@ struct AgentsScreen: View {
     @State private var agentBeingEdited: AgentEditPresentation?
 
     var body: some View {
+        let libraryBackedNames = Set(viewModel.globalCatalogSnapshot.libraryAgents.map(\.name))
         HStack(spacing: 0) {
             SplitView {
                 if viewModel.hasCompletedInitialRefresh {
@@ -82,7 +83,7 @@ struct AgentsScreen: View {
                         agent: agent,
                         sourceColor: agentSourceColor(
                             for: agent,
-                            libraryBackedNames: Set(viewModel.globalCatalogSnapshot.libraryAgents.map(\.name)),
+                            libraryBackedNames: libraryBackedNames,
                             isInProjectContext: false
                         ),
                         globalDisableBuiltinsActive: viewModel.userDisableBuiltins,
@@ -550,8 +551,10 @@ private struct AgentLibraryPane: View {
     @State private var cachedLayout: (
         sections: [AppListSection<EffectiveAgentRecord>],
         inactiveByID: [String: Bool],
-        warningIDs: Set<String>
-    ) = ([], [:], [])
+        warningIDs: Set<String>,
+        libraryBackedNames: Set<String>,
+        unusedLibraryAgentIDs: Set<String>
+    ) = ([], [:], [], [], [])
 
     private var imageStore: AgentImageStore { viewModel.agentImageStore }
 
@@ -568,7 +571,12 @@ private struct AgentLibraryPane: View {
             rowTint: { warningIDs.contains($0.id) ? Color.orange.opacity(0.12) : nil },
             scrollRequest: $sidebarExpandBenchScrollRequest
         ) { agent in
-            agentListRow(agent, inactive: layout.inactiveByID[agent.id] ?? false)
+            agentListRow(
+                agent,
+                inactive: layout.inactiveByID[agent.id] ?? false,
+                libraryBackedNames: layout.libraryBackedNames,
+                isUnusedLibraryAgent: layout.unusedLibraryAgentIDs.contains(agent.id)
+            )
         }
         // While a refresh is in flight (e.g. after a project switch) the list
         // still shows the previous snapshot; if the user clicks a row now the
@@ -644,7 +652,9 @@ private struct AgentLibraryPane: View {
     private func recomputeLayout() -> (
         sections: [AppListSection<EffectiveAgentRecord>],
         inactiveByID: [String: Bool],
-        warningIDs: Set<String>
+        warningIDs: Set<String>,
+        libraryBackedNames: Set<String>,
+        unusedLibraryAgentIDs: Set<String>
     ) {
         var sections: [AppListSection<EffectiveAgentRecord>] = []
         var inactiveByID: [String: Bool] = [:]
@@ -666,6 +676,30 @@ private struct AgentLibraryPane: View {
         // Hoist the search/filter result once for this layout pass; the section
         // builders below used to re-run it for each section.
         let agents = filteredAgents
+        let libraryAgents = viewModel.globalCatalogSnapshot.libraryAgents
+        // These scans used to run once per catalog/list row. They are scoped to
+        // this recomputation instead: library lookup is O(1), and each managed
+        // record's global/project assignment is derived at most once.
+        let libraryRecordByName = Dictionary(libraryAgents.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let libraryBackedNames = Set(libraryRecordByName.keys)
+        var assignedByRecordID: [AgentRecord.ID: Bool] = [:]
+        func managedRecord(for agent: EffectiveAgentRecord) -> AgentRecord? {
+            guard let winningRecord = agent.winningRecord, winningRecord.source.kind != .builtin else { return nil }
+            if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) { return nil }
+            return libraryRecordByName[agent.name] ?? winningRecord
+        }
+        func isAssignedSomewhere(_ record: AgentRecord) -> Bool {
+            if let assigned = assignedByRecordID[record.id] { return assigned }
+            let assigned = viewModel.agentIsEnabledGlobally(record) || !viewModel.assignedProjects(for: record).isEmpty
+            assignedByRecordID[record.id] = assigned
+            return assigned
+        }
+        let unusedLibraryAgentIDs = Set(agents.compactMap { agent -> String? in
+            guard agent.resolutionKind == .library,
+                  let record = libraryRecordByName[agent.name],
+                  !isAssignedSomewhere(record) else { return nil }
+            return agent.id
+        })
         let global = agents.filter { !isCatalogOnly($0) && $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
         let catalog = agents.filter(isCatalogOnly)
         let library = preferredAgentsByName(agents.filter { agent in
@@ -695,7 +729,7 @@ private struct AgentLibraryPane: View {
 
         if !catalog.isEmpty {
             for item in catalog {
-                inactiveByID[item.id] = !agentIsAssignedSomewhere(item)
+                inactiveByID[item.id] = !(managedRecord(for: item).map(isAssignedSomewhere) ?? false)
                 if !viewModel.warnings(for: item).isEmpty
                     || !viewModel.explicitSkillVisibilityIssues(for: item).isEmpty {
                     warningIDs.insert(item.id)
@@ -726,7 +760,7 @@ private struct AgentLibraryPane: View {
             emptyMessage: "No builtin agents discovered."
         ))
 
-        return (sections, inactiveByID, warningIDs)
+        return (sections, inactiveByID, warningIDs, libraryBackedNames, unusedLibraryAgentIDs)
     }
 
     private func isCatalogOnly(_ agent: EffectiveAgentRecord) -> Bool {
@@ -736,10 +770,6 @@ private struct AgentLibraryPane: View {
     private func preferredAgentsByName(_ agents: [EffectiveAgentRecord], prefer: ([EffectiveAgentRecord]) -> EffectiveAgentRecord?) -> [EffectiveAgentRecord] {
         Dictionary(grouping: agents, by: \.name).values.compactMap(prefer)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private var libraryBackedActiveAgentNames: Set<String> {
-        Set(viewModel.globalCatalogSnapshot.libraryAgents.map(\.name))
     }
 
     private var filteredAgents: [EffectiveAgentRecord] {
@@ -799,21 +829,26 @@ private struct AgentLibraryPane: View {
         selectedAgentID = filteredAgents.first?.id
     }
 
-    private func agentListRow(_ agent: EffectiveAgentRecord, inactive: Bool) -> some View {
+    private func agentListRow(
+        _ agent: EffectiveAgentRecord,
+        inactive: Bool,
+        libraryBackedNames: Set<String>,
+        isUnusedLibraryAgent: Bool
+    ) -> some View {
         // Read the per-agent caches directly (O(1) each, built once per refresh
         // in AppViewModel.rebuildWarningCaches). The previous `agentMetadataByID`
         // computed property rebuilt the whole dictionary on every row, making
         // the list O(N²) to render.
         let warnings = viewModel.warnings(for: agent)
         let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
-        let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
+        let isMuted = inactive || agent.resolved.disabled == true || isUnusedLibraryAgent
         let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
 
         return AgentListRow(
             agent: agent,
             imageStore: imageStore,
             fallbackSystemImage: icon(for: agent),
-            avatarColor: color(for: agent),
+            avatarColor: color(for: agent, libraryBackedNames: libraryBackedNames),
             isMuted: isMuted,
             warnings: warnings,
             skillIssues: skillIssues,
@@ -912,41 +947,12 @@ private struct AgentLibraryPane: View {
             .background(color.opacity(0.10), in: Capsule(style: .continuous))
     }
 
-    private func statusLabel(_ agent: EffectiveAgentRecord) -> String {
-        if agent.id.hasPrefix("catalog::") { return "Catalog" }
-        if agent.resolved.disabled == true { return "Disabled" }
-        if libraryBackedActiveAgentNames.contains(agent.name) {
-            return "Library"
-        }
-        return agent.resolutionKind.rawValue
-    }
-
     private func icon(for agent: EffectiveAgentRecord) -> String {
         "paperplane"
     }
 
-    private func color(for agent: EffectiveAgentRecord) -> Color {
-        agentSourceColor(
-            for: agent,
-            libraryBackedNames: libraryBackedActiveAgentNames,
-            isInProjectContext: false
-        )
-    }
-
-    private func agentIsAssignedSomewhere(_ agent: EffectiveAgentRecord) -> Bool {
-        guard let record = libraryManagedAgentRecord(
-            for: agent,
-            libraryAgents: viewModel.globalCatalogSnapshot.libraryAgents
-        ) else { return false }
-        return viewModel.agentIsEnabledGlobally(record) || !viewModel.assignedProjects(for: record).isEmpty
-    }
-
-    private func agentIsUnusedLibraryAgent(_ agent: EffectiveAgentRecord) -> Bool {
-        guard agent.resolutionKind == .library,
-              let record = viewModel.globalCatalogSnapshot.libraryAgents.first(where: { $0.name == agent.name }) else {
-            return false
-        }
-        return !viewModel.agentIsEnabledGlobally(record) && viewModel.assignedProjects(for: record).isEmpty
+    private func color(for agent: EffectiveAgentRecord, libraryBackedNames: Set<String>) -> Color {
+        agentSourceColor(for: agent, libraryBackedNames: libraryBackedNames, isInProjectContext: false)
     }
 
     private func openFile(_ path: String?) {

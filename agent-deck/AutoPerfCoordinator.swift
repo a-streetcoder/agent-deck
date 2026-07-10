@@ -17,6 +17,8 @@ import Foundation
 /// When the requested journeys finish it writes a rollup to
 /// `/tmp/agentdeck-autoperf-rollup.md` and terminates, so the loop can invoke it
 /// as a one-shot: `AGENTDECK_AUTOPERF=1 "Agent Deck.app/Contents/MacOS/Agent Deck"`.
+/// Add `AGENTDECK_AUTOPERF_JOURNEY=scroll|stream|sidebar` to isolate one journey
+/// per clean launch for comparable aggregate results.
 ///
 /// Runs against the REAL data roots. The journeys are non-destructive (ScrollBench
 /// only scrolls; STREAMSIM mutates in-memory entries and restores them), but the
@@ -27,6 +29,26 @@ import Foundation
 /// confirmation still comes from using the live app.
 extension Notification.Name {
     static let sidebarExpandBenchShouldStart = Notification.Name("AgentDeckSidebarExpandBenchShouldStart")
+}
+
+/// The requested subset for one clean AutoPerf launch. Kept independent of the
+/// process environment so the harness contract is deterministic and testable.
+struct AutoPerfJourneySelection: Equatable {
+    let scroll: Bool
+    let stream: Bool
+    let sidebar: Bool
+
+    static func resolve(journey: String?, legacySidebarOnly: Bool) -> Self {
+        switch journey?.lowercased() {
+        case "scroll": return Self(scroll: true, stream: false, sidebar: false)
+        case "stream": return Self(scroll: false, stream: true, sidebar: false)
+        case "sidebar": return Self(scroll: false, stream: false, sidebar: true)
+        default:
+            return legacySidebarOnly
+                ? Self(scroll: false, stream: false, sidebar: true)
+                : Self(scroll: true, stream: true, sidebar: true)
+        }
+    }
 }
 
 final class AutoPerfCoordinator {
@@ -66,16 +88,27 @@ final class AutoPerfCoordinator {
         // Enable the built-in benches for this run only. They are DEBUG-gated
         // inside PiAgentViews/ContentView, so a Release build is unaffected.
         let defaults = UserDefaults.standard
-        let sidebarOnly = env["AGENTDECK_AUTOPERF_SIDEBAR_ONLY"] != nil || defaults.bool(forKey: "AutoPerfSidebarOnly")
-        runScrollBench = !sidebarOnly
-        runStreamSim = !sidebarOnly
-        runSidebarExpandBench = true
+        // A clean AutoPerf launch can select exactly one journey, so aggregate
+        // results never mix static scrolling, streaming, and sidebar work:
+        // `AGENTDECK_AUTOPERF_JOURNEY=scroll|stream|sidebar`.
+        // Keep the earlier sidebar-only flag as a compatibility alias.
+        let selection = AutoPerfJourneySelection.resolve(
+            journey: env["AGENTDECK_AUTOPERF_JOURNEY"],
+            legacySidebarOnly: env["AGENTDECK_AUTOPERF_SIDEBAR_ONLY"] != nil || defaults.bool(forKey: "AutoPerfSidebarOnly")
+        )
+        runScrollBench = selection.scroll
+        runStreamSim = selection.stream
+        runSidebarExpandBench = selection.sidebar
         if runScrollBench { defaults.set(true, forKey: "ScrollBenchEnabled") }
         else { defaults.removeObject(forKey: "ScrollBenchEnabled") }
         if runStreamSim { defaults.set(true, forKey: "StreamSimEnabled") }
         else { defaults.removeObject(forKey: "StreamSimEnabled") }
-        if runSidebarExpandBench { defaults.set(true, forKey: "SidebarExpandBenchEnabled") }
-        NotificationCenter.default.post(name: .sidebarExpandBenchShouldStart, object: nil)
+        if runSidebarExpandBench {
+            defaults.set(true, forKey: "SidebarExpandBenchEnabled")
+            NotificationCenter.default.post(name: .sidebarExpandBenchShouldStart, object: nil)
+        } else {
+            defaults.removeObject(forKey: "SidebarExpandBenchEnabled")
+        }
 
         // Snapshot the current perf-log size so the rollup reflects only this run,
         // and clear stale hang/hitch backtraces so they aren't double-counted.
@@ -141,18 +174,23 @@ final class AutoPerfCoordinator {
         defaults.removeObject(forKey: "StreamSimEnabled")
         defaults.removeObject(forKey: "SidebarExpandBenchEnabled")
 
-        let rollup = buildRollup(timedOut: timedOut)
         TranscriptScrollProfiler.fileLog("AUTOPERF COMPLETE scroll=\(scrolledDone) stream=\(streamedDone) sidebarExpand=\(sidebarExpandedDone) timedOut=\(timedOut)")
-        do {
-            try rollup.write(toFile: Self.rollupPath, atomically: true, encoding: .utf8)
-            TranscriptScrollProfiler.fileLog("AUTOPERF ROLLUP \(Self.rollupPath)")
-        } catch {
-            TranscriptScrollProfiler.fileLog("AUTOPERF ROLLUP WRITE FAILED \(error.localizedDescription)")
-        }
+        // The rollup reads the perf artifact. Drain the ordered writer first so
+        // its raw-log section includes every event emitted before completion.
+        TranscriptScrollProfiler.flushFileLog { [weak self] in
+            guard let self else { return }
+            let rollup = self.buildRollup(timedOut: timedOut)
+            do {
+                try rollup.write(toFile: Self.rollupPath, atomically: true, encoding: .utf8)
+                TranscriptScrollProfiler.fileLog("AUTOPERF ROLLUP \(Self.rollupPath)")
+            } catch {
+                TranscriptScrollProfiler.fileLog("AUTOPERF ROLLUP WRITE FAILED \(error.localizedDescription)")
+            }
 
-        // Give the final log lines a moment to flush, then quit.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            NSApp.terminate(nil)
+            // Give the final log lines a moment to flush, then quit.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                NSApp.terminate(nil)
+            }
         }
     }
 

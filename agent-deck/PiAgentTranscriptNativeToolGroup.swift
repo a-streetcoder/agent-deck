@@ -67,6 +67,122 @@ struct NativeToolGroupModel {
     }
 }
 
+/// One compact, displayed line of a diff preview. Kept separate from the view so
+/// line extraction remains pure and the renderer has no transcript-state cache.
+struct NativeDiffPreviewLine {
+    var gutter: String
+    var content: String
+    var color: NSColor
+    var background: NSColor
+}
+
+/// Lightweight drawing surface for a compact diff preview.
+///
+/// A preview can contain dozens of lines. Drawing its fixed-height rows avoids a
+/// per-line `NSStackView`, two labels, and constraint system while retaining the
+/// existing colors, gutter, truncation, and VoiceOver-readable line text.
+final class NativeDiffPreviewView: NSView {
+    private static let gutterWidth: CGFloat = 40
+    private static let gutterGap: CGFloat = 9
+    private static let verticalInset: CGFloat = 1
+
+    private var lines: [NativeDiffPreviewLine] = []
+    private var lineAccessibilityElements: [NSAccessibilityElement] = []
+
+    var renderedLineCount: Int { lines.count }
+
+    init(lines: [NativeDiffPreviewLine] = []) {
+        self.lines = lines
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = AppTheme.Chat.codeCornerRadius
+        layer?.masksToBounds = true
+        rebuildAccessibilityElements()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+
+    func configure(lines: [NativeDiffPreviewLine]) {
+        self.lines = lines
+        rebuildAccessibilityElements()
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: lineHeight * CGFloat(lines.count))
+    }
+
+    override func layout() {
+        super.layout()
+        updateAccessibilityFrames()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let mono = Self.monospaceFont(weight: .regular)
+        let monoBold = Self.monospaceFont(weight: .semibold)
+        let textHeight = lineHeight - Self.verticalInset * 2
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        for (index, line) in lines.enumerated() {
+            let y = CGFloat(index) * lineHeight
+            let rowRect = NSRect(x: 0, y: y, width: bounds.width, height: lineHeight)
+            guard rowRect.intersects(dirtyRect) else { continue }
+            line.background.setFill()
+            rowRect.fill()
+
+            let textRect = rowRect.insetBy(dx: 0, dy: Self.verticalInset)
+            let gutterRect = NSRect(x: 0, y: textRect.minY, width: Self.gutterWidth, height: textHeight)
+            let contentRect = NSRect(
+                x: Self.gutterWidth + Self.gutterGap,
+                y: textRect.minY,
+                width: max(0, bounds.width - Self.gutterWidth - Self.gutterGap),
+                height: textHeight
+            )
+            NSAttributedString(string: line.gutter, attributes: [
+                .font: monoBold, .foregroundColor: line.color, .paragraphStyle: paragraph
+            ]).draw(with: gutterRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            NSAttributedString(string: line.content.isEmpty ? " " : line.content, attributes: [
+                .font: mono, .foregroundColor: line.color
+            ]).draw(with: contentRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        }
+    }
+
+    override func accessibilityChildren() -> [Any]? { lineAccessibilityElements }
+
+    private static func monospaceFont(weight: NSFont.Weight) -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: weight)
+    }
+
+    private var lineHeight: CGFloat {
+        let font = Self.monospaceFont(weight: .regular)
+        return ceil(font.ascender - font.descender + font.leading) + Self.verticalInset * 2
+    }
+
+    private func rebuildAccessibilityElements() {
+        lineAccessibilityElements = lines.map { line in
+            let element = NSAccessibilityElement()
+            element.setAccessibilityRole(.staticText)
+            element.setAccessibilityLabel("\(line.gutter) \(line.content)")
+            return element
+        }
+        updateAccessibilityFrames()
+    }
+
+    private func updateAccessibilityFrames() {
+        for (index, element) in lineAccessibilityElements.enumerated() {
+            element.setAccessibilityFrameInParentSpace(
+                NSRect(x: 0, y: CGFloat(index) * lineHeight, width: bounds.width, height: lineHeight)
+            )
+        }
+    }
+}
+
 // MARK: - Factory (pure mapping, single-sourced with the SwiftUI views)
 
 extension NativeToolGroupModel {
@@ -971,20 +1087,10 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         let expanded = expandedDiffRows.contains(row.path)
         let visible = expanded ? lines : Array(lines.prefix(10))
 
-        let linesStack = NSStackView()
-        linesStack.translatesAutoresizingMaskIntoConstraints = false
-        linesStack.orientation = .vertical
-        linesStack.alignment = .leading
-        linesStack.spacing = 0
-        linesStack.wantsLayer = true
-        linesStack.layer?.cornerRadius = AppTheme.Chat.codeCornerRadius
-        linesStack.layer?.masksToBounds = true
-        for line in visible { linesStack.addArrangedSubview(buildDiffLineRow(line)) }
-        container.addArrangedSubview(linesStack)
-        linesStack.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
-        for lineRow in linesStack.arrangedSubviews {
-            lineRow.widthAnchor.constraint(equalTo: linesStack.widthAnchor).isActive = true
-        }
+        let preview = NativeDiffPreviewView(lines: visible)
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        container.addArrangedSubview(preview)
+        preview.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
 
         if lines.count > 10 {
             let title = expanded ? "Show fewer lines" : "Show \(lines.count - 10) more lines"
@@ -1004,49 +1110,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         return container
     }
 
-    private func buildDiffLineRow(_ line: DiffLine) -> NSView {
-        let bg = NSView()
-        bg.translatesAutoresizingMaskIntoConstraints = false
-        bg.wantsLayer = true
-        bg.layer?.backgroundColor = line.background.cgColor
-
-        // Match reply markdown code blocks exactly: the same preferred-callout
-        // point size, so both scale together with Dynamic Type / accessibility
-        // text size instead of one staying hardcoded.
-        let codeSize = NSFont.preferredFont(forTextStyle: .callout).pointSize
-        let mono = NSFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
-        let monoBold = NSFont.monospacedSystemFont(ofSize: codeSize, weight: .semibold)
-
-        let gutter = Self.label(line.gutter, font: monoBold, color: line.color)
-        gutter.alignment = .right
-        gutter.translatesAutoresizingMaskIntoConstraints = false
-
-        let content = Self.label(line.content.isEmpty ? " " : line.content, font: mono, color: line.color)
-        content.lineBreakMode = .byTruncatingTail
-        content.translatesAutoresizingMaskIntoConstraints = false
-
-        bg.addSubview(gutter)
-        bg.addSubview(content)
-        NSLayoutConstraint.activate([
-            gutter.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
-            gutter.widthAnchor.constraint(equalToConstant: 40),
-            gutter.topAnchor.constraint(equalTo: bg.topAnchor, constant: 1),
-            gutter.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -1),
-            content.leadingAnchor.constraint(equalTo: gutter.trailingAnchor, constant: 9),
-            content.trailingAnchor.constraint(lessThanOrEqualTo: bg.trailingAnchor),
-            content.centerYAnchor.constraint(equalTo: gutter.centerYAnchor)
-        ])
-        return bg
-    }
-
-    struct DiffLine {
-        var gutter: String
-        var content: String
-        var color: NSColor
-        var background: NSColor
-    }
-
-    private static func meaningfulDiffLines(_ diff: String) -> [DiffLine] {
+    private static func meaningfulDiffLines(_ diff: String) -> [NativeDiffPreviewLine] {
         let added = AppTheme.ns(AppTheme.diffAdded)
         let removed = AppTheme.ns(AppTheme.diffRemoved)
         let addedBg = AppTheme.ns(AppTheme.diffAdded.opacity(AppTheme.roleFillStrongOpacity))
@@ -1056,10 +1120,10 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
             return line.hasPrefix("+") || line.hasPrefix("-") || line.hasPrefix("@@")
         }.map { raw in
             if raw.hasPrefix("@@") {
-                return DiffLine(gutter: "…", content: raw, color: Self.muted, background: .clear)
+                return NativeDiffPreviewLine(gutter: "…", content: raw, color: Self.muted, background: .clear)
             }
             guard let first = raw.first, first == "+" || first == "-" || first == " " else {
-                return DiffLine(gutter: " ", content: raw.trimmingCharacters(in: .whitespaces), color: Self.muted, background: .clear)
+                return NativeDiffPreviewLine(gutter: " ", content: raw.trimmingCharacters(in: .whitespaces), color: Self.muted, background: .clear)
             }
             let prefix = String(first)
             let trimmedLeading = raw.dropFirst().drop(while: { $0 == " " })
@@ -1068,7 +1132,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
             let gutter = numberPart.isEmpty ? prefix : "\(prefix) \(numberPart)"
             let color: NSColor = first == "+" ? added : (first == "-" ? removed : Self.muted)
             let bg: NSColor = first == "+" ? addedBg : (first == "-" ? removedBg : .clear)
-            return DiffLine(gutter: gutter, content: content, color: color, background: bg)
+            return NativeDiffPreviewLine(gutter: gutter, content: content, color: color, background: bg)
         }
     }
 

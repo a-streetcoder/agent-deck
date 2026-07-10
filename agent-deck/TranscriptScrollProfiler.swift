@@ -38,18 +38,22 @@ final class TranscriptScrollProfiler {
     /// Mirror key perf lines to a file. `os.Logger` is invisible to `log
     /// stream`/`log show` in some headless/automation contexts (no unified-log
     /// access), so the perf harness also appends its summaries here where any
-    /// process can read them. Append-only, main-thread callers, best-effort.
+    /// process can read them. DEBUG-only writes are ordered on a background queue,
+    /// never synchronously on a scroll or heartbeat path.
     /// File: `/tmp/agentdeck-perf.txt` (truncate between runs with the harness).
     static func fileLog(_ line: String) {
 #if DEBUG
         guard isEnabled else { return }
-        guard let data = (line + "\n").data(using: .utf8) else { return }
-        let url = URL(fileURLWithPath: "/tmp/agentdeck-perf.txt")
-        if let h = try? FileHandle(forWritingTo: url) {
-            h.seekToEndOfFile(); h.write(data); try? h.close()
-        } else {
-            try? data.write(to: url)
-        }
+        DebugArtifactWriter.perfLog.append(line: line)
+#endif
+    }
+
+    /// Drains DEBUG artifact writes before a consumer reads the perf log.
+    static func flushFileLog(completion: @escaping () -> Void) {
+#if DEBUG
+        DebugArtifactWriter.perfLog.flush(completion: completion)
+#else
+        completion()
 #endif
     }
 

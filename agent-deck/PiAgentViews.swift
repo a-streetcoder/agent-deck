@@ -1422,13 +1422,21 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         func setupDataSource(for tableView: NSTableView) {
-            dataSource = NSTableViewDiffableDataSource<PiAgentTranscriptTableSection, String>(tableView: tableView) { [weak self] _, _, row, id in
+            dataSource = makeDataSource(for: tableView)
+            tableView.delegate = self
+        }
+
+        /// AppKit's table diffable data source has no
+        /// `applySnapshotUsingReloadData` counterpart. Replacing the source gives
+        /// a session switch a clean snapshot baseline, avoiding reconciliation of
+        /// the previous session's unrelated identifiers.
+        private func makeDataSource(for tableView: NSTableView) -> NSTableViewDiffableDataSource<PiAgentTranscriptTableSection, String> {
+            NSTableViewDiffableDataSource<PiAgentTranscriptTableSection, String>(tableView: tableView) { [weak self] _, _, row, id in
                 guard let self, let item = self.itemByID[id] else { return NSView() }
                 let cell = self.cachedCell(for: id)
                 self.configure(cell, with: item, row: row)
                 return cell
             }
-            tableView.delegate = self
         }
 
         /// The persistent cell for `id` — reused across vends so its built content
@@ -2267,7 +2275,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     layer.add(fade, forKey: "transcript-removal-fade")
                 }
-                applySnapshot(ids: nextIDs) { [weak self] in
+                applySnapshot(ids: nextIDs, replacingSession: isSessionSwitch) { [weak self] in
                     guard let self else { return }
                     // Visible cells whose content changed (same id, new revision) are NOT
                     // reconfigured automatically by the diffable data source — it only
@@ -2664,7 +2672,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             profiler.setContentFingerprint(rows: items.count, tallRows: tall, totalEstHeight: totalEst)
         }
 
-        private func applySnapshot(ids: [String], completion: @escaping () -> Void) {
+        private func applySnapshot(
+            ids: [String],
+            replacingSession: Bool = false,
+            completion: @escaping () -> Void
+        ) {
             let snapshot = TranscriptScrollProfiler.measurePhase("apply.snapshotBuild") {
                 var snapshot = NSDiffableDataSourceSnapshot<PiAgentTranscriptTableSection, String>()
                 snapshot.appendSections([.main])
@@ -2672,7 +2684,18 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 return snapshot
             }
             TranscriptScrollProfiler.measurePhase("apply.snapshotSubmit") {
-                dataSource?.apply(snapshot, animatingDifferences: false, completion: completion)
+                if replacingSession, let tableView {
+                    // AppKit does not expose UIKit's
+                    // `applySnapshotUsingReloadData`. Start a fresh data source
+                    // instead, so this wholesale session replacement has an empty
+                    // snapshot baseline rather than diffing unrelated old IDs.
+                    dataSource = makeDataSource(for: tableView)
+                    dataSource?.apply(snapshot, animatingDifferences: false, completion: completion)
+                } else {
+                    // Current-session changes stay incremental so their existing
+                    // visible-cell reconciliation and follow behavior are intact.
+                    dataSource?.apply(snapshot, animatingDifferences: false, completion: completion)
+                }
             }
         }
 
@@ -3707,18 +3730,22 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 #endif
                 lastIntrinsicHeight = -1
             }
-            // `settle` is the immediate layout pass that stops a layer-backed row
-            // painting at a stale position. Rows can be vended on cells that AppKit
-            // recycled from another item of the same native view type; that path keeps
-            // the view (`createdNow == false`) but swaps content at the same width. Settle
-            // first paint for any real content row after creation or item reuse, plus
-            // later geometry changes. Spacers have no visible geometry to correct.
+            // `settle` is the immediate layout pass that stops a recycled,
+            // layer-backed row from painting its prior geometry. A freshly-created
+            // non-markdown row has no presentation state to correct, and AppKit's
+            // normal cell layout immediately follows installation; forcing a second
+            // subtree layout here was redundant in the sampled fresh card vends.
+            // Keep the initial settle for markdown-bearing bubbles/questions, whose
+            // first paint includes a richer nested content tree. Spacers have no
+            // visible geometry to correct.
             // Skip for offscreen prewarm: the row is not on screen so there is no
             // stale paint to correct, and the layout cost (up to 60ms for heavy rows)
             // is wasted work that stalls the main thread during idle pre-warm slices.
             // The cell will lay out naturally when it scrolls into view.
             let hasVisibleNativeGeometry = spec.typeID != ObjectIdentifier(PiAgentNativeSpacerView.self)
-            let needsInitialSettle = hasVisibleNativeGeometry && (createdNow || itemChanged)
+            let isMarkdownBearingRow = spec.typeID == ObjectIdentifier(PiAgentNativeBubbleView.self)
+                || spec.typeID == ObjectIdentifier(PiAgentNativeQuestionView.self)
+            let needsInitialSettle = hasVisibleNativeGeometry && ((!createdNow && itemChanged) || (createdNow && isMarkdownBearingRow))
             let isWidthOnlySettle = !createdNow && !needsInitialSettle && widthChanged && !insetChanged
             if via != "prewarm", needsInitialSettle || (!createdNow && (widthChanged || insetChanged)) {
                 if deferWidthOnlySettle && isWidthOnlySettle {

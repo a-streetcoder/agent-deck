@@ -474,6 +474,18 @@ struct SkillsScreen: View {
         let grouped = Dictionary(grouping: allRecords, by: \.name)
         let preferred = grouped.values.compactMap(preferredSkillRecord)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let nameCounts = grouped.mapValues(\.count)
+        // Normalize each preferred path/root once for this recomputation. Both
+        // repository resolution and collection membership use these values.
+        let standardizedPathsBySkillID: [SkillRecord.ID: (filePath: String, rootPath: String)] = Dictionary(
+            uniqueKeysWithValues: preferred.map { skill in
+                let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+                let rootPath = fileURL.lastPathComponent == "SKILL.md"
+                    ? fileURL.deletingLastPathComponent().path
+                    : fileURL.path
+                return (skill.id, (fileURL.path, rootPath))
+            }
+        )
 
         // Repository membership for every listed skill, resolved once per
         // layout rebuild. `importedRepository(for:)` standardizes two URLs per
@@ -485,10 +497,9 @@ struct SkillsScreen: View {
             ($0, URL(fileURLWithPath: $0.clonePath, isDirectory: true).standardizedFileURL.path)
         }
         func repository(for skill: SkillRecord) -> ImportedSkillRepository? {
-            guard !clonePathsByRepoID.isEmpty else { return nil }
-            let skillPath = URL(fileURLWithPath: skill.filePath).standardizedFileURL.path
+            guard !clonePathsByRepoID.isEmpty, let paths = standardizedPathsBySkillID[skill.id] else { return nil }
             return clonePathsByRepoID.first {
-                skillPath == $0.clonePath || skillPath.hasPrefix($0.clonePath + "/")
+                paths.filePath == $0.clonePath || paths.filePath.hasPrefix($0.clonePath + "/")
             }?.repository
         }
         var repositoryBySkillID: [SkillRecord.ID: ImportedSkillRepository] = [:]
@@ -496,34 +507,23 @@ struct SkillsScreen: View {
             if let repository = repository(for: skill) { repositoryBySkillID[skill.id] = repository }
         }
 
-        let nameCounts = Dictionary(grouping: allRecords, by: \.name).mapValues(\.count)
         let collections = viewModel.appSettings.skillCollections.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         let collectionRootPathSets = collections.map { Set($0.skillRootPaths) }
         var collectionCountBySkillID: [SkillRecord.ID: Int] = [:]
-        var collectionMembersByID: [UUID: [SkillRecord]] = [:]
-        if !collections.isEmpty {
-            for skill in preferred {
-                let rootPath = skillRootPath(for: skill)
-                let filePath = URL(fileURLWithPath: skill.filePath).standardizedFileURL.path
-                var count = 0
-                for (index, collection) in collections.enumerated() {
-                    let rootPaths = collectionRootPathSets[index]
-                    if rootPaths.contains(rootPath) || rootPaths.contains(filePath) {
-                        count += 1
-                    } else if collection.skillNames.contains(skill.name), nameCounts[skill.name] == 1 {
-                        count += 1
-                    }
-                }
-                if count > 0 { collectionCountBySkillID[skill.id] = count }
-            }
+        var collectionMembersByID = Dictionary(uniqueKeysWithValues: collections.map { ($0.id, [SkillRecord]()) })
+        // One skills × collections pass supplies both the row count and the
+        // collection member lists. Appending in `preferred` order preserves the
+        // former filtered-list ordering exactly.
+        for skill in preferred {
+            guard let paths = standardizedPathsBySkillID[skill.id] else { continue }
             for (index, collection) in collections.enumerated() {
                 let rootPaths = collectionRootPathSets[index]
-                collectionMembersByID[collection.id] = preferred.filter { skill in
-                    let rootPath = skillRootPath(for: skill)
-                    let filePath = URL(fileURLWithPath: skill.filePath).standardizedFileURL.path
-                    if rootPaths.contains(rootPath) || rootPaths.contains(filePath) { return true }
-                    return collection.skillNames.contains(skill.name) && nameCounts[skill.name] == 1
-                }
+                let isMember = rootPaths.contains(paths.rootPath)
+                    || rootPaths.contains(paths.filePath)
+                    || (collection.skillNames.contains(skill.name) && nameCounts[skill.name] == 1)
+                guard isMember else { continue }
+                collectionCountBySkillID[skill.id, default: 0] += 1
+                collectionMembersByID[collection.id, default: []].append(skill)
             }
         }
 
@@ -610,13 +610,6 @@ struct SkillsScreen: View {
         }
 
         return (sections, inactiveByID, managed, preferred, repositoryBySkillID, collectionCountBySkillID, collectionMembersByID)
-    }
-
-    private func skillRootPath(for skill: SkillRecord) -> String {
-        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
-        return fileURL.lastPathComponent == "SKILL.md"
-            ? fileURL.deletingLastPathComponent().path
-            : fileURL.path
     }
 
     /// Selection-aware list context menu. A single right-clicked skill gets the
