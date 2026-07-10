@@ -102,3 +102,36 @@ test("lists the imported repo, badges an upstream update, and pulls it", async (
     })
     .toBe(true);
 });
+
+test("holds a locally-edited skill as a conflict and resolves it Take Remote", async ({ page }) => {
+  const { repos } = (await (await fetch(`${harness.baseUrl}/resources/skill-repos`)).json()) as {
+    repos: Array<{ id: string }>;
+  };
+  const id = repos[0]!.id;
+  const skillMd = path.join(harness.piHome, ".pi", "agent", "skills", "web-scraper", "SKILL.md");
+
+  // The user edits the catalog copy locally; upstream also changes it.
+  writeFileSync(
+    skillMd,
+    "---\nname: web-scraper\ndescription: Scrape web pages\n---\nLOCAL EDIT.\n",
+  );
+  writeFileSync(
+    path.join(sourceRepo, "web-scraper", "SKILL.md"),
+    "---\nname: web-scraper\ndescription: Scrape web pages\n---\nUPSTREAM V3.\n",
+  );
+  git(["commit", "-am", "v3"]);
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-skills").click();
+
+  // Update holds the edit → a conflict block with Keep-Mine / Take-Remote.
+  await page.getByTestId(`skill-repo-update-${id}`).click();
+  await expect(page.getByTestId(`skill-repo-conflicts-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`skill-conflict-remote-${id}-web-scraper`)).toBeVisible();
+  expect(readFileSync(skillMd, "utf8")).toContain("LOCAL EDIT"); // not overwritten
+
+  // Take Remote → the upstream version wins and the conflict clears.
+  await page.getByTestId(`skill-conflict-remote-${id}-web-scraper`).click();
+  await expect(page.getByTestId(`skill-repo-conflicts-${id}`)).toHaveCount(0);
+  await expect.poll(() => readFileSync(skillMd, "utf8").includes("UPSTREAM V3")).toBe(true);
+});

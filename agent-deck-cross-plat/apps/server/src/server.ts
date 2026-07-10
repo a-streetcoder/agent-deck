@@ -58,6 +58,7 @@ import {
   renameSkillDir,
   importSkillFile,
   importSkillsFromClone,
+  skillMdHash,
   resolveSkillSource,
   scanEnv,
   writeEnvVar,
@@ -1217,6 +1218,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         projectPath: roots.projectPath,
         clonePath,
         skillNames: result.imported,
+        skillHashes: result.hashes,
         lastSyncedCommit: await gitHead(clonePath).catch(() => ""),
         importedAt: new Date().toISOString(),
       });
@@ -1292,9 +1294,28 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       roots = rootsFor(undefined);
     }
     try {
+      // Conflicts: skills whose catalog copy the user has locally edited since we
+      // wrote it (current hash ≠ the stored fingerprint). Detected BEFORE the
+      // fetch and HELD back from the overwrite so an edit is never silently lost.
+      const stored = { ...(record.skillHashes ?? {}) };
+      // Backfill a baseline for any skill without a stored fingerprint (records
+      // imported before hashing existed): adopt its current catalog hash so this
+      // round isn't a false conflict AND future edits become detectable — closes
+      // the "no baseline → silently overwritten" gap.
+      for (const name of record.skillNames) {
+        if (stored[name] === undefined) {
+          const current = skillMdHash(roots, record.scope, name);
+          if (current) stored[name] = current;
+        }
+      }
+      const conflicts = record.skillNames.filter((name) => {
+        const current = skillMdHash(roots, record.scope, name);
+        return current !== null && stored[name] !== undefined && current !== stored[name];
+      });
+
       const newCommit = await gitPullFfInto(record.clonePath, record.ref);
       if (newCommit === record.lastSyncedCommit) {
-        return { updated: false, commit: newCommit }; // already up to date
+        return { updated: false, commit: newCommit, conflicts: [] as string[] }; // up to date
       }
       const scanDir = subdirScanPath(record.clonePath, record.subdir);
       const result = importSkillsFromClone(
@@ -1302,13 +1323,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         record.scope,
         scanDir,
         skillRepoName(record.remoteUrl),
-        true, // overwrite — re-sync replaces the catalog copies
+        true, // overwrite the non-conflicting skills
+        { exclude: new Set(conflicts) }, // ...but hold the locally-edited ones
       );
       // Skills upstream DELETED (in the record before, now neither imported nor
-      // skipped) are removed from the catalog too, so the repo stays the source
-      // of truth (native) rather than leaving orphans.
+      // held) are removed from the catalog too, so the repo stays the source of
+      // truth rather than leaving orphans — but NEVER a locally-edited conflict
+      // (that would silently drop the user's edit; it stays held instead).
+      const conflictSet = new Set(conflicts);
       for (const name of record.skillNames) {
-        if (!result.imported.includes(name) && !result.skipped.includes(name)) {
+        if (
+          !result.imported.includes(name) &&
+          !result.skipped.includes(name) &&
+          !conflictSet.has(name)
+        ) {
           try {
             deleteSkillDir(roots, record.scope, name);
           } catch {
@@ -1316,18 +1344,87 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           }
         }
       }
+      // The held conflicts keep their OLD fingerprint so they stay flagged until
+      // resolved; the freshly-imported skills take their new one.
+      const heldConflicts = conflicts.filter((n) => skillMdHash(roots, record.scope, n) !== null);
+      const skillHashes: Record<string, string> = { ...result.hashes };
+      for (const n of heldConflicts) if (stored[n]) skillHashes[n] = stored[n];
       settings.upsertImportedSkillRepository({
         ...record,
-        skillNames: result.imported,
+        skillNames: [...new Set([...result.imported, ...heldConflicts])],
+        skillHashes,
         lastSyncedCommit: newCommit,
       });
       broadcast({ type: "resources_changed" });
-      return { updated: true, commit: newCommit, imported: result.imported };
+      return {
+        updated: true,
+        commit: newCommit,
+        imported: result.imported,
+        conflicts: heldConflicts,
+      };
     } catch (error) {
       return reply
         .status(500)
         .send({ error: error instanceof Error ? error.message : String(error) });
     }
+  });
+
+  // Resolve a skill-update conflict (native Keep Mine / Take Remote): "remote"
+  // re-imports the upstream version over the local edit; "mine" keeps the edit
+  // and re-fingerprints it so it's no longer flagged.
+  fastify.post("/resources/skill-repos/:id/resolve", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ name: RESOURCE_NAME, resolution: z.enum(["mine", "remote"]) })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const record = settings.get().importedSkillRepositories.find((r) => r.id === id);
+    if (!record) return reply.status(404).send({ error: "unknown skill repository" });
+    let roots: ResourceRoots;
+    if (record.scope === "project") {
+      const project = record.projectPath
+        ? projects.find((p) => p.path === record.projectPath)
+        : undefined;
+      if (!project)
+        return reply.status(400).send({ error: "That project is no longer registered." });
+      roots = rootsFor(project.id);
+    } else {
+      roots = rootsFor(undefined);
+    }
+    const { name, resolution } = parsed.data;
+    const skillHashes = { ...(record.skillHashes ?? {}) };
+    let skillNames = record.skillNames;
+    if (resolution === "remote") {
+      // Take upstream: overwrite the catalog copy with the clone's version.
+      const scanDir = subdirScanPath(record.clonePath, record.subdir);
+      const result = importSkillsFromClone(
+        roots,
+        record.scope,
+        scanDir,
+        skillRepoName(record.remoteUrl),
+        true,
+        { only: new Set([name]) },
+      );
+      if (result.hashes[name]) {
+        skillHashes[name] = result.hashes[name];
+      } else {
+        // Upstream removed this skill — "take remote" means take the deletion.
+        try {
+          deleteSkillDir(roots, record.scope, name);
+        } catch {
+          // Already gone — fine.
+        }
+        delete skillHashes[name];
+        skillNames = skillNames.filter((n) => n !== name);
+      }
+    } else {
+      // Keep the local edit — re-fingerprint so the update stops flagging it.
+      const current = skillMdHash(roots, record.scope, name);
+      if (current) skillHashes[name] = current;
+    }
+    settings.upsertImportedSkillRepository({ ...record, skillNames, skillHashes });
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   // Forget a repo: drop the provenance record + the persistent clone. The skills

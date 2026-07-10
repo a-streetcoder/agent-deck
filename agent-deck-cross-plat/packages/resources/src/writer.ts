@@ -10,6 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import YAML from "yaml";
@@ -450,6 +451,28 @@ function findSkillDirs(root: string): string[] {
 export interface SkillImportResult {
   imported: string[];
   skipped: string[];
+  /** sha-256 of each imported skill's SKILL.md (the as-written fingerprint). */
+  hashes: Record<string, string>;
+}
+
+/** sha-256 of a SKILL.md file, or null if it can't be read. */
+function hashSkillMd(skillDir: string): string | null {
+  try {
+    return createHash("sha256")
+      .update(readFileSync(path.join(skillDir, "SKILL.md")))
+      .digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/** The catalog copy's current SKILL.md hash, for detecting a local edit. */
+export function skillMdHash(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+): string | null {
+  return hashSkillMd(path.join(skillDirFor(roots, scope), name));
 }
 
 /**
@@ -467,6 +490,9 @@ export function importSkillsFromClone(
   repoName: string,
   /** Re-sync: replace an existing catalog skill instead of skipping it. */
   overwrite = false,
+  /** Restrict which skills are touched: `only` = just these names; `exclude` =
+   *  every name but these (used to HOLD locally-edited conflicts on a re-sync). */
+  filter?: { only?: Set<string>; exclude?: Set<string> },
 ): SkillImportResult {
   const skillDirs = existsSync(path.join(cloneDir, "SKILL.md"))
     ? [cloneDir] // root SKILL.md → the whole repo is a single skill
@@ -474,6 +500,7 @@ export function importSkillsFromClone(
   const catalog = skillDirFor(roots, scope);
   const imported: string[] = [];
   const skipped: string[] = [];
+  const hashes: Record<string, string> = {};
   for (const srcDir of skillDirs) {
     let name: string;
     try {
@@ -491,6 +518,11 @@ export function importSkillsFromClone(
       skipped.push(name);
       continue;
     }
+    if (filter?.only && !filter.only.has(name)) continue; // not in the include set
+    if (filter?.exclude?.has(name)) {
+      skipped.push(name); // held back (a conflict to resolve)
+      continue;
+    }
     const dest = path.join(catalog, name);
     if (existsSync(dest)) {
       if (!overwrite) {
@@ -502,8 +534,10 @@ export function importSkillsFromClone(
     mkdirSync(catalog, { recursive: true });
     cpSync(srcDir, dest, { recursive: true, filter: (src) => path.basename(src) !== ".git" });
     imported.push(name);
+    const hash = hashSkillMd(srcDir);
+    if (hash) hashes[name] = hash;
   }
-  return { imported, skipped };
+  return { imported, skipped, hashes };
 }
 
 export function importSkillFile(

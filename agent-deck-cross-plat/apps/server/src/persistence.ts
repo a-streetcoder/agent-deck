@@ -97,6 +97,12 @@ export interface ImportedSkillRepository {
   clonePath: string;
   /** The catalog skill names imported from this repo. */
   skillNames: string[];
+  /**
+   * The as-written SKILL.md fingerprint per skill name (native conflict
+   * detection): if the catalog copy's current hash differs on update, the user
+   * edited it locally → a conflict to resolve rather than silently overwrite.
+   */
+  skillHashes?: Record<string, string>;
   /** The clone's HEAD commit at the last successful sync. */
   lastSyncedCommit: string;
   importedAt: string;

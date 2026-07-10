@@ -159,6 +159,40 @@ describe("git-imported skill repository provenance", () => {
     expect(repos[0]!.skillNames).not.toContain("second-skill");
   });
 
+  it("holds a locally-edited skill as a conflict and resolves it Take-Remote", async () => {
+    const id = await repoId();
+
+    // The user locally edits the catalog copy…
+    writeFileSync(
+      skillMd,
+      "---\nname: web-scraper\ndescription: Scrape web pages\n---\n\nMY LOCAL VERSION.\n",
+    );
+    // …and upstream also changes the same skill.
+    writeFileSync(
+      path.join(repo, "web-scraper", "SKILL.md"),
+      "---\nname: web-scraper\ndescription: Scrape web pages\n---\n\nUPSTREAM V2.\n",
+    );
+    git(["commit", "-am", "upstream v2"]);
+
+    // Update HOLDS the edited skill (doesn't silently overwrite the local edit).
+    const upd = (await (
+      await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/update`, {
+        method: "POST",
+      })
+    ).json()) as { updated: boolean; conflicts: string[] };
+    expect(upd.conflicts).toContain("web-scraper");
+    expect(readFileSync(skillMd, "utf8")).toContain("MY LOCAL VERSION"); // kept
+
+    // Resolve Take-Remote → the upstream version wins.
+    const res = await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "web-scraper", resolution: "remote" }),
+    });
+    expect(res.status).toBe(200);
+    expect(readFileSync(skillMd, "utf8")).toContain("UPSTREAM V2");
+  });
+
   it("forgets a repo: drops the record + clone but keeps the imported skill", async () => {
     const id = await repoId();
     const clone = path.join(dataDir, "skill-repos", id);

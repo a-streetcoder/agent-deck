@@ -60,6 +60,7 @@ export {
   renameSkillDir,
   importSkillFile,
   importSkillsFromClone,
+  skillMdHash,
   type SkillImportResult,
   type WritableScope,
 } from "./writer.ts";

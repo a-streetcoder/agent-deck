@@ -375,6 +375,9 @@ export function SkillsScreen() {
   const [repos, setRepos] = useState<SkillRepo[]>([]);
   const [updatable, setUpdatable] = useState<Set<string>>(new Set());
   const [repoBusy, setRepoBusy] = useState<string | null>(null);
+  // Per-repo unresolved conflicts (skills the user edited locally that an update
+  // held back rather than overwriting) — native Keep Mine / Take Remote.
+  const [conflicts, setConflicts] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
@@ -505,16 +508,48 @@ export function SkillsScreen() {
     try {
       const res = await fetch(`/resources/skill-repos/${id}/update`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as { conflicts?: string[] };
       // Clear the badge; the resources_changed broadcast refetches the skills.
       setUpdatable((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
       });
+      // Surface any locally-edited skills the update held back.
+      setConflicts((prev) => {
+        const next = { ...prev };
+        if (data.conflicts && data.conflicts.length > 0) next[id] = data.conflicts;
+        else delete next[id];
+        return next;
+      });
     } catch (err) {
       setGlobalError(String(err));
     } finally {
       setRepoBusy(null);
+    }
+  };
+
+  const resolveConflict = async (
+    id: string,
+    name: string,
+    resolution: "mine" | "remote",
+  ): Promise<void> => {
+    try {
+      const res = await fetch(`/resources/skill-repos/${id}/resolve`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, resolution }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setConflicts((prev) => {
+        const remaining = (prev[id] ?? []).filter((n) => n !== name);
+        const next = { ...prev };
+        if (remaining.length > 0) next[id] = remaining;
+        else delete next[id];
+        return next;
+      });
+    } catch (err) {
+      setGlobalError(String(err));
     }
   };
 
@@ -686,47 +721,79 @@ export function SkillsScreen() {
               Imported repositories
             </div>
             {repos.map((repo) => (
-              <div
-                key={repo.id}
-                data-testid={`skill-repo-${repo.id}`}
-                className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5"
-              >
-                <GitBranch size={12} className="shrink-0 text-text-secondary" />
-                <span
-                  className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary"
-                  title={repo.remoteUrl}
+              <div key={repo.id}>
+                <div
+                  data-testid={`skill-repo-${repo.id}`}
+                  className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5"
                 >
-                  {repo.remoteUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "")}
-                </span>
-                {updatable.has(repo.id) ? (
+                  <GitBranch size={12} className="shrink-0 text-text-secondary" />
                   <span
-                    data-testid={`skill-repo-updatable-${repo.id}`}
-                    className="rounded-capsule px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{
-                      background: "var(--color-selection-fill)",
-                      color: "var(--color-brand-accent)",
-                    }}
+                    className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary"
+                    title={repo.remoteUrl}
                   >
-                    Update available
+                    {repo.remoteUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "")}
                   </span>
+                  {updatable.has(repo.id) ? (
+                    <span
+                      data-testid={`skill-repo-updatable-${repo.id}`}
+                      className="rounded-capsule px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        background: "var(--color-selection-fill)",
+                        color: "var(--color-brand-accent)",
+                      }}
+                    >
+                      Update available
+                    </span>
+                  ) : null}
+                  <button
+                    data-testid={`skill-repo-update-${repo.id}`}
+                    className="rounded-capsule border border-border-strong px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-40"
+                    disabled={repoBusy === repo.id}
+                    onClick={() => void updateRepo(repo.id)}
+                  >
+                    {repoBusy === repo.id ? "Updating…" : "Update"}
+                  </button>
+                  <button
+                    data-testid={`skill-repo-forget-${repo.id}`}
+                    className="rounded-capsule p-1 text-text-muted hover:text-[var(--color-role-error)] disabled:opacity-40"
+                    title="Forget this repository (keeps the imported skills)"
+                    disabled={repoBusy === repo.id}
+                    onClick={() => void forgetRepo(repo.id)}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                {(conflicts[repo.id] ?? []).length > 0 ? (
+                  <div
+                    data-testid={`skill-repo-conflicts-${repo.id}`}
+                    className="mt-1 space-y-1 rounded-lg border border-[var(--color-warning)] bg-surface px-2.5 py-1.5"
+                  >
+                    <div className="text-[10px] text-text-muted">
+                      Locally edited — your version was kept. Resolve:
+                    </div>
+                    {conflicts[repo.id]!.map((name) => (
+                      <div key={name} className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary">
+                          {name}
+                        </span>
+                        <button
+                          data-testid={`skill-conflict-mine-${repo.id}-${name}`}
+                          className="rounded-capsule border border-border-strong px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
+                          onClick={() => void resolveConflict(repo.id, name, "mine")}
+                        >
+                          Keep mine
+                        </button>
+                        <button
+                          data-testid={`skill-conflict-remote-${repo.id}-${name}`}
+                          className="rounded-capsule border border-border-strong px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
+                          onClick={() => void resolveConflict(repo.id, name, "remote")}
+                        >
+                          Take remote
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 ) : null}
-                <button
-                  data-testid={`skill-repo-update-${repo.id}`}
-                  className="rounded-capsule border border-border-strong px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-40"
-                  disabled={repoBusy === repo.id}
-                  onClick={() => void updateRepo(repo.id)}
-                >
-                  {repoBusy === repo.id ? "Updating…" : "Update"}
-                </button>
-                <button
-                  data-testid={`skill-repo-forget-${repo.id}`}
-                  className="rounded-capsule p-1 text-text-muted hover:text-[var(--color-role-error)] disabled:opacity-40"
-                  title="Forget this repository (keeps the imported skills)"
-                  disabled={repoBusy === repo.id}
-                  onClick={() => void forgetRepo(repo.id)}
-                >
-                  <X size={12} />
-                </button>
               </div>
             ))}
           </div>
