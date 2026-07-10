@@ -1020,7 +1020,11 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.addArrangedSubview(Self.label("Changes", font: NativeTranscriptFont.header))
         stack.addArrangedSubview(header)
 
-        for row in diff.rows { stack.addArrangedSubview(buildDiffRow(row)) }
+        for row in diff.rows {
+            let rowView = buildDiffRow(row)
+            stack.addArrangedSubview(rowView)
+            rowView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
         let hidden = diff.rows.count > 4 ? diff.rows.count - 4 : 0
         if hidden > 0 {
             stack.addArrangedSubview(Self.label("\(hidden) more changed file\(hidden == 1 ? "" : "s") hidden",
@@ -1066,7 +1070,9 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         stack.addArrangedSubview(head)
         head.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        stack.addArrangedSubview(buildDiffPreview(for: row))
+        let preview = buildDiffPreview(for: row)
+        stack.addArrangedSubview(preview)
+        preview.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         return stack
     }
 
