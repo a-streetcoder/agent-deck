@@ -81,6 +81,8 @@ import {
   gitCommitAll,
   gitCommitsAhead,
   gitHead,
+  gitLsRemote,
+  gitPullFfInto,
   gitCurrentBranch,
   gitErrorText,
   gitMerge,
@@ -285,6 +287,34 @@ function finalizeExtensions(paths: Array<string | undefined>): string[] {
     if (existsSync(resolved) && statSync(resolved).isFile()) out.push(resolved);
   }
   return out;
+}
+
+/**
+ * A fallback catalog skill name for a repo's root SKILL.md that lacks a
+ * frontmatter name: the last URL/path segment, sanitized to the name charset and
+ * guaranteed to start alnum so a valid root skill is never silently skipped.
+ */
+function skillRepoName(cloneUrl: string): string {
+  return (
+    (
+      cloneUrl
+        .replace(/\.git$/, "")
+        .replace(/[/\\]+$/, "")
+        .split(/[/\\]/)
+        .pop() || "repository"
+    )
+      .replace(/[^A-Za-z0-9._-]/g, "-")
+      .replace(/^[^A-Za-z0-9]+/, "") || "repository"
+  );
+}
+
+/** The dir to scan for skills — the clone, or a subdir GUARANTEED to stay inside
+ *  it (a crafted/legacy `../…` subdir falls back to the clone root). */
+function subdirScanPath(clonePath: string, subdir?: string): string {
+  if (!subdir) return clonePath;
+  const base = nodePath.resolve(clonePath);
+  const resolved = nodePath.resolve(clonePath, subdir);
+  return resolved === base || resolved.startsWith(base + nodePath.sep) ? resolved : clonePath;
 }
 
 /**
@@ -1154,19 +1184,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (!source) {
       return reply.status(400).send({ error: "Couldn't understand that repository reference." });
     }
-    // Only used as a fallback skill name for a root-level SKILL.md that lacks a
-    // frontmatter name. Sanitize to the catalog name charset AND guarantee it
-    // starts with an alnum, so a valid root skill is never silently skipped.
-    const repoName =
-      (
-        source.cloneUrl
-          .replace(/\.git$/, "")
-          .replace(/[/\\]+$/, "")
-          .split(/[/\\]/)
-          .pop() || "repository"
-      )
-        .replace(/[^A-Za-z0-9._-]/g, "-")
-        .replace(/^[^A-Za-z0-9]+/, "") || "repository";
+    const repoName = skillRepoName(source.cloneUrl);
     // Clone into a PERSISTENT dir kept for re-sync (native keeps the clone; the
     // copy lands in the catalog). The clone is removed only on failure below or
     // when the repo is later forgotten.
@@ -1183,7 +1201,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     try {
       await gitClonePersistent(source.cloneUrl, clonePath, source.ref);
       // A subdir (from a deep link) scopes discovery to that subtree.
-      const scanDir = source.subdir ? nodePath.join(clonePath, source.subdir) : clonePath;
+      const scanDir = subdirScanPath(clonePath, source.subdir);
       const result = importSkillsFromClone(roots, scope, scanDir, repoName);
       if (result.imported.length === 0 && result.skipped.length === 0) {
         cleanupClone();
@@ -1231,6 +1249,100 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         importedAt: r.importedAt,
       })),
     };
+  });
+
+  // Check a repo for updates (native checkForUpdate) — a network-only ls-remote,
+  // compared against the last synced commit.
+  fastify.post("/resources/skill-repos/:id/check", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const record = settings.get().importedSkillRepositories.find((r) => r.id === id);
+    if (!record) return reply.status(404).send({ error: "unknown skill repository" });
+    const remoteCommit = await gitLsRemote(record.remoteUrl, record.ref);
+    return {
+      updateAvailable: remoteCommit !== null && remoteCommit !== record.lastSyncedCommit,
+      // Distinguish "checked, up to date" from "couldn't reach the remote" so the
+      // UI doesn't present a transient network failure as "all good".
+      checkFailed: remoteCommit === null,
+      remoteCommit,
+      syncedCommit: record.lastSyncedCommit,
+    };
+  });
+
+  // Update a repo (native update): fetch + ff the persistent clone, re-copy its
+  // skills into the catalog (overwriting), and advance the synced commit.
+  fastify.post("/resources/skill-repos/:id/update", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const record = settings.get().importedSkillRepositories.find((r) => r.id === id);
+    if (!record) return reply.status(404).send({ error: "unknown skill repository" });
+    if (!existsSync(record.clonePath)) {
+      return reply.status(400).send({ error: "The clone is missing — re-import the repository." });
+    }
+    // Resolve the catalog roots for the record's scope (a project it was imported
+    // into must still be registered).
+    let roots: ResourceRoots;
+    if (record.scope === "project") {
+      const project = record.projectPath
+        ? projects.find((p) => p.path === record.projectPath)
+        : undefined;
+      if (!project) {
+        return reply.status(400).send({ error: "That project is no longer registered." });
+      }
+      roots = rootsFor(project.id);
+    } else {
+      roots = rootsFor(undefined);
+    }
+    try {
+      const newCommit = await gitPullFfInto(record.clonePath, record.ref);
+      if (newCommit === record.lastSyncedCommit) {
+        return { updated: false, commit: newCommit }; // already up to date
+      }
+      const scanDir = subdirScanPath(record.clonePath, record.subdir);
+      const result = importSkillsFromClone(
+        roots,
+        record.scope,
+        scanDir,
+        skillRepoName(record.remoteUrl),
+        true, // overwrite — re-sync replaces the catalog copies
+      );
+      // Skills upstream DELETED (in the record before, now neither imported nor
+      // skipped) are removed from the catalog too, so the repo stays the source
+      // of truth (native) rather than leaving orphans.
+      for (const name of record.skillNames) {
+        if (!result.imported.includes(name) && !result.skipped.includes(name)) {
+          try {
+            deleteSkillDir(roots, record.scope, name);
+          } catch {
+            // Best-effort — a skill the user already removed is fine.
+          }
+        }
+      }
+      settings.upsertImportedSkillRepository({
+        ...record,
+        skillNames: result.imported,
+        lastSyncedCommit: newCommit,
+      });
+      broadcast({ type: "resources_changed" });
+      return { updated: true, commit: newCommit, imported: result.imported };
+    } catch (error) {
+      return reply
+        .status(500)
+        .send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Forget a repo: drop the provenance record + the persistent clone. The skills
+  // already copied into the catalog stay (they're independent copies).
+  fastify.delete("/resources/skill-repos/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const record = settings.get().importedSkillRepositories.find((r) => r.id === id);
+    if (!record) return reply.status(404).send({ error: "unknown skill repository" });
+    try {
+      rmSync(record.clonePath, { recursive: true, force: true, maxRetries: 5 });
+    } catch {
+      // Best-effort — a leftover clone dir is harmless.
+    }
+    settings.removeImportedSkillRepository(id);
+    return { ok: true };
   });
 
   // Prompt templates: single .md files pi exposes as /prompt:<name>.

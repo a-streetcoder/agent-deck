@@ -15,6 +15,16 @@ import {
 } from "lucide-react";
 import type { SkillInfo } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
+
+/** A git-imported skill repo (native ImportedSkillRepository), for re-sync. */
+interface SkillRepo {
+  id: string;
+  remoteUrl: string;
+  ref?: string;
+  skillNames: string[];
+  lastSyncedCommit: string;
+  importedAt: string;
+}
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAppStore } from "../state/store.ts";
 import { deleteSkill, renameSkill, setSkillDisabled, updateProject } from "../state/wsBridge.ts";
@@ -360,6 +370,11 @@ export function SkillsScreen() {
   const [gitUrl, setGitUrl] = useState<string | null>(null);
   const [gitImporting, setGitImporting] = useState(false);
   const setGlobalError = useAppStore((state) => state.setError);
+  // Imported skill repos (native ImportedSkillRepository) + which have an update
+  // available (a per-repo ls-remote check), and which is busy updating/forgetting.
+  const [repos, setRepos] = useState<SkillRepo[]>([]);
+  const [updatable, setUpdatable] = useState<Set<string>>(new Set());
+  const [repoBusy, setRepoBusy] = useState<string | null>(null);
 
   useEffect(() => {
     const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
@@ -457,6 +472,61 @@ export function SkillsScreen() {
       setGlobalError(String(err));
     } finally {
       setGitImporting(false);
+    }
+  };
+
+  // Load the imported repos and check each for an available update (best-effort).
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/resources/skill-repos")
+      .then((response) => response.json())
+      .then((data: { repos: SkillRepo[] }) => {
+        if (cancelled) return;
+        setRepos(data.repos);
+        for (const repo of data.repos) {
+          void fetch(`/resources/skill-repos/${repo.id}/check`, { method: "POST" })
+            .then((response) => response.json())
+            .then((check: { updateAvailable: boolean }) => {
+              if (!cancelled && check.updateAvailable) {
+                setUpdatable((prev) => new Set(prev).add(repo.id));
+              }
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [resourcesVersion]);
+
+  const updateRepo = async (id: string): Promise<void> => {
+    setRepoBusy(id);
+    try {
+      const res = await fetch(`/resources/skill-repos/${id}/update`, { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      // Clear the badge; the resources_changed broadcast refetches the skills.
+      setUpdatable((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch (err) {
+      setGlobalError(String(err));
+    } finally {
+      setRepoBusy(null);
+    }
+  };
+
+  const forgetRepo = async (id: string): Promise<void> => {
+    setRepoBusy(id);
+    try {
+      await fetch(`/resources/skill-repos/${id}`, { method: "DELETE" });
+      setRepos((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      setGlobalError(String(err));
+    } finally {
+      setRepoBusy(null);
     }
   };
 
@@ -592,7 +662,7 @@ export function SkillsScreen() {
               autoFocus
               data-testid="skill-import-git-url"
               className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-              placeholder="https://github.com/owner/repo(.git)"
+              placeholder="owner/repo, skills.sh/…, or a git URL"
               value={gitUrl}
               onChange={(event) => setGitUrl(event.target.value)}
               onKeyDown={(event) => {
@@ -608,6 +678,57 @@ export function SkillsScreen() {
             >
               {gitImporting ? "Importing…" : "Import"}
             </button>
+          </div>
+        ) : null}
+        {repos.length > 0 ? (
+          <div className="mx-3 mb-2 space-y-1" data-testid="skill-repos">
+            <div className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+              Imported repositories
+            </div>
+            {repos.map((repo) => (
+              <div
+                key={repo.id}
+                data-testid={`skill-repo-${repo.id}`}
+                className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface px-2.5 py-1.5"
+              >
+                <GitBranch size={12} className="shrink-0 text-text-secondary" />
+                <span
+                  className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-primary"
+                  title={repo.remoteUrl}
+                >
+                  {repo.remoteUrl.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "")}
+                </span>
+                {updatable.has(repo.id) ? (
+                  <span
+                    data-testid={`skill-repo-updatable-${repo.id}`}
+                    className="rounded-capsule px-1.5 py-0.5 text-[10px] font-medium"
+                    style={{
+                      background: "var(--color-selection-fill)",
+                      color: "var(--color-brand-accent)",
+                    }}
+                  >
+                    Update available
+                  </span>
+                ) : null}
+                <button
+                  data-testid={`skill-repo-update-${repo.id}`}
+                  className="rounded-capsule border border-border-strong px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  disabled={repoBusy === repo.id}
+                  onClick={() => void updateRepo(repo.id)}
+                >
+                  {repoBusy === repo.id ? "Updating…" : "Update"}
+                </button>
+                <button
+                  data-testid={`skill-repo-forget-${repo.id}`}
+                  className="rounded-capsule p-1 text-text-muted hover:text-[var(--color-role-error)] disabled:opacity-40"
+                  title="Forget this repository (keeps the imported skills)"
+                  disabled={repoBusy === repo.id}
+                  onClick={() => void forgetRepo(repo.id)}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
           </div>
         ) : null}
         {checkedSkills.length > 0 ? (

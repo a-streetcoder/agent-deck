@@ -53,6 +53,14 @@ describe("resolveSkillSource", () => {
     });
   });
 
+  it("drops a traversal subdir so discovery can't escape the clone", () => {
+    // A skills.sh slug is split from the raw string (not URL-normalized), so a
+    // `..` slug must be rejected rather than become a subdir.
+    expect(resolveSkillSource("skills.sh/acme/pack/..")).toEqual({
+      cloneUrl: "https://github.com/acme/pack.git",
+    });
+  });
+
   it("passes a local path / file URL through verbatim (the hermetic clone form)", () => {
     expect(resolveSkillSource("/tmp/some/repo")).toEqual({ cloneUrl: "/tmp/some/repo" });
     expect(resolveSkillSource("file:///tmp/repo")).toEqual({ cloneUrl: "file:///tmp/repo" });

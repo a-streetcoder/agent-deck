@@ -22,6 +22,19 @@ function stripGitSuffix(s: string): string {
   return s.replace(/\.git$/i, "");
 }
 
+/**
+ * A repo subdirectory that's safe to join onto the clone path — no `..` traversal
+ * and not absolute, so a crafted deep link can't scope discovery OUTSIDE the
+ * clone. Returns undefined (import the whole repo) for an empty/unsafe value.
+ */
+function safeSubdir(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const norm = raw.replace(/^\/+|\/+$/g, "");
+  if (!norm || norm.startsWith("/") || norm.split("/").some((seg) => seg === ".."))
+    return undefined;
+  return norm;
+}
+
 /** `git@host:owner/repo(.git)` → `https://host/owner/repo.git`. */
 function parseSshRemote(input: string): RemoteSkillSource | null {
   const match = /^git@([^:]+):(.+)$/.exec(input);
@@ -48,7 +61,7 @@ function parseWebUrl(input: string): RemoteSkillSource | null {
   const treeAt = rest[0] === "-" && rest[1] === "tree" ? 2 : rest[0] === "tree" ? 1 : -1;
   if (treeAt >= 0 && rest.length > treeAt) {
     const ref = rest[treeAt];
-    const subdir = rest.slice(treeAt + 1).join("/");
+    const subdir = safeSubdir(rest.slice(treeAt + 1).join("/"));
     return { cloneUrl, ref, ...(subdir ? { subdir } : {}) };
   }
   return { cloneUrl };
@@ -62,9 +75,10 @@ function parseSkillsSh(input: string): RemoteSkillSource | null {
   if (segments.length < 2) return null;
   const [owner, repo, slug] = segments;
   if (SKILLS_SH_RESERVED.has(owner!.toLowerCase())) return null;
+  const subdir = safeSubdir(slug);
   return {
     cloneUrl: `https://github.com/${owner}/${stripGitSuffix(repo!)}.git`,
-    ...(slug ? { subdir: slug } : {}),
+    ...(subdir ? { subdir } : {}),
   };
 }
 

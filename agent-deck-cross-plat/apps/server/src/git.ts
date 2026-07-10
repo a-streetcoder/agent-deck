@@ -147,6 +147,41 @@ export async function gitHead(dir: string): Promise<string> {
   return (await runGit(dir, ["rev-parse", "HEAD"])).trim();
 }
 
+/**
+ * The remote tip sha for `ref` (default HEAD) WITHOUT downloading (native
+ * checkForUpdate: `git ls-remote`). Returns null on any error / no match, so a
+ * transient network failure just reports "no update known".
+ */
+export async function gitLsRemote(remoteUrl: string, ref = "HEAD"): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(gitBin(), ["ls-remote", remoteUrl, ref], {
+      timeout: 30_000,
+      maxBuffer: 8_000_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    const sha = stdout.trim().split(/\s+/)[0];
+    return sha && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch the tracked branch and hard-reset the clone to it, returning the new
+ * HEAD (native update: fetch + ff). The clone is a read-only mirror (its skills
+ * were COPIED into the catalog, never edited in place), so a hard reset can't
+ * lose local work. Throws the git error on a fetch/reset failure.
+ */
+export async function gitPullFfInto(cloneDir: string, ref?: string): Promise<string> {
+  // Fetch the SPECIFIC branch (the pinned ref, else the clone's current branch)
+  // so FETCH_HEAD is unambiguous — `git fetch origin` with no ref can leave
+  // FETCH_HEAD pointing at the wrong branch in a multi-branch clone.
+  const branch = ref ?? (await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+  await runGit(cloneDir, ["fetch", "origin", branch]);
+  await runGit(cloneDir, ["reset", "--hard", "FETCH_HEAD"]);
+  return (await runGit(cloneDir, ["rev-parse", "HEAD"])).trim();
+}
+
 export async function gitCommitAll(cwd: string, message: string): Promise<{ committed: true }> {
   const status = await gitStatus(cwd);
   if (!status.repo) throw new Error("not_a_repo");

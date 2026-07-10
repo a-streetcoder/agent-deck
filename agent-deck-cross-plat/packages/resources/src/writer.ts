@@ -465,6 +465,8 @@ export function importSkillsFromClone(
   scope: WritableScope,
   cloneDir: string,
   repoName: string,
+  /** Re-sync: replace an existing catalog skill instead of skipping it. */
+  overwrite = false,
 ): SkillImportResult {
   const skillDirs = existsSync(path.join(cloneDir, "SKILL.md"))
     ? [cloneDir] // root SKILL.md → the whole repo is a single skill
@@ -491,8 +493,11 @@ export function importSkillsFromClone(
     }
     const dest = path.join(catalog, name);
     if (existsSync(dest)) {
-      skipped.push(name);
-      continue;
+      if (!overwrite) {
+        skipped.push(name);
+        continue;
+      }
+      rmSync(dest, { recursive: true, force: true }); // re-sync replaces the copy
     }
     mkdirSync(catalog, { recursive: true });
     cpSync(srcDir, dest, { recursive: true, filter: (src) => path.basename(src) !== ".git" });

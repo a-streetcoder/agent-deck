@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -81,5 +81,97 @@ describe("git-imported skill repository provenance", () => {
     expect(
       existsSync(path.join(tmpHome, ".pi", "agent", "skills", "web-scraper", "SKILL.md")),
     ).toBe(true);
+  });
+
+  const skillMd = path.join(tmpHome, ".pi", "agent", "skills", "web-scraper", "SKILL.md");
+
+  async function repoId(): Promise<string> {
+    const { repos } = (await (
+      await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos`)
+    ).json()) as { repos: Array<{ id: string }> };
+    return repos[0]!.id;
+  }
+
+  it("detects an upstream change and pulls it into the catalog on update", async () => {
+    const id = await repoId();
+
+    // Upstream advances: the skill body changes.
+    writeFileSync(
+      path.join(repo, "web-scraper", "SKILL.md"),
+      "---\nname: web-scraper\ndescription: Scrape web pages\n---\n\nScrape web pages FASTER.\n",
+    );
+    git(["commit", "-am", "faster"]);
+
+    // check → an update is available.
+    const check = (await (
+      await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/check`, {
+        method: "POST",
+      })
+    ).json()) as { updateAvailable: boolean; remoteCommit: string; syncedCommit: string };
+    expect(check.updateAvailable).toBe(true);
+    expect(check.remoteCommit).not.toBe(check.syncedCommit);
+
+    // update → the catalog copy reflects the upstream change.
+    const upd = await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/update`, {
+      method: "POST",
+    });
+    expect(upd.status).toBe(200);
+    const { updated } = (await upd.json()) as { updated: boolean };
+    expect(updated).toBe(true);
+    expect(readFileSync(skillMd, "utf8")).toContain("FASTER");
+
+    // A second check is now up to date.
+    const check2 = (await (
+      await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/check`, {
+        method: "POST",
+      })
+    ).json()) as { updateAvailable: boolean };
+    expect(check2.updateAvailable).toBe(false);
+  });
+
+  it("removes an upstream-deleted skill from the catalog on update", async () => {
+    const id = await repoId();
+    const helperDir = path.join(tmpHome, ".pi", "agent", "skills", "second-skill");
+
+    // Upstream ADDS a second skill; update pulls it into the catalog.
+    mkdirSync(path.join(repo, "second-skill"), { recursive: true });
+    writeFileSync(
+      path.join(repo, "second-skill", "SKILL.md"),
+      "---\nname: second-skill\ndescription: Second\n---\n\nSecond skill.\n",
+    );
+    git(["add", "-A"]);
+    git(["commit", "-m", "add second"]);
+    await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/update`, {
+      method: "POST",
+    });
+    expect(existsSync(helperDir)).toBe(true);
+
+    // Upstream REMOVES it; the next update deletes it from the catalog + record.
+    execFileSync("git", ["rm", "-r", "second-skill"], { cwd: repo, stdio: "ignore" });
+    git(["commit", "-m", "drop second"]);
+    await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}/update`, {
+      method: "POST",
+    });
+    expect(existsSync(helperDir)).toBe(false);
+    const { repos } = (await (
+      await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos`)
+    ).json()) as { repos: Array<{ skillNames: string[] }> };
+    expect(repos[0]!.skillNames).not.toContain("second-skill");
+  });
+
+  it("forgets a repo: drops the record + clone but keeps the imported skill", async () => {
+    const id = await repoId();
+    const clone = path.join(dataDir, "skill-repos", id);
+    const del = await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos/${id}`, {
+      method: "DELETE",
+    });
+    expect(del.status).toBe(200);
+
+    const { repos } = (await (
+      await fetch(`http://127.0.0.1:${server.port}/resources/skill-repos`)
+    ).json()) as { repos: unknown[] };
+    expect(repos).toHaveLength(0); // record gone
+    expect(existsSync(clone)).toBe(false); // clone removed
+    expect(existsSync(skillMd)).toBe(true); // the copied skill stays in the catalog
   });
 });

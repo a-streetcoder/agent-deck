@@ -67,3 +67,38 @@ test("a bad repo URL reports a clone error", async () => {
   expect(res.status).toBe(400);
   expect(await res.text()).toContain("clone");
 });
+
+test("lists the imported repo, badges an upstream update, and pulls it", async ({ page }) => {
+  // Import happened in the first test (shared harness). Fetch the repo id.
+  const { repos } = (await (await fetch(`${harness.baseUrl}/resources/skill-repos`)).json()) as {
+    repos: Array<{ id: string }>;
+  };
+  const id = repos[0]!.id;
+
+  // Upstream advances.
+  writeFileSync(
+    path.join(sourceRepo, "web-scraper", "SKILL.md"),
+    "---\nname: web-scraper\ndescription: Scrape web pages\n---\nHow to scrape MUCH faster.\n",
+  );
+  git(["commit", "-am", "faster"]);
+
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-skills").click();
+
+  // The repo is listed and the mount check badges it as updatable.
+  await expect(page.getByTestId(`skill-repo-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`skill-repo-updatable-${id}`)).toBeVisible();
+
+  // Update pulls the change; the badge clears and the catalog skill reflects it.
+  await page.getByTestId(`skill-repo-update-${id}`).click();
+  await expect(page.getByTestId(`skill-repo-updatable-${id}`)).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      const md = readFileSync(
+        path.join(harness.piHome, ".pi", "agent", "skills", "web-scraper", "SKILL.md"),
+        "utf8",
+      );
+      return md.includes("MUCH faster");
+    })
+    .toBe(true);
+});
