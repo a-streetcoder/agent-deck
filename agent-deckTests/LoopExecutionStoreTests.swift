@@ -3,6 +3,199 @@ import XCTest
 
 @MainActor
 final class LoopExecutionStoreTests: XCTestCase {
+    func testOutcomePolicyRequiresExactSuccessAndPassingConfiguredValidation() {
+        let passed = LoopValidationResult(command: "test", workingDirectory: nil, exitCode: 0, duration: 0, stdout: "", stderr: "")
+        let failed = LoopValidationResult(command: "test", workingDirectory: nil, exitCode: 1, duration: 0, stdout: "", stderr: "")
+        let success = LoopGoalEvaluation(result: .success)
+
+        XCTAssertTrue(LoopOutcomePolicy.canSucceed(evaluation: success, validationCommand: "test", validationResult: passed))
+        XCTAssertFalse(LoopOutcomePolicy.canSucceed(evaluation: success, validationCommand: "test", validationResult: failed))
+        XCTAssertFalse(LoopOutcomePolicy.canSucceed(evaluation: LoopGoalEvaluation(result: .continueLoop), validationCommand: "", validationResult: nil))
+        XCTAssertEqual(LoopOutcomePolicy.exactDecision(in: " success \nreason", allowed: ["SUCCESS", "CONTINUE", "FAIL"]), "SUCCESS")
+        XCTAssertNil(LoopOutcomePolicy.exactDecision(in: "SUCCESS — looks good", allowed: ["SUCCESS", "CONTINUE", "FAIL"]))
+        XCTAssertEqual(LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: "test", latestValidation: failed).status, .notAchieved)
+    }
+
+    func testAsyncValidationTimeoutReturnsPromptly() async throws {
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let started = Date()
+        let result = await AgentDeckBuiltinHooks.runValidationAsync(.init(command: "sleep 2", workingDirectory: nil, outputDirectory: outputDirectory, timeout: 0.05))
+
+        XCTAssertNil(result.exitCode)
+        XCTAssertTrue(result.stderr.contains("timed out"))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+    }
+
+    func testValidationCancellationBetweenInstallAndProcessRunPreventsWork() async throws {
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runID = UUID()
+        let started = Date()
+        let result = await AgentDeckBuiltinHooks.runValidationAsync(.init(
+            command: "sleep 2",
+            workingDirectory: nil,
+            outputDirectory: outputDirectory,
+            timeout: 2,
+            runID: runID,
+            onProcessPrepared: {
+                await AgentDeckBuiltinHooks.cancelValidation(runID: runID)
+            }
+        ))
+
+        XCTAssertNil(result.exitCode)
+        XCTAssertTrue(result.stderr.contains("Validation cancelled"))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+    }
+
+    func testValidationRegistryKeepsNewestIterationAndHonorsStopBeforeRegistration() async throws {
+        let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runID = UUID()
+        let gate = ValidationTestGate()
+        let first = Task { await AgentDeckBuiltinHooks.runValidationAsync(.init(
+            command: "sleep 0.05",
+            workingDirectory: nil,
+            outputDirectory: outputDirectory,
+            timeout: 2,
+            runID: runID,
+            onProcessPrepared: { await gate.signal("firstPrepared") }
+        )) }
+        await gate.wait(for: "firstPrepared")
+        let second = Task { await AgentDeckBuiltinHooks.runValidationAsync(.init(
+            command: "sleep 2",
+            workingDirectory: nil,
+            outputDirectory: outputDirectory,
+            timeout: 2,
+            runID: runID,
+            onProcessPrepared: {
+                await gate.signal("secondPrepared")
+                await gate.wait(for: "releaseSecond")
+            }
+        )) }
+        await gate.wait(for: "secondPrepared")
+        _ = await first.value
+        let cancellationStarted = Date()
+        await AgentDeckBuiltinHooks.cancelValidation(runID: runID)
+        await gate.signal("releaseSecond")
+        let secondResult = await second.value
+        XCTAssertNil(secondResult.exitCode)
+        XCTAssertTrue(secondResult.stderr.contains("Validation cancelled"))
+        XCTAssertLessThan(Date().timeIntervalSince(cancellationStarted), 1)
+
+        let stoppedBeforeRegistrationID = UUID()
+        await AgentDeckBuiltinHooks.cancelValidation(runID: stoppedBeforeRegistrationID)
+        let neverStarted = await AgentDeckBuiltinHooks.runValidationAsync(.init(command: "sleep 2", workingDirectory: nil, outputDirectory: outputDirectory, timeout: 2, runID: stoppedBeforeRegistrationID))
+        XCTAssertTrue(neverStarted.stderr.contains("before it started"))
+    }
+
+    func testInvalidEvaluatorDecisionDoesNotCompleteLoopAndIsPersistedAsNotAchieved() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        let draft = LoopDraft(goal: "Produce report", structure: .singleAgent, maxIterations: 1, validationCommand: "/usr/bin/true", makerChecker: LoopMakerCheckerConfig(makerName: "Explorer"))
+
+        let maybeRun = await store.launchSingleAgentLoop(
+            session: session,
+            draft: draft,
+            executeEvaluator: { _, agentName, task, _, _, _ in
+                Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "SUCCESS because it looks done")
+            },
+            executeAgent: { _, agentName, task, _, _, _ in
+                Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "work completed")
+            }
+        )
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.status, .notAchieved)
+        XCTAssertEqual(run.stopReason, .maxIterationsReached)
+        XCTAssertEqual(run.iterations.first?.goalEvaluation?.result, .continueLoop)
+        XCTAssertTrue(run.iterations.first?.goalEvaluation?.rationale.contains("Invalid evaluator decision") == true)
+        XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("configured success condition was not established"))
+    }
+
+    func testEvaluatorSuccessCannotOverrideFailedConfiguredValidationOnLivePath() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        let draft = LoopDraft(goal: "Produce report", structure: .singleAgent, maxIterations: 1, validationCommand: "/usr/bin/false", makerChecker: LoopMakerCheckerConfig(makerName: "Explorer"))
+
+        let maybeRun = await store.launchSingleAgentLoop(
+            session: session,
+            draft: draft,
+            executeEvaluator: Self.successEvaluator(for: session),
+            executeAgent: { _, agentName, task, _, _, _ in
+                Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "work completed")
+            }
+        )
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.iterations.first?.goalEvaluation?.result, .success)
+        XCTAssertEqual(run.iterations.first?.validationResult?.didPass, false)
+        XCTAssertEqual(run.status, .notAchieved)
+        XCTAssertEqual(run.stopReason, .validationFailedAfterFinalIteration)
+    }
+
+    func testWorktreeLoopCarriesFailedValidationEvidenceToNextWorkerAndRequiresBothGates() async throws {
+        let projectURL = try makeTemporaryGitRepository()
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Loop", project: try PiTestSupport.makeProject(url: projectURL), repository: nil)
+        var workerTasks: [String] = []
+        var evaluatorCalls = 0
+        let draft = LoopDraft(goal: "Create isolated evidence", structure: .singleAgent, writeTarget: .newWorktree, maxIterations: 2, validationCommand: "test -f validated.txt", makerChecker: LoopMakerCheckerConfig(makerName: "Builder"))
+
+        let maybeRun = await store.launchSingleAgentLoop(
+            session: session,
+            draft: draft,
+            executeEvaluator: { _, agentName, task, _, _, _ in
+                evaluatorCalls += 1
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: evaluatorCalls == 1 ? "CONTINUE" : "SUCCESS")
+            },
+            executeAgent: { _, agentName, task, _, workingDirectory, _ in
+                workerTasks.append(task)
+                if workerTasks.count == 2, let workingDirectory {
+                    try? "validated\n".write(to: workingDirectory.appendingPathComponent("validated.txt"), atomically: true, encoding: .utf8)
+                }
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "worker pass \(workerTasks.count)")
+            }
+        )
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.iterations.map { $0.validationResult?.didPass }, [false, true])
+        XCTAssertEqual(run.iterations.last?.goalEvaluation?.result, .success)
+        XCTAssertTrue(workerTasks[1].contains("Latest validation: failed"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("validated.txt").path))
+        let worktree = try XCTUnwrap(run.iterations.last?.validationResult?.workingDirectory)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: URL(fileURLWithPath: worktree).appendingPathComponent("validated.txt").path))
+    }
+
+    func testStopDuringValidationPreventsEvaluatorAndStaleTerminalOverwrite() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        let draft = LoopDraft(goal: "Wait", structure: .singleAgent, validationCommand: "sleep 10", makerChecker: LoopMakerCheckerConfig(makerName: "Explorer"))
+        var evaluatorCalls = 0
+        let launch = Task { @MainActor in
+            await store.launchSingleAgentLoop(
+                session: session,
+                draft: draft,
+                executeEvaluator: { _, agentName, task, _, _, _ in
+                    evaluatorCalls += 1
+                    return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "SUCCESS")
+                },
+                executeAgent: { _, agentName, task, _, _, _ in
+                    Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "work completed")
+                }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        let active = try XCTUnwrap(store.activeLoopRun(for: session.id))
+        _ = store.stopLoopRun(active.id, sessionID: session.id)
+        let launchedRun = await launch.value
+        let run = try XCTUnwrap(launchedRun)
+
+        XCTAssertEqual(run.status, .stopped)
+        XCTAssertEqual(run.stopReason, .userStopped)
+        XCTAssertEqual(evaluatorCalls, 0)
+        let finalRecaps = (store.transcriptsBySessionID[session.id] ?? []).filter { LoopRunRecapCodec.decode(from: $0)?.runID == run.id && LoopRunRecapCodec.decode(from: $0)?.kind == .final }
+        XCTAssertEqual(finalRecaps.count, 1)
+    }
+
     func testSingleAgentLoopGoalEvaluatorContinuesThenSucceedsWithoutValidationCommand() async throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = try makeSession(store: store)
@@ -63,7 +256,7 @@ final class LoopExecutionStoreTests: XCTestCase {
             makerChecker: LoopMakerCheckerConfig(makerName: "Explorer")
         )
 
-        let maybeRun = await store.launchSingleAgentLoop(session: session, draft: draft) { _, agentName, task, writeTarget, _, outputPath in
+        let maybeRun = await store.launchSingleAgentLoop(session: session, draft: draft, executeEvaluator: Self.successEvaluator(for: session)) { _, agentName, task, writeTarget, _, outputPath in
             observedAgent = agentName
             observedWriteTarget = writeTarget
             observedOutputPath = outputPath
@@ -160,6 +353,7 @@ final class LoopExecutionStoreTests: XCTestCase {
         let longMakerSummary = String(repeating: "Maker changed risky thing with extensive detail. ", count: 80)
         var responses = [longMakerSummary, "REJECT\nMissing concrete validation evidence for the risky change.", "Maker added validation evidence.", "APPROVE\nEvidence now satisfies the rubric."]
         var checkerTask = ""
+        var evaluatorCalls = 0
         let maybeRun = await store.launchMakerCheckerLoop(
             session: session,
             draft: LoopDraft(
@@ -167,11 +361,16 @@ final class LoopExecutionStoreTests: XCTestCase {
                 structure: .makerChecker,
                 validationCommand: "/usr/bin/true",
                 makerChecker: LoopMakerCheckerConfig(makerName: "Builder", checkerName: "Reviewer", checkerRubric: "approve")
-            )
-        ) { _, role, task, _, _, _ in
-            if role == "Reviewer" { checkerTask = task }
-            return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: responses.removeFirst())
-        }
+            ),
+            executeEvaluator: { _, agentName, task, _, _, _ in
+                evaluatorCalls += 1
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: evaluatorCalls == 1 ? "CONTINUE" : "SUCCESS")
+            },
+            executeRole: { _, role, task, _, _, _ in
+                if role == "Reviewer" { checkerTask = task }
+                return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: responses.removeFirst())
+            }
+        )
 
         let run = try XCTUnwrap(maybeRun)
         let progress = try progressText(for: run)
@@ -189,7 +388,8 @@ final class LoopExecutionStoreTests: XCTestCase {
         var pipelineTasks: [String] = []
         let maybePipelineRun = await pipelineStore.launchAgentPipelineLoop(
             session: pipelineSession,
-            draft: LoopDraft(goal: "Pipeline memory", structure: .agentPipeline, validationCommand: "/usr/bin/true", pipeline: LoopPipelineConfig(stageNames: ["Analyze", "Implement"]))
+            draft: LoopDraft(goal: "Pipeline memory", structure: .agentPipeline, validationCommand: "/usr/bin/true", pipeline: LoopPipelineConfig(stageNames: ["Analyze", "Implement"])),
+            executeEvaluator: Self.successEvaluator(for: pipelineSession)
         ) { _, role, task, _, _, _ in
             pipelineTasks.append(task)
             return Self.fakeRun(parentSessionID: pipelineSession.id, agentName: role, task: task, status: .completed, summary: "\(role) summary")
@@ -206,7 +406,8 @@ final class LoopExecutionStoreTests: XCTestCase {
         var parallelTasks: [(String, String)] = []
         let maybeParallelRun = await parallelStore.launchParallelAgentsLoop(
             session: parallelSession,
-            draft: LoopDraft(goal: "Parallel memory", structure: .parallelAgents, validationCommand: "/usr/bin/true", parallel: LoopParallelConfig(branchNames: ["A", "B"]))
+            draft: LoopDraft(goal: "Parallel memory", structure: .parallelAgents, validationCommand: "/usr/bin/true", parallel: LoopParallelConfig(branchNames: ["A", "B"])),
+            executeEvaluator: Self.successEvaluator(for: parallelSession)
         ) { _, tasks, _, _ in
             parallelTasks = tasks
             XCTAssertFalse(tasks.map(\.1).joined(separator: "\n").contains("A found one path"))
@@ -231,7 +432,7 @@ final class LoopExecutionStoreTests: XCTestCase {
             makerChecker: LoopMakerCheckerConfig(makerName: "Explorer")
         )
 
-        let maybeRun = await store.launchSingleAgentLoop(session: session, draft: draft) { _, agentName, task, _, _, _ in
+        let maybeRun = await store.launchSingleAgentLoop(session: session, draft: draft, executeEvaluator: Self.successEvaluator(for: session)) { _, agentName, task, _, _, _ in
             Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "done")
         }
         let run = try XCTUnwrap(maybeRun)
@@ -296,7 +497,7 @@ final class LoopExecutionStoreTests: XCTestCase {
             pipeline: LoopPipelineConfig(stageNames: ["Analyze", "Implement"])
         )
 
-        let maybeRun = await store.launchAgentPipelineLoop(session: session, draft: draft) { _, role, task, writeTarget, _, outputPath in
+        let maybeRun = await store.launchAgentPipelineLoop(session: session, draft: draft, executeEvaluator: Self.successEvaluator(for: session)) { _, role, task, writeTarget, _, outputPath in
             observed.append((role, writeTarget, outputPath))
             if role == "Analyze" {
                 XCTAssertTrue(task.contains("You are completing stage 1 of 2 in an ordered pipeline"))
@@ -359,7 +560,7 @@ final class LoopExecutionStoreTests: XCTestCase {
             parallel: LoopParallelConfig(branchNames: ["BranchA", "BranchB"])
         )
 
-        let maybeRun = await store.launchParallelAgentsLoop(session: session, draft: draft) { _, tasks, concurrency, useWorktree in
+        let maybeRun = await store.launchParallelAgentsLoop(session: session, draft: draft, executeEvaluator: Self.successEvaluator(for: session)) { _, tasks, concurrency, useWorktree in
             observedTasks = tasks
             observedConcurrency = concurrency
             observedUseWorktree = useWorktree
@@ -375,8 +576,8 @@ final class LoopExecutionStoreTests: XCTestCase {
         XCTAssertEqual(run.iterations[0].timeline.map(\.roleName), ["BranchA", "BranchB"])
         XCTAssertEqual(run.iterations[0].artifacts.first?.filename, "parallel-summary.md")
         XCTAssertEqual(observedTasks.map(\.0), ["BranchA", "BranchB"])
-        XCTAssertTrue(observedTasks[0].1.contains("one assigned branch/hypothesis"))
-        XCTAssertTrue(observedTasks[0].1.contains("Do not coordinate with sibling branches"))
+        XCTAssertTrue(observedTasks[0].1.contains("explicitly selected agent"))
+        XCTAssertTrue(observedTasks[0].1.contains("Do not edit project files"))
         XCTAssertEqual(observedConcurrency, 2)
         XCTAssertFalse(observedUseWorktree)
     }
@@ -394,7 +595,7 @@ final class LoopExecutionStoreTests: XCTestCase {
             discoveryTriage: LoopDiscoveryTriageConfig(agentName: "Triage Agent", classificationPrompt: "severity and owner")
         )
 
-        let maybeRun = await store.launchDiscoveryTriageLoop(session: session, draft: draft) { _, agentName, task, _, _, _ in
+        let maybeRun = await store.launchDiscoveryTriageLoop(session: session, draft: draft, executeEvaluator: Self.successEvaluator(for: session)) { _, agentName, task, _, _, _ in
             observedAgent = agentName
             observedTask = task
             return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "triaged")
@@ -429,11 +630,20 @@ final class LoopExecutionStoreTests: XCTestCase {
             makerChecker: LoopMakerCheckerConfig(makerName: "Builder", checkerName: "Reviewer", checkerRubric: "approve")
         )
 
-        let maybeRun = await store.launchMakerCheckerLoop(session: session, draft: draft) { _, role, task, _, _, _ in
-            observedTasks.append((role, task))
-            let summary = responses.removeFirst()
-            return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: summary)
-        }
+        var evaluatorCalls = 0
+        let maybeRun = await store.launchMakerCheckerLoop(
+            session: session,
+            draft: draft,
+            executeEvaluator: { _, agentName, task, _, _, _ in
+                evaluatorCalls += 1
+                return Self.fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: evaluatorCalls == 1 ? "CONTINUE" : "SUCCESS")
+            },
+            executeRole: { _, role, task, _, _, _ in
+                observedTasks.append((role, task))
+                let summary = responses.removeFirst()
+                return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: summary)
+            }
+        )
         let run = try XCTUnwrap(maybeRun)
 
         XCTAssertEqual(run.status, .completed)
@@ -451,6 +661,7 @@ final class LoopExecutionStoreTests: XCTestCase {
         XCTAssertFalse(run.iterations[0].summary.contains("REJECT\n"))
         XCTAssertTrue(observedTasks[2].task.contains("Previous checker review to address"))
         XCTAssertTrue(responses.isEmpty)
+        XCTAssertEqual(evaluatorCalls, 2)
     }
 
     func testMakerCheckerLoopUsesGoalEvaluatorEvenWhenCheckerApproves() async throws {
@@ -513,14 +724,14 @@ final class LoopExecutionStoreTests: XCTestCase {
         }
         let run = try XCTUnwrap(maybeRun)
 
-        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.status, .notAchieved)
         XCTAssertEqual(run.stopReason, .maxIterationsReached)
-        XCTAssertEqual(run.displayStatusName, "Completed")
+        XCTAssertEqual(run.displayStatusName, "Goal not achieved")
         XCTAssertEqual(run.iterations.map(\.checkerResult), [.continueLoop, .continueLoop])
         let progress = try progressText(for: run)
         XCTAssertTrue(progress.contains("checker accepted and continued"))
         XCTAssertFalse(progress.contains("checker continue —"))
-        XCTAssertFalse(LoopRunRecapCodec.finalText(for: run).contains("Goal not met"))
+        XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("configured success condition was not established"))
         XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("Final checker result: Continue"))
         XCTAssertTrue(responses.isEmpty)
     }
@@ -544,12 +755,12 @@ final class LoopExecutionStoreTests: XCTestCase {
         }
         let run = try XCTUnwrap(maybeRun)
 
-        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.status, .notAchieved)
         XCTAssertEqual(run.stopReason, .maxIterationsReached)
-        XCTAssertEqual(run.displayStatusName, "Goal not met")
+        XCTAssertEqual(run.displayStatusName, "Goal not achieved")
         XCTAssertEqual(run.currentIteration, 2)
         XCTAssertEqual(run.iterations.map(\.checkerResult), [.reject, .reject])
-        XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("Loop final recap — Goal not met"))
+        XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("Loop final recap — Goal not achieved"))
         XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("Final checker result: Reject"))
         let finalText = try XCTUnwrap((store.transcriptsBySessionID[session.id] ?? []).first {
             LoopRunRecapCodec.decode(from: $0)?.kind == .final
@@ -637,6 +848,25 @@ private extension LoopExecutionStoreTests {
         return child == parent || child.hasPrefix(parent + "/")
     }
 
+    func makeTemporaryGitRepository() throws -> URL {
+        let projectURL = try PiTestSupport.temporaryProjectURL()
+        try "initial\n".write(to: projectURL.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-lc", "git init && git config user.email test@example.com && git config user.name Test && git add README.md && git commit -m initial"]
+        process.currentDirectoryURL = projectURL
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        return projectURL
+    }
+
+    static func successEvaluator(for session: PiAgentSessionRecord) -> PiAgentSessionStore.LoopChildExecutor {
+        { _, agentName, task, _, _, _ in
+            fakeRun(parentSessionID: session.id, agentName: agentName, task: task, status: .completed, summary: "SUCCESS")
+        }
+    }
+
     static func fakeRun(
         parentSessionID: UUID,
         agentName: String,
@@ -659,5 +889,23 @@ private extension LoopExecutionStoreTests {
             injectedMemoryIDs: nil, injectedMemoryTitles: nil,
             createdAt: now, updatedAt: now, completedAt: status.isActive ? nil : now, durationMs: 0
         )
+    }
+}
+
+private actor ValidationTestGate {
+    private var signals: Set<String> = []
+    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+    func signal(_ name: String) {
+        signals.insert(name)
+        let pending = waiters.removeValue(forKey: name) ?? []
+        pending.forEach { $0.resume() }
+    }
+
+    func wait(for name: String) async {
+        guard !signals.contains(name) else { return }
+        await withCheckedContinuation { continuation in
+            waiters[name, default: []].append(continuation)
+        }
     }
 }

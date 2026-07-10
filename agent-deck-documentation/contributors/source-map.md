@@ -7,6 +7,7 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/Models.swift` — resource records, agent configs, effective agents, skills, prompts, settings summaries, env keys, snapshots
 - `agent-deck/PiAgentSessionModels.swift` — Pi Agent session state, native subagent records, bridge request payloads, supervisor request models
 - `agent-deck/GitHubModels.swift` — GitHub auth, issue, board, and repository change models
+- `agent-deck/LoopModels.swift` — loop definitions, runs, outcomes, validation, and transcript codecs
 
 ## Scanning and refresh
 
@@ -21,6 +22,7 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/AgentPersistence.swift` — custom agents and builtin overrides
 - `agent-deck/EnvPersistence.swift` — `.env` key updates
 - `agent-deck/SubagentConfigPersistence.swift` — native/subagent config JSON
+- `agent-deck/PiAgentSessionStore.swift` — session transcript persistence and loop execution/validation
 - `agent-deck/ExtensionManagement.swift` — extension/package scanning and settings toggles
 
 ## Pi runtime integration
@@ -48,6 +50,7 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/GitHubViews.swift`, `GitHubIssuesViews.swift`, `GitHubRepoChangesViews.swift`, `GitHubConnectionViews.swift` — GitHub screen and feature sections
 - `agent-deck/SettingsAndCatalogViews.swift` — settings, extensions, models, subagent config screens
 - `agent-deck/MarkdownViews.swift` — markdown rendering
+- `agent-deck/LoopBankViews.swift`, `LoopLaunchViews.swift`, `PiAgentLoopControlBar.swift` — loop editing, launch preflight, and run controls
 
 ## GitHub and Git
 

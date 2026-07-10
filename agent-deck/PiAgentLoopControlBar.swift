@@ -55,7 +55,7 @@ struct PiAgentLoopControlBar: View {
             if canResolveHumanApproval || run.isActive {
                 HStack(spacing: 8) {
                     if canResolveHumanApproval {
-                        Button("Approve", action: { onApproveHumanApproval?() })
+                        Button("Record Approval", action: { onApproveHumanApproval?() })
                             .appPrimaryButton()
                             .controlSize(.small)
                             .disabled(onApproveHumanApproval == nil)
@@ -80,7 +80,7 @@ struct PiAgentLoopControlBar: View {
                 Button("Details", action: onOpenDetails)
                     .appSmallSecondaryButton()
                 if canRetry {
-                    Button("Retry Failed Iteration", action: { onRetry?() })
+                    Button("Start New Attempt", action: { onRetry?() })
                         .appSmallSecondaryButton()
                         .disabled(onRetry == nil)
                 }
@@ -152,7 +152,7 @@ struct PiAgentLoopControlBar: View {
         return String(trimmed.prefix(140)) + "…"
     }
 
-    private var canRetry: Bool { !run.isActive && run.status == .failed && !run.presentsGoalNotMetOutcome }
+    private var canRetry: Bool { !run.isActive && (run.status == .failed || run.presentsGoalNotMetOutcome || run.stopReason == .humanInputRequired || run.stopReason == .humanApproved) }
     private var canSave: Bool { !run.isActive }
     private var canRevealArtifacts: Bool { run.artifactDirectoryPath != nil && !canRevealWorktree }
 

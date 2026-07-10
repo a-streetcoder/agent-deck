@@ -17,7 +17,7 @@ nonisolated enum LoopStructureKind: String, Codable, CaseIterable, Identifiable,
         case .agentPipeline: return "Agent Pipeline"
         case .parallelAgents: return "Parallel Agents"
         case .discoveryTriage: return "Discovery / Triage"
-        case .humanApproval: return "Human Approval"
+        case .humanApproval: return "Approval Checkpoint"
         }
     }
 }
@@ -43,6 +43,9 @@ nonisolated enum LoopRunStatus: String, Codable, CaseIterable, Identifiable, Sen
     case stopping
     case stopped
     case completed
+    /// The loop ended without establishing its configured success condition.
+    /// Kept distinct from execution failures so persisted history is truthful.
+    case notAchieved
     case failed
     case interrupted
 
@@ -58,9 +61,37 @@ nonisolated enum LoopRunStatus: String, Codable, CaseIterable, Identifiable, Sen
         case .stopping: return "Stopping"
         case .stopped: return "Stopped"
         case .completed: return "Completed"
+        case .notAchieved: return "Not achieved"
         case .failed: return "Failed"
         case .interrupted: return "Interrupted"
         }
+    }
+}
+
+/// One policy for every live loop structure. A loop may report success only
+/// when its evaluator explicitly returns `SUCCESS` and any configured
+/// validation command passes.
+nonisolated enum LoopOutcomePolicy {
+    static func validationRequirementIsSatisfied(command: String, result: LoopValidationResult?) -> Bool {
+        command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || result?.didPass == true
+    }
+
+    static func canSucceed(evaluation: LoopGoalEvaluation?, validationCommand: String, validationResult: LoopValidationResult?) -> Bool {
+        evaluation?.result == .success && validationRequirementIsSatisfied(command: validationCommand, result: validationResult)
+    }
+
+    static func terminalStatusAtIterationCap(validationCommand: String, latestValidation: LoopValidationResult?) -> (status: LoopRunStatus, reason: LoopStopReason) {
+        let validationFailed = !validationRequirementIsSatisfied(command: validationCommand, result: latestValidation)
+        return (.notAchieved, validationFailed ? .validationFailedAfterFinalIteration : .maxIterationsReached)
+    }
+
+    /// Decisions are exact after trimming surrounding whitespace and normalizing
+    /// case. Substrings, prose, and punctuation are intentionally not accepted.
+    static func exactDecision(in text: String, allowed: Set<String>) -> String? {
+        guard let line = text.components(separatedBy: .newlines)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return nil }
+        let decision = line.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return allowed.contains(decision) ? decision : nil
     }
 }
 
@@ -78,6 +109,7 @@ nonisolated enum LoopStopReason: String, Codable, CaseIterable, Identifiable, Se
     case validationFailedAfterFinalIteration
     case unsafeWriteTarget
     case humanInputRequired
+    case humanApproved
     case humanRejected
     case agentFailed
     case toolFailed
@@ -94,6 +126,7 @@ nonisolated enum LoopStopReason: String, Codable, CaseIterable, Identifiable, Se
         case .validationFailedAfterFinalIteration: return "Validation failed after final iteration"
         case .unsafeWriteTarget: return "Unsafe write target"
         case .humanInputRequired: return "Human input required"
+        case .humanApproved: return "Approval recorded"
         case .humanRejected: return "Human rejected"
         case .agentFailed: return "Agent failed"
         case .toolFailed: return "Tool failed"
@@ -123,11 +156,22 @@ nonisolated struct LoopPipelineConfig: Codable, Equatable, Hashable, Sendable {
 }
 
 nonisolated struct LoopParallelConfig: Codable, Equatable, Hashable, Sendable {
+    /// Explicit enabled agent names. The legacy key remains `branchNames` so
+    /// saved loop definitions continue to decode without migration.
     var branchNames: [String]
 
-    init(branchNames: [String] = ["Branch A", "Branch B"]) {
-        let trimmed = branchNames.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        self.branchNames = trimmed.isEmpty ? ["Branch A", "Branch B"] : trimmed
+    init(branchNames: [String] = []) {
+        var seen = Set<String>()
+        self.branchNames = branchNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    enum CodingKeys: String, CodingKey { case branchNames }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(branchNames: try container.decodeIfPresent([String].self, forKey: .branchNames) ?? [])
     }
 }
 
@@ -732,14 +776,14 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
 
     var isActive: Bool { status.isActive }
 
+    /// Historical loop records persisted `completed` at the iteration cap.
+    /// Present all such records truthfully without rewriting saved JSON.
     var presentsGoalNotMetOutcome: Bool {
-        structure == .makerChecker &&
-        stopReason == .maxIterationsReached &&
-        iterations.last?.checkerResult == .reject
+        status == .notAchieved || (status == .completed && stopReason == .maxIterationsReached)
     }
 
     var displayStatusName: String {
-        presentsGoalNotMetOutcome ? "Goal not met" : status.displayName
+        presentsGoalNotMetOutcome ? "Goal not achieved" : status.displayName
     }
 
     var hasIterationLimit: Bool {
@@ -892,21 +936,15 @@ enum LoopRunRecapCodec {
         if let stopReason = run.stopReason {
             lines.append("Outcome: \(stopReason.displayName)")
         }
-        if run.structure == .makerChecker {
-            if let checkerResult = run.iterations.last?.checkerResult {
-                lines.append("Final checker result: \(checkerResult.displayName)")
-            }
-            if run.stopReason == .maxIterationsReached {
-                if run.iterations.last?.checkerResult == .continueLoop {
-                    lines.append("Maker + Checker used all configured iterations while continuing accepted work; treat this as iteration budget exhausted, not a rejection.")
-                } else {
-                    lines.append("Maker + Checker used all configured iterations without approval; treat this as goal not fully met, not an agent error.")
-                }
-            } else if run.iterations.last?.checkerResult == .reject {
-                lines.append("Maker + Checker ended on a rejection.")
-            }
+        if run.structure == .makerChecker, let checkerResult = run.iterations.last?.checkerResult {
+            lines.append("Final checker result: \(checkerResult.displayName)")
         }
-        if let validation = run.iterations.last?.validationResult {
+        if run.status == .notAchieved {
+            lines.append("The configured success condition was not established. A successful outcome requires an exact evaluator SUCCESS decision and passing configured validation.")
+        }
+        if !run.validationCommand.isEmpty, run.iterations.last?.validationResult == nil {
+            lines.append("Latest validation: unavailable")
+        } else if let validation = run.iterations.last?.validationResult {
             lines.append("Latest validation: \(validation.didPass ? "passed" : "failed")\(validation.exitCode.map { " (exit \($0))" } ?? "")")
         }
         if let evaluation = run.iterations.last?.goalEvaluation {

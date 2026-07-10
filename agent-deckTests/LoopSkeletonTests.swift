@@ -33,6 +33,35 @@ final class LoopSkeletonTests: XCTestCase {
         XCTAssertEqual(item.materialize(userText: "do not send"), "do not send")
     }
 
+    func testParallelLoopDefaultsRequireExplicitAgents() {
+        XCTAssertTrue(LoopParallelConfig().branchNames.isEmpty)
+        let legacy = LoopParallelConfig(branchNames: ["Branch A", "Branch A", " Branch B "])
+        XCTAssertEqual(legacy.branchNames, ["Branch A", "Branch B"])
+    }
+
+    func testAppViewModelRejectsParallelLoopWithMissingSelectedAgent() async throws {
+        let viewModel = AppViewModel()
+        let session = viewModel.piAgentSessionStore.createSession(kind: .project, title: "Loop", project: try PiTestSupport.makeProject(), repository: nil)
+        let draft = LoopDraft(goal: "Compare", structure: .parallelAgents, parallel: LoopParallelConfig(branchNames: ["Definitely Missing Agent"]))
+
+        let launched = await viewModel.launchLoop(session: session, draft: draft, stopExistingActive: false)
+
+        XCTAssertNil(launched)
+        XCTAssertTrue(viewModel.piAgentSessionStore.transcript(for: session.id).contains { $0.title == "Loop Agent Unavailable" })
+    }
+
+    func testApprovalCheckpointRecordsApprovalWithoutClaimingCompletion() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Loop", project: try PiTestSupport.makeProject(), repository: nil)
+        let checkpoint = try XCTUnwrap(store.launchSmokeLoop(sessionID: session.id, projectPath: session.projectPath, draft: LoopDraft(goal: "Approve", structure: .humanApproval)))
+        let resolved = try XCTUnwrap(store.resolveHumanApprovalLoopRun(checkpoint.id, sessionID: session.id, approved: true))
+
+        XCTAssertEqual(resolved.status, .stopped)
+        XCTAssertEqual(resolved.stopReason, .humanApproved)
+        XCTAssertFalse(LoopRunRecapCodec.finalText(for: resolved).contains("Outcome: Success"))
+        XCTAssertTrue(NativeLoopRunPayload.make(run: resolved, onStop: nil, onRetry: nil, onSave: nil, onRevealArtifacts: nil, onRevealWorktree: nil).canRetry)
+    }
+
     func testLoopCardPayloadShowsStopReasonAndCheckerRejectionOutcome() throws {
         let draft = LoopDraft(
             goal: "Fix until checker approves",
@@ -41,7 +70,7 @@ final class LoopSkeletonTests: XCTestCase {
             makerChecker: LoopMakerCheckerConfig(makerName: "Maker", checkerName: "Checker", checkerRubric: "approve")
         )
         var run = LoopRun(sessionID: UUID(), projectPath: nil, draft: draft)
-        run.status = .failed
+        run.status = .notAchieved
         run.currentIteration = 2
         run.endedAt = Date()
         run.stopReason = .maxIterationsReached
@@ -59,11 +88,22 @@ final class LoopSkeletonTests: XCTestCase {
             onRevealWorktree: nil
         )
 
-        XCTAssertTrue(payload.statusText.contains("Status: Goal not met"))
+        XCTAssertTrue(payload.statusText.contains("Status: Goal not achieved"))
         XCTAssertFalse(payload.statusText.contains("Status: Failed"))
-        XCTAssertFalse(payload.canRetry)
+        XCTAssertTrue(payload.canRetry)
         XCTAssertTrue(payload.statusText.contains("Stop reason: Max iterations reached"))
-        XCTAssertTrue(payload.statusText.contains("Last checker: Reject — all iterations rejected"))
+        XCTAssertTrue(payload.statusText.contains("Last checker: Reject"))
+    }
+
+    func testHistoricalCompletedCapPresentsGoalNotAchieved() {
+        let draft = LoopDraft(goal: "Legacy", structure: .singleAgent, maxIterations: 1)
+        var run = LoopRun(sessionID: UUID(), projectPath: nil, draft: draft)
+        run.status = .completed
+        run.stopReason = .maxIterationsReached
+        run.iterations = [LoopIteration(index: 1, checkerResult: .reject)]
+
+        XCTAssertTrue(run.presentsGoalNotMetOutcome)
+        XCTAssertEqual(run.displayStatusName, "Goal not achieved")
     }
 
     func testLoopCardDetailsExposeLaunchContextButMainTranscriptStaysConcise() throws {
@@ -372,7 +412,7 @@ final class LoopSkeletonTests: XCTestCase {
             draft: LoopDraft(goal: "Retry validation", maxIterations: 3, validationCommand: "/usr/bin/false")
         ))
 
-        XCTAssertEqual(run.status, .failed)
+        XCTAssertEqual(run.status, .notAchieved)
         XCTAssertEqual(run.stopReason, .validationFailedAfterFinalIteration)
         XCTAssertEqual(run.currentIteration, 3)
         XCTAssertEqual(run.iterations.count, 3)
@@ -592,10 +632,10 @@ final class LoopSkeletonTests: XCTestCase {
             draft: LoopDraft(goal: "Approve me", structure: .humanApproval)
         ))
         let approved = try XCTUnwrap(store.resolveHumanApprovalLoopRun(approvedCheckpoint.id, sessionID: session.id, approved: true))
-        XCTAssertEqual(approved.status, .completed)
-        XCTAssertEqual(approved.stopReason, .success)
+        XCTAssertEqual(approved.status, .stopped)
+        XCTAssertEqual(approved.stopReason, .humanApproved)
         XCTAssertEqual(approved.currentIteration, 2)
-        XCTAssertEqual(approved.iterations.last?.summary, "Human approved checkpoint.")
+        XCTAssertEqual(approved.iterations.last?.summary, "Human approval recorded. Start a new attempt for follow-up work.")
 
         let rejectedCheckpoint = try XCTUnwrap(store.launchSmokeLoop(
             sessionID: session.id,
@@ -603,7 +643,7 @@ final class LoopSkeletonTests: XCTestCase {
             draft: LoopDraft(goal: "Reject me", structure: .humanApproval)
         ))
         let rejected = try XCTUnwrap(store.resolveHumanApprovalLoopRun(rejectedCheckpoint.id, sessionID: session.id, approved: false))
-        XCTAssertEqual(rejected.status, .failed)
+        XCTAssertEqual(rejected.status, .stopped)
         XCTAssertEqual(rejected.stopReason, .humanRejected)
         XCTAssertEqual(rejected.currentIteration, 2)
         XCTAssertEqual(rejected.iterations.last?.summary, "Human rejected checkpoint.")

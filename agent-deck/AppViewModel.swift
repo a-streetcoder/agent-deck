@@ -3883,18 +3883,23 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func launchParallelAgentsLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
+        let selectedNames = draft.parallel.branchNames
+        let enabledNames = Set(allDisplayAgents.filter { $0.resolved.disabled != true }.map(\.name))
+        guard !selectedNames.isEmpty, selectedNames.allSatisfy(enabledNames.contains) else {
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Agent Unavailable", text: "Parallel loops require explicitly selected enabled agents."))
+            return nil
+        }
+        guard draft.writeTarget == .artifactMarkdown else {
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Parallel Loop Write Target", text: "Parallel loops are report-only to avoid concurrent writes. Select Artifact / Markdown output."))
+            return nil
+        }
         let projectPath = session.projectPathForProjectFeatures
         let snapshot = projectPath.map { startupSnapshot(forProjectPath: $0) } ?? self.snapshot
-        return await piAgentSessionStore.launchParallelAgentsLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, tasks, concurrency, useWorktreeIsolation in
+        return await piAgentSessionStore.launchParallelAgentsLoop(session: session, draft: draft, stopExistingActive: stopExistingActive, executeEvaluator: loopGoalEvaluatorExecutor(session: session, snapshot: snapshot, draft: draft)) { [weak self] loopID, tasks, concurrency, _ in
             guard let self else { return nil }
             return await withCheckedContinuation { continuation in
                 Task { @MainActor in
-                    let forcedOutcome: PiSubagentExpectedOutcome? = switch draft.writeTarget {
-                    case .artifactMarkdown: .reportOnly
-                    case .newWorktree: .editFilesInWorktree
-                    case .currentCheckout: .directProjectWrites
-                    }
-                    await self.runNativeParallel(parentSession: session, agentTasks: tasks, concurrency: concurrency, useWorktreeIsolation: useWorktreeIsolation, forcedExpectedOutcome: forcedOutcome, loopID: loopID) { run in
+                    await self.runNativeParallel(parentSession: session, agentTasks: tasks, concurrency: min(concurrency, 2), useWorktreeIsolation: false, forcedExpectedOutcome: .reportOnly, loopID: loopID) { run in
                         continuation.resume(returning: run)
                     }
                 }
@@ -9837,7 +9842,7 @@ final class AppViewModel: NSObject {
     }
 
     func retryLoopRun(_ run: LoopRun) {
-        guard !run.isActive, run.status == .failed, !run.presentsGoalNotMetOutcome else { return }
+        guard !run.isActive, run.status == .failed || run.presentsGoalNotMetOutcome || run.stopReason == .humanInputRequired || run.stopReason == .humanApproved else { return }
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == run.sessionID }) else { return }
         let draft = loopDraft(from: run)
         Task { @MainActor in

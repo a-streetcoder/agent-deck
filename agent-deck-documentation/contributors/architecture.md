@@ -46,6 +46,10 @@ Resource refresh is event-driven while the app is active: `FileWatchEventMonitor
 - `PiSubagentRunService` creates child runs, artifacts, prompts, worktrees, Pi RPC clients, transcripts, and supervisor request routing.
 - `PiSubagentWorktreeService` handles worktree create/apply/discard logic.
 
+## Loops
+
+`LoopModels`, `LoopDefinitionStore`, `LoopLaunchViews`, and `PiAgentSessionStore` implement app-managed loop definitions, launches, artifacts, validation, and transcript recaps. `AppViewModel` resolves selected agents and launches native child runs. Parallel loops use selected enabled agents for report-only work; approval checkpoints are terminal records rather than resumptions.
+
 ## Persistence
 
 - `AgentPersistence` writes custom agents and builtin overrides.

@@ -7,6 +7,7 @@ This is the canonical reference set for how Agent Deck composes with the Pi CLI,
 - [Pi runtime vs Agent Deck](concepts/pi-runtime-vs-agent-deck.md) — where Pi ends and the app begins.
 - [Resource scopes and resolution](concepts/resource-scopes-and-resolution.md) — Builtin / Global / Library / Project, and how the app picks one.
 - [Safety and artifacts](concepts/safety-and-artifacts.md) — write targets, overrides, report-only subagents.
+- [Loops](concepts/loops.md) — loop types, completion policy, validation, checkpoints, and parallel safety.
 
 ## Runtime reference
 

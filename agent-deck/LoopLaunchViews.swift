@@ -55,7 +55,8 @@ struct LoopLaunchSheet: View {
     private var canLaunch: Bool {
         let saveIsValid = !saveToLoopBank || !saveName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let writeTargetIsConfirmed = draft.writeTarget != .currentCheckout || confirmsCurrentCheckoutWrite
-        return !trimmedGoal.isEmpty && requiredAgentsAreSelected && deckAgentsPreflightIsSatisfied && agentPreflightIssues.isEmpty && saveIsValid && writeTargetIsConfirmed && (activeRun == nil || stopExistingActive)
+        let parallelTargetIsSafe = draft.structure != .parallelAgents || draft.writeTarget == .artifactMarkdown
+        return !trimmedGoal.isEmpty && requiredAgentsAreSelected && deckAgentsPreflightIsSatisfied && agentPreflightIssues.isEmpty && saveIsValid && writeTargetIsConfirmed && parallelTargetIsSafe && (activeRun == nil || stopExistingActive)
     }
 
     private var deckAgentsPreflightIsSatisfied: Bool {
@@ -83,7 +84,10 @@ struct LoopLaunchSheet: View {
         case .agentPipeline:
             return !draft.pipeline.stageNames.isEmpty
                 && draft.pipeline.stageNames.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        case .parallelAgents, .humanApproval:
+        case .parallelAgents:
+            return !draft.parallel.branchNames.isEmpty
+                && draft.parallel.branchNames.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        case .humanApproval:
             return true
         }
     }
@@ -98,7 +102,9 @@ struct LoopLaunchSheet: View {
             return [draft.discoveryTriage.agentName]
         case .agentPipeline:
             return draft.pipeline.stageNames
-        case .parallelAgents, .humanApproval:
+        case .parallelAgents:
+            return draft.parallel.branchNames
+        case .humanApproval:
             return []
         }
     }
@@ -174,10 +180,10 @@ struct LoopLaunchSheet: View {
         )
     }
 
-    private var parallelBranchesBinding: Binding<String> {
+    private var parallelAgentsBinding: Binding<[String]> {
         Binding(
-            get: { draft.parallel.branchNames.joined(separator: " | ") },
-            set: { draft.parallel = LoopParallelConfig(branchNames: splitList($0)) }
+            get: { draft.parallel.branchNames },
+            set: { draft.parallel = LoopParallelConfig(branchNames: $0) }
         )
     }
 
@@ -227,6 +233,7 @@ struct LoopLaunchSheet: View {
 
                     deckAgentsPreflightSection
                     loopPreflightSection
+                    parallelSafetyPreflightSection
 
                     AppCard(title: "Loop") {
                         VStack(alignment: .leading, spacing: 14) {
@@ -248,7 +255,7 @@ struct LoopLaunchSheet: View {
                                             .init("Agent Pipeline", "Runs named stages in order, like Explorer → Implementer → Verifier."),
                                             .init("Parallel Agents", "Tracks independent branches or hypotheses in the same run."),
                                             .init("Discovery Triage", "Collects findings and classifies them by severity / next action."),
-                                            .init("Human Approval", "Pauses at a checkpoint for explicit approval before continuing.")
+                                            .init("Approval Checkpoint", "Records explicit approval or rejection; it does not resume this same run.")
                                         ]
                                     )
                                 }
@@ -307,7 +314,7 @@ struct LoopLaunchSheet: View {
                                     AppTextField(text: evaluatorModelBinding, placeholder: "Evaluator model: default")
                                     AppTextField(text: evaluatorThinkingBinding, placeholder: "Thinking: default")
                                 }
-                                Text("Validation command output is optional evidence for the evaluator; it is not required.")
+                                Text("Completion requires exact evaluator SUCCESS and, when configured, passing validation. Start with a small Analyze → Fix → Validate loop.")
                                     .font(AppTheme.Font.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             }
@@ -378,7 +385,7 @@ struct LoopLaunchSheet: View {
                         } content: {
                             AppTextField(text: $draft.validationCommand, placeholder: "Optional, e.g. swift test")
                                 .frame(maxWidth: .infinity)
-                            Text("Leave empty to skip automatic validation. The loop can still use checker judgment, logs, artifacts, or commands it runs itself.")
+                            Text("Leave empty to skip automatic validation. When configured, this command must pass and the evaluator must return SUCCESS before the loop can succeed.")
                                 .font(AppTheme.Font.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -569,6 +576,18 @@ struct LoopLaunchSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var parallelSafetyPreflightSection: some View {
+        if draft.structure == .parallelAgents && draft.writeTarget != .artifactMarkdown {
+            Label("Parallel agents are report-only. Select Artifact / Markdown output to launch.", systemImage: "exclamationmark.triangle.fill")
+                .font(AppTheme.Font.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
     private var launchContextInfoRows: [LoopInlineInfoButton.Row] {
         [
             .init("What it is", "Optional background or arguments added to child-agent launch prompts, kept separate from the loop goal."),
@@ -630,17 +649,17 @@ struct LoopLaunchSheet: View {
                 case .parallelAgents:
                     fieldGroup {
                         HStack(spacing: 6) {
-                            Text("Branches")
+                            Text("Parallel agents")
                                 .font(AppTheme.Font.caption.weight(.semibold))
                                 .foregroundStyle(AppTheme.mutedText)
                             LoopInlineInfoButton(
-                                title: "Parallel branches",
-                                message: "Branch names are split with | and represent independent attempts or hypotheses tracked in one loop run."
+                                title: "Parallel agents",
+                                message: "Select enabled project agents. Parallel loops are report-only to prevent concurrent writes to one checkout or worktree."
                             )
                         }
                     } content: {
-                        AppTextField(text: parallelBranchesBinding, placeholder: "Branches, separated by |")
-                        Text("Records branch timeline. Choose New worktree for isolated coding-preview writes.")
+                        LoopPipelineStagePicker(stages: parallelAgentsBinding, availableAgents: availableAgents)
+                        Text("Each selected agent investigates independently. Use a later single-agent or pipeline loop to make changes.")
                             .font(AppTheme.Font.caption)
                             .foregroundStyle(AppTheme.mutedText)
                     }
@@ -670,13 +689,13 @@ struct LoopLaunchSheet: View {
                                 .foregroundStyle(AppTheme.mutedText)
                             LoopInlineInfoButton(
                                 title: "Checkpoint prompt",
-                                message: "The message shown when the loop pauses for human approval before continuing."
+                                message: "The message shown for an approval checkpoint. Recording approval does not resume this same run."
                             )
                         }
                     } content: {
                         AppTextField(text: $draft.humanApproval.checkpointPrompt, placeholder: "Checkpoint prompt", axis: .vertical)
                             .lineLimit(2...4)
-                        Text("The deterministic preview runner stops with Human input required at this checkpoint.")
+                        Text("This records a terminal approval or rejection checkpoint; start a new attempt for follow-up work.")
                             .font(AppTheme.Font.caption)
                             .foregroundStyle(AppTheme.mutedText)
                     }
@@ -787,11 +806,6 @@ struct LoopLaunchSheet: View {
         return String(trimmed.prefix(64))
     }
 
-    private func splitList(_ value: String) -> [String] {
-        value.components(separatedBy: "|")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
 }
 
 struct LoopAgentNameMenu: View {
@@ -1091,8 +1105,8 @@ struct LoopLaunchInfoPopover: View {
                 infoRow("What runs", "A loop repeatedly asks Pi to work toward the goal, records each iteration, and stops when it reaches the max iterations or needs attention.")
                 infoRow("Structure", "Choose a single agent, maker/checker review, a pipeline, parallel branches, discovery triage, or a human approval checkpoint.")
                 infoRow("Write target", "Artifact writes keep project files untouched. Worktree writes isolate code changes. Current checkout writes directly to this project.")
-                infoRow("Goal evaluator", "After each iteration, a report-only natural-language evaluator decides SUCCESS, CONTINUE, or FAIL against the success condition.")
-            infoRow("Validation (optional)", "If provided, Agent Deck runs this shell command after each loop iteration and attaches its output as evaluator evidence. Leave it empty to skip automatic validation.")
+                infoRow("Goal evaluator", "After each iteration, a report-only natural-language evaluator decides SUCCESS, CONTINUE, or FAIL against the success condition. Only an exact SUCCESS can complete the loop.")
+            infoRow("Validation (optional)", "If configured, Agent Deck runs this shell command after each loop iteration. It must pass, in addition to evaluator SUCCESS, before the loop can succeed. Leave it empty to skip automatic validation.")
             }
         }
         .padding(16)

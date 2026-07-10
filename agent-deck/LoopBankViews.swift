@@ -19,7 +19,7 @@ struct LoopDefinitionEditorDraft: Equatable {
     var checkerName: String
     var checkerRubric: String
     var pipelineStageNames: [String]
-    var parallelBranchesText: String
+    var parallelAgentNames: [String]
     var triageAgentName: String
     var classificationPrompt: String
     var checkpointPrompt: String
@@ -50,7 +50,7 @@ struct LoopDefinitionEditorDraft: Equatable {
         checkerName = makerChecker.checkerName
         checkerRubric = makerChecker.checkerRubric
         pipelineStageNames = definition?.pipeline.stageNames ?? LoopPipelineConfig().stageNames
-        parallelBranchesText = (definition?.parallel.branchNames ?? LoopParallelConfig().branchNames).joined(separator: " | ")
+        parallelAgentNames = definition?.parallel.branchNames ?? LoopParallelConfig().branchNames
         triageAgentName = definition?.discoveryTriage.agentName ?? LoopDiscoveryTriageConfig().agentName
         classificationPrompt = definition?.discoveryTriage.classificationPrompt ?? LoopDiscoveryTriageConfig().classificationPrompt
         checkpointPrompt = definition?.humanApproval.checkpointPrompt ?? LoopHumanApprovalConfig().checkpointPrompt
@@ -96,7 +96,7 @@ struct LoopDefinitionEditorDraft: Equatable {
                 checkerRubric: checkerRubric
             ),
             pipeline: LoopPipelineConfig(stageNames: pipelineStageNames),
-            parallel: LoopParallelConfig(branchNames: splitList(parallelBranchesText)),
+            parallel: LoopParallelConfig(branchNames: parallelAgentNames),
             discoveryTriage: LoopDiscoveryTriageConfig(agentName: triageAgentName, classificationPrompt: classificationPrompt),
             humanApproval: LoopHumanApprovalConfig(checkpointPrompt: checkpointPrompt),
             source: .user,
@@ -108,11 +108,6 @@ struct LoopDefinitionEditorDraft: Equatable {
         )
     }
 
-    private func splitList(_ value: String) -> [String] {
-        value.components(separatedBy: "|")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
 }
 
 private enum LoopEditTab: String, CaseIterable, Identifiable {
@@ -709,10 +704,11 @@ struct LoopBankScreen: View {
             }
         case .parallelAgents:
             AppCard(title: "Parallel Agents") {
-                detailRow("Branches", info: "Named parallel tracks, separated by vertical bars. Use them for independent hypotheses, approaches, or workstreams.") {
-                    TextField("Branches, separated by |", text: $editorDraft.parallelBranchesText)
-                        .multilineTextAlignment(.trailing)
-                        .textFieldStyle(.plain)
+                VStack(alignment: .leading, spacing: 8) {
+                    LoopPipelineStagePicker(stages: $editorDraft.parallelAgentNames, availableAgents: availableLoopAgents)
+                    Text("Select enabled agents for independent report-only investigations. Parallel loops never share a writable target.")
+                        .font(AppTheme.Font.caption)
+                        .foregroundStyle(AppTheme.mutedText)
                 }
             }
         case .discoveryTriage:
@@ -724,7 +720,7 @@ struct LoopBankScreen: View {
             }
         case .humanApproval:
             AppCard(title: "Human Approval") {
-                detailEditor("Checkpoint prompt", text: $editorDraft.checkpointPrompt, minHeight: 84, info: "The question or review instruction shown before the loop continues. Use this for risky or preference-dependent steps.")
+                detailEditor("Checkpoint prompt", text: $editorDraft.checkpointPrompt, minHeight: 84, info: "The question or review instruction shown for a terminal approval checkpoint. Approval is recorded; it does not resume this same run.")
             }
         case .singleAgent:
             AppCard(title: "Single Agent") {
@@ -747,7 +743,10 @@ struct LoopBankScreen: View {
         case .agentPipeline:
             return !editorDraft.pipelineStageNames.isEmpty
                 && editorDraft.pipelineStageNames.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        case .parallelAgents, .humanApproval:
+        case .parallelAgents:
+            return !editorDraft.parallelAgentNames.isEmpty
+                && editorDraft.parallelAgentNames.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        case .humanApproval:
             return true
         }
     }
@@ -759,7 +758,7 @@ struct LoopBankScreen: View {
             .init("Agent Pipeline", "Records ordered stages such as Explorer → Implementer → Verifier."),
             .init("Parallel Agents", "Names independent branches or hypotheses in the same loop run."),
             .init("Discovery / Triage", "Collects findings and classifies them by severity or next action."),
-            .init("Human Approval", "Pauses at a checkpoint for explicit approval before continuing.")
+            .init("Approval Checkpoint", "Records an explicit approval or rejection; start a new attempt for follow-up work.")
         ]
     }
 

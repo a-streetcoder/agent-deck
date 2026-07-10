@@ -1119,15 +1119,18 @@ final class PiAgentSessionStore {
                 upsertLoopRun(run)
                 return run
             }
-            let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
+            let validationResult = run.validationCommand.isEmpty ? nil : await runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory, runID: run.id)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let artifact = makeMarkdownArtifact(filename: iterationIndex == 1 ? "single-agent-summary.md" : "single-agent-summary-\(iterationIndex).md", markdown: singleAgentArtifactMarkdown(run: run, iterationIndex: iterationIndex, childRunID: childRun.id, summary: summary), artifactDirectory: artifactDirectory)
             let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: summary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let ended = Date()
             run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: summary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, goalEvaluation: evaluation, timeline: timeline))
             if applyGoalEvaluation(evaluation, ended: ended, to: &run) { upsertLoopRun(run); return run }
             upsertLoopRun(run)
         }
-        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
+        let outcome = LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: run.validationCommand, latestValidation: run.iterations.last?.validationResult)
+        run.status = outcome.status; run.endedAt = Date(); run.stopReason = outcome.reason; upsertLoopRun(run); return run
     }
 
     @discardableResult
@@ -1246,7 +1249,8 @@ final class PiAgentSessionStore {
             if validationCommand.isEmpty {
                 validationResult = LoopValidationResult(command: "", workingDirectory: executionContext.workingDirectory?.path, exitCode: nil, duration: 0, stdout: "", stderr: "Validation command is empty.")
             } else {
-                validationResult = runValidationCommand(validationCommand, workingDirectory: executionContext.workingDirectory)
+                validationResult = await runValidationCommand(validationCommand, workingDirectory: executionContext.workingDirectory, runID: run.id)
+                if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             }
 
             let artifact = makeMarkdownArtifact(
@@ -1256,6 +1260,7 @@ final class PiAgentSessionStore {
             )
             let iterationSummary = stageSummaries.joined(separator: "\n\n")
             let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationCommand.isEmpty ? nil : validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let iterationEndedAt = Date()
             run.iterations.append(LoopIteration(
                 index: iterationIndex,
@@ -1275,9 +1280,10 @@ final class PiAgentSessionStore {
             upsertLoopRun(run)
         }
 
-        run.status = .completed
+        let outcome = LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: run.validationCommand, latestValidation: run.iterations.last?.validationResult)
+        run.status = outcome.status
         run.endedAt = Date()
-        run.stopReason = .maxIterationsReached
+        run.stopReason = outcome.reason
         upsertLoopRun(run)
         return run
     }
@@ -1309,14 +1315,18 @@ final class PiAgentSessionStore {
             run.currentIteration = iterationIndex
             upsertLoopRun(run)
             let tasks = run.parallel.branchNames.map { ($0, parallelBranchTask(run: run, iterationIndex: iterationIndex, branchName: $0)) }
-            guard let graphRun = await executeParallel(run.id, tasks, max(1, min(tasks.count, tasks.count)), run.writeTarget == .newWorktree) else {
+            // Parallel loop tasks are independent report-only investigations; keep
+            // concurrency conservative even when more agents are configured.
+            guard let graphRun = await executeParallel(run.id, tasks, min(2, max(1, tasks.count)), false) else {
                 run.status = .failed; run.endedAt = Date(); run.stopReason = .agentFailed; upsertLoopRun(run); return run
             }
             if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let summary = graphRun.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? graphRun.status.rawValue
             let artifact = makeMarkdownArtifact(filename: iterationIndex == 1 ? "parallel-summary.md" : "parallel-summary-\(iterationIndex).md", markdown: parallelAgentsArtifactMarkdown(run: run, iterationIndex: iterationIndex, graphRunID: graphRun.id, summary: summary), artifactDirectory: artifactDirectory)
-            let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
+            let validationResult = run.validationCommand.isEmpty ? nil : await runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory, runID: run.id)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: summary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let ended = Date()
             let timeline = run.parallel.branchNames.enumerated().map { offset, branch in LoopTimelineEvent(step: .parallelBranch, roleName: branch, note: "Parallel graph run: \(graphRun.id.uuidString)", timestamp: started.addingTimeInterval(TimeInterval(offset))) }
             run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: summary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, goalEvaluation: evaluation, timeline: timeline))
@@ -1324,7 +1334,8 @@ final class PiAgentSessionStore {
             if applyGoalEvaluation(evaluation, ended: ended, to: &run) { upsertLoopRun(run); return run }
             upsertLoopRun(run)
         }
-        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
+        let outcome = LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: run.validationCommand, latestValidation: run.iterations.last?.validationResult)
+        run.status = outcome.status; run.endedAt = Date(); run.stopReason = outcome.reason; upsertLoopRun(run); return run
     }
 
     @discardableResult
@@ -1361,8 +1372,10 @@ final class PiAgentSessionStore {
             if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let childSummary = childRun.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? childRun.status.rawValue
             let artifact = makeMarkdownArtifact(filename: iterationIndex == 1 ? "discovery-triage-summary.md" : "discovery-triage-summary-\(iterationIndex).md", markdown: discoveryTriageArtifactMarkdown(run: run, iterationIndex: iterationIndex, childRunID: childRun.id, summary: childSummary), artifactDirectory: artifactDirectory)
-            let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
+            let validationResult = run.validationCommand.isEmpty ? nil : await runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory, runID: run.id)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: childSummary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let ended = Date()
             run.iterations.append(LoopIteration(index: iterationIndex, startedAt: started, endedAt: ended, summary: childSummary, artifacts: [artifact].compactMap { $0 }, validationResult: validationResult, goalEvaluation: evaluation, timeline: [LoopTimelineEvent(step: .discoveryTriage, roleName: run.discoveryTriage.agentName, note: "Triage child run: \(childRun.id.uuidString)", timestamp: started)]))
             if childRun.status != .completed {
@@ -1373,7 +1386,8 @@ final class PiAgentSessionStore {
             }
             upsertLoopRun(run)
         }
-        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
+        let outcome = LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: run.validationCommand, latestValidation: run.iterations.last?.validationResult)
+        run.status = outcome.status; run.endedAt = Date(); run.stopReason = outcome.reason; upsertLoopRun(run); return run
     }
 
     @discardableResult
@@ -1450,21 +1464,20 @@ final class PiAgentSessionStore {
             }
             let checkerResult = checkerResult(from: checkerText, fallbackRubric: run.makerChecker.checkerRubric)
             let iterationSummary = checkerIterationSummary(result: checkerResult, checkerText: checkerText)
-            let validationResult = run.validationCommand.isEmpty ? nil : runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory)
+            let validationResult = run.validationCommand.isEmpty ? nil : await runValidationCommand(run.validationCommand, workingDirectory: executionContext.workingDirectory, runID: run.id)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let timeline = [
                 LoopTimelineEvent(step: .makerAct, roleName: run.makerChecker.makerName, note: "Maker child run: \(makerRun.id.uuidString)", timestamp: iterationStartedAt),
                 LoopTimelineEvent(step: .checkerReview, roleName: run.makerChecker.checkerName, note: "Checker child run: \(checkerRun.id.uuidString) returned \(checkerResult.displayName).", timestamp: ended)
             ]
-            let evaluation = executeEvaluator == nil ? nil : await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            let evaluation = await evaluateGoalIfNeeded(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationResult, workingDirectory: executionContext.workingDirectory, artifactDirectory: artifactDirectory, executeEvaluator: executeEvaluator)
+            if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             run.iterations.append(LoopIteration(index: iterationIndex, startedAt: iterationStartedAt, endedAt: ended, summary: iterationSummary, validationResult: validationResult, goalEvaluation: evaluation, checkerResult: checkerResult, timeline: timeline))
             priorReview = checkerText
             if checkerResult == .fail {
                 run.status = .failed; run.endedAt = ended; run.stopReason = .agentFailed; upsertLoopRun(run); return run
             }
             if applyGoalEvaluation(evaluation, ended: ended, to: &run) { upsertLoopRun(run); return run }
-            if evaluation == nil, checkerResult == .approve {
-                run.status = .completed; run.endedAt = ended; run.stopReason = .success; upsertLoopRun(run); return run
-            }
             switch checkerResult {
             case .approve, .reject, .continueLoop:
                 // Checker output is evidence for the goal evaluator. It no longer
@@ -1476,7 +1489,8 @@ final class PiAgentSessionStore {
                 run.status = .failed; run.endedAt = ended; run.stopReason = .agentFailed; upsertLoopRun(run); return run
             }
         }
-        run.status = .completed; run.endedAt = Date(); run.stopReason = .maxIterationsReached; upsertLoopRun(run); return run
+        let outcome = LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: run.validationCommand, latestValidation: run.iterations.last?.validationResult)
+        run.status = outcome.status; run.endedAt = Date(); run.stopReason = outcome.reason; upsertLoopRun(run); return run
     }
 
     @discardableResult
@@ -1623,7 +1637,11 @@ final class PiAgentSessionStore {
                     stderr: "Validation command is empty."
                 )
             } else {
-                validationResult = runValidationCommand(validationCommand, workingDirectory: executionContext.workingDirectory)
+                validationResult = AgentDeckBuiltinHooks.runValidation(.init(
+                    command: validationCommand,
+                    workingDirectory: executionContext.workingDirectory,
+                    outputDirectory: fileURL.deletingLastPathComponent().appendingPathComponent("loop-validation-output", isDirectory: true)
+                ))
             }
 
             let iterationEndedAt = Date()
@@ -1799,9 +1817,10 @@ final class PiAgentSessionStore {
             upsertLoopRun(run)
         }
 
-        run.status = run.structure == .makerChecker ? .completed : .failed
+        let outcome = LoopOutcomePolicy.terminalStatusAtIterationCap(validationCommand: run.validationCommand, latestValidation: run.iterations.last?.validationResult)
+        run.status = outcome.status
         run.endedAt = Date()
-        run.stopReason = run.structure == .makerChecker ? .maxIterationsReached : .validationFailedAfterFinalIteration
+        run.stopReason = outcome.reason
         upsertLoopRun(run)
         return run
     }
@@ -1815,8 +1834,7 @@ final class PiAgentSessionStore {
         let outputPath = artifactDirectory.appendingPathComponent("goal-evaluation-\(iterationIndex).md").path
         let task = goalEvaluatorTask(run: run, iterationIndex: iterationIndex, iterationSummary: iterationSummary, validationResult: validationResult)
         guard let executeEvaluator else {
-            if validationResult?.didPass == true { return LoopGoalEvaluation(result: .success, rationale: "Validation evidence passed.") }
-            return LoopGoalEvaluation(result: .continueLoop, rationale: "No evaluator runner was available; continuing toward the success condition.")
+            return LoopGoalEvaluation(result: .continueLoop, rationale: "No goal evaluator result was available; success cannot be established.")
         }
         guard let evaluatorRun = await executeEvaluator(run.id, "Goal Evaluator", task, .artifactMarkdown, workingDirectory, outputPath) else {
             return LoopGoalEvaluation(result: .fail, rationale: "Goal evaluator failed to launch.")
@@ -1831,6 +1849,9 @@ final class PiAgentSessionStore {
         guard let evaluation else { return false }
         switch evaluation.result {
         case .success:
+            guard LoopOutcomePolicy.canSucceed(evaluation: evaluation, validationCommand: run.validationCommand, validationResult: run.iterations.last?.validationResult) else {
+                return false
+            }
             run.status = .completed
             run.endedAt = ended
             run.stopReason = .success
@@ -1847,13 +1868,18 @@ final class PiAgentSessionStore {
 
     private func goalEvaluation(from text: String, childRunID: UUID?) -> LoopGoalEvaluation {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let firstLine = trimmed.components(separatedBy: .newlines).first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
-        let normalized = firstLine.uppercased()
+        let decision = LoopOutcomePolicy.exactDecision(in: trimmed, allowed: ["SUCCESS", "CONTINUE", "FAIL"])
         let result: LoopGoalEvaluationResult
-        if normalized.contains("SUCCESS") { result = .success }
-        else if normalized.contains("FAIL") { result = .fail }
-        else { result = .continueLoop }
-        let rationale = checkerRationale(from: trimmed)
+        switch decision {
+        case "SUCCESS": result = .success
+        case "FAIL": result = .fail
+        case "CONTINUE": result = .continueLoop
+        default: result = .continueLoop
+        }
+        let parsedRationale = checkerRationale(from: trimmed)
+        let rationale = decision == nil
+            ? "Invalid evaluator decision; expected exactly SUCCESS, CONTINUE, or FAIL. \(parsedRationale)".trimmingCharacters(in: .whitespacesAndNewlines)
+            : parsedRationale
         return LoopGoalEvaluation(result: result, rationale: rationale, childRunID: childRunID)
     }
 
@@ -2006,9 +2032,9 @@ final class PiAgentSessionStore {
 
     private func parallelBranchTask(run: LoopRun, iterationIndex: Int, branchName: String) -> String {
         (loopRuntimeContext(run: run, iterationIndex: iterationIndex) + [
-            "You are working on one assigned branch/hypothesis of a parallel loop.",
-            "Assigned branch/agent: \(branchName)",
-            "Work independently on this branch. Do not coordinate with sibling branches unless the task explicitly asks you to. End with a concise Markdown summary of findings, changes, risks, and recommended next action."
+            "You are working as one explicitly selected agent in a report-only parallel investigation.",
+            "Assigned agent: \(branchName)",
+            "Work independently. Do not edit project files or coordinate with sibling agents. End with a concise Markdown summary of findings, evidence, risks, and recommended next action."
         ]).joined(separator: "\n\n")
     }
 
@@ -2074,6 +2100,9 @@ final class PiAgentSessionStore {
     private func checkerIterationSummary(result: LoopCheckerResult, checkerText: String) -> String {
         let rationale = checkerRationale(from: checkerText).nonEmpty ?? checkerText.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         var lines = ["Checker outcome: \(result.displayName)"]
+        if LoopOutcomePolicy.exactDecision(in: checkerText, allowed: ["APPROVE", "CONTINUE", "REJECT", "ASK_HUMAN", "FAIL"]) == nil {
+            lines.append("Checker decision was invalid; treating it as CONTINUE rather than inferring approval.")
+        }
         if let rationale {
             lines.append(rationale)
         }
@@ -2100,17 +2129,18 @@ final class PiAgentSessionStore {
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func checkerResult(from text: String, fallbackRubric: String) -> LoopCheckerResult {
-        let firstLine = text
-            .components(separatedBy: .newlines)
-            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
-        let normalizedDecisionLine = firstLine.lowercased().replacingOccurrences(of: "-", with: "_")
-        if normalizedDecisionLine.contains("ask_human") || normalizedDecisionLine.contains("ask human") { return .askHuman }
-        if normalizedDecisionLine.contains("fail") { return .fail }
-        if normalizedDecisionLine.contains("continue") { return .continueLoop }
-        if normalizedDecisionLine.contains("reject") { return .reject }
-        if normalizedDecisionLine.contains("approve") { return .approve }
-        return deterministicCheckerResult(rubric: fallbackRubric, validationResult: nil, iterationIndex: 1)
+    private func checkerResult(from text: String, fallbackRubric _: String) -> LoopCheckerResult {
+        switch LoopOutcomePolicy.exactDecision(in: text, allowed: ["APPROVE", "CONTINUE", "REJECT", "ASK_HUMAN", "FAIL"]) {
+        case "APPROVE": return .approve
+        case "CONTINUE": return .continueLoop
+        case "REJECT": return .reject
+        case "ASK_HUMAN": return .askHuman
+        case "FAIL": return .fail
+        default:
+            // An unparseable review cannot silently inherit approval from a rubric.
+            // Continue conservatively and surface the malformed response in its rationale.
+            return .continueLoop
+        }
     }
 
     private func deterministicCheckerResult(rubric: String, validationResult: LoopValidationResult?, iterationIndex: Int) -> LoopCheckerResult {
@@ -2171,11 +2201,12 @@ final class PiAgentSessionStore {
         return URL(fileURLWithPath: projectPath, isDirectory: true)
     }
 
-    private func runValidationCommand(_ command: String, workingDirectory: URL?) -> LoopValidationResult {
-        AgentDeckBuiltinHooks.runValidation(.init(
+    private func runValidationCommand(_ command: String, workingDirectory: URL?, runID: UUID) async -> LoopValidationResult {
+        await AgentDeckBuiltinHooks.runValidationAsync(.init(
             command: command,
             workingDirectory: workingDirectory,
-            outputDirectory: fileURL.deletingLastPathComponent().appendingPathComponent("loop-validation-output", isDirectory: true)
+            outputDirectory: fileURL.deletingLastPathComponent().appendingPathComponent("loop-validation-output", isDirectory: true),
+            runID: runID
         ))
     }
 
@@ -2322,8 +2353,14 @@ final class PiAgentSessionStore {
             lines.append("- Artifact directory: \(artifactDirectoryPath)")
             lines.append("- Shared progress artifact: \(Self.loopProgressFilename)")
         }
-        if let validation = run.iterations.last?.validationResult {
-            lines.append("- Latest validation: \(validation.didPass ? "passed" : "failed")\(validation.exitCode.map { " (exit \($0))" } ?? "") via `\(boundedLine(validation.command, fallback: "validation"))`.")
+        if !run.validationCommand.isEmpty, run.iterations.last?.validationResult == nil {
+            lines.append("- Latest validation: unavailable for configured command `\(boundedLine(run.validationCommand, fallback: "validation"))`.")
+        } else if let validation = run.iterations.last?.validationResult {
+            let detail = validation.stderr.nonEmpty ?? validation.stdout.nonEmpty
+            lines.append("- Latest validation: \(validation.didPass ? "passed" : "failed")\(validation.exitCode.map { " (exit \($0))" } ?? "") via `\(boundedLine(validation.command, fallback: "validation"))`.\(detail.map { " Evidence: \(boundedSummary($0))" } ?? "")")
+        }
+        if let evaluation = run.iterations.last?.goalEvaluation {
+            lines.append("- Latest goal evaluator: \(evaluation.result.displayName). \(boundedSummary(evaluation.rationale, fallback: "No rationale provided."))")
         }
         let artifacts = run.iterations.flatMap(\.artifacts).suffix(4).map(\.filename)
         if !artifacts.isEmpty {
@@ -2374,6 +2411,8 @@ final class PiAgentSessionStore {
             return "- Inspect the last validation failure and retry with a narrower fix."
         case .humanInputRequired:
             return "- Wait for human approval or direction."
+        case .humanApproved:
+            return "- Approval was recorded. Start a new attempt if follow-up work is needed."
         case .humanRejected:
             return "- Do not continue without revised human direction."
         case .agentFailed, .toolFailed, .appInterrupted, .userStopped, .unsafeWriteTarget, .none:
@@ -2389,6 +2428,9 @@ final class PiAgentSessionStore {
             }
             if let validation = iteration.validationResult {
                 parts.append("validation \(validation.didPass ? "passed" : "failed")\(validation.exitCode.map { " exit \($0)" } ?? "")")
+            }
+            if let evaluation = iteration.goalEvaluation {
+                parts.append("evaluator \(evaluation.result.displayName.lowercased()): \(boundedSummary(evaluation.rationale, fallback: "No rationale."))")
             }
             if !iteration.changedFiles.isEmpty {
                 parts.append("changed \(iteration.changedFiles.prefix(4).joined(separator: ", "))")
@@ -2433,6 +2475,7 @@ final class PiAgentSessionStore {
         run.status = .stopped
         run.endedAt = Date()
         run.stopReason = .userStopped
+        Task { await AgentDeckBuiltinHooks.cancelValidation(runID: runID) }
         onStopLoopRun?(runID, sessionID)
         runs[index] = run
         loopRunsBySessionID[sessionID] = runs
@@ -2449,16 +2492,16 @@ final class PiAgentSessionStore {
         guard run.structure == .humanApproval, run.status == .stopped, run.stopReason == .humanInputRequired else { return run }
         let now = Date()
         let resolutionIteration = run.currentIteration + 1
-        run.status = approved ? .completed : .failed
+        run.status = .stopped
         run.endedAt = now
-        run.stopReason = approved ? .success : .humanRejected
+        run.stopReason = approved ? .humanApproved : .humanRejected
         run.currentIteration = resolutionIteration
         run.iterations.append(LoopIteration(
             index: resolutionIteration,
             startedAt: now,
             endedAt: now,
-            summary: approved ? "Human approved checkpoint." : "Human rejected checkpoint.",
-            timeline: [LoopTimelineEvent(step: .humanApprovalCheckpoint, roleName: "Human Approval", note: approved ? "Approved" : "Rejected", timestamp: now)]
+            summary: approved ? "Human approval recorded. Start a new attempt for follow-up work." : "Human rejected checkpoint.",
+            timeline: [LoopTimelineEvent(step: .humanApprovalCheckpoint, roleName: "Human Approval", note: approved ? "Approval recorded" : "Rejected", timestamp: now)]
         ))
         runs[index] = run
         loopRunsBySessionID[sessionID] = runs

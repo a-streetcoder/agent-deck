@@ -1380,7 +1380,7 @@ struct NativeLoopRunPayload {
         let canOperateOnWorktree = run.writeTarget == .newWorktree && !run.isActive && hasWorktree && !worktreeAlreadyHandled
         let canResolveHumanApproval = run.structure == .humanApproval && run.status == .stopped && run.stopReason == .humanInputRequired
         return NativeLoopRunPayload(
-            title: run.presentsGoalNotMetOutcome ? "Loop goal not met" : (run.status == .completed ? "Loop completed" : "Loop: \(run.structure.displayName)"),
+            title: run.presentsGoalNotMetOutcome ? "Loop not achieved" : (run.status == .completed ? "Loop completed" : "Loop: \(run.structure.displayName)"),
             statusText: statusText,
             detailText: details,
             isActive: run.isActive,
@@ -1390,7 +1390,7 @@ struct NativeLoopRunPayload {
             canDiscardWorktree: canOperateOnWorktree,
             canApproveHumanApproval: canResolveHumanApproval,
             canRejectHumanApproval: canResolveHumanApproval,
-            canRetry: !run.isActive && run.status == .failed && !run.presentsGoalNotMetOutcome,
+            canRetry: !run.isActive && (run.status == .failed || run.presentsGoalNotMetOutcome || run.stopReason == .humanInputRequired || run.stopReason == .humanApproved),
             canSave: !run.isActive,
             onStop: onStop,
             onRetry: onRetry,
@@ -1409,8 +1409,10 @@ struct NativeLoopRunPayload {
         if !run.isActive, let stopReason = run.stopReason {
             lines.append("Stop reason: \(stopReason.displayName)")
         }
-        if run.presentsGoalNotMetOutcome {
-            lines.append("Last checker: Reject — all iterations rejected")
+        if run.structure == .makerChecker,
+           run.presentsGoalNotMetOutcome,
+           run.iterations.last?.checkerResult == .reject {
+            lines.append("Last checker: Reject")
         }
         return lines.joined(separator: "\n")
     }
@@ -1425,13 +1427,13 @@ final class PiAgentNativeLoopRunCardView: NSView, PiAgentNativeRowContent {
     private var cardWidthC: NSLayoutConstraint!
     private let detailsButton = NSButton(title: "Open Details", target: nil, action: nil)
     private let stopButton = NSButton(title: "Stop", target: nil, action: nil)
-    private let retryButton = NSButton(title: "Retry Failed Iteration", target: nil, action: nil)
+    private let retryButton = NSButton(title: "Start New Attempt", target: nil, action: nil)
     private let saveButton = NSButton(title: "Save Loop", target: nil, action: nil)
     private let revealButton = NSButton(title: "Reveal Artifacts", target: nil, action: nil)
     private let revealWorktreeButton = NSButton(title: "Reveal Worktree", target: nil, action: nil)
     private let applyWorktreeButton = NSButton(title: "Apply Worktree", target: nil, action: nil)
     private let discardWorktreeButton = NSButton(title: "Discard Worktree", target: nil, action: nil)
-    private let approveHumanApprovalButton = NSButton(title: "Approve", target: nil, action: nil)
+    private let approveHumanApprovalButton = NSButton(title: "Record Approval", target: nil, action: nil)
     private let rejectHumanApprovalButton = NSButton(title: "Reject", target: nil, action: nil)
     private let actionRows = NSStackView()
     private var payload: NativeLoopRunPayload?
