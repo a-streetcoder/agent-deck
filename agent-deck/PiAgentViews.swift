@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import os
 import QuartzCore
 import SwiftUI
@@ -13,6 +14,29 @@ private struct SlashSuggestionRowsCacheKey: Equatable {
     let screen: SlashSuggestionState.Screen
     let query: String
 }
+
+#if DEBUG
+@MainActor
+final class PickerStressCardAcknowledgements {
+    var sessionID: UUID?
+    var mounted = false
+    var expanded = false
+    var rowCount = 0
+    var isCompact = false
+    var cardSize = CGSize.zero
+    var catalogSize = CGSize.zero
+
+    func reset(for sessionID: UUID) {
+        self.sessionID = sessionID
+        mounted = false
+        expanded = false
+        rowCount = 0
+        isCompact = false
+        cardSize = .zero
+        catalogSize = .zero
+    }
+}
+#endif
 
 @MainActor
 enum PiAgentRPCEventRenderCache {
@@ -4720,6 +4744,7 @@ struct PiAgentScreen: View {
 #if DEBUG
     @State private var didStartPickerStress = false
     @State private var pickerStressExpansionRequest = false
+    @State private var pickerStressAcknowledgements = PickerStressCardAcknowledgements()
 #endif
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
     @State private var stabilizedProcessingMessage: String?
@@ -4756,13 +4781,10 @@ struct PiAgentScreen: View {
             isSupervisorRequestSheetPresented = selectedPendingSupervisorRequest != nil && store.selectedUIRequest == nil
             rebuildVisibleSessions()
             resetTranscriptAutoScroll()
-            // Kick the load synchronously on appear so `isSelectedTranscriptLoading`
-            // flips to true before the first render — otherwise the transcript area
-            // is briefly blank (no loading card, no content) until the deferred task
-            // runs after Task.yield.
-            store.requestSelectedTranscriptLoad()
-            requestSelectedTranscriptLoadAfterViewUpdate()
-            viewModel.rehydratePiAgentTranscriptIfNeeded(store.selectedSession?.id)
+            // Transcript loading mutates the observable store's loading set. It
+            // must happen after this appearance pass, not while SwiftUI is
+            // publishing the selected-session update.
+            requestSelectedTranscriptLoadAfterViewUpdate(for: store.selectedSession?.id)
             updateStabilizedProcessingMessage(selectedSessionProcessingMessage)
             Task { @MainActor in
                 await Task.yield()
@@ -4876,16 +4898,11 @@ struct PiAgentScreen: View {
             isEarlierTranscriptSheetPresented = false
             syncRuntimeFooterSnapshot()
             resetSlashComposerState()
-            // Load + publish SYNCHRONOUSLY, like onAppear already does. Deferring
-            // these behind Task.yield let the transcript host render a full pass
-            // with the new session id but the OLD session's cache content (and
-            // with the loading flag still false, which defeated the switch hold) —
-            // the new content then landed one runloop turn later as a second
-            // visible step. Warm sessions now publish in this same observation
-            // turn, so the switch applies once, with the right content.
-            store.requestSelectedTranscriptLoad()
-            scheduleTranscriptCacheUpdate()
-            viewModel.rehydratePiAgentTranscriptIfNeeded(newID)
+            // Loading and cache hydration publish observable state. Schedule the
+            // selected identity after this update pass so session selection never
+            // triggers "Publishing changes from within view updates". The helper
+            // verifies the identity again after yielding, coalescing rapid clicks.
+            requestSelectedTranscriptLoadAfterViewUpdate(for: newID)
             Task { @MainActor in
                 await Task.yield()
                 viewModel.prepareRepoChangesForSelectedPiAgentSession()
@@ -5242,41 +5259,146 @@ struct PiAgentScreen: View {
         didStartPickerStress = true
 
         viewModel.openPiAgentScreen()
+        // Let PiAgentScreen finish its on-appear selection restoration before
+        // creating the journey draft; otherwise that restoration can select a
+        // persisted session over the freshly created one.
+        try? await Task.sleep(for: .milliseconds(500))
+        // This journey is invalid without a real project-backed draft. Wait for
+        // initial discovery, then deterministically use the selected project or
+        // the first discovered project; never fall back to General Chat.
+        for _ in 0..<20 where viewModel.discoveredProjects.isEmpty {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard let project = viewModel.selectedProjectPath.flatMap({ viewModel.projectByPath[$0] })
+                ?? viewModel.discoveredProjects.sorted(by: { $0.path < $1.path }).first else {
+            pickerStressLog("PICKER_STRESS FAIL no discovered project; cannot create project draft")
+            exit(EXIT_FAILURE)
+        }
+        viewModel.selectedProjectPath = project.path
         let selected = store.selectedSession
         let needsDraft = selected?.status != .draft
             || selected?.isAgentBound == true
+            || selected?.projectPathForProjectFeatures != project.path
             || selected.flatMap({ store.activeLoopRun(for: $0.id) }) != nil
         if needsDraft {
-            pickerStressLog("PICKER_STRESS PREPARE creating draft selected=\(selected?.id.uuidString ?? "none") status=\(selected?.status.rawValue ?? "none")")
-            viewModel.createPiAgentDraftForSelectedProject()
+            pickerStressLog("PICKER_STRESS PREPARE creating project draft path=\(project.path) selected=\(selected?.id.uuidString ?? "none")")
+            viewModel.createPiAgentDraft(for: project)
         } else {
-            pickerStressLog("PICKER_STRESS PREPARE reusing draft session=\(selected?.id.uuidString ?? "none")")
+            pickerStressLog("PICKER_STRESS PREPARE reusing project draft path=\(project.path) session=\(selected?.id.uuidString ?? "none")")
         }
+
+        guard let draft = store.selectedSession,
+              draft.status == .draft,
+              draft.projectPathForProjectFeatures == project.path else {
+            pickerStressLog("PICKER_STRESS FAIL selected session is not a project-backed draft")
+            exit(EXIT_FAILURE)
+        }
+        pickerStressAcknowledgements.reset(for: draft.id)
 
         if store.selectedSession?.subagentsEnabled == false {
             viewModel.setSubagentsEnabledForSelectedDraftAndNewSessions(true)
             pickerStressLog("PICKER_STRESS PREPARE enabled subagents session=\(store.selectedSession?.id.uuidString ?? "none")")
         }
 
-        let sessionID = store.selectedSession?.id.uuidString ?? "none"
-        let rounds = 24
-        pickerStressLog("PICKER_STRESS START session=\(sessionID) rounds=\(rounds)")
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+            pickerStressLog("PICKER_STRESS FAIL no visible app window")
+            NSApp.terminate(nil)
+            return
+        }
+
+        let sessionID = draft.id.uuidString
+        let rounds = 28
+        let initialSize = window.contentView?.bounds.size ?? window.contentLayoutRect.size
+        let stressScene = "PickerStress"
+        let resizeScene = "PickerResizeStress"
+        // Only use supported full-window sizes. The app's content/split minima
+        // make artificial 620pt requests a clipping test rather than a resize.
+        let sizes: [NSSize] = [
+            .init(width: 1_346, height: 915),
+            .init(width: 900, height: 640),
+            .init(width: 1_000, height: 700),
+            .init(width: 1_200, height: 800),
+            .init(width: 1_600, height: 900),
+            .init(width: 1_050, height: 720)
+        ]
+        pickerStressLog("PICKER_STRESS START session=\(sessionID) rounds=\(rounds) window=\(Int(initialSize.width))x\(Int(initialSize.height))")
+        defer {
+            PerfScene.current = "app"
+            window.setContentSize(initialSize)
+        }
+        // Let launch-time scanning settle, then demand acknowledgements from
+        // the production card before measuring the real resize/toggle cycle.
         try? await Task.sleep(for: .milliseconds(500))
+        pickerStressExpansionRequest = true
+        guard await waitForPickerStressCard(sessionID: draft.id, expanded: true) else {
+            pickerStressLog("PICKER_STRESS FAIL production card did not mount and expand for project path=\(project.path)")
+            exit(EXIT_FAILURE)
+        }
+        pickerStressLog("PICKER_STRESS CARD mounted rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize))")
+        let initialHangCount = HangWatchdog.hangCount(forScene: stressScene)
+        let initialResizeHangCount = HangWatchdog.hangCount(forScene: resizeScene)
 
         for index in 0..<rounds {
             guard !Task.isCancelled else {
                 pickerStressLog("PICKER_STRESS CANCELLED round=\(index)")
                 return
             }
+            let size = sizes[index % sizes.count]
+            PerfScene.current = resizeScene
+            window.setContentSize(size)
+            window.contentView?.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(250))
+            let actualSize = window.contentView?.bounds.size ?? window.contentLayoutRect.size
+            guard abs(actualSize.width - size.width) <= 2, abs(actualSize.height - size.height) <= 2 else {
+                pickerStressLog("PICKER_STRESS FAIL window size requested=\(pickerStressSizeDescription(size)) actual=\(pickerStressSizeDescription(actualSize))")
+                exit(EXIT_FAILURE)
+            }
             let expanded = index.isMultiple(of: 2)
+            PerfScene.current = stressScene
             pickerStressExpansionRequest = expanded
-            pickerStressLog("PICKER_STRESS TOGGLE round=\(index + 1)/\(rounds) expanded=\(expanded)")
-            try? await Task.sleep(for: .milliseconds(260))
+            try? await Task.sleep(for: .milliseconds(180))
+            guard await waitForPickerStressCard(sessionID: draft.id, expanded: expanded) else {
+                pickerStressLog("PICKER_STRESS FAIL card expansion acknowledgement missing round=\(index + 1)")
+                exit(EXIT_FAILURE)
+            }
+            pickerStressLog("PICKER_STRESS ROUND=\(index + 1)/\(rounds) requested=\(pickerStressSizeDescription(size)) actual=\(pickerStressSizeDescription(actualSize)) expanded=\(expanded) rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize))")
         }
 
-        try? await Task.sleep(for: .milliseconds(500))
-        pickerStressLog("PICKER_STRESS COMPLETE rounds=\(rounds)")
+        // Include the final layout/animation settle in the measured region,
+        // then restore the normal scene before application termination so an
+        // unrelated shutdown stall cannot be misattributed to the picker.
+        try? await Task.sleep(for: .milliseconds(300))
+        let hangs = HangWatchdog.hangCount(forScene: stressScene) - initialHangCount
+        let resizeHangs = HangWatchdog.hangCount(forScene: resizeScene) - initialResizeHangCount
+        PerfScene.current = "app"
+        // Finite Debug-build stalls are reported, but the runner's hard failures
+        // are the regression signals for this journey: a nonzero/crash exit,
+        // missing round completion, or SwiftUI/AppKit diagnostics in stderr.
+        // Sampling itself can extend a >150 ms Debug layout pulse, so treating
+        // every watchdog sample as a failed crash regression creates a feedback
+        // loop in the harness rather than testing liveness.
+        pickerStressLog("PICKER_STRESS COMPLETE rounds=\(rounds) pickerWatchdogHangs=\(hangs) resizeWatchdogHangs=\(resizeHangs)")
         NSApp.terminate(nil)
+    }
+
+    private func waitForPickerStressCard(sessionID: UUID, expanded: Bool) async -> Bool {
+        for _ in 0..<20 {
+            let acknowledgements = pickerStressAcknowledgements
+            if acknowledgements.sessionID == sessionID,
+               acknowledgements.mounted,
+               acknowledgements.rowCount > 0,
+               acknowledgements.expanded == expanded,
+               acknowledgements.cardSize.width > 0,
+               (!expanded || acknowledgements.catalogSize.height > 100) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    private func pickerStressSizeDescription(_ size: CGSize) -> String {
+        "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
     }
 
     private func pickerStressLog(_ line: String) {
@@ -5344,7 +5466,8 @@ struct PiAgentScreen: View {
                     PiAgentSessionSubagentPickerCard(
                         viewModel: viewModel,
                         session: session,
-                        stressExpansionRequest: isPickerStressRequested ? pickerStressExpansionRequest : nil
+                        stressExpansionRequest: isPickerStressRequested ? pickerStressExpansionRequest : nil,
+                        stressAcknowledgements: isPickerStressRequested ? pickerStressAcknowledgements : nil
                     )
                     .id(session.id)
 #else
@@ -6673,10 +6796,15 @@ struct PiAgentScreen: View {
         )
     }
 
-    private func requestSelectedTranscriptLoadAfterViewUpdate() {
+    private func requestSelectedTranscriptLoadAfterViewUpdate(for sessionID: UUID?) {
         Task { @MainActor in
             await Task.yield()
+            // A newer selection may have arrived while this view update settled.
+            // Never hydrate or publish for an obsolete session.
+            guard store.selectedSession?.id == sessionID else { return }
             store.requestSelectedTranscriptLoad()
+            scheduleTranscriptCacheUpdate()
+            viewModel.rehydratePiAgentTranscriptIfNeeded(sessionID)
         }
     }
 

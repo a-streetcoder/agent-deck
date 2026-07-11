@@ -489,6 +489,7 @@ struct PiAgentSessionSubagentPickerCard: View {
     @State private var isAddSheetPresented = false
 #if DEBUG
     var stressExpansionRequest: Bool? = nil
+    var stressAcknowledgements: PickerStressCardAcknowledgements? = nil
 #endif
 
     static let accent = Color.teal
@@ -527,6 +528,18 @@ struct PiAgentSessionSubagentPickerCard: View {
 
     private func resolve() -> Resolved {
         guard let projectPath = session.projectPathForProjectFeatures else {
+#if DEBUG
+            if stressExpansionRequest != nil {
+                let rows = debugStressRows()
+                return Resolved(
+                    rows: rows,
+                    addedRows: [],
+                    addable: [],
+                    selection: Set(rows.map(\.name)),
+                    hasExplicitSelection: false
+                )
+            }
+#endif
             return Resolved(rows: [], addedRows: [], addable: [], selection: [], hasExplicitSelection: session.agentSelection != nil)
         }
         let universe = viewModel.selectableAgentUniverse(forProjectPath: projectPath)
@@ -536,7 +549,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                 .filter { $0.resolved.disabled != true }
                 .map(\.name)
         )
-        let selection = session.agentSelection ?? defaultNames
+        var selection = session.agentSelection ?? defaultNames
         // Main card rows start with the project assigned/default agents. Agents
         // added via "Add agents" render as their own section below a divider so
         // the effective launch set is visible without mixing defaults/extras.
@@ -546,9 +559,19 @@ struct PiAgentSessionSubagentPickerCard: View {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
         var seenRows = Set<String>()
-        let rows = universe
+        var rows = universe
             .filter { rowNames.contains($0.name) && seenRows.insert($0.name).inserted }
             .sorted(by: byName)
+#if DEBUG
+        // The actual-app stress journey must exercise the expanded catalog even
+        // on a developer machine with no project-assigned agents. These records
+        // exist only in memory for AGENTDECK_PICKER_STRESS; no resource is saved
+        // or injected into a normal launch.
+        if stressExpansionRequest != nil, rows.isEmpty {
+            rows = debugStressRows()
+            selection.formUnion(rows.map(\.name))
+        }
+#endif
         var seenAddedRows = Set<String>()
         let addedRows = universe
             .filter { selection.contains($0.name) && !rowNames.contains($0.name) && seenAddedRows.insert($0.name).inserted }
@@ -567,10 +590,43 @@ struct PiAgentSessionSubagentPickerCard: View {
         )
     }
 
+#if DEBUG
+    private func debugStressRows() -> [EffectiveAgentRecord] {
+        (0..<12).map { index in
+            let name = "picker-stress-agent-\(index + 1)"
+            var config = AgentConfig.empty
+            config.name = name
+            config.description = "Debug-only picker resize stress agent"
+            config.model = "openai/gpt-5.4-mini"
+            config.thinking = "medium"
+            return EffectiveAgentRecord(
+                id: name,
+                name: name,
+                projectRoot: session.projectPath ?? "",
+                builtin: nil,
+                globalCustom: nil,
+                projectCustom: nil,
+                userOverride: nil,
+                projectOverride: nil,
+                resolved: config,
+                resolutionKind: .builtin
+            )
+        }
+    }
+#endif
+
     var body: some View {
         // General Chat sessions never expose Deck-agent delegation.
         if session.isNoProject {
+#if DEBUG
+            if stressExpansionRequest != nil {
+                cardBody
+            } else {
+                EmptyView()
+            }
+#else
             EmptyView()
+#endif
         } else if session.isAgentBound {
             // 1:1 agent chats never delegate to other subagents — the user IS the
             // supervisor, and the runner does not install the `managed_subagent`
@@ -580,6 +636,11 @@ struct PiAgentSessionSubagentPickerCard: View {
             boundSummaryCard
                 .transition(.opacity.combined(with: .move(edge: .top)))
         } else {
+            cardBody
+        }
+    }
+
+    private var cardBody: some View {
             // ONE persistent card across on/off: toggling the switch only dims
             // the content in place. Branching to a separate "off" card view
             // here would replay the card's enter/exit transition on every flip,
@@ -593,7 +654,7 @@ struct PiAgentSessionSubagentPickerCard: View {
 #endif
             // Fade in on cold start: the universe is briefly empty while the
             // first project scan runs, then populates. Softens that handoff.
-            Group {
+            return Group {
                 if isHidden {
                     EmptyView()
                 } else {
@@ -602,6 +663,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                             header(data)
                             if isExpanded, let data {
                                 expandedContent(data)
+                                    .onAppear { acknowledgeStressCard(data: data, expanded: true) }
                                     .opacity(isExpandedContentVisible ? 1 : 0)
                                     .offset(y: isExpandedContentVisible ? 0 : -6)
                                     .allowsHitTesting(isExpandedContentVisible)
@@ -613,6 +675,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                     .onChange(of: stressExpansionRequest) { _, expanded in
                         guard let expanded else { return }
                         setExpanded(expanded)
+                        acknowledgeStressCard(data: data, expanded: expanded)
                     }
 #endif
                     .sheet(isPresented: $isAddSheetPresented) {
@@ -632,10 +695,12 @@ struct PiAgentSessionSubagentPickerCard: View {
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
+                    .onAppear {
+                        acknowledgeStressCard(data: data, expanded: isExpanded)
+                    }
                 }
             }
             .animation(.easeOut(duration: 0.22), value: isHidden)
-        }
     }
 
     /// One header for both states — same view identity, so flipping the switch
@@ -736,7 +801,21 @@ struct PiAgentSessionSubagentPickerCard: View {
         withTransaction(transaction) {
             isExpanded = expanded
         }
+        acknowledgeStressCard(data: nil, expanded: expanded)
     }
+
+#if DEBUG
+    private func acknowledgeStressCard(data: Resolved?, expanded: Bool) {
+        guard let acknowledgements = stressAcknowledgements,
+              acknowledgements.sessionID == session.id else { return }
+        acknowledgements.mounted = true
+        acknowledgements.expanded = expanded
+        if let data { acknowledgements.rowCount = data.rows.count + data.addedRows.count }
+        acknowledgements.isCompact = false
+    }
+#else
+    private func acknowledgeStressCard(data: Resolved?, expanded: Bool) {}
+#endif
 
     private func expandedContent(_ data: Resolved) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -752,20 +831,11 @@ struct PiAgentSessionSubagentPickerCard: View {
                 .padding(.top, 10)
                 .padding(.bottom, 17)
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 14) {
-                    delegationPolicyDescription
-                        .frame(width: 260, alignment: .leading)
-                    delegationPolicyPicker
-                        .frame(width: 220, alignment: .leading)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    delegationPolicyDescription
-                        .frame(maxWidth: 320, alignment: .leading)
-                    delegationPolicyPicker
-                        .frame(width: 220, alignment: .leading)
-                }
+            PiAgentAdaptiveDelegationLayout(spacing: 14) {
+                delegationPolicyDescription
+                    .frame(maxWidth: 320, alignment: .leading)
+                delegationPolicyPicker
+                    .frame(width: 220, alignment: .leading)
             }
         }
     }
@@ -819,24 +889,47 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     private func agentList(_ data: Resolved) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(data.rows, id: \.name) { agent in
-                agentRow(agent, checked: data.selection.contains(agent.name), selection: data.selection)
-            }
-            if !data.addedRows.isEmpty {
-                Divider()
-                    .padding(.vertical, 6)
-                ForEach(data.addedRows, id: \.name) { agent in
-                    agentRow(agent, checked: true, selection: data.selection)
+        // The card lives above the composer in an HSplitView. Its full agent
+        // catalog must not become the split view's intrinsic minimum height:
+        // doing so made AppKit repeatedly renegotiate NSHostingView.minSize as
+        // rows changed between their horizontal and vertical variants. Keep the
+        // complete catalog available in a bounded, native scroll region instead.
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(data.rows, id: \.name) { agent in
+                    agentRow(agent, checked: data.selection.contains(agent.name), selection: data.selection)
                 }
+                if !data.addedRows.isEmpty {
+                    Divider()
+                        .padding(.vertical, 6)
+                    ForEach(data.addedRows, id: \.name) { agent in
+                        agentRow(agent, checked: true, selection: data.selection)
+                    }
+                }
+                PiAgentPickerAddRow(
+                    isEnabled: !data.addable.isEmpty,
+                    showsReset: data.hasExplicitSelection,
+                    onAdd: { isAddSheetPresented = true },
+                    onReset: { viewModel.setAgentSelection(nil, for: session.id) }
+                )
             }
-            PiAgentPickerAddRow(
-                isEnabled: !data.addable.isEmpty,
-                showsReset: data.hasExplicitSelection,
-                onAdd: { isAddSheetPresented = true },
-                onReset: { viewModel.setAgentSelection(nil, for: session.id) }
-            )
         }
+        .frame(
+            minHeight: min(560, CGFloat(data.rows.count + data.addedRows.count) * 40 + 34),
+            maxHeight: 560
+        )
+#if DEBUG
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            guard let acknowledgements = stressAcknowledgements,
+                  acknowledgements.sessionID == session.id else { return }
+            acknowledgements.catalogSize = size
+            // The bounded catalog is the card's expanded measured surface;
+            // report its real layout result without publishing SwiftUI state.
+            acknowledgements.cardSize = size
+            acknowledgements.rowCount = data.rows.count + data.addedRows.count
+            acknowledgements.expanded = isExpanded
+        }
+#endif
     }
 
     private func agentRow(_ agent: EffectiveAgentRecord, checked: Bool, selection: Set<String>) -> some View {
@@ -1020,6 +1113,152 @@ private struct PiAgentPickerAvatar: View {
     }
 }
 
+/// Proposal-driven footer layout. Unspecified proposals choose vertical so
+/// intrinsic measurement never establishes the wide footer as a minimum.
+private struct PiAgentAdaptiveDelegationLayout: Layout {
+    struct Cache {
+        var width: CGFloat = -.infinity
+        var height: CGFloat?
+        var sizes: [CGSize] = []
+    }
+
+    let spacing: CGFloat
+    private let descriptionWidth: CGFloat = 260
+    private let pickerWidth: CGFloat = 220
+    private var wideThreshold: CGFloat { descriptionWidth + spacing + pickerWidth }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
+        if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
+        let wide = width >= wideThreshold
+        let widths = wide ? [descriptionWidth, pickerWidth] : [width, min(pickerWidth, width)]
+        cache.width = width
+        cache.height = height
+        cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
+        return cache.sizes
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? 320
+        let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
+        return width >= wideThreshold
+            ? .init(width: wideThreshold, height: max(sizes[0].height, sizes[1].height))
+            : .init(width: min(width, max(sizes[0].width, sizes[1].width)), height: sizes[0].height + spacing + sizes[1].height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard subviews.count == 2 else { return }
+        let wide = bounds.width >= wideThreshold
+        let widths = wide ? [descriptionWidth, pickerWidth] : [bounds.width, min(pickerWidth, bounds.width)]
+        let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
+        let secondOrigin = wide
+            ? CGPoint(x: bounds.minX + descriptionWidth + spacing, y: bounds.minY)
+            : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + spacing)
+        subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
+    }
+}
+
+/// Proposal-driven production row layout. A nil width is deliberately compact,
+/// preventing intrinsic measurement from creating a dense split-view minimum.
+private struct PiAgentAdaptiveRowLayout: Layout {
+    struct Cache {
+        var width: CGFloat = -.infinity
+        var height: CGFloat?
+        var sizes: [CGSize] = []
+    }
+
+    let isHovered: Bool
+    private let spacing: CGFloat = 10
+    private let identityWidth: CGFloat = 220
+    private let controlsWideWidth: CGFloat = 338
+    private let chatWidth: CGFloat = 76
+    private var denseThreshold: CGFloat { identityWidth + spacing + controlsWideWidth + spacing + chatWidth }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
+        if cache.width == width, cache.height == height, cache.sizes.count == 3 { return cache.sizes }
+        let dense = width >= denseThreshold
+        let widths = dense ? [identityWidth, controlsWideWidth, chatWidth] : [width, min(220, width), chatWidth]
+        cache.width = width
+        cache.height = height
+        cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
+        return cache.sizes
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard subviews.count == 3 else { return .zero }
+        let width = proposal.width ?? 260
+        let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
+        return width >= denseThreshold
+            ? .init(width: denseThreshold, height: max(sizes[0].height, sizes[1].height, sizes[2].height))
+            : .init(width: min(width, max(sizes[0].width, sizes[1].width)), height: sizes[0].height + 8 + sizes[1].height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard subviews.count == 3 else { return }
+        let dense = bounds.width >= denseThreshold
+        let widths = dense ? [identityWidth, controlsWideWidth, chatWidth] : [bounds.width, min(220, bounds.width), chatWidth]
+        let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
+        if dense {
+            subviews[1].place(at: .init(x: bounds.minX + identityWidth + spacing, y: bounds.minY), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
+            subviews[2].place(at: .init(x: bounds.maxX - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
+        } else {
+            // Chat is an overlay in compact mode: hover never changes measured geometry.
+            subviews[2].place(at: .init(x: bounds.maxX - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
+            subviews[1].place(at: .init(x: bounds.minX, y: bounds.minY + sizes[0].height + 8), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
+        }
+    }
+}
+
+private struct PiAgentAdaptiveControlsLayout: Layout {
+    struct Cache {
+        var width: CGFloat = -.infinity
+        var height: CGFloat?
+        var sizes: [CGSize] = []
+    }
+
+    private let modelWidth: CGFloat = 180, thinkingWidth: CGFloat = 150, spacing: CGFloat = 8
+    private var threshold: CGFloat { modelWidth + spacing + thinkingWidth }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
+        if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
+        let horizontal = width >= threshold
+        let widths = horizontal ? [modelWidth, thinkingWidth] : [min(220, width), min(180, width)]
+        cache.width = width
+        cache.height = height
+        cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
+        return cache.sizes
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? 220
+        let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
+        return width >= threshold
+            ? .init(width: threshold, height: max(sizes[0].height, sizes[1].height))
+            : .init(width: max(sizes[0].width, sizes[1].width), height: sizes[0].height + 6 + sizes[1].height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard subviews.count == 2 else { return }
+        let horizontal = bounds.width >= threshold
+        let widths = horizontal ? [modelWidth, thinkingWidth] : [min(220, bounds.width), min(180, bounds.width)]
+        let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
+        let secondOrigin = horizontal
+            ? CGPoint(x: bounds.minX + modelWidth + spacing, y: bounds.minY)
+            : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + 6)
+        subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
+    }
+}
+
 /// One agent in the picker card: check + avatar + name + inline launch
 /// (model + thinking) chips, with a soft hover fill. The 1:1 action is a small
 /// glass capsule revealed on row hover only — same treatment as the session
@@ -1046,9 +1285,12 @@ private struct PiAgentSubagentPickerRow: View {
     private static let accent = PiAgentSessionSubagentPickerCard.accent
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            denseLayout
-            compactLayout
+        PiAgentAdaptiveRowLayout(isHovered: isHovered) {
+            identityToggle
+            launchControls
+            chatButton
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -1059,34 +1301,6 @@ private struct PiAgentSubagentPickerRow: View {
         )
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .onHover { isHovered = $0 }
-    }
-
-    private var denseLayout: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // This candidate has a finite measured width, allowing the outer
-            // fit decision to reliably choose the stacked fallback.
-            identityToggle
-                .frame(width: 220, alignment: .leading)
-            launchControls(isStacked: false)
-            chatButton
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-        }
-    }
-
-    private var compactLayout: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                identityToggle
-                Spacer(minLength: 0)
-                // Do not reserve scarce compact-row width until the existing
-                // hover affordance is actually revealed.
-                if isHovered {
-                    chatButton
-                }
-            }
-            launchControls(isStacked: true)
-        }
     }
 
     // Toggle area = check + avatar + name only, so the launch-control chips
@@ -1113,14 +1327,13 @@ private struct PiAgentSubagentPickerRow: View {
         .buttonStyle(.plain)
     }
 
-    private func launchControls(isStacked: Bool) -> some View {
+    private var launchControls: some View {
         PiAgentPickerLaunchControls(
             launchDetail: launchDetail,
             availableModels: availableModels,
             selectedModelIdentifier: selectedModelIdentifier,
             selectedThinkingLevel: selectedThinkingLevel,
             thinkingLevels: thinkingLevels,
-            isStacked: isStacked,
             onSelectModel: onSelectModel,
             onSelectThinking: onSelectThinking
         )
@@ -1192,9 +1405,6 @@ private struct PiAgentPickerLaunchControls: View {
     let selectedModelIdentifier: String?
     let selectedThinkingLevel: String?
     let thinkingLevels: [String]
-    /// Chosen by the parent row's single fit decision; this view never nests
-    /// another fitting pass inside that decision.
-    let isStacked: Bool
     let onSelectModel: (String?) -> Void
     let onSelectThinking: (String?) -> Void
 
@@ -1204,32 +1414,11 @@ private struct PiAgentPickerLaunchControls: View {
     private static let chipMinHeight: CGFloat = 22
 
     var body: some View {
-        Group {
-            if isStacked {
-                verticalControls
-            } else {
-                horizontalControls
-            }
+        PiAgentAdaptiveControlsLayout {
+            modelChip
+            thinkingChip
         }
         .help(launchDetail)
-    }
-
-    private var horizontalControls: some View {
-        HStack(spacing: 8) {
-            modelChip
-                .frame(width: 180, alignment: .leading)
-            thinkingChip
-                .frame(width: 150, alignment: .leading)
-        }
-    }
-
-    private var verticalControls: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            modelChip
-                .frame(width: 220, alignment: .leading)
-            thinkingChip
-                .frame(width: 180, alignment: .leading)
-        }
     }
 
     private var modelLabel: String {

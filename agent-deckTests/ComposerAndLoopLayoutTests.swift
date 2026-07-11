@@ -4,6 +4,25 @@ import SwiftUI
 import XCTest
 @testable import agent_deck
 
+/// Drives the card's production DEBUG stress binding after its first appearance,
+/// matching the app journey's state transition instead of a static collapsed card.
+private struct PickerCardStressLifecycleFixture: View {
+    var viewModel: AppViewModel
+    let session: PiAgentSessionRecord
+    @State private var isExpanded = false
+
+    var body: some View {
+        PiAgentSessionSubagentPickerCard(
+            viewModel: viewModel,
+            session: session,
+            stressExpansionRequest: isExpanded
+        )
+        .onAppear {
+            DispatchQueue.main.async { isExpanded = true }
+        }
+    }
+}
+
 @MainActor
 final class ComposerAndLoopLayoutTests: XCTestCase {
     private static var windows: [NSWindow] = []
@@ -42,6 +61,29 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         XCTAssertEqual(returnedWide.width, wide.width, accuracy: 0.5)
         XCTAssertEqual(returnedWide.height, wide.height, accuracy: 0.5)
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 10, "The complete resize regression must remain live.")
+    }
+
+    func testExpandedPickerCatalogStaysBoundedInsideActiveSessionSplitViewDuringResizeCycles() {
+        let startedAt = Date()
+        let viewModel = AppViewModel()
+        let session = try! PiTestSupport.makeParentSession()
+        let host = NSHostingView(rootView: AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: 760)))
+        let window = makeConstrainedWindow(host: host)
+        Self.windows.append(window)
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        for width: CGFloat in [760, 620, 980, 680, 1_120, 760, 620, 980] {
+            host.rootView = AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: width))
+            let geometry = resizeAndMeasure(window: window, host: host, width: width, height: 820)
+            assertFinite(geometry)
+            XCTAssertEqual(geometry.width, width, accuracy: 0.5)
+            XCTAssertLessThanOrEqual(
+                host.fittingSize.height,
+                820,
+                "The expanded catalog must remain scroll-bounded rather than becoming the active split view's intrinsic minimum height."
+            )
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 10)
     }
 
     func testLoopPickerRowUsesRealCompactFallback() {
@@ -94,6 +136,27 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
             XCTAssertEqual(returned.height, initial.height, accuracy: 0.5)
         }
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 10, "The complete Loop resize regression must remain live.")
+    }
+
+    /// Hosts the production card (including its DEBUG stress catalog) in the
+    /// same HSplitView/composer lifecycle as PiAgentScreen. This intentionally
+    /// does not reconstruct picker rows, so it catches intrinsic-size feedback
+    /// introduced by the card itself.
+    private func realPickerCardSplitFixture(viewModel: AppViewModel, session: PiAgentSessionRecord, width: CGFloat) -> some View {
+        HSplitView {
+            Color.clear
+                .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
+            VStack(spacing: 12) {
+                Spacer(minLength: 0)
+                PickerCardStressLifecycleFixture(viewModel: viewModel, session: session)
+                Divider()
+                Text("Composer")
+                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            }
+            .padding(18)
+            .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: width, height: 820)
     }
 
     private func makeConstrainedWindow(host: NSHostingView<AnyView>) -> NSWindow {

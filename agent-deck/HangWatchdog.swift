@@ -31,6 +31,13 @@ nonisolated final class HangWatchdog: @unchecked Sendable {
     nonisolated(unsafe) static var hangCount = 0
     nonisolated(unsafe) static var hangMsTotal = 0
     nonisolated(unsafe) static var worstHitchMs = 0
+    /// Per-scene hang counts let an in-app journey reject only stalls it owns,
+    /// rather than unrelated launch/background work in the same process.
+    nonisolated(unsafe) private static var hangCountsByScene: [String: Int] = [:]
+
+    static func hangCount(forScene scene: String) -> Int {
+        hangCountsByScene[scene, default: 0]
+    }
 
     /// Mirror hang/hitch events to the shared ordered DEBUG artifact writer.
     /// The heartbeat must never synchronously append to disk.
@@ -115,6 +122,7 @@ nonisolated final class HangWatchdog: @unchecked Sendable {
                 Self.fileLog("HANG \(Int(hung * 1000))ms scene=\(scene)")
                 Self.hangCount += 1
                 Self.hangMsTotal += Int(hung * 1000)
+                Self.hangCountsByScene[scene, default: 0] += 1
             } else if gap > self.hitchThreshold && gap < self.threshold {
                 Self.logger.error("HITCH Δ=\(Int(gap * 1000))ms · scene=\(scene, privacy: .public)")
                 Self.fileLog("HITCH \(Int(gap * 1000))ms scene=\(scene)")
