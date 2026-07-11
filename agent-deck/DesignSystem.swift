@@ -1603,11 +1603,20 @@ struct AppStepper: View {
 }
 
 struct AppRowCard<Content: View>: View {
+    let contentInsets: EdgeInsets
     @ViewBuilder let content: Content
+
+    init(
+        contentInsets: EdgeInsets = EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
+        @ViewBuilder content: () -> Content
+    ) {
+        self.contentInsets = contentInsets
+        self.content = content()
+    }
 
     var body: some View {
         content
-            .padding(14)
+            .padding(contentInsets)
             .frame(maxWidth: .infinity, alignment: .leading)
             .appContentSurface(cornerRadius: 14)
     }

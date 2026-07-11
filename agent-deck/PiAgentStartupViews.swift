@@ -658,7 +658,9 @@ struct PiAgentSessionSubagentPickerCard: View {
                 if isHidden {
                     EmptyView()
                 } else {
-                    AppRowCard {
+                    AppRowCard(
+                        contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 12, trailing: 14)
+                    ) {
                         VStack(alignment: .leading, spacing: 0) {
                             header(data)
                             if isExpanded, let data {
@@ -833,7 +835,7 @@ struct PiAgentSessionSubagentPickerCard: View {
 
             PiAgentAdaptiveDelegationLayout(spacing: 14) {
                 delegationPolicyDescription
-                    .frame(maxWidth: 320, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 delegationPolicyPicker
                     .frame(width: 220, alignment: .leading)
             }
@@ -848,7 +850,7 @@ struct PiAgentSessionSubagentPickerCard: View {
             Text(compactDelegationPolicyDescription)
                 .font(.caption2)
                 .foregroundStyle(AppTheme.mutedText)
-                .lineLimit(2)
+                .lineLimit(1)
                 .transaction { transaction in
                     transaction.animation = nil
                 }
