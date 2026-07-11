@@ -1194,16 +1194,23 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         context.coordinator.setupDataSource(for: tableView)
         context.coordinator.setupScrollObservation(scrollView)
         context.coordinator.updateColumnWidthIfNeeded()
-        context.coordinator.apply(
-            items: items,
-            sessionID: sessionID,
-            itemsSessionID: itemsSessionID,
-            isTranscriptLoading: isTranscriptLoading,
-            renderRevision: renderRevision,
-            streamingRevision: streamingRevision,
-            autoScrollTurnRevision: autoScrollTurnRevision,
-            bottomScrollRequest: bottomScrollRequest
-        )
+        do {
+            // The initial apply can publish rail state through its hosted SwiftUI
+            // view, just like updateNSView; defer those model writes until this
+            // representable lifecycle pass has completed.
+            context.coordinator.isInsideNSViewUpdate = true
+            defer { context.coordinator.isInsideNSViewUpdate = false }
+            context.coordinator.apply(
+                items: items,
+                sessionID: sessionID,
+                itemsSessionID: itemsSessionID,
+                isTranscriptLoading: isTranscriptLoading,
+                renderRevision: renderRevision,
+                streamingRevision: streamingRevision,
+                autoScrollTurnRevision: autoScrollTurnRevision,
+                bottomScrollRequest: bottomScrollRequest
+            )
+        }
         return scrollView
     }
 
@@ -1401,11 +1408,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
         private var isProgrammaticScroll = false
         private var forcedActiveQuestionID: String?
-        /// True only while SwiftUI's `NSViewRepresentable.updateNSView` is on the
-        /// stack. Mutating the rail's `ObservableObject` during that pass emits
-        /// "Publishing changes from within view updates is not allowed", so model
-        /// writes are deferred to the next runloop when this is set.
+        /// True only while SwiftUI's `NSViewRepresentable.makeNSView` or
+        /// `updateNSView` lifecycle pass is on the stack. Mutating the rail's
+        /// `ObservableObject` during either pass emits "Publishing changes from
+        /// within view updates is not allowed", so model writes are deferred to
+        /// the next runloop when this is set.
         var isInsideNSViewUpdate = false
+        /// Increments for every rail state calculation, so a queued lifecycle
+        /// write cannot replace a newer synchronous scroll update.
+        private var railModelUpdateGeneration = 0
         // True between willStartLiveScroll / didEndLiveScroll — an authoritative
         // "user is driving the scroll" signal, but it only fires for trackpad
         // gestures and scroller-knob drags, not discrete mouse wheels.
@@ -1819,26 +1830,36 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         /// Push rail data to the hosted view. `updateQuestionRail()` runs both on
-        /// scroll (synchronous is fine) and inside `updateNSView` -> `apply`
-        /// (NOT fine: SwiftUI holds its view-update lock there, and mutating the
-        /// `ObservableObject` synchronously emits "Publishing changes from within
-        /// view updates"). Defer to the next runloop when inside that pass.
+        /// scroll (synchronous is fine) and inside `makeNSView`/`updateNSView` ->
+        /// `apply` (NOT fine: SwiftUI holds its view-update lock there, and mutating
+        /// the `ObservableObject` synchronously emits "Publishing changes from within
+        /// view updates"). Defer to the next runloop when inside either pass.
         private func applyRailModel(items: [UserQuestionNavigationRailItem], width: CGFloat, railHeight: CGFloat, isSliding: Bool) {
+            railModelUpdateGeneration &+= 1
+            let generation = railModelUpdateGeneration
             if isInsideNSViewUpdate {
                 Task { @MainActor [weak self, items] in
-                    guard let self, let model = self.questionRailModel else { return }
-                    model.items = items
-                    model.availableWidth = width
-                    model.railHeight = railHeight
-                    model.isSliding = isSliding
+                    guard let self,
+                          self.railModelUpdateGeneration == generation,
+                          let model = self.questionRailModel else { return }
+                    self.assignRailModel(model, items: items, width: width, railHeight: railHeight, isSliding: isSliding)
                 }
-            } else {
-                guard let model = questionRailModel else { return }
-                model.items = items
-                model.availableWidth = width
-                model.railHeight = railHeight
-                model.isSliding = isSliding
+            } else if let model = questionRailModel {
+                assignRailModel(model, items: items, width: width, railHeight: railHeight, isSliding: isSliding)
             }
+        }
+
+        private func assignRailModel(
+            _ model: QuestionRailModel,
+            items: [UserQuestionNavigationRailItem],
+            width: CGFloat,
+            railHeight: CGFloat,
+            isSliding: Bool
+        ) {
+            if model.items != items { model.items = items }
+            if model.availableWidth != width { model.availableWidth = width }
+            if model.railHeight != railHeight { model.railHeight = railHeight }
+            if model.isSliding != isSliding { model.isSliding = isSliding }
         }
 
         private func updateQuestionRailFrame(for scrollView: NSScrollView, railHeight: CGFloat) {
@@ -6816,7 +6837,9 @@ struct PiAgentScreen: View {
     }
 
     private func resetTranscriptAutoScroll() {
-        transcriptPinnedState.isPinned = true
+        if !transcriptPinnedState.isPinned {
+            transcriptPinnedState.isPinned = true
+        }
     }
 
     private func beginTranscriptAutoScrollTurn() {
