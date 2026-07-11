@@ -913,11 +913,13 @@ struct PiAgentSessionSubagentPickerCard: View {
                     onReset: { viewModel.setAgentSelection(nil, for: session.id) }
                 )
             }
+            .padding(.bottom, 30)
         }
         .frame(
-            minHeight: min(560, CGFloat(data.rows.count + data.addedRows.count) * 40 + 34),
+            minHeight: min(560, CGFloat(data.rows.count + data.addedRows.count) * 40 + 64),
             maxHeight: 560
         )
+        .bottomEdgeFade(height: 28)
 #if DEBUG
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
             guard let acknowledgements = stressAcknowledgements,
@@ -1132,7 +1134,7 @@ private struct PiAgentAdaptiveDelegationLayout: Layout {
     private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
         if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
         let wide = width >= wideThreshold
-        let widths = wide ? [descriptionWidth, pickerWidth] : [width, min(pickerWidth, width)]
+        let widths = wide ? [max(0, width - spacing - pickerWidth), pickerWidth] : [width, min(pickerWidth, width)]
         cache.width = width
         cache.height = height
         cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
@@ -1144,18 +1146,18 @@ private struct PiAgentAdaptiveDelegationLayout: Layout {
         let width = proposal.width ?? 320
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         return width >= wideThreshold
-            ? .init(width: wideThreshold, height: max(sizes[0].height, sizes[1].height))
+            ? .init(width: width, height: max(sizes[0].height, sizes[1].height))
             : .init(width: min(width, max(sizes[0].width, sizes[1].width)), height: sizes[0].height + spacing + sizes[1].height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 2 else { return }
         let wide = bounds.width >= wideThreshold
-        let widths = wide ? [descriptionWidth, pickerWidth] : [bounds.width, min(pickerWidth, bounds.width)]
+        let widths = wide ? [max(0, bounds.width - spacing - pickerWidth), pickerWidth] : [bounds.width, min(pickerWidth, bounds.width)]
         let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
         let secondOrigin = wide
-            ? CGPoint(x: bounds.minX + descriptionWidth + spacing, y: bounds.minY)
+            ? CGPoint(x: bounds.maxX - pickerWidth, y: bounds.minY)
             : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + spacing)
         subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
     }
@@ -1172,10 +1174,13 @@ private struct PiAgentAdaptiveRowLayout: Layout {
 
     let isHovered: Bool
     private let spacing: CGFloat = 10
-    private let identityWidth: CGFloat = 220
-    private let controlsWideWidth: CGFloat = 338
+    private let identityWidth: CGFloat = 340
+    private let controlsWideWidth: CGFloat = 528
     private let chatWidth: CGFloat = 76
-    private var denseThreshold: CGFloat { identityWidth + spacing + controlsWideWidth + spacing + chatWidth }
+    // Historical columns total 878pt; the remaining 60pt hosts the hover action.
+    // Its capsule may overlap the trailing chip by up to 16pt only while hovered,
+    // matching the old overlay behavior without making chat part of intrinsic width.
+    private var denseThreshold: CGFloat { identityWidth + spacing + controlsWideWidth + 60 }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
 
@@ -1194,7 +1199,7 @@ private struct PiAgentAdaptiveRowLayout: Layout {
         let width = proposal.width ?? 260
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         return width >= denseThreshold
-            ? .init(width: denseThreshold, height: max(sizes[0].height, sizes[1].height, sizes[2].height))
+            ? .init(width: width, height: max(sizes[0].height, sizes[1].height, sizes[2].height))
             : .init(width: min(width, max(sizes[0].width, sizes[1].width)), height: sizes[0].height + 8 + sizes[1].height)
     }
 
@@ -1222,7 +1227,7 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
         var sizes: [CGSize] = []
     }
 
-    private let modelWidth: CGFloat = 180, thinkingWidth: CGFloat = 150, spacing: CGFloat = 8
+    private let modelWidth: CGFloat = 300, thinkingWidth: CGFloat = 220, spacing: CGFloat = 8
     private var threshold: CGFloat { modelWidth + spacing + thinkingWidth }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }

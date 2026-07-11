@@ -39,7 +39,7 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
             model: "openai/gpt-5.4-mini",
             thinking: "medium"
         )
-        let host = NSHostingView(rootView: AnyView(PiAgentSubagentPickerRowLayoutFixture(agent: agent, width: 760)))
+        let host = NSHostingView(rootView: AnyView(PiAgentSubagentPickerRowLayoutFixture(agent: agent, width: 1_024)))
         let window = makeConstrainedWindow(host: host)
         Self.windows.append(window)
         func measureRow(at width: CGFloat) -> CGSize {
@@ -47,17 +47,19 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
             return resizeAndMeasure(window: window, host: host, width: width)
         }
 
-        let wide = measureRow(at: 760)
+        let wide = measureRow(at: 1_024)
         let narrow = measureRow(at: 420)
         XCTAssertGreaterThan(narrow.height, wide.height + 10, "The compact picker row must stack rather than compress its controls.")
 
-        for width: CGFloat in [760, 420, 559, 560, 561, 420, 760, 560, 420, 760] {
+        // The production layout receives host width minus 16pt row padding, so
+        // these values cross its 938pt dense threshold exactly.
+        for width: CGFloat in [1_024, 420, 953, 954, 955, 420, 1_024, 760, 420, 1_024] {
             let geometry = measureRow(at: width)
             assertFinite(geometry)
             XCTAssertLessThanOrEqual(geometry.width, width + 0.5, "Picker content must not widen its host.")
         }
 
-        let returnedWide = measureRow(at: 760)
+        let returnedWide = measureRow(at: 1_024)
         XCTAssertEqual(returnedWide.width, wide.width, accuracy: 0.5)
         XCTAssertEqual(returnedWide.height, wide.height, accuracy: 0.5)
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 10, "The complete resize regression must remain live.")
