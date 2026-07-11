@@ -913,13 +913,13 @@ struct PiAgentSessionSubagentPickerCard: View {
                     onReset: { viewModel.setAgentSelection(nil, for: session.id) }
                 )
             }
-            .padding(.bottom, 30)
+            .padding(.bottom, 18)
         }
         .frame(
-            minHeight: min(560, CGFloat(data.rows.count + data.addedRows.count) * 40 + 64),
+            minHeight: min(560, CGFloat(data.rows.count + data.addedRows.count) * 40 + 52),
             maxHeight: 560
         )
-        .bottomEdgeFade(height: 28)
+        .bottomEdgeFade(height: 18)
 #if DEBUG
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
             guard let acknowledgements = stressAcknowledgements,
