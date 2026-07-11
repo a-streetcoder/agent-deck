@@ -32,7 +32,7 @@ nonisolated final class DebugArtifactWriter: @unchecked Sendable {
 
     /// Calls `completion` on the main queue after every preceding append has
     /// finished, so a subsequent main-thread read observes the complete artifact.
-    func flush(completion: @escaping @MainActor () -> Void) {
+    func flush(completion: @escaping @MainActor @Sendable () -> Void) {
         queue.async {
             Task { @MainActor in completion() }
         }
