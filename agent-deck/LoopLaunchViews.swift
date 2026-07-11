@@ -740,26 +740,7 @@ struct LoopLaunchSheet: View {
     }
 
     private func pickerRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                pickerRowLabel(label)
-                    .frame(width: 96, alignment: .leading)
-                content()
-                    .frame(minWidth: 220, idealWidth: 420, maxWidth: 620, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                pickerRowLabel(label)
-                content()
-                    .frame(minWidth: 180, idealWidth: 320, maxWidth: 620, alignment: .leading)
-            }
-        }
-    }
-
-    private func pickerRowLabel(_ label: String) -> some View {
-        Text(label)
-            .font(AppTheme.Font.caption.weight(.semibold))
-            .foregroundStyle(AppTheme.mutedText)
+        LoopPickerRow(label, content: content)
     }
 
     private func fieldGroup<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -825,6 +806,41 @@ struct LoopLaunchSheet: View {
         return String(trimmed.prefix(64))
     }
 
+}
+
+/// Shared production picker-row layout for the Loop launch sheet. Kept
+/// internal so layout tests can exercise the real compact fallback.
+struct LoopPickerRow<Content: View>: View {
+    let label: String
+    let content: Content
+
+    init(_ label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                rowLabel
+                    .frame(width: 96, alignment: .leading)
+                content
+                    .frame(minWidth: 220, idealWidth: 420, maxWidth: 620, alignment: .leading)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                rowLabel
+                content
+                    .frame(minWidth: 180, idealWidth: 320, maxWidth: 620, alignment: .leading)
+            }
+        }
+    }
+
+    private var rowLabel: some View {
+        Text(label)
+            .font(AppTheme.Font.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.mutedText)
+    }
 }
 
 struct LoopAgentNameMenu: View {

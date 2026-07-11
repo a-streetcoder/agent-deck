@@ -1144,6 +1144,42 @@ private struct PiAgentSubagentPickerRow: View {
     }
 }
 
+/// Production-layout fixture for deterministic AppKit hosting tests. This keeps
+/// `PiAgentSubagentPickerRow` private while letting the tests exercise its
+/// actual width-fitting hierarchy rather than a duplicate approximation.
+struct PiAgentSubagentPickerRowLayoutFixture: View {
+    let agent: EffectiveAgentRecord
+    let width: CGFloat
+
+    var body: some View {
+        PiAgentSubagentPickerRow(
+            agent: agent,
+            checked: true,
+            avatarURL: nil,
+            launchDetail: "openai/gpt-5.4-mini · thinking medium",
+            availableModels: [
+                AvailableModel(
+                    provider: "openai",
+                    model: "gpt-5.4-mini",
+                    contextWindow: "128k",
+                    maxOutput: "16k",
+                    supportsThinking: true,
+                    supportsImages: true,
+                    supportedThinkingLevels: ["low", "medium", "high"]
+                )
+            ],
+            selectedModelIdentifier: "openai/gpt-5.4-mini",
+            selectedThinkingLevel: "medium",
+            thinkingLevels: ["low", "medium", "high"],
+            onSelectModel: { _ in },
+            onSelectThinking: { _ in },
+            onToggle: {},
+            onStartDirectChat: {}
+        )
+        .frame(width: width, alignment: .leading)
+    }
+}
+
 /// Inline per-agent model + thinking chips for a picker row. The model chip
 /// opens a popover listing Pi's known models grouped by provider (plus "Pi
 /// default"); the thinking chip lists the levels supported by the current
