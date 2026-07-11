@@ -76,6 +76,18 @@ struct PiSkillLaunchResolver {
         return resolved
     }
 
+    static func unresolvedNames(
+        _ names: [String],
+        catalog: [SkillRecord],
+        additionalResolvableNames: Set<String> = []
+    ) -> [String] {
+        let recordsByName = Dictionary(grouping: catalog, by: \.name)
+        return normalizedNames(names).filter { name in
+            guard !additionalResolvableNames.contains(name) else { return false }
+            return recordsByName[name]?.count != 1
+        }
+    }
+
     static func normalizedNames(_ names: [String]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []

@@ -101,6 +101,44 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         XCTAssertEqual(args, ["--skill", "/tmp/available-skill/SKILL.md"])
     }
 
+    func testAgentAssignedLibrarySkillIsResolvedFromRuntimeCatalog() {
+        let skill = SkillRecord(
+            id: "library:agent-only-skill",
+            name: "agent-only-skill",
+            description: "Assigned only to a Deck agent",
+            source: ScopeID(kind: .library, path: "/tmp/agent-only-skill/SKILL.md"),
+            filePath: "/tmp/agent-only-skill/SKILL.md",
+            body: "# Agent Only Skill"
+        )
+
+        XCTAssertEqual(
+            PiSkillLaunchResolver.unresolvedNames(["agent-only-skill"], catalog: [skill]),
+            []
+        )
+    }
+
+    func testAgentSkillVisibilityReportsMissingAndAmbiguousNames() {
+        let duplicateSkills = ["/tmp/one/SKILL.md", "/tmp/two/SKILL.md"].enumerated().map { index, path in
+            SkillRecord(
+                id: "library:duplicate:\(index)",
+                name: "duplicate-skill",
+                description: nil,
+                source: ScopeID(kind: .library, path: path),
+                filePath: path,
+                body: "# Duplicate"
+            )
+        }
+
+        XCTAssertEqual(
+            PiSkillLaunchResolver.unresolvedNames(
+                ["missing-skill", "duplicate-skill", "skill-collection"],
+                catalog: duplicateSkills,
+                additionalResolvableNames: ["skill-collection"]
+            ),
+            ["missing-skill", "duplicate-skill"]
+        )
+    }
+
     func testExternalSkillPathIsScannedAsLibraryCatalogSkillWithoutCopying() throws {
         let skillRoot = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-external-skill-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: skillRoot, withIntermediateDirectories: true)

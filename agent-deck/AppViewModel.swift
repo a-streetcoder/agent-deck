@@ -8716,9 +8716,7 @@ final class AppViewModel: NSObject {
     }
 
     private func skillNamed(_ skillName: String, isRuntimeVisibleIn project: DiscoveredProject) -> Bool {
-        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths, skillCollectionNames: Set(appSettings.skillCollections.map(\.name))).scan(projectRoot: project.url)
-        let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
-        return matches.count == 1
+        skillCatalog(forProjectPath: project.path).filter { $0.name == skillName }.count == 1
     }
 
     func unavailableSkillResolutionCandidate(for warning: SkillReferenceWarning) -> SkillRecord? {
@@ -8926,10 +8924,13 @@ final class AppViewModel: NSObject {
             guard let managedRecord else { continue }
 
             let issues: [AgentSkillVisibilityIssue] = assignedProjects(for: managedRecord).compactMap { project in
-                guard let projectSnapshot = allProjectSnapshots[project.path] else { return nil }
-                let visibleSkillNames = Set(PiSkillLaunchResolver.catalog(from: projectSnapshot).map(\.name))
-                    .union(appSettings.skillCollections.map(\.name))
-                let missingSkills = explicitSkills.filter { !visibleSkillNames.contains($0) }
+                // Match child launch resolution, which uses the centralized runtime
+                // catalog rather than a potentially stale per-project scan snapshot.
+                let missingSkills = PiSkillLaunchResolver.unresolvedNames(
+                    explicitSkills,
+                    catalog: skillCatalog(forProjectPath: project.path),
+                    additionalResolvableNames: Set(appSettings.skillCollections.map(\.name))
+                )
                 guard !missingSkills.isEmpty else { return nil }
                 return AgentSkillVisibilityIssue(project: project, missingSkills: missingSkills)
             }
