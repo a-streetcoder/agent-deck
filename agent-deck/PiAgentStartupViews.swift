@@ -755,15 +755,16 @@ struct PiAgentSessionSubagentPickerCard: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 14) {
                     delegationPolicyDescription
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(width: 260, alignment: .leading)
                     delegationPolicyPicker
-                        .frame(minWidth: 180, idealWidth: 220)
+                        .frame(width: 220, alignment: .leading)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
                     delegationPolicyDescription
+                        .frame(maxWidth: 320, alignment: .leading)
                     delegationPolicyPicker
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(width: 220, alignment: .leading)
                 }
             }
         }
@@ -1062,12 +1063,11 @@ private struct PiAgentSubagentPickerRow: View {
 
     private var denseLayout: some View {
         HStack(alignment: .center, spacing: 10) {
-            // Give the first ViewThatFits candidate a meaningful minimum so it
-            // yields to the compact layout before the name is squeezed out.
+            // This candidate has a finite measured width, allowing the outer
+            // fit decision to reliably choose the stacked fallback.
             identityToggle
-                .frame(minWidth: 200, idealWidth: 300, alignment: .leading)
-            launchControls(allowsVerticalFallback: false)
-            Spacer(minLength: 0)
+                .frame(width: 220, alignment: .leading)
+            launchControls(isStacked: false)
             chatButton
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
@@ -1085,7 +1085,7 @@ private struct PiAgentSubagentPickerRow: View {
                     chatButton
                 }
             }
-            launchControls(allowsVerticalFallback: true)
+            launchControls(isStacked: true)
         }
     }
 
@@ -1113,14 +1113,14 @@ private struct PiAgentSubagentPickerRow: View {
         .buttonStyle(.plain)
     }
 
-    private func launchControls(allowsVerticalFallback: Bool) -> some View {
+    private func launchControls(isStacked: Bool) -> some View {
         PiAgentPickerLaunchControls(
             launchDetail: launchDetail,
             availableModels: availableModels,
             selectedModelIdentifier: selectedModelIdentifier,
             selectedThinkingLevel: selectedThinkingLevel,
             thinkingLevels: thinkingLevels,
-            allowsVerticalFallback: allowsVerticalFallback,
+            isStacked: isStacked,
             onSelectModel: onSelectModel,
             onSelectThinking: onSelectThinking
         )
@@ -1156,9 +1156,9 @@ private struct PiAgentPickerLaunchControls: View {
     let selectedModelIdentifier: String?
     let selectedThinkingLevel: String?
     let thinkingLevels: [String]
-    /// The dense row must remain horizontally measurable so its outer
-    /// `ViewThatFits` can choose the compact row before controls stack.
-    let allowsVerticalFallback: Bool
+    /// Chosen by the parent row's single fit decision; this view never nests
+    /// another fitting pass inside that decision.
+    let isStacked: Bool
     let onSelectModel: (String?) -> Void
     let onSelectThinking: (String?) -> Void
 
@@ -1169,11 +1169,8 @@ private struct PiAgentPickerLaunchControls: View {
 
     var body: some View {
         Group {
-            if allowsVerticalFallback {
-                ViewThatFits(in: .horizontal) {
-                    horizontalControls
-                    verticalControls
-                }
+            if isStacked {
+                verticalControls
             } else {
                 horizontalControls
             }
@@ -1184,17 +1181,18 @@ private struct PiAgentPickerLaunchControls: View {
     private var horizontalControls: some View {
         HStack(spacing: 8) {
             modelChip
-                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+                .frame(width: 180, alignment: .leading)
             thinkingChip
-                .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var verticalControls: some View {
         VStack(alignment: .leading, spacing: 6) {
             modelChip
+                .frame(width: 220, alignment: .leading)
             thinkingChip
+                .frame(width: 180, alignment: .leading)
         }
     }
 
@@ -1225,7 +1223,7 @@ private struct PiAgentPickerLaunchControls: View {
             .font(AppTheme.Font.caption2.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: Self.chipMinHeight, alignment: .leading)
+            .frame(minHeight: Self.chipMinHeight, alignment: .leading)
             .glassEffect(.regular, in: Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
         }
@@ -1252,7 +1250,7 @@ private struct PiAgentPickerLaunchControls: View {
             .font(AppTheme.Font.caption2.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: Self.chipMinHeight, alignment: .leading)
+            .frame(minHeight: Self.chipMinHeight, alignment: .leading)
             .glassEffect(.regular, in: Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
         }

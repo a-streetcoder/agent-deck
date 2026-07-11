@@ -403,7 +403,14 @@ struct LoopLaunchSheet: View {
 
             sheetFooter
         }
-        .frame(width: 560, height: 640)
+        .frame(
+            minWidth: 420,
+            idealWidth: 560,
+            maxWidth: 760,
+            minHeight: 520,
+            idealHeight: 640,
+            maxHeight: 800
+        )
         .onChange(of: saveToLoopBank) { _, enabled in
             guard enabled, saveName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             saveName = defaultSaveName()
@@ -733,14 +740,26 @@ struct LoopLaunchSheet: View {
     }
 
     private func pickerRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
-                .font(AppTheme.Font.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
-                .frame(width: 96, alignment: .leading)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                pickerRowLabel(label)
+                    .frame(width: 96, alignment: .leading)
+                content()
+                    .frame(minWidth: 220, idealWidth: 420, maxWidth: 620, alignment: .leading)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                pickerRowLabel(label)
+                content()
+                    .frame(minWidth: 180, idealWidth: 320, maxWidth: 620, alignment: .leading)
+            }
         }
+    }
+
+    private func pickerRowLabel(_ label: String) -> some View {
+        Text(label)
+            .font(AppTheme.Font.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.mutedText)
     }
 
     private func fieldGroup<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
