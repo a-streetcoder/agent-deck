@@ -101,6 +101,29 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         XCTAssertEqual(args, ["--skill", "/tmp/available-skill/SKILL.md"])
     }
 
+    func testAgentAssignedSkillIsVisuallyActiveInCatalog() {
+        let metadata = SkillListMetadata(
+            isAssigned: true,
+            hasWarnings: false,
+            isActiveForCurrentProject: false,
+            isImported: true
+        )
+
+        XCTAssertTrue(metadata.isVisuallyActive(isCollectionMember: false))
+    }
+
+    func testUnassignedSkillRemainsVisuallyInactiveInCatalog() {
+        let metadata = SkillListMetadata(
+            isAssigned: false,
+            hasWarnings: false,
+            isActiveForCurrentProject: false,
+            isImported: true
+        )
+
+        XCTAssertFalse(metadata.isVisuallyActive(isCollectionMember: false))
+        XCTAssertTrue(metadata.isVisuallyActive(isCollectionMember: true))
+    }
+
     func testAgentAssignedLibrarySkillIsResolvedFromRuntimeCatalog() {
         let skill = SkillRecord(
             id: "library:agent-only-skill",

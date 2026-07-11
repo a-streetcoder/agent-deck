@@ -90,6 +90,10 @@ struct SkillListMetadata {
     /// the live method, otherwise scrolling the skills list stalls the main
     /// thread with stat syscalls.
     let isImported: Bool
+
+    func isVisuallyActive(isCollectionMember: Bool) -> Bool {
+        isAssigned || isCollectionMember
+    }
 }
 
 private enum SkillDetailSummaryState: Equatable {
@@ -544,11 +548,11 @@ struct SkillsScreen: View {
         // A row is visually active when the skill is Default, assigned to at
         // least one project, or assigned to at least one Deck agent. Dim only
         // skills that are present in the catalog but unused everywhere.
-        let activeParentNames = viewModel.activeParentSkillNames(forProjectPath: viewModel.selectedProjectPath)
+        let metadataByID = viewModel.cachedSkillMetadataByID
         func isAssignedSomewhere(_ skill: SkillRecord) -> Bool {
-            activeParentNames.contains(skill.name)
-                || !viewModel.assignedProjects(for: skill).isEmpty
-                || (collectionCountBySkillID[skill.id] ?? 0) > 0
+            metadataByID[skill.id]?.isVisuallyActive(
+                isCollectionMember: (collectionCountBySkillID[skill.id] ?? 0) > 0
+            ) ?? false
         }
 
         var sections: [AppListSection<SkillLibraryItem>] = []
@@ -1610,20 +1614,20 @@ struct SkillsScreen: View {
     }
 
     private func skillListRow(_ skill: SkillRecord, metadata: SkillListMetadata, inactive: Bool? = nil) -> some View {
+        let collectionCount = cachedLayout.collectionCountBySkillID[skill.id] ?? 0
         let isActive: Bool
         let isInactive: Bool
         if let inactive {
             isInactive = inactive
             isActive = !inactive
         } else {
-            isActive = viewModel.activeParentSkillNames(forProjectPath: viewModel.selectedProjectPath).contains(skill.name) || !viewModel.assignedProjects(for: skill).isEmpty
+            isActive = metadata.isVisuallyActive(isCollectionMember: collectionCount > 0)
             isInactive = !isActive
         }
         let hasWarnings = metadata.hasWarnings
         let iconName = hasWarnings ? "exclamationmark.triangle.fill" : skillIcon(skill)
         let iconColor: Color = hasWarnings ? .orange : skillColor(isAssigned: isActive)
         let repository = cachedLayout.repositoryBySkillID[skill.id]
-        let collectionCount = cachedLayout.collectionCountBySkillID[skill.id] ?? 0
         let hasUpdate = repository?.hasKnownUpdate == true
         let canRename = viewModel.canRenameSkill(skill)
         return SkillListRowView(
