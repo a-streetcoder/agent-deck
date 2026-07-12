@@ -1177,20 +1177,27 @@ private struct PiAgentAdaptiveRowLayout: Layout {
 
     let isHovered: Bool
     private let spacing: CGFloat = 10
-    private let identityWidth: CGFloat = 340
-    private let controlsWideWidth: CGFloat = 528
+    private let wideIdentityWidth: CGFloat = 340
+    private let wideControlsWidth: CGFloat = 528
+    private let mediumIdentityWidth: CGFloat = 220
+    private let mediumControlsWidth: CGFloat = 338
     private let chatWidth: CGFloat = 76
-    // Historical columns total 878pt; the remaining 60pt hosts the hover action.
-    // Its capsule may overlap the trailing chip by up to 16pt only while hovered,
-    // matching the old overlay behavior without making chat part of intrinsic width.
-    private var denseThreshold: CGFloat { identityWidth + spacing + controlsWideWidth + 60 }
+    // Preserve the July-era wide columns where they genuinely fit, but keep an
+    // inline medium arrangement before falling back to a stacked row.
+    private var wideThreshold: CGFloat { wideIdentityWidth + spacing + wideControlsWidth + 60 }
+    private var mediumThreshold: CGFloat { mediumIdentityWidth + spacing + mediumControlsWidth + spacing + chatWidth }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
 
+    private func widths(for width: CGFloat) -> [CGFloat] {
+        if width >= wideThreshold { return [wideIdentityWidth, wideControlsWidth, chatWidth] }
+        if width >= mediumThreshold { return [mediumIdentityWidth, mediumControlsWidth, chatWidth] }
+        return [width, min(wideControlsWidth, width), chatWidth]
+    }
+
     private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
         if cache.width == width, cache.height == height, cache.sizes.count == 3 { return cache.sizes }
-        let dense = width >= denseThreshold
-        let widths = dense ? [identityWidth, controlsWideWidth, chatWidth] : [width, min(220, width), chatWidth]
+        let widths = widths(for: width)
         cache.width = width
         cache.height = height
         cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
@@ -1201,19 +1208,19 @@ private struct PiAgentAdaptiveRowLayout: Layout {
         guard subviews.count == 3 else { return .zero }
         let width = proposal.width ?? 260
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
-        return width >= denseThreshold
+        return width >= mediumThreshold
             ? .init(width: width, height: max(sizes[0].height, sizes[1].height, sizes[2].height))
             : .init(width: min(width, max(sizes[0].width, sizes[1].width)), height: sizes[0].height + 8 + sizes[1].height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 3 else { return }
-        let dense = bounds.width >= denseThreshold
-        let widths = dense ? [identityWidth, controlsWideWidth, chatWidth] : [bounds.width, min(220, bounds.width), chatWidth]
+        let inline = bounds.width >= mediumThreshold
+        let widths = widths(for: bounds.width)
         let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
-        if dense {
-            subviews[1].place(at: .init(x: bounds.minX + identityWidth + spacing, y: bounds.minY), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
+        if inline {
+            subviews[1].place(at: .init(x: bounds.minX + widths[0] + spacing, y: bounds.minY), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
             subviews[2].place(at: .init(x: bounds.maxX - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
         } else {
             // Chat is an overlay in compact mode: hover never changes measured geometry.
@@ -1230,15 +1237,25 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
         var sizes: [CGSize] = []
     }
 
-    private let modelWidth: CGFloat = 300, thinkingWidth: CGFloat = 220, spacing: CGFloat = 8
-    private var threshold: CGFloat { modelWidth + spacing + thinkingWidth }
+    private let wideModelWidth: CGFloat = 300
+    private let wideThinkingWidth: CGFloat = 220
+    private let mediumModelWidth: CGFloat = 180
+    private let mediumThinkingWidth: CGFloat = 150
+    private let spacing: CGFloat = 8
+    private var wideThreshold: CGFloat { wideModelWidth + spacing + wideThinkingWidth }
+    private var mediumThreshold: CGFloat { mediumModelWidth + spacing + mediumThinkingWidth }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
 
+    private func widths(for width: CGFloat) -> [CGFloat] {
+        if width >= wideThreshold { return [wideModelWidth, wideThinkingWidth] }
+        if width >= mediumThreshold { return [mediumModelWidth, mediumThinkingWidth] }
+        return [min(220, width), min(180, width)]
+    }
+
     private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
         if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
-        let horizontal = width >= threshold
-        let widths = horizontal ? [modelWidth, thinkingWidth] : [min(220, width), min(180, width)]
+        let widths = widths(for: width)
         cache.width = width
         cache.height = height
         cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
@@ -1249,19 +1266,20 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
         guard subviews.count == 2 else { return .zero }
         let width = proposal.width ?? 220
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
-        return width >= threshold
-            ? .init(width: threshold, height: max(sizes[0].height, sizes[1].height))
-            : .init(width: max(sizes[0].width, sizes[1].width), height: sizes[0].height + 6 + sizes[1].height)
+        if width >= mediumThreshold {
+            return .init(width: widths(for: width).reduce(0, +) + spacing, height: max(sizes[0].height, sizes[1].height))
+        }
+        return .init(width: max(sizes[0].width, sizes[1].width), height: sizes[0].height + 6 + sizes[1].height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 2 else { return }
-        let horizontal = bounds.width >= threshold
-        let widths = horizontal ? [modelWidth, thinkingWidth] : [min(220, bounds.width), min(180, bounds.width)]
+        let horizontal = bounds.width >= mediumThreshold
+        let widths = widths(for: bounds.width)
         let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
         let secondOrigin = horizontal
-            ? CGPoint(x: bounds.minX + modelWidth + spacing, y: bounds.minY)
+            ? CGPoint(x: bounds.minX + widths[0] + spacing, y: bounds.minY)
             : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + 6)
         subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
     }

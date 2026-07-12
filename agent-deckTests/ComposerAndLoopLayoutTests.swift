@@ -48,12 +48,14 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         }
 
         let wide = measureRow(at: 1_024)
+        let medium = measureRow(at: 800)
         let narrow = measureRow(at: 420)
-        XCTAssertGreaterThan(narrow.height, wide.height + 10, "The compact picker row must stack rather than compress its controls.")
+        XCTAssertEqual(medium.height, wide.height, accuracy: 0.5, "Model and thinking controls must remain inline at ordinary composer widths.")
+        XCTAssertGreaterThan(narrow.height, medium.height + 10, "Only genuinely compact rows should stack their controls.")
 
-        // The production layout receives host width minus 16pt row padding, so
-        // these values cross its 938pt dense threshold exactly.
-        for width: CGFloat in [1_024, 420, 953, 954, 955, 420, 1_024, 760, 420, 1_024] {
+        // The production layout receives host width minus 16pt row padding.
+        // Exercise both the 654pt compact/inline and 938pt medium/wide thresholds.
+        for width: CGFloat in [1_024, 420, 669, 670, 671, 953, 954, 955, 420, 800, 1_024] {
             let geometry = measureRow(at: width)
             assertFinite(geometry)
             XCTAssertLessThanOrEqual(geometry.width, width + 0.5, "Picker content must not widen its host.")
