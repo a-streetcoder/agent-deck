@@ -601,6 +601,21 @@ extension PiAgentTranscriptCellKind {
     }
 }
 
+/// Resolves a reported row height without allowing a streaming row to shrink
+/// below a real measurement at its current width. Tiled estimates deliberately
+/// do not participate: a row's first real measurement must be able to replace
+/// its initial estimate.
+enum TranscriptMeasuredHeightResolver {
+    static func resolvedHeight(
+        _ measuredHeight: CGFloat,
+        priorMeasuredHeight: CGFloat?,
+        isStreaming: Bool
+    ) -> CGFloat {
+        guard isStreaming, let priorMeasuredHeight else { return measuredHeight }
+        return max(measuredHeight, priorMeasuredHeight)
+    }
+}
+
 private struct PiAgentAppKitTranscriptItem {
     let id: String
     let kind: PiAgentTranscriptCellKind
@@ -2951,15 +2966,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let h = cell.forcedIntrinsicHeight()
                 measuredCount += 1
                 guard h > 0 else { continue }
-                var height = ceil(h)
+                let priorMeasured = measuredHeightByID[id]?[widthBucket]
+                let height = TranscriptMeasuredHeightResolver.resolvedHeight(
+                    ceil(h),
+                    priorMeasuredHeight: priorMeasured,
+                    isStreaming: streaming
+                )
+                // `lastNotedHeight` tracks AppKit's current tile exclusively for
+                // deciding whether this fresh measurement requires a re-tile.
                 let previousTiled = lastNotedHeight[id] ?? -1
-                // Streaming content only grows; a measured height that comes back
-                // shorter than the last tile is a TextKit/measurement artifact
-                // (cold double-pass disagreement, settle-loop wobble) and must not
-                // be allowed to yank the row upward.
-                if streaming, previousTiled > 0 {
-                    height = max(height, previousTiled)
-                }
 #if DEBUG
                 // Smoking-gun: the streaming row's tiled height per token, folded
                 // with the measure path that produced it (set inside forcedIntrinsic
@@ -3073,12 +3088,14 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             // spurious noteHeightOfRows whenever the cache shifted without the
             // laid-out height actually changing.
             let baseline = lastNotedHeight[itemID] ?? priorMeasured ?? estimatedRowHeight
-            // Streaming content only grows; clamp the async reported height to the
-            // last real measurement so a late-settle measure cannot pull the row up.
-            // Never clamp against the rough `estimatedRowHeight` for a brand-new row.
-            if profiler.isStreamingRecently, let clampBase = lastNotedHeight[itemID] ?? priorMeasured {
-                height = max(height, clampBase)
-            }
+            // Streaming content only grows; clamp only to a prior real measurement
+            // at this width. `lastNotedHeight` may be an initial tiled estimate, so
+            // it must not prevent the first real measurement from shrinking to fit.
+            height = TranscriptMeasuredHeightResolver.resolvedHeight(
+                height,
+                priorMeasuredHeight: priorMeasured,
+                isStreaming: profiler.isStreamingRecently
+            )
             measuredHeightByID[itemID, default: [:]][bucket] = height
             estimateByID.removeValue(forKey: itemID)
 #if DEBUG
