@@ -3,8 +3,7 @@ import Foundation
 /// JSON-RPC 2.0 + MCP wire types for talking to MCP servers over a line-delimited
 /// transport. Reuses `JSONValue` (PiAgentSessionModels.swift) for free-form payloads.
 
-/// A JSON-RPC id, which a server echoes back so we can match a response to its
-/// request. We always send integers; servers may reply with int, string, or null.
+/// JSON-RPC request identifiers are opaque: string and integer identifiers are distinct.
 nonisolated enum RPCID: Codable, Hashable, Sendable {
     case int(Int)
     case string(String)
@@ -12,213 +11,161 @@ nonisolated enum RPCID: Codable, Hashable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Int.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else {
-            self = .null
-        }
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Int.self) { self = .int(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else { throw DecodingError.typeMismatch(RPCID.self, .init(codingPath: decoder.codingPath, debugDescription: "JSON-RPC id must be a string, integer, or null")) }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        switch self {
-        case let .int(value): try container.encode(value)
-        case let .string(value): try container.encode(value)
-        case .null: try container.encodeNil()
-        }
+        switch self { case let .int(value): try container.encode(value); case let .string(value): try container.encode(value); case .null: try container.encodeNil() }
     }
 }
 
-/// An outgoing JSON-RPC request (or notification, when `id` is nil).
 nonisolated struct JSONRPCRequest: Encodable, Sendable {
     var jsonrpc = "2.0"
     var id: RPCID?
     var method: String
     var params: JSONValue?
 
-    init(id: Int?, method: String, params: JSONValue? = nil) {
-        self.id = id.map(RPCID.int)
-        self.method = method
-        self.params = params
+    init(id: Int?, method: String, params: JSONValue? = nil) { self.id = id.map(RPCID.int); self.method = method; self.params = params }
+    init(id: RPCID?, method: String, params: JSONValue? = nil) { self.id = id; self.method = method; self.params = params }
+}
+
+nonisolated struct JSONRPCErrorBody: Codable, Hashable, Sendable { var code: Int; var message: String; var data: JSONValue? }
+nonisolated struct JSONRPCResponse: Decodable, Sendable { var jsonrpc: String?; var id: RPCID?; var result: JSONValue?; var error: JSONRPCErrorBody?; var method: String?; var isNotification: Bool { id == nil && method != nil } }
+nonisolated struct JSONRPCServerRequest: Sendable { let id: RPCID; let method: String; let params: JSONValue? }
+nonisolated struct JSONRPCNotification: Sendable { let method: String; let params: JSONValue? }
+
+/// Explicitly distinguishes a response from a server-originated request. A request's
+/// ID is never used to resolve a client-originated continuation.
+nonisolated enum JSONRPCInboundMessage: Sendable {
+    case response(JSONRPCResponse)
+    case serverRequest(JSONRPCServerRequest)
+    case notification(JSONRPCNotification)
+}
+
+nonisolated struct JSONRPCOutgoingResponse: Encodable, Sendable {
+    var jsonrpc = "2.0"; var id: RPCID; var result: JSONValue?; var error: JSONRPCErrorBody?
+    static func result(id: RPCID, _ result: JSONValue) -> Self { .init(id: id, result: result, error: nil) }
+    static func error(id: RPCID, code: Int, message: String) -> Self { .init(id: id, result: nil, error: .init(code: code, message: message, data: nil)) }
+}
+
+// MARK: - Elicitation
+
+/// Forward-compatible representation of `elicitation/create`. Elicitation was added
+/// after Agent Deck's 2025-03-26 handshake, so this is defensive only until a UI exists.
+nonisolated struct MCPElicitationRequest: Sendable {
+    let message: String?
+    let title: String?
+    let requestedSchema: JSONValue?
+    let content: JSONValue?
+    let meta: MCPElicitationMeta
+    /// Full params retained for diagnostics without rendering or logging values.
+    let rawParams: JSONValue?
+
+    init?(params: JSONValue?) {
+        guard case let .object(values)? = params else { return nil }
+        message = values["message"]?.stringValue
+        title = values["title"]?.stringValue
+        requestedSchema = values["requestedSchema"]
+        content = values["content"]
+        meta = MCPElicitationMeta(value: values["_meta"])
+        rawParams = params
+    }
+
+    /// The 2025-06-18 shape requires a message and a restricted object schema.
+    var isValidForInteractiveHandling: Bool {
+        guard let message, !message.isEmpty,
+              case let .object(schema)? = requestedSchema,
+              schema["type"]?.stringValue == "object",
+              case .object? = schema["properties"] else { return false }
+        return true
     }
 }
 
-nonisolated struct JSONRPCErrorBody: Decodable, Hashable, Sendable {
-    var code: Int
-    var message: String
-    var data: JSONValue?
-}
-
-/// An incoming JSON-RPC message. Responses carry `id` + (`result` or `error`);
-/// notifications carry `method` and no `id`.
-nonisolated struct JSONRPCResponse: Decodable, Sendable {
-    var jsonrpc: String?
-    var id: RPCID?
-    var result: JSONValue?
-    var error: JSONRPCErrorBody?
-    var method: String?
-
-    var isNotification: Bool { id == nil && method != nil }
+nonisolated struct MCPElicitationMeta: Sendable {
+    /// Known persistence modes only; unknown modes remain untrusted in `raw`.
+    let persistenceModes: Set<PersistenceMode>
+    let raw: JSONValue?
+    enum PersistenceMode: String, Sendable, Hashable { case none, session, persistent }
+    init(value: JSONValue?) {
+        raw = value
+        guard case let .object(meta)? = value,
+              case let .array(modes)? = meta["persistenceModes"] else { persistenceModes = []; return }
+        persistenceModes = Set(modes.compactMap { $0.stringValue }.compactMap(PersistenceMode.init(rawValue:)))
+    }
 }
 
 // MARK: - MCP domain types
+nonisolated struct MCPToolDescriptor: Decodable, Hashable, Sendable { var name: String; var description: String?; var inputSchema: JSONValue? }
+nonisolated struct MCPToolsListResult: Decodable, Hashable, Sendable { var tools: [MCPToolDescriptor]; var nextCursor: String? }
+nonisolated struct MCPContentBlock: Decodable, Hashable, Sendable { var type: String; var text: String?; var data: String?; var mimeType: String?; var url: String? }
+nonisolated struct MCPCallResult: Decodable, Hashable, Sendable { var content: [MCPContentBlock]?; var isError: Bool?; var combinedText: String { (content ?? []).map { $0.type == "text" ? ($0.text ?? "") : ($0.text?.isEmpty == false ? $0.text! : "[\($0.type) content]") }.joined(separator: "\n") } }
 
-nonisolated struct MCPToolDescriptor: Decodable, Hashable, Sendable {
-    var name: String
-    var description: String?
-    var inputSchema: JSONValue?
+/// Immutable call provenance. It deliberately contains identifiers rather than data
+/// payloads; never write it to logs with project paths or request arguments.
+nonisolated struct MCPCallContext: Sendable, Hashable {
+    let sessionID: UUID
+    let projectID: String?
+    let server: String
+    let tool: String
+    let requestingAgent: String?
+    let subagentRunID: UUID?
+    init(sessionID: UUID, projectID: String?, server: String, tool: String, requestingAgent: String? = nil, subagentRunID: UUID? = nil) { self.sessionID = sessionID; self.projectID = projectID; self.server = server; self.tool = tool; self.requestingAgent = requestingAgent; self.subagentRunID = subagentRunID }
 }
 
-nonisolated struct MCPToolsListResult: Decodable, Hashable, Sendable {
-    var tools: [MCPToolDescriptor]
-    var nextCursor: String?
-}
+nonisolated enum MCPServerRequestDisposition: Sendable { case result(JSONValue); case error(code: Int, message: String) }
+typealias MCPServerRequestHandler = @Sendable (JSONRPCServerRequest, MCPCallContext?) async -> MCPServerRequestDisposition
 
-/// A single content block from a `tools/call` result. v1 reads `text`; other block
-/// types (image, resource) are surfaced as a placeholder by the renderer.
-nonisolated struct MCPContentBlock: Decodable, Hashable, Sendable {
-    var type: String
-    var text: String?
-    var data: String?
-    var mimeType: String?
-    var url: String?
-}
-
-nonisolated struct MCPCallResult: Decodable, Hashable, Sendable {
-    var content: [MCPContentBlock]?
-    var isError: Bool?
-
-    /// Flattened text of the content blocks, with non-text blocks marked.
-    var combinedText: String {
-        (content ?? []).map { block in
-            if block.type == "text" { return block.text ?? "" }
-            if let text = block.text, !text.isEmpty { return text }
-            return "[\(block.type) content]"
-        }
-        .joined(separator: "\n")
-    }
-}
-
-/// MCP method names used in v1.
-nonisolated enum MCPMethod {
-    static let initialize = "initialize"
-    static let initialized = "notifications/initialized"
-    static let toolsList = "tools/list"
-    static let toolsCall = "tools/call"
-    static let cancelled = "notifications/cancelled"
-}
-
-/// The protocol version Agent Deck negotiates. Servers fall back as needed.
+nonisolated enum MCPMethod { static let initialize = "initialize"; static let initialized = "notifications/initialized"; static let toolsList = "tools/list"; static let toolsCall = "tools/call"; static let cancelled = "notifications/cancelled"; static let elicitationCreate = "elicitation/create" }
 nonisolated enum MCPProtocolVersion {
     static let preferred = "2025-03-26"
+    static let elicitationIntroduced = "2025-06-18"
+    static func supportsElicitation(_ version: String) -> Bool { version >= elicitationIntroduced }
 }
 
-/// Builders for the small set of requests v1 sends, plus newline framing helpers.
+nonisolated struct MCPInitializeResult: Decodable, Sendable {
+    let protocolVersion: String
+    let capabilities: JSONValue?
+}
+
 nonisolated enum MCPRequestFactory {
-    static func initialize(id: Int, clientName: String, clientVersion: String) -> JSONRPCRequest {
-        let params: JSONValue = .object([
-            "protocolVersion": .string(MCPProtocolVersion.preferred),
-            "capabilities": .object([:]),
-            "clientInfo": .object([
-                "name": .string(clientName),
-                "version": .string(clientVersion)
-            ])
-        ])
-        return JSONRPCRequest(id: id, method: MCPMethod.initialize, params: params)
+    static func initialize(id: Int, clientName: String, clientVersion: String, supportsElicitation: Bool = false) -> JSONRPCRequest {
+        // Do not change the installed helper's 2025-03-26 handshake unless a real
+        // handler is present on a genuinely duplex transport.
+        let version = supportsElicitation ? MCPProtocolVersion.elicitationIntroduced : MCPProtocolVersion.preferred
+        let capabilities: JSONValue = supportsElicitation ? .object(["elicitation": .object([:])]) : .object([:])
+        return JSONRPCRequest(id: id, method: MCPMethod.initialize, params: .object(["protocolVersion": .string(version), "capabilities": capabilities, "clientInfo": .object(["name": .string(clientName), "version": .string(clientVersion)])]))
     }
-
-    static func initialized() -> JSONRPCRequest {
-        JSONRPCRequest(id: nil, method: MCPMethod.initialized, params: .object([:]))
-    }
-
-    static func toolsList(id: Int, cursor: String?) -> JSONRPCRequest {
-        let params: JSONValue? = cursor.map { .object(["cursor": .string($0)]) }
-        return JSONRPCRequest(id: id, method: MCPMethod.toolsList, params: params)
-    }
-
-    static func toolsCall(id: Int, name: String, arguments: JSONValue?) -> JSONRPCRequest {
-        let params: JSONValue = .object([
-            "name": .string(name),
-            "arguments": arguments ?? .object([:])
-        ])
-        return JSONRPCRequest(id: id, method: MCPMethod.toolsCall, params: params)
-    }
-
-    /// MCP `tools/call` requires an object-shaped `arguments` value. Pi/tool bridges
-    /// can occasionally hand us an already-stringified JSON object; normalize that
-    /// client-side so servers do not fail later with schema/Zod errors.
+    static func initialized() -> JSONRPCRequest { JSONRPCRequest(id: Optional<Int>.none, method: MCPMethod.initialized, params: .object([:])) }
+    static func toolsList(id: Int, cursor: String?) -> JSONRPCRequest { JSONRPCRequest(id: id, method: MCPMethod.toolsList, params: cursor.map { .object(["cursor": .string($0)]) }) }
+    static func toolsCall(id: Int, name: String, arguments: JSONValue?) -> JSONRPCRequest { JSONRPCRequest(id: id, method: MCPMethod.toolsCall, params: .object(["name": .string(name), "arguments": arguments ?? .object([:])])) }
+    static func cancelled(id: Int, reason: String) -> JSONRPCRequest { JSONRPCRequest(id: Optional<Int>.none, method: MCPMethod.cancelled, params: .object(["requestId": .number(Double(id)), "reason": .string(reason)])) }
     static func normalizedToolArguments(_ arguments: JSONValue?) throws -> JSONValue {
-        guard let arguments else { return .object([:]) }
-        switch arguments {
-        case let .object(object):
-            return .object(object)
-        case .null:
-            return .object([:])
-        case let .string(raw):
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return .object([:]) }
-            guard let data = trimmed.data(using: .utf8),
-                  let parsed = try? JSONSerialization.jsonObject(with: data) else {
-                throw MCPError.invalidArguments("MCP tool arguments must be a JSON object; received a malformed JSON string.")
-            }
-            guard let dictionary = parsed as? [String: Any],
-                  let normalized = JSONValue.fromFoundation(dictionary),
-                  case .object = normalized else {
-                throw MCPError.invalidArguments("MCP tool arguments must be a JSON object; received a JSON string that did not parse to an object.")
-            }
-            return normalized
-        default:
-            throw MCPError.invalidArguments("MCP tool arguments must be a JSON object.")
+        guard let arguments else { return .object([:]) }; switch arguments { case let .object(object): return .object(object); case .null: return .object([:]); case let .string(raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines); guard !trimmed.isEmpty else { return .object([:]) }; guard let data = trimmed.data(using: .utf8), let parsed = try? JSONSerialization.jsonObject(with: data) else { throw MCPError.invalidArguments("MCP tool arguments must be a JSON object; received a malformed JSON string.") }; guard let dict = parsed as? [String: Any], let normalized = JSONValue.fromFoundation(dict) else { throw MCPError.invalidArguments("MCP tool arguments must be a JSON object; received a JSON string that did not parse to an object.") }; return normalized
+        default: throw MCPError.invalidArguments("MCP tool arguments must be a JSON object.") }
+    }
+    static func encodeLine<T: Encodable>(_ message: T) throws -> String { let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]; return String(decoding: try encoder.encode(message), as: UTF8.self) + "\n" }
+    static func decode(_ line: String) throws -> JSONRPCResponse { try JSONDecoder().decode(JSONRPCResponse.self, from: Data(line.utf8)) }
+    static func decodeInbound(_ line: String) throws -> JSONRPCInboundMessage {
+        let response = try decode(line)
+        if let method = response.method {
+            if let id = response.id, id != .null { return .serverRequest(.init(id: id, method: method, params: try params(from: line))) }
+            return .notification(.init(method: method, params: try params(from: line)))
         }
+        guard response.id != nil, response.result != nil || response.error != nil else { throw MCPError.decoding("malformed JSON-RPC message") }
+        return .response(response)
     }
-
-    /// Encodes a request as a single newline-terminated JSON line.
-    static func encodeLine(_ request: JSONRPCRequest) throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(request)
-        let json = String(decoding: data, as: UTF8.self)
-        return json + "\n"
-    }
-
-    /// Decodes a single response line.
-    static func decode(_ line: String) throws -> JSONRPCResponse {
-        try JSONDecoder().decode(JSONRPCResponse.self, from: Data(line.utf8))
+    private static func params(from line: String) throws -> JSONValue? {
+        let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        return object?["params"].flatMap(JSONValue.fromFoundation)
     }
 }
 
-/// Errors surfaced by the MCP client.
 nonisolated enum MCPError: LocalizedError, Sendable, Equatable {
-    case serverNotConfigured(String)
-    case transportFailed(String)
-    case rpc(code: Int, message: String)
-    case timeout(String)
-    case cancelled
-    case decoding(String)
-    case invalidArguments(String)
-    case unsupportedTransport(MCPTransportKind)
-    case policyDenied(String)
-    case runtimeAuthorization(String)
-    /// HTTP 401 — the server requires authentication (drives the OAuth Connect flow).
-    case unauthorized
-
-    var errorDescription: String? {
-        switch self {
-        case let .serverNotConfigured(name): return "MCP server \"\(name)\" is not configured."
-        case let .transportFailed(detail): return "MCP transport failed: \(detail)"
-        case let .rpc(code, message): return "MCP server error \(code): \(message)"
-        case let .timeout(detail): return "MCP request timed out: \(detail)"
-        case .cancelled: return "MCP request was cancelled."
-        case let .decoding(detail): return "Could not decode MCP response: \(detail)"
-        case let .invalidArguments(detail): return detail
-        case let .unsupportedTransport(kind): return "MCP transport \"\(kind.rawValue)\" is not supported yet."
-        case let .policyDenied(message): return message
-        case let .runtimeAuthorization(message): return message
-        case .unauthorized: return "MCP server requires sign-in (401). Connect the server to authorize."
-        }
-    }
+    case serverNotConfigured(String), transportFailed(String), rpc(code: Int, message: String), timeout(String), cancelled, decoding(String), invalidArguments(String), unsupportedTransport(MCPTransportKind), policyDenied(String), runtimeAuthorization(String), unauthorized
+    var errorDescription: String? { switch self { case let .serverNotConfigured(name): return "MCP server \"\(name)\" is not configured."; case let .transportFailed(detail): return "MCP transport failed: \(detail)"; case let .rpc(code, message): return "MCP server error \(code): \(message)"; case let .timeout(detail): return "MCP request timed out: \(detail)"; case .cancelled: return "MCP request was cancelled."; case let .decoding(detail): return "Could not decode MCP response: \(detail)"; case let .invalidArguments(detail): return detail; case let .unsupportedTransport(kind): return "MCP transport \"\(kind.rawValue)\" is not supported yet."; case let .policyDenied(message), let .runtimeAuthorization(message): return message; case .unauthorized: return "MCP server requires sign-in (401). Connect the server to authorize." } }
 }

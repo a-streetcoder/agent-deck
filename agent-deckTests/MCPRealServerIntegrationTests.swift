@@ -74,7 +74,7 @@ final class MCPRealServerIntegrationTests: XCTestCase {
         let catalog = await manager.discoverCatalog(serverNames: ["fixture"])
         XCTAssertEqual(catalog.map(\.qualifiedName), ["fixture/echo"])
 
-        let result = try await manager.call(server: "fixture", tool: "echo", arguments: .object(["message": .string("via-manager")]))
+        let result = try await manager.call(server: "fixture", tool: "echo", arguments: .object(["message": .string("via-manager")]), context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "fixture", tool: "echo"))
         XCTAssertEqual(result.combinedText, "echo: via-manager")
     }
 }

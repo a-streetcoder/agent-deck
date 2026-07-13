@@ -10,6 +10,7 @@ import Foundation
 /// any static headers from config are sent verbatim. A 401 surfaces as
 /// `MCPError.unauthorized` so the Connect flow can kick in.
 actor MCPHTTPTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { false }
     private let url: URL
     private let extraHeaders: [String: String]
     private var bearerToken: String?

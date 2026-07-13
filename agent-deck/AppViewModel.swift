@@ -535,8 +535,8 @@ final class AppViewModel: NSObject {
         nativeSubagentRunner.childMCPArgumentsProvider = { [weak self] parentSession, agent in
             await self?.childMCPArguments(for: parentSession, agent: agent) ?? []
         }
-        nativeSubagentRunner.onMCPBridgeRequest = { [weak self] parentSessionID, _, agentName, request in
-            await self?.handleSubagentMCPBridge(parentSessionID: parentSessionID, agentName: agentName, request: request) ?? "\(AppBrand.displayName)'s MCP bridge is not available."
+        nativeSubagentRunner.onMCPBridgeRequest = { [weak self] parentSessionID, runID, agentName, request in
+            await self?.handleSubagentMCPBridge(parentSessionID: parentSessionID, runID: runID, agentName: agentName, request: request) ?? "\(AppBrand.displayName)'s MCP bridge is not available."
         }
         nativeSubagentRunner.onMemoryWrite = { [weak self] parentSessionID, runID, agentName, request in
             await self?.handleSubagentMemoryWrite(parentSessionID: parentSessionID, runID: runID, agentName: agentName, request: request) ?? "\(AppBrand.displayName) memory is not available."
@@ -4699,8 +4699,8 @@ final class AppViewModel: NSObject {
         return ["--extension", mcpURL.path, "--append-system-prompt", catalog]
     }
 
-    private func handleSubagentMCPBridge(parentSessionID: UUID, agentName: String?, request: PiMCPBridgeRequest) async -> String {
-        await performMCPBridge(request: request, scope: subagentMCPScope(parentSessionID: parentSessionID, agentName: agentName))
+    private func handleSubagentMCPBridge(parentSessionID: UUID, runID: UUID, agentName: String?, request: PiMCPBridgeRequest) async -> String {
+        await performMCPBridge(request: request, scope: subagentMCPScope(parentSessionID: parentSessionID, agentName: agentName), sessionID: parentSessionID, projectID: piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID })?.projectPathForProjectFeatures, requestingAgent: agentName, subagentRunID: runID)
     }
 
     /// Compact MCP tool catalog for a given set of entries. Shared by the parent-session
@@ -4740,19 +4740,22 @@ final class AppViewModel: NSObject {
     /// native connection manager, scoped to the session's assigned servers.
     private func handleMCPBridge(sessionID: UUID, request: PiMCPBridgeRequest, completion: @escaping (String) -> Void) {
         let scope: Set<String>
+        let boundAgentName: String?
         if let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) {
             scope = assignedMCPServerNames(for: session)
+            boundAgentName = boundAgent(for: session)?.name
         } else {
+            boundAgentName = nil
             scope = mcpConfiguredServerNames
         }
         Task { [weak self] in
             guard let self else { completion("\(AppBrand.displayName)'s MCP bridge is not available."); return }
-            let text = await self.performMCPBridge(request: request, scope: scope)
+            let text = await self.performMCPBridge(request: request, scope: scope, sessionID: sessionID, projectID: self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.projectPathForProjectFeatures, requestingAgent: boundAgentName)
             completion(text)
         }
     }
 
-    private func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>) async -> String {
+    private func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>, sessionID: UUID, projectID: String? = nil, requestingAgent: String? = nil, subagentRunID: UUID? = nil) async -> String {
         switch request.action {
         case "search":
             let hits = await mcpConnectionManager.search(query: request.query ?? "", serverNames: scope)
@@ -4781,7 +4784,7 @@ final class AppViewModel: NSObject {
                 return "MCP server \"\(address.server)\" is not assigned to this session."
             }
             do {
-                let result = try await mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args)
+                let result = try await mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context: MCPCallContext(sessionID: sessionID, projectID: projectID, server: address.server, tool: address.tool, requestingAgent: requestingAgent, subagentRunID: subagentRunID))
                 let text = result.combinedText.isEmpty ? "(tool returned no content)" : result.combinedText
                 let prefix = result.isError == true ? "MCP tool reported an error:\n" : ""
                 return String((prefix + text).prefix(Self.mcpResultCharacterCap))

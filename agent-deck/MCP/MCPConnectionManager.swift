@@ -44,6 +44,12 @@ actor MCPConnectionManager {
     /// Resolves an OAuth access token for a server name (set by AppViewModel). Used to
     /// authorize remote (http) transports.
     private var authTokenProvider: (@Sendable (String) async -> String?)?
+    /// Installed by a future approval surface. Absence intentionally declines elicitation.
+    private var serverRequestHandler: MCPServerRequestHandler?
+
+    func setServerRequestHandler(_ handler: MCPServerRequestHandler?) {
+        serverRequestHandler = handler
+    }
 
     func setAuthTokenProvider(_ provider: @escaping @Sendable (String) async -> String?) {
         authTokenProvider = provider
@@ -129,6 +135,7 @@ actor MCPConnectionManager {
             clientName: clientName,
             clientVersion: clientVersion,
             requestTimeout: policies[name] == .computerUseObservationOnly ? .seconds(5) : requestTimeout,
+            serverRequestHandler: config.resolvedTransport == .stdio ? serverRequestHandler : nil,
             transportFactory: factory
         )
         connections[name] = connection
@@ -156,11 +163,11 @@ actor MCPConnectionManager {
         return entries
     }
 
-    func call(server: String, tool: String, arguments: JSONValue?) async throws -> MCPCallResult {
+    func call(server: String, tool: String, arguments: JSONValue?, context: MCPCallContext) async throws -> MCPCallResult {
         guard policies[server, default: .unrestricted].allows(tool) else {
             throw MCPError.policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps is allowed.")
         }
-        let result = try await connection(for: server).callTool(name: tool, arguments: arguments)
+        let result = try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
         if policies[server] == .computerUseObservationOnly,
            result.isError == true,
            result.combinedText.contains("-1743") {
@@ -235,6 +242,7 @@ actor MCPConnectionManager {
             clientName: clientName,
             clientVersion: clientVersion,
             requestTimeout: entry.toolPolicy == .computerUseObservationOnly ? .seconds(5) : .seconds(20),
+            serverRequestHandler: entry.config.resolvedTransport == .stdio ? serverRequestHandler : nil,
             transportFactory: factory
         )
         do {

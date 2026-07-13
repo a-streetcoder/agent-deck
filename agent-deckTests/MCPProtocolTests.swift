@@ -13,6 +13,15 @@ final class MCPProtocolTests: XCTestCase {
         XCTAssertTrue(line.contains("\"name\":\"Agent Deck\""))
     }
 
+    func testInitializeAdvertisesElicitationOnlyForNewProtocolOffer() throws {
+        let legacy = try MCPRequestFactory.encodeLine(MCPRequestFactory.initialize(id: 1, clientName: "Agent Deck", clientVersion: "1", supportsElicitation: false))
+        XCTAssertTrue(legacy.contains(#""protocolVersion":"2025-03-26""#))
+        XCTAssertFalse(legacy.contains("elicitation"))
+        let duplex = try MCPRequestFactory.encodeLine(MCPRequestFactory.initialize(id: 1, clientName: "Agent Deck", clientVersion: "1", supportsElicitation: true))
+        XCTAssertTrue(duplex.contains(#""protocolVersion":"2025-06-18""#))
+        XCTAssertTrue(duplex.contains(#""elicitation":{}"#))
+    }
+
     func testInitializedIsNotificationWithoutId() throws {
         let line = try MCPRequestFactory.encodeLine(MCPRequestFactory.initialized())
         XCTAssertFalse(line.contains("\"id\""))
@@ -84,5 +93,19 @@ final class MCPProtocolTests: XCTestCase {
         XCTAssertTrue(response.isNotification)
         XCTAssertEqual(response.method, "notifications/tools/list_changed")
         XCTAssertNil(response.id)
+    }
+
+    func testInboundDiscriminatorPreservesStringServerRequestID() throws {
+        let inbound = try MCPRequestFactory.decodeInbound(#"{"jsonrpc":"2.0","id":"server-1","method":"elicitation/create","params":{"message":"secret","requestedSchema":{"type":"object"}}}"#)
+        guard case let .serverRequest(request) = inbound else { return XCTFail("expected server request") }
+        XCTAssertEqual(request.id, .string("server-1"))
+        XCTAssertEqual(request.method, MCPMethod.elicitationCreate)
+        XCTAssertNotNil(MCPElicitationRequest(params: request.params))
+    }
+
+    func testOutgoingErrorEchoesExactServerID() throws {
+        let line = try MCPRequestFactory.encodeLine(JSONRPCOutgoingResponse.error(id: .string("server-1"), code: -32601, message: "Method not found"))
+        XCTAssertTrue(line.contains(#""id":"server-1""#))
+        XCTAssertTrue(line.contains(#""code":-32601"#))
     }
 }

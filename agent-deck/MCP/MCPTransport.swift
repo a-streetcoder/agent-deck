@@ -3,6 +3,9 @@ import Foundation
 /// A line-delimited duplex channel to an MCP server. v1 ships `MCPStdioTransport`
 /// (subprocess over stdio); HTTP/SSE conform later without touching `MCPConnection`.
 nonisolated protocol MCPTransport: Sendable {
+    /// Whether the transport can receive an unsolicited server request and send its
+    /// response independently. Streamable HTTP is request/response only today.
+    var supportsDuplexServerRequests: Bool { get }
     /// Begin streaming. `onLine` receives each inbound JSON line; `onClose` fires once
     /// when the channel ends (nil = clean, non-nil = failure).
     func start(onLine: @escaping @Sendable (String) -> Void,
@@ -12,10 +15,15 @@ nonisolated protocol MCPTransport: Sendable {
     func close() async
 }
 
+extension MCPTransport {
+    var supportsDuplexServerRequests: Bool { false }
+}
+
 /// stdio transport: launches the server via `/usr/bin/env <command> <args>` (so `PATH`
 /// resolution works for `npx`-style commands) and streams newline-delimited JSON over
 /// its stdio, reusing `PiAgentProcess`'s pipe plumbing.
 actor MCPStdioTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { true }
     private let config: MCPServerConfig
     private let homeDirectory: URL
     private var process: PiAgentProcess?

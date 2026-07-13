@@ -257,7 +257,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         await manager.configure(servers: [
             MCPServerEntry(name: "alpha", config: MCPServerConfig(command: "a"), sourcePath: "/a")
         ])
-        let result = try await manager.call(server: "alpha", tool: "echo", arguments: nil)
+        let result = try await manager.call(server: "alpha", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "alpha", tool: "echo"))
         XCTAssertEqual(result.combinedText, "ok")
     }
 
@@ -279,11 +279,11 @@ final class MCPConnectionManagerTests: XCTestCase {
             MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
         ])
         let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
-        let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil)
+        let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
         XCTAssertEqual(catalog.map(\.tool), ["list_apps"])
         XCTAssertEqual(listAppsResult.combinedText, "ok")
         do {
-            _ = try await manager.call(server: "codex-computer-use", tool: "click", arguments: nil)
+            _ = try await manager.call(server: "codex-computer-use", tool: "click", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "click"))
             XCTFail("action call must be denied before transport use")
         } catch let error as MCPError {
             XCTAssertEqual(error, .policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps is allowed."))
@@ -300,7 +300,7 @@ final class MCPConnectionManagerTests: XCTestCase {
             MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
         ])
         do {
-            _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil)
+            _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
             XCTFail("expected authorization diagnostic")
         } catch let error as MCPError {
             XCTAssertEqual(error, .runtimeAuthorization("Codex Computer Use needs macOS Automation authorization (error -1743). Allow it in System Settings before retrying list_apps."))
@@ -333,7 +333,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         })
         // Seed a live connection so both refreshes must await close().
         await manager.configure(servers: [MCPServerEntry(name: "server", config: MCPServerConfig(command: "new-helper"), sourcePath: "/seed")])
-        _ = try await manager.call(server: "server", tool: "echo", arguments: nil)
+        _ = try await manager.call(server: "server", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "server", tool: "echo"))
 
         let coordinator = MCPConfigurationRefreshCoordinator()
         let older = coordinator.begin()
@@ -356,7 +356,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertFalse(olderApplied)
         XCTAssertEqual(finalConfig?.command, "new-helper")
 
-        let result = try await manager.call(server: "server", tool: "echo", arguments: nil)
+        let result = try await manager.call(server: "server", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "server", tool: "echo"))
         XCTAssertEqual(result.combinedText, "new")
     }
 
@@ -372,7 +372,7 @@ final class MCPConnectionManagerTests: XCTestCase {
             return DelayedCloseTransport(responder: responder, gate: gate)
         })
         await manager.configure(servers: [MCPServerEntry(name: "server", config: MCPServerConfig(command: "seed-helper"), sourcePath: "/seed")])
-        _ = try await manager.call(server: "server", tool: "echo", arguments: nil)
+        _ = try await manager.call(server: "server", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "server", tool: "echo"))
 
         let coordinator = MCPConfigurationRefreshCoordinator()
         let staleToken = coordinator.begin()
@@ -391,7 +391,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         await newestTask.value
 
         let finalConfig = await manager.configuredConfig(server: "server")
-        let result = try await manager.call(server: "server", tool: "echo", arguments: nil)
+        let result = try await manager.call(server: "server", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "server", tool: "echo"))
         XCTAssertEqual(finalConfig?.command, "new-helper")
         XCTAssertEqual(result.combinedText, "new")
     }
@@ -399,13 +399,13 @@ final class MCPConnectionManagerTests: XCTestCase {
     func testParentAndSubagentMCPBridgesRouteThroughCentralPolicyCall() throws {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("agent-deck/AppViewModel.swift"), encoding: .utf8)
         XCTAssertTrue(source.contains("await performMCPBridge(request: request, scope: subagentMCPScope"))
-        XCTAssertTrue(source.contains("mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args)"))
+        XCTAssertTrue(source.contains("mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context:"))
     }
 
     func testCallUnknownServerThrows() async throws {
         let manager = manager()
         do {
-            _ = try await manager.call(server: "ghost", tool: "x", arguments: nil)
+            _ = try await manager.call(server: "ghost", tool: "x", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "ghost", tool: "x"))
             XCTFail("expected serverNotConfigured")
         } catch let error as MCPError {
             guard case .serverNotConfigured = error else { return XCTFail("got \(error)") }
