@@ -51,11 +51,23 @@ struct PiSkillLaunchResolver {
         return try skillArguments(for: names, catalog: catalog(from: snapshot), missingSkillPolicy: .skip)
     }
 
-    static func childSkillArguments(agent: EffectiveAgentRecord, snapshot: ScanSnapshot, expandedSkillNames: [String]? = nil) throws -> [String] {
+    static func childSkillArguments(
+        agent: EffectiveAgentRecord,
+        snapshot: ScanSnapshot,
+        expandedSkillNames: [String]? = nil,
+        ignoredMissingSkillNames: Set<String> = []
+    ) throws -> [String] {
         let names = normalizedNames(expandedSkillNames ?? agent.resolved.skills)
         guard !names.isEmpty else { return [] }
-        try validateReadToolAccess(agent: agent, skillNames: names)
-        return try skillArguments(for: names, catalog: catalog(from: snapshot))
+        // Only a migration-supplied, exact legacy plugin name may be skipped.
+        // Existing user skills with that name still resolve before this filter.
+        let catalog = catalog(from: snapshot)
+        let launchableNames = names.filter { name in
+            !ignoredMissingSkillNames.contains(name) || catalog.contains(where: { $0.name == name })
+        }
+        guard !launchableNames.isEmpty else { return [] }
+        try validateReadToolAccess(agent: agent, skillNames: launchableNames)
+        return try skillArguments(for: launchableNames, catalog: catalog)
     }
 
     static func resolve(names: [String], catalog: [SkillRecord], missingSkillPolicy: MissingSkillPolicy = .fail) throws -> [SkillRecord] {

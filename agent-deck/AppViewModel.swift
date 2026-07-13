@@ -220,6 +220,12 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var cachedStandardizedExternalSkillPaths: Set<String> = []
     /// Updated only by the refresh pipeline; prevents per-row Codex cache walks.
     @ObservationIgnored private var cachedResolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]
+    /// Transient merged MCP entries for capability-specific runtime instructions.
+    /// Never persist plugin paths; refresh rebuilds this from discovery.
+    @ObservationIgnored private var mergedMCPEntries: [MCPServerEntry] = []
+    /// Names read from exact legacy Computer Use plugin references at launch.
+    /// They are skipped only when absent from the current skill catalog.
+    @ObservationIgnored private var legacyComputerUseSkillNames: Set<String> = []
     private(set) var hasCompletedInitialRefresh = false
     private(set) var cachedHasAgentWarnings = false
     private(set) var cachedHasSkillWarnings = false
@@ -405,6 +411,19 @@ final class AppViewModel: NSObject {
         super.init()
 
         appSettings = appSettingsController.settings
+        legacyComputerUseSkillNames = appSettings.legacyComputerUseSkillNames
+        // A previous release could store the Codex-only Computer Use skill as a
+        // generic plugin reference. Drop only that exact reference: do not alter
+        // same-named user skills or promote it to an MCP assignment.
+        let staleComputerUseReferences = appSettings.codexPluginSkillReferences.filter(ComputerUseCapability.isComputerUsePluginSkill)
+        if !staleComputerUseReferences.isEmpty {
+            let migratedNames = ComputerUseCapability.legacySkillNames(for: staleComputerUseReferences)
+            _ = appSettingsController.addLegacyComputerUseSkillNames(migratedNames)
+            _ = appSettingsController.removeCodexPluginSkillReferences(staleComputerUseReferences)
+            appSettings = appSettingsController.settings
+            legacyComputerUseSkillNames = appSettings.legacyComputerUseSkillNames
+            skillBatchActionMessage = "Removed the obsolete Codex Computer Use skill reference. Enable Computer Use from MCP Servers instead."
+        }
         reloadLoopDefinitions()
         ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
         ThemeManager.shared.setMarkdownHighlightingEnabled(appSettingsController.settings.piAgentMarkdownHighlightingEnabled)
@@ -1390,7 +1409,12 @@ final class AppViewModel: NSObject {
         let existingPaths = appSettings.externalSkillPaths
 
         for candidate in candidates {
-            let sourcePath = URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path
+            let sourceURL = URL(fileURLWithPath: candidate.sourceRootPath)
+            let sourcePath = sourceURL.standardizedFileURL.path
+            if ComputerUseCapability.isInstalledRawSkill(at: sourceURL) {
+                skippedNames.append(candidate.name)
+                continue
+            }
             if existingPaths.contains(sourcePath) {
                 skippedNames.append(candidate.name)
                 continue
@@ -1435,7 +1459,11 @@ final class AppViewModel: NSObject {
         var skippedNames: [String] = []
         for candidate in candidates {
             if let reference = candidate.pluginReference {
-                if existingReferences.contains(reference) { skippedNames.append(candidate.external.name) }
+                // Defensive backstop for callers outside SkillImportSheet: the
+                // Codex Computer Use skill is never a Pi import candidate.
+                if ComputerUseCapability.isComputerUsePluginSkill(reference) {
+                    skippedNames.append(candidate.external.name)
+                } else if existingReferences.contains(reference) { skippedNames.append(candidate.external.name) }
                 else { references.insert(reference); importedNames.append(candidate.external.name) }
             } else {
                 let path = URL(fileURLWithPath: candidate.external.sourceRootPath).standardizedFileURL.path
@@ -4402,6 +4430,7 @@ final class AppViewModel: NSObject {
             self.codexComputerUseMCPDiscovery = discovery
             self.mcpCatalogRevision &+= 1
             let merged = CodexComputerUseMCPIntegration.merge(configured: configured, discovery: discovery)
+            self.mergedMCPEntries = merged
             self.mcpConfiguredServerNames = Set(merged.map(\.name))
             guard enabled else {
                 guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: [], manager: self.mcpConnectionManager),
@@ -4627,7 +4656,7 @@ final class AppViewModel: NSObject {
         guard appSettings.mcpEnabled else { return nil }
         let scope = assignedMCPServerNames(for: session)
         let entries = await mcpCatalogEntries(forScope: scope, projectPath: session.projectPathForProjectFeatures)
-        return mcpCatalogPrompt(fromEntries: entries)
+        return mcpCatalogPrompt(fromEntries: entries, scope: scope)
     }
 
     /// Resolves catalog entries for a scope. When the scope belongs to a project other
@@ -4665,7 +4694,7 @@ final class AppViewModel: NSObject {
         guard appSettings.mcpEnabled else { return [] }
         let scope = Set(agent.resolved.mcpServers ?? []).intersection(mcpConfiguredServerNames)
         let entries = await mcpCatalogEntries(forScope: scope, projectPath: parentSession.projectPathForProjectFeatures)
-        guard let catalog = mcpCatalogPrompt(fromEntries: entries), !catalog.isEmpty,
+        guard let catalog = mcpCatalogPrompt(fromEntries: entries, scope: scope), !catalog.isEmpty,
               let mcpURL = try? PiNativeSubagentBridgeExtensions.mcpExtensionURL() else { return [] }
         return ["--extension", mcpURL.path, "--append-system-prompt", catalog]
     }
@@ -4676,8 +4705,10 @@ final class AppViewModel: NSObject {
 
     /// Compact MCP tool catalog for a given set of entries. Shared by the parent-session
     /// and delegated-Deck-agent paths.
-    private func mcpCatalogPrompt(fromEntries entries: [MCPCatalogEntry]) -> String? {
+    private func mcpCatalogPrompt(fromEntries entries: [MCPCatalogEntry], scope: Set<String>) -> String? {
         guard appSettings.mcpEnabled else { return nil }
+        // The compatibility guide is an MCP-dependent runtime prompt, not a Pi
+        // skill, so restrictive agents need no `read` grant to use Computer Use.
         let entries = entries.sorted { $0.qualifiedName < $1.qualifiedName }
         guard !entries.isEmpty else { return nil }
 
@@ -4697,7 +4728,12 @@ final class AppViewModel: NSObject {
             lines.append("Available MCP servers (use mcp({ search }) to find specific tools):")
             lines.append(contentsOf: counts.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value) tools" })
         }
-        return lines.joined(separator: "\n")
+        return ComputerUseCapability.appendGuide(
+            to: lines.joined(separator: "\n"),
+            scope: scope,
+            entries: mergedMCPEntries,
+            catalogEntries: entries
+        )
     }
 
     /// Handles an `mcp` proxy bridge request: routes list/search/describe/call to the
@@ -7483,7 +7519,12 @@ final class AppViewModel: NSObject {
         let directNames = Set(agent.resolved.skills.filter { !collectionNames.contains($0) })
         let collectionIDs = Set(appSettings.skillCollections.filter { agent.resolved.skills.contains($0.name) }.map(\.id))
         let expandedNames = effectiveSkillNames(directNames: directNames, collectionIDs: collectionIDs, catalog: PiSkillLaunchResolver.catalog(from: snapshot))
-        return try PiSkillLaunchResolver.childSkillArguments(agent: agent, snapshot: snapshot, expandedSkillNames: expandedNames)
+        return try PiSkillLaunchResolver.childSkillArguments(
+            agent: agent,
+            snapshot: snapshot,
+            expandedSkillNames: expandedNames,
+            ignoredMissingSkillNames: legacyComputerUseSkillNames
+        )
     }
 
     /// Popover entry point: build the session and launch Pi. Switches the

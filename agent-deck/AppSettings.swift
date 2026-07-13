@@ -207,6 +207,9 @@ struct AppSettings: Codable, Hashable {
     var externalSkillPaths: Set<String> = []
     /// Stable references to Codex plugin skills. Versioned cache paths are deliberately not persisted.
     var codexPluginSkillReferences: Set<CodexPluginSkillReference> = []
+    /// Missing skill names from the targeted Computer Use plugin-reference migration.
+    /// Kept only to prevent stale agent frontmatter from blocking future launches.
+    var legacyComputerUseSkillNames: Set<String> = []
     var skillCollections: [SkillCollectionRecord] = []
     var importedSkillRepositories: [ImportedSkillRepository] = []
     var defaultPromptTemplateNames: Set<String> = []
@@ -265,6 +268,7 @@ struct AppSettings: Codable, Hashable {
         case defaultSkillCollectionIDs
         case externalSkillPaths
         case codexPluginSkillReferences
+        case legacyComputerUseSkillNames
         case skillCollections
         case importedSkillRepositories
         case defaultPromptTemplateNames
@@ -327,6 +331,7 @@ struct AppSettings: Codable, Hashable {
         defaultSkillCollectionIDs = try container.decodeIfPresent(Set<UUID>.self, forKey: .defaultSkillCollectionIDs) ?? []
         externalSkillPaths = try container.decodeIfPresent(Set<String>.self, forKey: .externalSkillPaths) ?? []
         codexPluginSkillReferences = try container.decodeIfPresent(Set<CodexPluginSkillReference>.self, forKey: .codexPluginSkillReferences) ?? []
+        legacyComputerUseSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .legacyComputerUseSkillNames) ?? []
         skillCollections = try container.decodeIfPresent([SkillCollectionRecord].self, forKey: .skillCollections) ?? []
         importedSkillRepositories = try container.decodeIfPresent([ImportedSkillRepository].self, forKey: .importedSkillRepositories) ?? []
         defaultPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultPromptTemplateNames) ?? []
