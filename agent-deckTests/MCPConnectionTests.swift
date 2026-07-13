@@ -3,6 +3,46 @@ import XCTest
 
 /// In-process transport that answers outgoing JSON lines via a pure responder,
 /// simulating an MCP server without spawning a process.
+actor MCPAsyncGate {
+    private var open = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async { if open { return }; await withCheckedContinuation { waiters.append($0) } }
+    func release() { guard !open else { return }; open = true; let pending = waiters; waiters.removeAll(); pending.forEach { $0.resume() } }
+}
+
+/// A controllable duplex transport: tool writes can be held after they begin while
+/// cancellation notifications continue through the reentrant actor.
+actor MCPBlockingTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { true }
+    private var onLine: (@Sendable (String) -> Void)?
+    private let toolStarted = MCPAsyncGate()
+    private let releaseTool = MCPAsyncGate()
+    private let cancellationSent = MCPAsyncGate()
+    private var lines: [String] = []
+
+    func start(onLine: @escaping @Sendable (String) -> Void, onClose: @escaping @Sendable (MCPError?) -> Void) async throws { self.onLine = onLine }
+    func send(_ line: String) async throws {
+        lines.append(line)
+        let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+        switch object?["method"] as? String {
+        case "initialize":
+            let id = object?["id"] as? Int ?? 0
+            onLine?(#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{}}}"#)
+        case "tools/call":
+            await toolStarted.release()
+            await releaseTool.wait()
+        case "notifications/cancelled": await cancellationSent.release()
+        default: break
+        }
+    }
+    func close() async {}
+    func waitForToolWrite() async { await toolStarted.wait() }
+    func allowToolSendToFinish() async { await releaseTool.release() }
+    func waitForCancellation() async { await cancellationSent.wait() }
+    func sentLines() -> [String] { lines }
+    func emit(_ line: String) { onLine?(line) }
+}
+
 actor MCPContextBox {
     private var stored: MCPCallContext?
     func set(_ context: MCPCallContext?) { stored = context }
@@ -152,6 +192,84 @@ final class MCPConnectionTests: XCTestCase {
         XCTAssertEqual(receivedContext, callContext)
         XCTAssertTrue(sent.contains(#""id":"elicitation-id""#))
     }
+    func testHandlerEnabledConnectionRejectsMissingOrFutureSelectedProtocolVersion() async {
+        for result in [#"{}"#, #"{"protocolVersion":"2026-01-01","capabilities":{}}"#] {
+            let responder: MCPStubTransport.Responder = { line in
+                let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+                guard object?["method"] as? String == "initialize" else { return [] }
+                let id = object?["id"] as? Int ?? 0
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#]
+            }
+            let transport = MCPStubTransport(responder: responder)
+            let connection = MCPConnection(name: "mock", config: MCPServerConfig(command: "noop"), serverRequestHandler: { _, _ in .result(.object([:])) }, transportFactory: { _ in transport })
+            do { _ = try await connection.callTool(name: "echo", arguments: nil, context: context()); XCTFail("expected rejected negotiation") }
+            catch { XCTAssertTrue(error.localizedDescription.contains("protocol") || error.localizedDescription.contains("missing")) }
+        }
+    }
+
+    private func makeBlockingConnection(timeout: Duration = .seconds(5)) -> (MCPConnection, MCPBlockingTransport) {
+        let transport = MCPBlockingTransport()
+        return (MCPConnection(name: "mock", config: MCPServerConfig(command: "noop"), requestTimeout: timeout, transportFactory: { _ in transport }), transport)
+    }
+
+    func testCancellationAfterBlockingWriteSendsOneCancelledNotification() async throws {
+        let (connection, transport) = makeBlockingConnection()
+        let callContext = context()
+        let call = Task { try await connection.callTool(name: "echo", arguments: nil, context: callContext) }
+        await transport.waitForToolWrite()
+        call.cancel()
+        do { _ = try await call.value; XCTFail("expected cancellation") } catch { }
+        await transport.waitForCancellation()
+        let lines = await transport.sentLines()
+        XCTAssertEqual(lines.filter { $0.contains("notifications/cancelled") }.count, 1)
+        XCTAssertTrue(lines.contains { $0.contains(#""requestId":2"#) })
+        await transport.allowToolSendToFinish()
+        await transport.emit(#"{"jsonrpc":"2.0","id":2,"result":{"content":[]}}"#)
+    }
+
+    func testTimeoutAfterBlockingWriteSendsOneCancelledNotification() async throws {
+        let (connection, transport) = makeBlockingConnection(timeout: .milliseconds(100))
+        let callContext = context()
+        let call = Task { try await connection.callTool(name: "echo", arguments: nil, context: callContext) }
+        await transport.waitForToolWrite()
+        do { _ = try await call.value; XCTFail("expected timeout") } catch { }
+        await transport.waitForCancellation()
+        let lines = await transport.sentLines()
+        XCTAssertEqual(lines.filter { $0.contains("notifications/cancelled") }.count, 1)
+        XCTAssertTrue(lines.contains { $0.contains(#""requestId":2"#) })
+        await transport.allowToolSendToFinish()
+    }
+
+    func testCloseAfterBlockingWriteResolvesOnceAndIgnoresLateResponse() async throws {
+        let (connection, transport) = makeBlockingConnection()
+        let callContext = context()
+        let call = Task { try await connection.callTool(name: "echo", arguments: nil, context: callContext) }
+        await transport.waitForToolWrite()
+        await connection.close()
+        do { _ = try await call.value; XCTFail("expected cancellation") } catch { }
+        // `close()` detaches the transport before failing pending calls, so it does
+        // not promise a cancellation notification on a channel being torn down.
+        await transport.allowToolSendToFinish()
+        await transport.emit(#"{"jsonrpc":"2.0","id":2,"result":{"content":[]}}"#)
+        let lines = await transport.sentLines()
+        XCTAssertEqual(lines.filter { $0.contains("notifications/cancelled") }.count, 0)
+    }
+
+    func testAlreadyCancelledCallNeverWritesToolRequest() async throws {
+        let (connection, transport) = makeBlockingConnection()
+        let gate = MCPAsyncGate()
+        let callContext = context()
+        let call = Task { () throws -> MCPCallResult in
+            await gate.wait()
+            return try await connection.callTool(name: "echo", arguments: nil, context: callContext)
+        }
+        call.cancel()
+        await gate.release()
+        do { _ = try await call.value; XCTFail("expected cancellation") } catch { }
+        let lines = await transport.sentLines()
+        XCTAssertFalse(lines.contains { $0.contains("tools/call") })
+    }
+
     private func makeConnection(timeout: Duration = .seconds(5),
                                answerCall: @escaping @Sendable (String) -> String?) -> MCPConnection {
         let responder = MCPMockServer.responder(answerCall: answerCall)
