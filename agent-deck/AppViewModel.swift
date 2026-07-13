@@ -218,6 +218,8 @@ final class AppViewModel: NSObject {
     /// measured Skills-tab hang hotspot). Derived from `appSettings`, so it is
     /// observation-ignored and rebuilt in the `didSet` above.
     @ObservationIgnored private var cachedStandardizedExternalSkillPaths: Set<String> = []
+    /// Updated only by the refresh pipeline; prevents per-row Codex cache walks.
+    @ObservationIgnored private var cachedResolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]
     private(set) var hasCompletedInitialRefresh = false
     private(set) var cachedHasAgentWarnings = false
     private(set) var cachedHasSkillWarnings = false
@@ -602,6 +604,7 @@ final class AppViewModel: NSObject {
         let rootURLs = configuredProjectsRootURLs
         let externalSkillPaths = appSettings.externalSkillPaths
         let externalPromptPaths = appSettings.externalPromptPaths
+        let codexPluginSkillReferences = appSettings.codexPluginSkillReferences
         let skillCollectionNames = Set(appSettings.skillCollections.map(\.name))
         refreshRequestID += 1
         let requestID = refreshRequestID
@@ -622,6 +625,7 @@ final class AppViewModel: NSObject {
                 preferencesByPath: preferencesByPath,
                 externalSkillPaths: externalSkillPaths,
                 externalPromptPaths: externalPromptPaths,
+                codexPluginSkillReferences: codexPluginSkillReferences,
                 skillCollectionNames: skillCollectionNames,
                 scanAllProjects: shouldScanAllProjects,
                 extraProjectPathsToScan: extraProjectPathsToScan
@@ -660,6 +664,7 @@ final class AppViewModel: NSObject {
             preferencesByPath: projectPreferencesStore.preferencesByPath,
             externalSkillPaths: appSettings.externalSkillPaths,
             externalPromptPaths: appSettings.externalPromptPaths,
+            codexPluginSkillReferences: appSettings.codexPluginSkillReferences,
             skillCollectionNames: Set(appSettings.skillCollections.map(\.name)),
             scanAllProjects: scanAllProjects,
             extraProjectPathsToScan: extraProjectPathsToScan
@@ -780,6 +785,7 @@ final class AppViewModel: NSObject {
         }
         if allProjectSnapshots != newAllProjectSnapshots { allProjectSnapshots = newAllProjectSnapshots }
         watchedURLsForAutoRefresh = result.watchedURLs
+        cachedResolvedCodexPluginSkillPaths = result.resolvedCodexPluginSkillPaths
         if result.includesWatchFingerprint {
             lastWatchFingerprint = result.watchFingerprint
         }
@@ -1407,6 +1413,45 @@ final class AppViewModel: NSObject {
         if let firstImported = importedNames.first {
             selectedSkillID = allVisibleSkillRecords.first { $0.name == firstImported }?.id ?? selectedSkillID
         }
+        return SkillImportResult(importedNames: importedNames, skippedNames: skippedNames)
+    }
+
+    func importKnownSkills(
+        _ candidates: [SkillImportSheet.KnownSkillCandidate],
+        collectionName: String?
+    ) throws -> SkillImportResult {
+        let existingPaths = appSettings.externalSkillPaths
+        let existingReferences = appSettings.codexPluginSkillReferences
+        var paths: [String] = []
+        var references = Set<CodexPluginSkillReference>()
+        var importedNames: [String] = []
+        var skippedNames: [String] = []
+        for candidate in candidates {
+            if let reference = candidate.pluginReference {
+                if existingReferences.contains(reference) { skippedNames.append(candidate.external.name) }
+                else { references.insert(reference); importedNames.append(candidate.external.name) }
+            } else {
+                let path = URL(fileURLWithPath: candidate.external.sourceRootPath).standardizedFileURL.path
+                if existingPaths.contains(path) { skippedNames.append(candidate.external.name) }
+                else { paths.append(path); importedNames.append(candidate.external.name) }
+            }
+        }
+        let addedPaths = appSettingsController.addExternalSkillPaths(paths)
+        let addedReferences = appSettingsController.addCodexPluginSkillReferences(references)
+        if addedPaths || addedReferences { appSettings = appSettingsController.settings }
+        if !importedNames.isEmpty, let name = collectionName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            let roots = Set(paths)
+            upsertSkillCollection(
+                name: name,
+                description: references.isEmpty ? "Local skill collection" : "Claude / Codex skill collection",
+                skillRootPaths: paths,
+                skillNames: Set(importedNames),
+                importedRepositoryID: nil,
+                sourceLabel: references.isEmpty ? commonAncestorPath(for: Array(roots)).map { "Local · \($0)" } : "Codex Plugin"
+            )
+            appSettings = appSettingsController.settings
+        }
+        if addedPaths || addedReferences { refresh(includeModels: false, scanAllProjects: true) }
         return SkillImportResult(importedNames: importedNames, skippedNames: skippedNames)
     }
 
@@ -8175,6 +8220,7 @@ final class AppViewModel: NSObject {
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let externalSkillPaths = appSettings.externalSkillPaths
         let externalPromptPaths = appSettings.externalPromptPaths
+        let codexPluginSkillReferences = appSettings.codexPluginSkillReferences
         let skillCollectionNames = Set(appSettings.skillCollections.map(\.name))
         refreshRequestID += 1
         let requestID = refreshRequestID
@@ -8188,6 +8234,7 @@ final class AppViewModel: NSObject {
                 preferencesByPath: preferencesByPath,
                 externalSkillPaths: externalSkillPaths,
                 externalPromptPaths: externalPromptPaths,
+                codexPluginSkillReferences: codexPluginSkillReferences,
                 skillCollectionNames: skillCollectionNames,
                 scanAllProjects: true
             )
@@ -9139,6 +9186,12 @@ final class AppViewModel: NSObject {
     /// do it once after the loop.
     private func performSkillDeletion(_ skill: SkillRecord) throws {
         guard canDeleteSkill(skill) else { throw CocoaError(.fileWriteNoPermission) }
+        // Codex plugin packages are owned by Codex. "Delete" means un-import,
+        // never modifying or trashing a cache file.
+        if cachedResolvedCodexPluginSkillPaths.values.contains(skillDeletionTargetURL(for: skill).standardizedFileURL.path) {
+            try performSkillCatalogRemoval(skill)
+            return
+        }
 
         // Throwing filesystem work first — optimistic hiding must not happen
         // unless these succeed (SkillsScreen shows an alert on throw).
@@ -9183,12 +9236,11 @@ final class AppViewModel: NSObject {
     /// True when `skill` was imported — its root path is tracked in
     /// `externalSkillPaths` (a local-folder import or a Git-synced repo skill).
     func isImportedSkill(_ skill: SkillRecord) -> Bool {
-        let paths = cachedStandardizedExternalSkillPaths
-        guard !paths.isEmpty else { return false }
         let filePath = URL(fileURLWithPath: skill.filePath).standardizedFileURL.path
-        if paths.contains(filePath) { return true }
         let rootPath = skillDeletionTargetURL(for: skill).standardizedFileURL.path
-        return paths.contains(rootPath)
+        if cachedResolvedCodexPluginSkillPaths.values.contains(where: { $0 == rootPath || $0 == filePath }) { return true }
+        let paths = cachedStandardizedExternalSkillPaths
+        return paths.contains(filePath) || paths.contains(rootPath)
     }
 
     /// Filesystem + state mutations for un-importing one skill, WITHOUT
@@ -9198,6 +9250,9 @@ final class AppViewModel: NSObject {
 
         let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
         let rootURL = skillDeletionTargetURL(for: skill).standardizedFileURL
+        let pluginReferences = Set(cachedResolvedCodexPluginSkillPaths.compactMap { reference, path in
+            path == rootURL.path || path == fileURL.path ? reference : nil
+        })
 
         // Clear name-based assignments so no dangling missing-skill warning is
         // left behind — same as deletion, minus the trashing.
@@ -9207,9 +9262,9 @@ final class AppViewModel: NSObject {
             let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
             return path == rootURL.path || path == fileURL.path
         }
-        if appSettingsController.removeExternalSkillPaths(pathsToRemove) {
-            appSettings = appSettingsController.settings
-        }
+        let removedPath = appSettingsController.removeExternalSkillPaths(pathsToRemove)
+        let removedPlugin = appSettingsController.removeCodexPluginSkillReferences(pluginReferences)
+        if removedPath || removedPlugin { appSettings = appSettingsController.settings }
         unlistSkillFromSyncedRepository(skill)
 
         withAnimation(.snappy(duration: 0.18)) {
@@ -10116,7 +10171,12 @@ final class AppViewModel: NSObject {
             return url.path == fileURL.path || url.path == deletedTargetPath
         }
         let removedPaths = Set(pathsToRemove.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
-        guard appSettingsController.removeExternalSkillPaths(pathsToRemove) else { return }
+        let pluginReferences = Set(cachedResolvedCodexPluginSkillPaths.compactMap { reference, path in
+            path == deletedTargetPath || path == fileURL.path ? reference : nil
+        })
+        let removedPathsChanged = appSettingsController.removeExternalSkillPaths(pathsToRemove)
+        let removedPluginsChanged = appSettingsController.removeCodexPluginSkillReferences(pluginReferences)
+        guard removedPathsChanged || removedPluginsChanged else { return }
         pruneSkillCollections(removingSkillName: skill.name, rootPath: deletedTargetPath, filePath: fileURL.path, extraPaths: removedPaths)
         appSettings = appSettingsController.settings
     }
@@ -10636,7 +10696,7 @@ final class AppViewModel: NSObject {
 
     private func currentWatchedURLsForAutoRefresh() -> [URL] {
         watchedURLsForAutoRefresh.isEmpty
-            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths)
+            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths, codexPluginSkillReferences: appSettings.codexPluginSkillReferences, resolvedCodexPluginSkillPaths: cachedResolvedCodexPluginSkillPaths)
             : watchedURLsForAutoRefresh
     }
 
@@ -10685,8 +10745,9 @@ final class AppViewModel: NSObject {
         }
         let previousFingerprint = lastWatchFingerprint
         let urls = currentWatchedURLsForAutoRefresh()
-        watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, urls] in
-            let fingerprint = FileWatchFingerprint.make(urls: urls)
+        let pluginBasePaths = Set(appSettings.codexPluginSkillReferences.compactMap { CodexPluginSkillDiscovery.pluginBaseDirectory(for: $0)?.standardizedFileURL.path })
+        watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, urls, pluginBasePaths] in
+            let fingerprint = FileWatchFingerprint.make(urls: urls, shallowDirectoryPaths: pluginBasePaths)
             guard !Task.isCancelled else { return }
             await self?.applyWatchFingerprint(fingerprint, previousFingerprint: previousFingerprint)
         }

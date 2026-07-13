@@ -199,6 +199,10 @@ final class AppSettingsController {
         settings.externalSkillPaths
     }
 
+    var codexPluginSkillReferences: Set<CodexPluginSkillReference> {
+        settings.codexPluginSkillReferences
+    }
+
     var defaultPromptTemplateNames: Set<String> {
         settings.defaultPromptTemplateNames
     }
@@ -610,6 +614,25 @@ final class AppSettingsController {
         }
         guard existingPaths != settings.externalSkillPaths else { return false }
         settings.externalSkillPaths = existingPaths
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func addCodexPluginSkillReferences(_ references: Set<CodexPluginSkillReference>) -> Bool {
+        guard !references.isEmpty else { return false }
+        let updated = settings.codexPluginSkillReferences.union(references)
+        guard updated != settings.codexPluginSkillReferences else { return false }
+        settings.codexPluginSkillReferences = updated
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func removeCodexPluginSkillReferences(_ references: Set<CodexPluginSkillReference>) -> Bool {
+        let updated = settings.codexPluginSkillReferences.subtracting(references)
+        guard updated != settings.codexPluginSkillReferences else { return false }
+        settings.codexPluginSkillReferences = updated
         persist()
         return true
     }

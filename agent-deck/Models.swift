@@ -235,6 +235,13 @@ nonisolated struct ProjectMcpServerRecap: Hashable, Sendable {
     var totalAssigned: Int { defaultServers.count + projectServers.count + unresolvedNames.count }
 }
 
+nonisolated struct CodexPluginSkillReference: Codable, Hashable, Sendable {
+    let marketplace: String
+    let plugin: String
+    /// Relative to the active package's declared `skills` directory.
+    let relativeSkillRoot: String
+}
+
 nonisolated struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {
     let name: String
     let description: String?

@@ -244,7 +244,7 @@ struct SkillImportSheet: View {
 
     private var claudeCodexSourceCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Scans ~/.claude/skills, ~/.codex/skills, and matching .claude/.codex skill folders under known projects.")
+            Text("Scans Claude and Codex skill folders plus installed Codex plugin skills. Plugin files stay read-only and are followed across active versions.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
 
@@ -355,7 +355,7 @@ struct SkillImportSheet: View {
         case .localFolder:
             return "Select skill roots to add to the catalog. Files stay in place and are passed to Pi by path."
         case .claudeCodex:
-            return "Select discovered Claude or Codex skills to add by path. Files stay in place."
+            return "Select Claude/Codex skills to add by path, or installed Codex Plugin skills to follow by stable reference. Files stay in place."
         case .gitRepository:
             return "Select skills to sparse-check-out. Reference files inside each skill folder are synced with it."
         }
@@ -587,7 +587,7 @@ struct SkillImportSheet: View {
             let data = try Data(contentsOf: URL(fileURLWithPath: match.skillFilePath))
             return String(decoding: data, as: UTF8.self)
         case .claudeCodex:
-            guard let match = claudeCodexCandidates.first(where: { $0.external.sourceRootPath == candidate.id }) else {
+            guard let match = claudeCodexCandidates.first(where: { $0.id == candidate.id }) else {
                 throw SkillSummaryError.skillNotFound
             }
             let data = try Data(contentsOf: URL(fileURLWithPath: match.external.skillFilePath))
@@ -625,13 +625,18 @@ struct SkillImportSheet: View {
         let sourceLabel: String?
     }
 
-    private struct KnownSkillCandidate: Identifiable, Hashable {
+    struct KnownSkillCandidate: Identifiable, Hashable {
         let external: ExternalSkillCandidate
         let source: KnownSkillSource
-        var id: String { external.sourceRootPath }
+        let pluginReference: CodexPluginSkillReference?
+        let pluginVersion: String?
+        var id: String {
+            guard let pluginReference else { return external.sourceRootPath }
+            return "codex-plugin:\(pluginReference.marketplace):\(pluginReference.plugin):\(pluginReference.relativeSkillRoot)"
+        }
     }
 
-    private struct KnownSkillSource: Hashable {
+    struct KnownSkillSource: Hashable {
         let root: URL
         let label: String
         let provider: String
@@ -658,13 +663,13 @@ struct SkillImportSheet: View {
             return filteredKnownSkillCandidates(claudeCodexCandidates).map { candidate in
                 let skillPath = URL(fileURLWithPath: candidate.external.skillFilePath).standardizedFileURL.path
                 return DisplayCandidate(
-                    id: candidate.external.sourceRootPath,
+                    id: candidate.id,
                     name: candidate.external.name,
                     description: candidate.external.description,
                     detailLabel: "Path",
                     detailValue: candidate.external.sourceRootPath,
-                    badge: nil,
-                    alreadyImported: catalogedSkillFilePaths.contains(skillPath),
+                    badge: candidate.pluginReference.map { "Codex Plugin · \(candidate.pluginVersion ?? "active") · \($0.marketplace)" },
+                    alreadyImported: candidate.pluginReference.map { viewModel.appSettings.codexPluginSkillReferences.contains($0) } ?? catalogedSkillFilePaths.contains(skillPath),
                     sourceProvider: candidate.source.provider,
                     sourceLabel: candidate.source.label
                 )
@@ -701,7 +706,9 @@ struct SkillImportSheet: View {
             let skillPath = URL(fileURLWithPath: candidate.external.skillFilePath).standardizedFileURL.path
             let rootPath = URL(fileURLWithPath: candidate.external.sourceRootPath).standardizedFileURL.path
             let normalizedName = Self.normalizedSkillName(candidate.external.name)
-            return !catalogedSkillFilePaths.contains(skillPath)
+            let isExistingPlugin = candidate.pluginReference.map { viewModel.appSettings.codexPluginSkillReferences.contains($0) } ?? false
+            return !isExistingPlugin
+                && !catalogedSkillFilePaths.contains(skillPath)
                 && !existingPaths.contains(rootPath)
                 && !catalogedSkillNames.contains(normalizedName)
                 && !duplicateNames.contains(normalizedName)
@@ -928,8 +935,18 @@ struct SkillImportSheet: View {
                 for candidate in candidates {
                     let rootPath = URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path
                     guard seenRootPaths.insert(rootPath).inserted else { continue }
-                    discovered.append(KnownSkillCandidate(external: candidate, source: source))
+                    discovered.append(KnownSkillCandidate(external: candidate, source: source, pluginReference: nil, pluginVersion: nil))
                 }
+            }
+            claudeCodexScanProgress = "Scanning installed Codex plugins…"
+            for (candidate, reference, package) in await CodexPluginSkillDiscovery.candidateReferences() {
+                guard seenRootPaths.insert("plugin:\(reference.marketplace):\(reference.plugin):\(reference.relativeSkillRoot)").inserted else { continue }
+                discovered.append(KnownSkillCandidate(
+                    external: candidate,
+                    source: KnownSkillSource(root: package.root, label: "Codex Plugin · \(package.displayName) · \(package.version) · \(reference.marketplace)", provider: "openai-codex"),
+                    pluginReference: reference,
+                    pluginVersion: package.version
+                ))
             }
 
             guard !Task.isCancelled else { return }
@@ -1061,11 +1078,10 @@ struct SkillImportSheet: View {
 
         case .claudeCodex:
             let selected = filteredKnownSkillCandidates(claudeCodexCandidates)
-                .map(\.external)
-                .filter { selectedIDs.contains($0.sourceRootPath) }
+                .filter { selectedIDs.contains($0.id) }
             guard !selected.isEmpty else { return }
             do {
-                let result = try viewModel.importExternalSkills(
+                let result = try viewModel.importKnownSkills(
                     selected,
                     collectionName: importAsCollection ? trimmedCollectionName : nil
                 )

@@ -20,7 +20,7 @@ Agent Deck can discover skills from global, bundled, package, and explicit impor
 | User/global skills | `~/.pi/agent/skills/<name>/SKILL.md`, `~/.pi/agent/skills/<name>.md`. |
 | Legacy global skills | Recursive `~/.agents/skills/**/SKILL.md`; root `.md` files are ignored. |
 | Globally resolved package skills | Package-declared `pi.skills` or conventional package `skills/` folders from global package locations. |
-| Imported/catalog skills | Existing skill roots the user adds through Agent Deck’s `+` import flow. |
+| Imported/catalog skills | Existing skill roots the user adds through Agent Deck’s `+` import flow, including installed Codex Plugin skills. |
 
 A catalog skill keeps its original path. Agent Deck does not need to move, copy, or link a skill before using it; import is by reference, not copy. Runtime injection is controlled by assignment, not by the folder where the skill lives. Agent Deck does not discover project-local `.pi/skills` or legacy project `.agents/skills` folders as resource catalog sources.
 
@@ -28,7 +28,9 @@ A catalog skill keeps its original path. Agent Deck does not need to move, copy,
 
 The Skills view import sheet lets a user choose either a skill root or a broader source folder. Agent Deck searches the chosen folder recursively for directories containing `SKILL.md`, stopping recursion when it reaches a skill root. This lets a user point at a repository or collection folder, review the discovered skill roots, and select only the skills they want.
 
-Importing selected skills stores the selected skill root paths in Agent Deck settings. It does not store the broad search folder, copy files, or automatically assign the skills. The selected roots become catalog entries and are injected only when assigned as Default, Project, or Agent skills.
+Importing selected skills normally stores the selected skill root paths in Agent Deck settings. It does not store the broad search folder, copy files, or automatically assign the skills. The selected roots become catalog entries and are injected only when assigned as Default, Project, or Agent skills.
+
+The **Claude / Codex** source also lists skills declared by locally installed Codex plugins. Agent Deck considers a cache package installed only when Codex config lists its exact `plugin@marketplace` identity (whether enabled or disabled), or its plugin base has a valid Codex remote-install marker. It selects Codex's active cache version before validating its manifest; an invalid active package is unavailable rather than falling back to stale content. Agent Deck never changes Codex files. Importing one of these candidates stores its marketplace, plugin, and relative skill root rather than a versioned cache path. Each resource scan resolves that reference to Codex's current active package; launches use the refreshed skill catalog from that scan. An imported plugin skill therefore follows updates and remains unavailable (but retained as a reference) if the plugin is removed. Its stable relative skill folder and skill name must remain present; renamed or removed skills need re-import rather than being silently remapped.
 
 When a local-folder import or Git import contains selected skills and the user enables **Import as collection**, Agent Deck also records a first-class Skill Collection with the chosen name for that source. A collection is assignment metadata, not a runtime primitive: enabling a collection for All Projects or a project expands the collection to its member skill names, then launch resolution still emits one `--skill <path>` argument for each resolved skill. Removing a skill from the catalog removes it from collection membership; Git-backed collections continue to share the repository record and sparse-checkout metadata used for updates.
 

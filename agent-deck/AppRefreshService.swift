@@ -11,6 +11,8 @@ struct AppRefreshSnapshot: Sendable {
     let selectedProject: DiscoveredProject?
     let selectedProjectSnapshot: ScanSnapshot?
     let watchedURLs: [URL]
+    /// Stable references resolved once for this refresh; consumers must not re-walk Codex cache.
+    let resolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String]
     let watchFingerprint: String
     let includesWatchFingerprint: Bool
 }
@@ -31,12 +33,14 @@ nonisolated struct AppRefreshService: Sendable {
         preferencesByPath: [String: ProjectPreference],
         externalSkillPaths: Set<String>,
         externalPromptPaths: Set<String>,
+        codexPluginSkillReferences: Set<CodexPluginSkillReference> = [],
         skillCollectionNames: Set<String> = [],
         scanAllProjects: Bool = true,
         extraProjectPathsToScan: Set<String> = []
     ) -> AppRefreshSnapshot {
         let discovery = ProjectDiscovery()
-        let scanner = PiScanner(externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths, skillCollectionNames: skillCollectionNames)
+        let resolvedCodexPluginSkillPaths = CodexPluginSkillDiscovery.resolveAll(codexPluginSkillReferences).mapValues(\.path)
+        let scanner = PiScanner(externalSkillPaths: externalSkillPaths.union(Set(resolvedCodexPluginSkillPaths.values)), externalPromptPaths: externalPromptPaths, skillCollectionNames: skillCollectionNames)
         let discoveredProjects = discovery.discoverProjects(
             rootDirectoryURLs: rootURLs,
             additionalProjectPaths: Array(preferencesByPath.keys),
@@ -95,8 +99,9 @@ nonisolated struct AppRefreshService: Sendable {
         } else {
             projectsToWatch = scanAllProjects ? enabledProjects : projectsToScan
         }
-        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths)
-        let watchFingerprint = FileWatchFingerprint.make(urls: watchedURLs)
+        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths, codexPluginSkillReferences: codexPluginSkillReferences, resolvedCodexPluginSkillPaths: resolvedCodexPluginSkillPaths)
+        let pluginBaseURLs = Set(codexPluginSkillReferences.compactMap { CodexPluginSkillDiscovery.pluginBaseDirectory(for: $0)?.standardizedFileURL.path })
+        let watchFingerprint = FileWatchFingerprint.make(urls: watchedURLs, shallowDirectoryPaths: pluginBaseURLs)
 
         return AppRefreshSnapshot(
             projectPreferencesByPath: preferencesByPath,
@@ -108,12 +113,13 @@ nonisolated struct AppRefreshService: Sendable {
             selectedProject: selectedProject,
             selectedProjectSnapshot: selectedProjectSnapshot,
             watchedURLs: watchedURLs,
+            resolvedCodexPluginSkillPaths: resolvedCodexPluginSkillPaths,
             watchFingerprint: watchFingerprint,
             includesWatchFingerprint: scanAllProjects || selectedProject != nil
         )
     }
 
-    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot, externalSkillPaths: Set<String>, externalPromptPaths: Set<String>) -> [URL] {
+    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot, externalSkillPaths: Set<String>, externalPromptPaths: Set<String>, codexPluginSkillReferences: Set<CodexPluginSkillReference> = [], resolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]) -> [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let globalAgentRoot = home.appendingPathComponent(".pi/agent", isDirectory: true)
         let legacyGlobalAgentRoot = home.appendingPathComponent(".agents", isDirectory: true)
@@ -151,6 +157,15 @@ nonisolated struct AppRefreshService: Sendable {
         urls += snapshot.librarySkills.map { URL(fileURLWithPath: $0.filePath) }
         urls += externalSkillPaths.map { URL(fileURLWithPath: $0) }
         urls += externalPromptPaths.map { URL(fileURLWithPath: $0) }
+        // Stable plugin references follow Codex's active package. Watch each
+        // referenced plugin base (not every cache marketplace) and config so a
+        // version replacement or install-state change schedules a rescan.
+        if !codexPluginSkillReferences.isEmpty {
+            let codexHome = CodexPluginSkillDiscovery.codexHome()
+            urls.append(codexHome.appendingPathComponent("config.toml"))
+            urls += codexPluginSkillReferences.compactMap { CodexPluginSkillDiscovery.pluginBaseDirectory(for: $0, codexHome: codexHome) }
+            urls += resolvedCodexPluginSkillPaths.values.map { URL(fileURLWithPath: $0) }
+        }
         urls += (snapshot.promptTemplates + snapshot.libraryPromptTemplates).map { URL(fileURLWithPath: $0.filePath) }
         let globalSettingsPath = globalAgentRoot.appendingPathComponent("settings.json").standardizedFileURL.path
         urls += snapshot.settings
@@ -164,9 +179,13 @@ nonisolated struct AppRefreshService: Sendable {
 }
 
 nonisolated struct FileWatchFingerprint: Sendable {
-    static func make(urls: [URL]) -> String {
+    static func make(urls: [URL], shallowDirectoryPaths: Set<String> = []) -> String {
         let fileManager = FileManager.default
         let entries: [String] = urls.flatMap { url in
+            if shallowDirectoryPaths.contains(url.standardizedFileURL.path) {
+                let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
+                return ["\(url.path)::\(date)"]
+            }
             if let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey]),
                values.isDirectory == true {
                 let enumerator = fileManager.enumerator(
