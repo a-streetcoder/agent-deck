@@ -34,6 +34,10 @@ actor MCPConnectionManager {
     private let transportFactory: MCPConnection.TransportFactory
 
     private var configs: [String: MCPServerConfig] = [:]
+    private var policies: [String: MCPServerToolPolicy] = [:]
+    /// Incremented before any awaited close. Older configure calls re-check this
+    /// epoch before they mutate state, so actor reentrancy cannot restore stale config.
+    private var configurationEpoch: UInt64 = 0
     private var connections: [String: MCPConnection] = [:]
     /// Tool descriptors discovered per server, cached for describe/search and the catalog.
     private var toolCache: [String: [MCPToolDescriptor]] = [:]
@@ -57,17 +61,34 @@ actor MCPConnectionManager {
 
     /// Rebuilds the connection set from config. Unchanged servers keep their live
     /// connection; changed/removed ones are closed.
-    func configure(servers: [MCPServerEntry]) async {
+    func configure(servers: [MCPServerEntry],
+                   refreshToken: UInt64? = nil,
+                   refreshCoordinator: MCPConfigurationRefreshCoordinator? = nil) async {
+        let refreshIsCurrent = { refreshToken == nil || refreshCoordinator?.isCurrent(refreshToken!) == true }
+        // Do not let a stale request advance the local epoch: a current configure may
+        // be suspended in close() and must still be allowed to publish when it resumes.
+        guard refreshIsCurrent() else { return }
+        configurationEpoch &+= 1
+        let epoch = configurationEpoch
         var newConfigs: [String: MCPServerConfig] = [:]
-        for entry in servers { newConfigs[entry.name] = entry.config }
+        var newPolicies: [String: MCPServerToolPolicy] = [:]
+        for entry in servers where entry.isAvailable {
+            newConfigs[entry.name] = entry.config
+            newPolicies[entry.name] = entry.toolPolicy
+        }
 
         // Close connections that were removed or whose config changed.
         for (name, connection) in connections where newConfigs[name] != configs[name] {
             await connection.close()
+            // A newer configure may have run while close() suspended this actor.
+            // Do not clear its live connection or publish this older config.
+            guard epoch == configurationEpoch, refreshIsCurrent() else { return }
             connections[name] = nil
             toolCache[name] = nil
         }
+        guard epoch == configurationEpoch, refreshIsCurrent() else { return }
         configs = newConfigs
+        policies = newPolicies
         // Drop connections for servers no longer present.
         for name in connections.keys where newConfigs[name] == nil {
             connections[name] = nil
@@ -107,7 +128,7 @@ actor MCPConnectionManager {
             config: config,
             clientName: clientName,
             clientVersion: clientVersion,
-            requestTimeout: requestTimeout,
+            requestTimeout: policies[name] == .computerUseObservationOnly ? .seconds(5) : requestTimeout,
             transportFactory: factory
         )
         connections[name] = connection
@@ -117,8 +138,9 @@ actor MCPConnectionManager {
     @discardableResult
     private func listTools(server: String) async throws -> [MCPToolDescriptor] {
         let tools = try await connection(for: server).listTools()
-        toolCache[server] = tools
-        return tools
+        let permitted = tools.filter { policies[server, default: .unrestricted].allows($0.name) }
+        toolCache[server] = permitted
+        return permitted
     }
 
     /// Connects each in-scope server and returns its tools as catalog entries. Servers
@@ -135,7 +157,16 @@ actor MCPConnectionManager {
     }
 
     func call(server: String, tool: String, arguments: JSONValue?) async throws -> MCPCallResult {
-        try await connection(for: server).callTool(name: tool, arguments: arguments)
+        guard policies[server, default: .unrestricted].allows(tool) else {
+            throw MCPError.policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps is allowed.")
+        }
+        let result = try await connection(for: server).callTool(name: tool, arguments: arguments)
+        if policies[server] == .computerUseObservationOnly,
+           result.isError == true,
+           result.combinedText.contains("-1743") {
+            throw MCPError.runtimeAuthorization("Codex Computer Use needs macOS Automation authorization (error -1743). Allow it in System Settings before retrying list_apps.")
+        }
+        return result
     }
 
     /// Returns a cached descriptor for `server/tool`, discovering the server's tools
@@ -165,6 +196,9 @@ actor MCPConnectionManager {
 
     /// Whether a live connection to this server already exists (reused across sessions).
     func hasLiveConnection(_ server: String) -> Bool { connections[server] != nil }
+
+    /// Current resolved config, primarily useful for diagnostics and concurrency tests.
+    func configuredConfig(server: String) -> MCPServerConfig? { configs[server] }
 
     /// Connect + list against a config entry, for a "test connection" button. Reuses the
     /// live connection when one already exists, so re-testing an already-connected server
@@ -200,7 +234,7 @@ actor MCPConnectionManager {
             config: entry.config,
             clientName: clientName,
             clientVersion: clientVersion,
-            requestTimeout: .seconds(20),
+            requestTimeout: entry.toolPolicy == .computerUseObservationOnly ? .seconds(5) : .seconds(20),
             transportFactory: factory
         )
         do {

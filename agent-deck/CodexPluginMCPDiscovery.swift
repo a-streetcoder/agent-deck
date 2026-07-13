@@ -118,7 +118,10 @@ nonisolated struct CodexPluginMCPDiscovery: Sendable {
         }
         var resources: [Resource] = []
         var errors: [Diagnostic] = []
-        for (name, rawConfig) in (file.mcpServers ?? [:]).sorted(by: { $0.key < $1.key }) {
+        // This is intentionally a seam for explicitly-supported adapters, not a
+        // generic plugin-MCP importer. Only the verified Computer Use definition is
+        // allowed through.
+        for (name, rawConfig) in (file.mcpServers ?? [:]).sorted(by: { $0.key < $1.key }) where name == "computer-use" {
             switch resolve(rawConfig, root: root) {
             case let .success(config):
                 resources.append(Resource(pluginID: plugin.pluginID, serverName: name, version: plugin.version, provenance: .init(marketplace: plugin.marketplaceName, sourceType: plugin.source.kind, source: root.path), config: config, sourcePath: mcpURL.path))

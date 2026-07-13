@@ -78,6 +78,27 @@ nonisolated struct MCPServersFile: Codable, Hashable, Sendable {
     var settings: MCPSettings?
 }
 
+/// Provenance of a catalog server. Plugin definitions are discovered read-only and
+/// are never persistence targets.
+nonisolated enum MCPServerProvenance: Hashable, Sendable {
+    case config
+    case codexPlugin(version: String?, availability: String?)
+}
+
+/// Native restrictions for adapters whose capability must be constrained by the app,
+/// not by a prompt or server-side elicitation.
+nonisolated enum MCPServerToolPolicy: Hashable, Sendable {
+    case unrestricted
+    case computerUseObservationOnly
+
+    func allows(_ tool: String) -> Bool {
+        switch self {
+        case .unrestricted: true
+        case .computerUseObservationOnly: tool == "list_apps"
+        }
+    }
+}
+
 /// A resolved server with provenance: the merged config plus the on-disk file it
 /// came from (for the management UI and for "this is read-only" affordances).
 nonisolated struct MCPServerEntry: Hashable, Sendable, Identifiable {
@@ -85,6 +106,13 @@ nonisolated struct MCPServerEntry: Hashable, Sendable, Identifiable {
     var config: MCPServerConfig
     /// Absolute path of the `mcp.json` this entry's config was read from.
     var sourcePath: String
+    var provenance: MCPServerProvenance = .config
+    var toolPolicy: MCPServerToolPolicy = .unrestricted
+    /// A transient plugin server can retain its stable assignment identity while its
+    /// current resolved helper is unavailable. Such an entry is never configured.
+    var availabilityDiagnostic: String?
+    var diagnostic: String?
+    var isAvailable: Bool { availabilityDiagnostic == nil }
     var id: String { name }
 }
 

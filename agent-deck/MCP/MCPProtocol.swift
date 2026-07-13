@@ -201,6 +201,8 @@ nonisolated enum MCPError: LocalizedError, Sendable, Equatable {
     case decoding(String)
     case invalidArguments(String)
     case unsupportedTransport(MCPTransportKind)
+    case policyDenied(String)
+    case runtimeAuthorization(String)
     /// HTTP 401 — the server requires authentication (drives the OAuth Connect flow).
     case unauthorized
 
@@ -214,6 +216,8 @@ nonisolated enum MCPError: LocalizedError, Sendable, Equatable {
         case let .decoding(detail): return "Could not decode MCP response: \(detail)"
         case let .invalidArguments(detail): return detail
         case let .unsupportedTransport(kind): return "MCP transport \"\(kind.rawValue)\" is not supported yet."
+        case let .policyDenied(message): return message
+        case let .runtimeAuthorization(message): return message
         case .unauthorized: return "MCP server requires sign-in (401). Connect the server to authorize."
         }
     }

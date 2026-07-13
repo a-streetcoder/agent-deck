@@ -339,7 +339,11 @@ final class AppViewModel: NSObject {
     /// Cached catalog of all configured MCP tools, refreshed off-main. Read synchronously
     /// by the launch-time catalog provider, so it must never be recomputed in a view body.
     @ObservationIgnored private var mcpCatalogSnapshot: [MCPCatalogEntry] = []
+    private(set) var mcpCatalogRevision = 0
     @ObservationIgnored private var mcpConfiguredServerNames: Set<String> = []
+    @ObservationIgnored private var codexComputerUseMCPDiscovery = CodexPluginMCPDiscovery.Result(resources: [], diagnostics: [.pluginNotInstalled])
+    @ObservationIgnored private let mcpRefreshCoordinator = MCPConfigurationRefreshCoordinator()
+    @ObservationIgnored private var mcpRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var mcpLastRefreshKey: String?
     private var globalSnapshot: ScanSnapshot = .empty {
         didSet {
@@ -538,6 +542,7 @@ final class AppViewModel: NSObject {
     }
 
     deinit {
+        mcpRefreshTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -547,6 +552,8 @@ final class AppViewModel: NSObject {
         stopAutoRefresh(cancelPendingScan: true)
         refreshTask?.cancel()
         refreshTask = nil
+        mcpRefreshTask?.cancel()
+        mcpRefreshTask = nil
         launchResourceFingerprintTask?.cancel()
         launchResourceFingerprintTask = nil
         launchResourceFingerprintsBySessionID.removeAll()
@@ -810,7 +817,7 @@ final class AppViewModel: NSObject {
         // Keep MCP connections + catalog aligned with the active project. The call is
         // a no-op when the (mcpEnabled, project) key is unchanged, so frequent
         // file-watch refreshes don't re-spawn servers.
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL)
+        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
 
         // A fresh snapshot is authoritative. Drop pending deletions no longer
         // present (deletion confirmed); keep IDs still present so a stale
@@ -4374,36 +4381,45 @@ final class AppViewModel: NSObject {
         let key = "\(enabled)#\(projectURL?.path ?? "")"
         if !forced, key == mcpLastRefreshKey { return }
         mcpLastRefreshKey = key
+        let token = mcpRefreshCoordinator.begin()
+        mcpRefreshTask?.cancel()
 
-        Task { [weak self] in
+        mcpRefreshTask = Task { [weak self] in
             guard let self else { return }
             // Bind OAuth token resolution so remote (http) transports authorize.
             await self.mcpConnectionManager.setAuthTokenProvider { server in
                 await MCPOAuthService.shared.accessToken(for: server)
             }
-            // Catalog = every configured server, merged across all mcp.json locations.
-            // Always surface their names (cheap) so the agent picker works even before
-            // MCP is turned on.
-            let configured = await Task.detached { MCPConfigLoader().load(projectRoot: projectURL).servers }.value
-            let names = Set(configured.map(\.name))
-            self.mcpConfiguredServerNames = names
+            // Config I/O and the bounded, read-only Codex query both run away from the
+            // main actor. The plugin result is transient; only its stable server name
+            // participates in assignment persistence.
+            async let configuredTask = Task.detached(priority: .utility) { MCPConfigLoader().load(projectRoot: projectURL).servers }.value
+            async let discoveryTask = Task.detached(priority: .utility) { await CodexPluginMCPDiscovery().discover() }.value
+            let configured = await configuredTask
+            let discovery = await discoveryTask
+            guard !Task.isCancelled, self.mcpRefreshCoordinator.isCurrent(token) else { return }
+
+            self.codexComputerUseMCPDiscovery = discovery
+            self.mcpCatalogRevision &+= 1
+            let merged = CodexComputerUseMCPIntegration.merge(configured: configured, discovery: discovery)
+            self.mcpConfiguredServerNames = Set(merged.map(\.name))
             guard enabled else {
-                await self.mcpConnectionManager.configure(servers: [])
+                guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: [], manager: self.mcpConnectionManager),
+                      !Task.isCancelled else { return }
                 self.mcpCatalogSnapshot = []
                 self.reconcileRunningSessionLaunchResourceFingerprints()
                 return
             }
-            await self.mcpConnectionManager.configure(servers: configured)
+            guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: merged, manager: self.mcpConnectionManager),
+                  !Task.isCancelled else { return }
             // Connect/enumerate ONLY servers assigned to this project (defaults +
             // project assignment + any agent available to the project). Unassigned
             // servers stay registered but unconnected, so adding an MCP without
             // assigning it never spawns its process or triggers its permission prompt.
-            // The manager keeps connections live across sessions, so a server connects
-            // (and prompts) at most once, not on every new chat. Per-session scoping is
-            // re-applied on catalog render (snapshot for the active project, on-demand
-            // discovery for other projects — see `mcpCatalogEntries`) and on each bridge call.
             let scoped = self.assignedMCPServerNames(forProjectPath: projectURL?.path)
-            self.mcpCatalogSnapshot = await self.mcpConnectionManager.discoverCatalog(serverNames: scoped)
+            let catalog = await self.mcpConnectionManager.discoverCatalog(serverNames: scoped)
+            guard !Task.isCancelled, self.mcpRefreshCoordinator.isCurrent(token) else { return }
+            self.mcpCatalogSnapshot = catalog
             self.reconcileRunningSessionLaunchResourceFingerprints()
         }
     }
@@ -4556,9 +4572,14 @@ final class AppViewModel: NSObject {
 
     // MARK: MCP assignment (used by the MCP servers management UI)
 
-    /// All configured MCP server entries for the active project (merged `mcp.json`).
-    func mcpServerEntries() -> [MCPServerEntry] {
-        MCPConfigLoader().load(projectRoot: projectRootURL).servers
+    /// All configured and transient plugin MCP entries for the active project. Plugin
+    /// paths are only held in the current refresh result and are never written.
+    func mcpServerEntries() async -> [MCPServerEntry] {
+        let root = projectRootURL
+        let configured = await Task.detached(priority: .utility) {
+            MCPConfigLoader().load(projectRoot: root).servers
+        }.value
+        return CodexComputerUseMCPIntegration.merge(configured: configured, discovery: codexComputerUseMCPDiscovery)
     }
 
     func mcpServer(_ name: String, isEnabledFor project: DiscoveredProject) -> Bool {

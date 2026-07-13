@@ -25,6 +25,46 @@ actor MCPStubTransport: MCPTransport {
     func sentLines() -> [String] { sent }
 }
 
+/// Deterministically holds individual transport closes so a configure call can be
+/// interleaved with a newer one while MCPConnectionManager is reentrant.
+actor CloseGate {
+    private var entered = 0
+    private var entryWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var closeWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    func block() async {
+        let index = entered
+        entered += 1
+        for continuation in entryWaiters.removeValue(forKey: entered) ?? [] { continuation.resume() }
+        await withCheckedContinuation { closeWaiters[index] = $0 }
+    }
+
+    func waitUntilEntered(_ count: Int) async {
+        guard entered < count else { return }
+        await withCheckedContinuation { entryWaiters[count, default: []].append($0) }
+    }
+
+    func release(_ index: Int) { closeWaiters.removeValue(forKey: index)?.resume() }
+}
+
+actor DelayedCloseTransport: MCPTransport {
+    private let base: MCPStubTransport
+    private let gate: CloseGate
+
+    init(responder: @escaping MCPStubTransport.Responder, gate: CloseGate) {
+        self.base = MCPStubTransport(responder: responder)
+        self.gate = gate
+    }
+
+    func start(onLine: @escaping @Sendable (String) -> Void,
+               onClose: @escaping @Sendable (MCPError?) -> Void) async throws {
+        try await base.start(onLine: onLine, onClose: onClose)
+    }
+
+    func send(_ line: String) async throws { try await base.send(line) }
+    func close() async { await gate.block() }
+}
+
 /// A small MCP server simulator. `answerCall` lets a test decide each tools/call result.
 enum MCPMockServer {
     static func responder(answerCall: @escaping @Sendable (String) -> String?) -> MCPStubTransport.Responder {
@@ -219,6 +259,147 @@ final class MCPConnectionManagerTests: XCTestCase {
         ])
         let result = try await manager.call(server: "alpha", tool: "echo", arguments: nil)
         XCTAssertEqual(result.combinedText, "ok")
+    }
+
+    func testComputerUseCatalogRetainsListAppsFiltersActionsAndDeniesDirectCall() async throws {
+        let responder: MCPStubTransport.Responder = { line in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] as? Int ?? 0
+            switch object?["method"] as? String {
+            case "initialize":
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"mock"}}}"#]
+            case "tools/list":
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[{"name":"list_apps"},{"name":"click"}]}}"#]
+            case "tools/call": return [MCPMockServer.callResult(id: id, text: "ok")]
+            default: return []
+            }
+        }
+        let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
+        await manager.configure(servers: [
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
+        ])
+        let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
+        let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil)
+        XCTAssertEqual(catalog.map(\.tool), ["list_apps"])
+        XCTAssertEqual(listAppsResult.combinedText, "ok")
+        do {
+            _ = try await manager.call(server: "codex-computer-use", tool: "click", arguments: nil)
+            XCTFail("action call must be denied before transport use")
+        } catch let error as MCPError {
+            XCTAssertEqual(error, .policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps is allowed."))
+        } catch { XCTFail("unexpected error: \(error)") }
+    }
+
+    func testComputerUseAuthorizationErrorIsRuntimeDiagnostic() async {
+        let responder = MCPMockServer.responder { line in
+            let id = ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["id"] as? Int ?? 0
+            return #"{"jsonrpc":"2.0","id":\#(id),"result":{"content":[{"type":"text","text":"Automation denied (-1743)"}],"isError":true}}"#
+        }
+        let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
+        await manager.configure(servers: [
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
+        ])
+        do {
+            _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil)
+            XCTFail("expected authorization diagnostic")
+        } catch let error as MCPError {
+            XCTAssertEqual(error, .runtimeAuthorization("Codex Computer Use needs macOS Automation authorization (error -1743). Allow it in System Settings before retrying list_apps."))
+        } catch { XCTFail("unexpected error: \(error)") }
+    }
+
+    func testUnavailableServerNeverConfiguresOrConnects() async {
+        let manager = manager()
+        await manager.configure(servers: [
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseObservationOnly, availabilityDiagnostic: "disabled")
+        ])
+        let connectedBefore = await manager.hasLiveConnection("codex-computer-use")
+        let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
+        let connectedAfter = await manager.hasLiveConnection("codex-computer-use")
+        XCTAssertFalse(connectedBefore)
+        XCTAssertTrue(catalog.isEmpty)
+        XCTAssertFalse(connectedAfter)
+    }
+
+    @MainActor
+    func testRefreshCoordinatorCannotRestoreOldConfigAfterInterleavedClose() async throws {
+        let gate = CloseGate()
+        let responder = MCPMockServer.responder { line in
+            let id = ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["id"] as? Int ?? 0
+            return MCPMockServer.callResult(id: id, text: "new")
+        }
+        let manager = MCPConnectionManager(transportFactory: { config in
+            guard config.command != "old-helper" else { throw MCPError.transportFailed("stale config restored") }
+            return DelayedCloseTransport(responder: responder, gate: gate)
+        })
+        // Seed a live connection so both refreshes must await close().
+        await manager.configure(servers: [MCPServerEntry(name: "server", config: MCPServerConfig(command: "new-helper"), sourcePath: "/seed")])
+        _ = try await manager.call(server: "server", tool: "echo", arguments: nil)
+
+        let coordinator = MCPConfigurationRefreshCoordinator()
+        let older = coordinator.begin()
+        let oldEntry = MCPServerEntry(name: "server", config: MCPServerConfig(command: "old-helper"), sourcePath: "/old")
+        let oldTask = Task { await coordinator.configureIfCurrent(older, servers: [oldEntry], manager: manager) }
+        await gate.waitUntilEntered(1)
+
+        let newer = coordinator.begin()
+        let newEntry = MCPServerEntry(name: "server", config: MCPServerConfig(command: "new-helper"), sourcePath: "/new")
+        let newTask = Task { await coordinator.configureIfCurrent(newer, servers: [newEntry], manager: manager) }
+
+        // The newer refresh is now submitted with its new root while the old close is
+        // blocked. e80c4c1 allowed the old operation to resume last and commit
+        // old-helper; the shared generation must reject it before manager mutation.
+        let newerApplied = await newTask.value
+        await gate.release(0)
+        let olderApplied = await oldTask.value
+        let finalConfig = await manager.configuredConfig(server: "server")
+        XCTAssertTrue(newerApplied)
+        XCTAssertFalse(olderApplied)
+        XCTAssertEqual(finalConfig?.command, "new-helper")
+
+        let result = try await manager.call(server: "server", tool: "echo", arguments: nil)
+        XCTAssertEqual(result.combinedText, "new")
+    }
+
+    @MainActor
+    func testLateStaleConfigureDoesNotAdvanceEpochWhileNewestCloseIsSuspended() async throws {
+        let gate = CloseGate()
+        let responder = MCPMockServer.responder { line in
+            let id = ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["id"] as? Int ?? 0
+            return MCPMockServer.callResult(id: id, text: "new")
+        }
+        let manager = MCPConnectionManager(transportFactory: { config in
+            guard config.command != "old-helper" else { throw MCPError.transportFailed("stale config restored") }
+            return DelayedCloseTransport(responder: responder, gate: gate)
+        })
+        await manager.configure(servers: [MCPServerEntry(name: "server", config: MCPServerConfig(command: "seed-helper"), sourcePath: "/seed")])
+        _ = try await manager.call(server: "server", tool: "echo", arguments: nil)
+
+        let coordinator = MCPConfigurationRefreshCoordinator()
+        let staleToken = coordinator.begin()
+        let newestToken = coordinator.begin()
+        let newest = MCPServerEntry(name: "server", config: MCPServerConfig(command: "new-helper"), sourcePath: "/new")
+        let stale = MCPServerEntry(name: "server", config: MCPServerConfig(command: "old-helper"), sourcePath: "/old")
+        let newestTask = Task {
+            await manager.configure(servers: [newest], refreshToken: newestToken, refreshCoordinator: coordinator)
+        }
+        await gate.waitUntilEntered(1)
+
+        // This stale submission arrives after newest has entered and suspended in
+        // close(). It must return before incrementing configurationEpoch.
+        await manager.configure(servers: [stale], refreshToken: staleToken, refreshCoordinator: coordinator)
+        await gate.release(0)
+        await newestTask.value
+
+        let finalConfig = await manager.configuredConfig(server: "server")
+        let result = try await manager.call(server: "server", tool: "echo", arguments: nil)
+        XCTAssertEqual(finalConfig?.command, "new-helper")
+        XCTAssertEqual(result.combinedText, "new")
+    }
+
+    func testParentAndSubagentMCPBridgesRouteThroughCentralPolicyCall() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("agent-deck/AppViewModel.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("await performMCPBridge(request: request, scope: subagentMCPScope"))
+        XCTAssertTrue(source.contains("mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args)"))
     }
 
     func testCallUnknownServerThrows() async throws {

@@ -101,6 +101,9 @@ final class CodexPluginMCPDiscoveryTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["AGENT_DECK_LIVE_CODEX_DISCOVERY"] == "1" || UserDefaults.standard.bool(forKey: "AgentDeckLiveCodexDiscovery") else {
             throw XCTSkip("Live Codex discovery is opt-in.")
         }
+        guard CodexExecutableResolver().resolve() != nil else {
+            throw XCTSkip("Codex was not found by CodexExecutableResolver (including the bundled ChatGPT location).")
+        }
         let result = await CodexPluginMCPDiscovery().discover()
         let resource = try XCTUnwrap(result.resources.first)
         XCTAssertEqual(resource.pluginID, "computer-use@openai-bundled")

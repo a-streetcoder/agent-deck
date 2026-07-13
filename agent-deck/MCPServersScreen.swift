@@ -54,8 +54,8 @@ struct MCPServersScreen: View {
                 }
             }
         }
-        // Reload on project switch, enable toggle, and manual Refresh. Off-main.
-        .task(id: "\(viewModel.projectRootURL?.path ?? "")#\(mcpEnabled)#\(reloadTick)") {
+        // Reload on project switch, enable toggle, discovery refresh, and manual Refresh. Off-main.
+        .task(id: "\(viewModel.projectRootURL?.path ?? "")#\(mcpEnabled)#\(viewModel.mcpCatalogRevision)#\(reloadTick)") {
             await loadServers()
         }
         // Window-toolbar actions (the toolbar lives in ContentView).
@@ -163,10 +163,12 @@ struct MCPServersScreen: View {
         }
         .disabled(statusByServer[entry.name] == .probing)
 
-        Button {
-            revealInFinder(entry)
-        } label: {
-            Label("Reveal Config in Finder", systemImage: "finder")
+        if !entry.sourcePath.isEmpty {
+            Button {
+                revealInFinder(entry)
+            } label: {
+                Label("Reveal Config in Finder", systemImage: "finder")
+            }
         }
 
         if viewModel.mcpServerIsEditable(entry) {
@@ -254,6 +256,10 @@ struct MCPServersScreen: View {
                 }
                 detailRow(icon: entry.config.resolvedTransport == .stdio ? "terminal" : "globe", text: transportLabel(entry))
                 detailRow(icon: "doc", text: sourceLabel(entry))
+                if let diagnostic = entry.availabilityDiagnostic ?? entry.diagnostic {
+                    Label(diagnostic, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
                 if case let .failed(message) = statusByServer[entry.name] {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
@@ -267,7 +273,7 @@ struct MCPServersScreen: View {
     private func probeButton(_ entry: MCPServerEntry, disconnectedTitle: String = "Connect") -> some View {
         Button(isServerConnected(entry) ? "Refresh" : disconnectedTitle) { Task { await probe(entry) } }
             .controlSize(.small)
-            .disabled(statusByServer[entry.name] == .probing)
+            .disabled(!entry.isAvailable || statusByServer[entry.name] == .probing)
     }
 
     private func detailRow(icon: String, text: String) -> some View {
@@ -289,7 +295,9 @@ struct MCPServersScreen: View {
         case .failed:
             AppLabelTag(text: "Not reachable", color: .orange)
         case nil:
-            if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
+            if !entry.isAvailable {
+                AppLabelTag(text: "Unavailable", color: .orange)
+            } else if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
                 AppLabelTag(text: "Signed in", color: .green)
             } else {
                 AppLabelTag(text: "Not connected", color: .secondary)
@@ -331,6 +339,7 @@ struct MCPServersScreen: View {
 
     private func emptyToolsMessage(for entry: MCPServerEntry) -> String {
         if statusByServer[entry.name] == .probing { return "Loading tools…" }
+        if let diagnostic = entry.availabilityDiagnostic { return diagnostic }
         if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
             return "Load this server's tools to make them available."
         }
@@ -393,14 +402,18 @@ struct MCPServersScreen: View {
         } else {
             AppCard(title: "Read-only") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("This server is defined in a file Agent Deck doesn't own, so it can't be edited or removed here. Open the file to change or delete it.")
+                    Text(entry.sourcePath.isEmpty
+                         ? "This Codex Plugin server is discovered read-only. Its resolved helper is transient and cannot be edited or removed here."
+                         : "This server is defined in a file Agent Deck doesn't own, so it can't be edited or removed here. Open the file to change or delete it.")
                         .font(.callout)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    detailRow(icon: "doc", text: URL(fileURLWithPath: entry.sourcePath).path)
-                    Button("Reveal in Finder") { revealInFinder(entry) }
-                        .appSecondaryButton()
+                    if !entry.sourcePath.isEmpty {
+                        detailRow(icon: "doc", text: URL(fileURLWithPath: entry.sourcePath).path)
+                        Button("Reveal in Finder") { revealInFinder(entry) }
+                            .appSecondaryButton()
+                    }
                 }
             }
         }
@@ -442,7 +455,12 @@ struct MCPServersScreen: View {
     }
 
     private func sourceLabel(_ entry: MCPServerEntry) -> String {
-        viewModel.mcpServerIsEditable(entry) ? "~/.pi/agent/mcp.json" : URL(fileURLWithPath: entry.sourcePath).lastPathComponent + " (read-only)"
+        switch entry.provenance {
+        case .config:
+            return viewModel.mcpServerIsEditable(entry) ? "~/.pi/agent/mcp.json" : URL(fileURLWithPath: entry.sourcePath).lastPathComponent + " (read-only)"
+        case let .codexPlugin(version, availability):
+            return "Codex Plugin · \(availability ?? "Read-only")\(version.map { " · v\($0)" } ?? "")"
+        }
     }
 
     // MARK: - Off-main loading
@@ -450,9 +468,7 @@ struct MCPServersScreen: View {
     private func loadServers() async {
         let root = viewModel.projectRootURL
         isLoading = true
-        let loaded = await Task.detached(priority: .utility) {
-            MCPConfigLoader().load(projectRoot: root).servers
-        }.value
+        let loaded = await viewModel.mcpServerEntries()
         servers = loaded
         statusByServer = statusByServer.filter { key, _ in loaded.contains { $0.name == key } }
         isLoading = false
