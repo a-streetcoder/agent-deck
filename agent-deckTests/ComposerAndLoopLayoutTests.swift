@@ -32,6 +32,27 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         executionTimeAllowance = 12
     }
 
+    func testSubagentControlsUseCompactMeasuredWidthsAtExactFitBoundary() {
+        let host = NSHostingView(rootView: AnyView(PiAgentAdaptiveControlsLayoutFixture(
+            firstWidth: 140,
+            secondWidth: 100,
+            width: 248
+        )))
+        let window = makeConstrainedWindow(host: host)
+        Self.windows.append(window)
+
+        let exactFit = resizeAndMeasure(window: window, host: host, width: 248)
+        host.rootView = AnyView(PiAgentAdaptiveControlsLayoutFixture(
+            firstWidth: 140,
+            secondWidth: 100,
+            width: 247
+        ))
+        let insufficientWidth = resizeAndMeasure(window: window, host: host, width: 247)
+
+        XCTAssertEqual(exactFit.height, 20, accuracy: 0.5, "140 + 8 + 100 at 248pt must remain horizontal.")
+        XCTAssertEqual(insufficientWidth.height, 46, accuracy: 0.5, "247pt must use the vertical fallback.")
+    }
+
     func testSubagentPickerRowSurvivesRepeatedWidthCyclesAndReturnsToStableWideGeometry() {
         let startedAt = Date()
         let agent = PiTestSupport.makeAgent(

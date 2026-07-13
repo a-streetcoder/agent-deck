@@ -1226,9 +1226,14 @@ private struct PiAgentAdaptiveRowLayout: Layout {
 
 private struct PiAgentAdaptiveControlsLayout: Layout {
     struct Cache {
-        var width: CGFloat = -.infinity
+        var widths: [CGFloat] = []
         var height: CGFloat?
         var sizes: [CGSize] = []
+    }
+
+    private struct Configuration {
+        let widths: [CGFloat]
+        let isHorizontal: Bool
     }
 
     private let wideModelWidth: CGFloat = 300
@@ -1236,21 +1241,43 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
     private let mediumModelWidth: CGFloat = 180
     private let mediumThinkingWidth: CGFloat = 150
     private let spacing: CGFloat = 8
+    private let verticalSpacing: CGFloat = 6
     private var wideThreshold: CGFloat { wideModelWidth + spacing + wideThinkingWidth }
     private var mediumThreshold: CGFloat { mediumModelWidth + spacing + mediumThinkingWidth }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
 
-    private func widths(for width: CGFloat) -> [CGFloat] {
-        if width >= wideThreshold { return [wideModelWidth, wideThinkingWidth] }
-        if width >= mediumThreshold { return [mediumModelWidth, mediumThinkingWidth] }
-        return [min(220, width), min(180, width)]
+    private func verticalWidths(for width: CGFloat) -> [CGFloat] {
+        [min(220, width), min(180, width)]
     }
 
-    private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
-        if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
-        let widths = widths(for: width)
-        cache.width = width
+    private func configuration(for width: CGFloat, height: CGFloat?, hasFiniteWidth: Bool, subviews: Subviews) -> Configuration {
+        if width >= wideThreshold {
+            return Configuration(widths: [wideModelWidth, wideThinkingWidth], isHorizontal: true)
+        }
+        if width >= mediumThreshold {
+            return Configuration(widths: [mediumModelWidth, mediumThinkingWidth], isHorizontal: true)
+        }
+        guard hasFiniteWidth else {
+            return Configuration(widths: verticalWidths(for: width), isHorizontal: false)
+        }
+
+        // Below the fixed medium breakpoint, use each chip's compact ideal
+        // width rather than stacking merely because the allocation is <338pt.
+        let compactWidths = subviews.enumerated().map { index, subview in
+            let idealWidth = subview.sizeThatFits(.init(width: nil, height: height)).width
+            return min(index == 0 ? mediumModelWidth : mediumThinkingWidth, idealWidth)
+        }
+        let fitsHorizontally = compactWidths[0] + spacing + compactWidths[1] <= width
+        return Configuration(
+            widths: fitsHorizontally ? compactWidths : verticalWidths(for: width),
+            isHorizontal: fitsHorizontally
+        )
+    }
+
+    private func measurements(widths: [CGFloat], height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
+        if cache.widths == widths, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
+        cache.widths = widths
         cache.height = height
         cache.sizes = zip(subviews, widths).map { $0.sizeThatFits(.init(width: $1, height: height)) }
         return cache.sizes
@@ -1417,8 +1444,12 @@ struct PiAgentSubagentPickerRowLayoutFixture: View {
             selectedModelIdentifier: "openai/gpt-5.4-mini",
             selectedThinkingLevel: "medium",
             thinkingLevels: ["low", "medium", "high"],
+            hasModelLaunchOverride: false,
+            hasThinkingLaunchOverride: false,
             onSelectModel: { _ in },
             onSelectThinking: { _ in },
+            onResetModel: {},
+            onResetThinking: {},
             onToggle: {},
             onStartDirectChat: {}
         )
@@ -1598,10 +1629,17 @@ private struct PiAgentPickerLaunchControls: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 2) {
                     Button {
+                        onResetThinking()
+                        isThinkingPresented = false
+                    } label: {
+                        popoverRow(label: "Agent default", isSelected: !hasThinkingLaunchOverride)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
                         onSelectThinking(nil)
                         isThinkingPresented = false
                     } label: {
-                        popoverRow(label: "Pi default", isSelected: isThinkingDefault)
+                        popoverRow(label: "Pi default", isSelected: hasThinkingLaunchOverride && isThinkingDefault)
                     }
                     .buttonStyle(.plain)
                     ForEach(thinkingOptions, id: \.self) { level in
