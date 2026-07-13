@@ -4867,6 +4867,7 @@ struct PiAgentScreen: View {
                 )
             }
         }
+        .modifier(ComputerUseApprovalPresentation(coordinator: viewModel.computerUseApprovalCoordinator, sessionID: store.selectedSession?.id))
         .sheet(isPresented: $isLoopLaunchSheetPresented) {
             if let session = store.selectedSession,
                let projectPath = session.projectPathForProjectFeatures {

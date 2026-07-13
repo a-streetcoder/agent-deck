@@ -57,6 +57,7 @@ nonisolated struct JSONRPCOutgoingResponse: Encodable, Sendable {
 /// Forward-compatible representation of `elicitation/create`. Elicitation was added
 /// after Agent Deck's 2025-03-26 handshake, so this is defensive only until a UI exists.
 nonisolated struct MCPElicitationRequest: Sendable {
+    let id: RPCID
     let message: String?
     let title: String?
     let requestedSchema: JSONValue?
@@ -65,8 +66,11 @@ nonisolated struct MCPElicitationRequest: Sendable {
     /// Full params retained for diagnostics without rendering or logging values.
     let rawParams: JSONValue?
 
-    init?(params: JSONValue?) {
+    init?(params: JSONValue?) { self.init(id: .null, params: params) }
+
+    init?(id: RPCID, params: JSONValue?) {
         guard case let .object(values)? = params else { return nil }
+        self.id = id
         message = values["message"]?.stringValue
         title = values["title"]?.stringValue
         requestedSchema = values["requestedSchema"]
@@ -75,13 +79,23 @@ nonisolated struct MCPElicitationRequest: Sendable {
         rawParams = params
     }
 
-    /// The 2025-06-18 shape requires a message and a restricted object schema.
+    /// The 2025-06-18 shape requires a message and an object schema.
     var isValidForInteractiveHandling: Bool {
         guard let message, !message.isEmpty,
               case let .object(schema)? = requestedSchema,
               schema["type"]?.stringValue == "object",
               case .object? = schema["properties"] else { return false }
         return true
+    }
+
+    /// Phase 2B intentionally supports confirmation-only elicitation, never forms.
+    var isConfirmationOnly: Bool {
+        guard isValidForInteractiveHandling,
+              case let .object(schema)? = requestedSchema,
+              case let .object(properties)? = schema["properties"], properties.isEmpty else { return false }
+        guard let required = schema["required"] else { return true }
+        guard case let .array(values) = required else { return false }
+        return values.isEmpty
     }
 }
 
@@ -93,7 +107,7 @@ nonisolated struct MCPElicitationMeta: Sendable {
     init(value: JSONValue?) {
         raw = value
         guard case let .object(meta)? = value,
-              case let .array(modes)? = meta["persistenceModes"] else { persistenceModes = []; return }
+              case let .array(modes)? = meta["persist"] else { persistenceModes = []; return }
         persistenceModes = Set(modes.compactMap { $0.stringValue }.compactMap(PersistenceMode.init(rawValue:)))
     }
 }
@@ -142,6 +156,11 @@ nonisolated enum MCPRequestFactory {
     static func initialized() -> JSONRPCRequest { JSONRPCRequest(id: Optional<Int>.none, method: MCPMethod.initialized, params: .object([:])) }
     static func toolsList(id: Int, cursor: String?) -> JSONRPCRequest { JSONRPCRequest(id: id, method: MCPMethod.toolsList, params: cursor.map { .object(["cursor": .string($0)]) }) }
     static func toolsCall(id: Int, name: String, arguments: JSONValue?) -> JSONRPCRequest { JSONRPCRequest(id: id, method: MCPMethod.toolsCall, params: .object(["name": .string(name), "arguments": arguments ?? .object([:])])) }
+    /// The only elicitation completion shape emitted by Agent Deck. Persistence is
+    /// deliberately absent until the helper's extension encoding is verified.
+    static func elicitationResponse(action: String) -> JSONValue {
+        .object(["action": .string(action), "content": .object([:])])
+    }
     static func cancelled(id: Int, reason: String) -> JSONRPCRequest { JSONRPCRequest(id: Optional<Int>.none, method: MCPMethod.cancelled, params: .object(["requestId": .number(Double(id)), "reason": .string(reason)])) }
     static func normalizedToolArguments(_ arguments: JSONValue?) throws -> JSONValue {
         guard let arguments else { return .object([:]) }; switch arguments { case let .object(object): return .object(object); case .null: return .object([:]); case let .string(raw):

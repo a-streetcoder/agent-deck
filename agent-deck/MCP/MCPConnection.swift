@@ -10,7 +10,7 @@ actor MCPConnection {
 
     let name: String
     private let config: MCPServerConfig; private let transportFactory: TransportFactory
-    private let clientName: String; private let clientVersion: String; private let requestTimeout: Duration
+    private let clientName: String; private let clientVersion: String; private let requestTimeout: Duration; private let interactiveRequestTimeout: Duration
     private let serverRequestHandler: MCPServerRequestHandler?
     private var transport: MCPTransport?; private var connectTask: Task<Void, Error>?; private var isConnected = false
     private var nextID = 1
@@ -24,9 +24,11 @@ actor MCPConnection {
     }
     private var pending: [Int: Pending] = [:]
     private var timeoutTasks: [Int: Task<Void, Never>] = [:]
+    /// Elicitation work is bound to the one client tools/call that caused it.
+    private var serverRequestTasks: [Int: Task<Void, Never>] = [:]
 
-    init(name: String, config: MCPServerConfig, clientName: String = "Agent Deck", clientVersion: String = "1.0", requestTimeout: Duration = .seconds(30), serverRequestHandler: MCPServerRequestHandler? = nil, transportFactory: @escaping TransportFactory = MCPConnection.defaultTransportFactory) {
-        self.name = name; self.config = config; self.clientName = clientName; self.clientVersion = clientVersion; self.requestTimeout = requestTimeout; self.serverRequestHandler = serverRequestHandler; self.transportFactory = transportFactory
+    init(name: String, config: MCPServerConfig, clientName: String = "Agent Deck", clientVersion: String = "1.0", requestTimeout: Duration = .seconds(30), interactiveRequestTimeout: Duration? = nil, serverRequestHandler: MCPServerRequestHandler? = nil, transportFactory: @escaping TransportFactory = MCPConnection.defaultTransportFactory) {
+        self.name = name; self.config = config; self.clientName = clientName; self.clientVersion = clientVersion; self.requestTimeout = requestTimeout; self.interactiveRequestTimeout = interactiveRequestTimeout ?? requestTimeout; self.serverRequestHandler = serverRequestHandler; self.transportFactory = transportFactory
     }
 
     func ensureConnected() async throws {
@@ -79,7 +81,8 @@ actor MCPConnection {
                 // Cancellation may arrive before this continuation is registered.
                 guard !Task.isCancelled else { continuation.resume(throwing: MCPError.cancelled); return }
                 pending[id] = .init(continuation: continuation, method: method, context: context)
-                timeoutTasks[id] = Task { [weak self, requestTimeout] in try? await Task.sleep(for: requestTimeout); await self?.failPending(id: id, error: MCPError.timeout(method), reason: "request timed out") }
+                let timeout = method == MCPMethod.toolsCall && serverRequestHandler != nil ? interactiveRequestTimeout : requestTimeout
+                timeoutTasks[id] = Task { [weak self, timeout] in try? await Task.sleep(for: timeout); await self?.failPending(id: id, error: MCPError.timeout(method), reason: "request timed out") }
                 // The detached task owns no request state. It must re-enter the actor
                 // and prove the request is still pending before any transport write.
                 Task { [weak self] in await self?.sendPending(id: id, line: line) }
@@ -99,24 +102,36 @@ actor MCPConnection {
         case let .notification(notification):
             if notification.method == MCPMethod.cancelled { return }
         case let .serverRequest(request):
-            Task { await self.handleServerRequest(request) }
+            handleServerRequest(request)
         }
     }
-    private func handleServerRequest(_ request: JSONRPCServerRequest) async {
-        guard supportsDuplexServerRequests else { await close(); return }
+    private func handleServerRequest(_ request: JSONRPCServerRequest) {
+        guard supportsDuplexServerRequests else { Task { await self.close() }; return }
         guard request.method == MCPMethod.elicitationCreate else {
-            await sendResponse(.error(id: request.id, code: -32601, message: "Method not found")); return
+            Task { await self.sendResponse(.error(id: request.id, code: -32601, message: "Method not found")) }; return
         }
-        guard let elicitation = MCPElicitationRequest(params: request.params), elicitation.isValidForInteractiveHandling else {
-            await sendResponse(.error(id: request.id, code: -32602, message: "Invalid params")); return
+        guard let elicitation = MCPElicitationRequest(id: request.id, params: request.params), elicitation.isValidForInteractiveHandling, elicitation.isConfirmationOnly else {
+            Task { await self.sendResponse(.result(id: request.id, MCPRequestFactory.elicitationResponse(action: "decline"))) }; return
         }
-        // Count calls, not unique values: equal contexts must still fail closed.
-        let eligible = pending.values.compactMap(\.context)
-        guard interactiveElicitationEnabled, let handler = serverRequestHandler, eligible.count == 1, let context = eligible.first else {
-            await sendResponse(.result(id: request.id, .object(["action": .string("decline")]))); return
+        // Count calls, not equal contexts: only one active client call may own a prompt.
+        let eligible = pending.compactMap { id, item in item.context.map { (id, $0) } }
+        guard interactiveElicitationEnabled, let handler = serverRequestHandler, eligible.count == 1, let owner = eligible.first else {
+            Task { await self.sendResponse(.result(id: request.id, MCPRequestFactory.elicitationResponse(action: "decline"))) }; return
         }
-        let disposition = await handler(request, context)
-        switch disposition { case let .result(result): await sendResponse(.result(id: request.id, result)); case let .error(code, message): await sendResponse(.error(id: request.id, code: code, message: message)) }
+        // A helper may not stack prompts on a single tools/call. The original
+        // request remains its owner's responsibility; reject only the newcomer.
+        guard serverRequestTasks[owner.0] == nil else {
+            Task { await self.sendResponse(.result(id: request.id, MCPRequestFactory.elicitationResponse(action: "decline"))) }
+            return
+        }
+        serverRequestTasks[owner.0] = Task { [weak self] in
+            let disposition = await handler(request, owner.1)
+            await self?.finishServerRequest(clientID: owner.0, serverID: request.id, disposition: disposition)
+        }
+    }
+    private func finishServerRequest(clientID: Int, serverID: RPCID, disposition: MCPServerRequestDisposition) async {
+        guard serverRequestTasks.removeValue(forKey: clientID) != nil else { return }
+        switch disposition { case let .result(result): await sendResponse(.result(id: serverID, result)); case let .error(code, message): await sendResponse(.error(id: serverID, code: code, message: message)) }
     }
     private func sendPending(id: Int, line: String) async {
         guard var entry = pending[id], !entry.sendStarted else { return }
@@ -127,9 +142,10 @@ actor MCPConnection {
         catch let error as MCPError { failPending(id: id, error: error, reason: "transport failed") }
         catch { failPending(id: id, error: MCPError.transportFailed(error.localizedDescription), reason: "transport failed") }
     }
-    private func resolvePending(id: Int, response: JSONRPCResponse) { timeoutTasks.removeValue(forKey: id)?.cancel(); pending.removeValue(forKey: id)?.continuation.resume(returning: response) }
+    private func resolvePending(id: Int, response: JSONRPCResponse) { timeoutTasks.removeValue(forKey: id)?.cancel(); serverRequestTasks.removeValue(forKey: id)?.cancel(); pending.removeValue(forKey: id)?.continuation.resume(returning: response) }
     private func failPending(id: Int, error: Error, reason: String) {
         timeoutTasks.removeValue(forKey: id)?.cancel()
+        serverRequestTasks.removeValue(forKey: id)?.cancel()
         guard let entry = pending.removeValue(forKey: id) else { return }
         if entry.method != MCPMethod.initialize, entry.sendStarted { Task { try? await self.sendNotification(MCPRequestFactory.cancelled(id: id, reason: reason)) } }
         entry.continuation.resume(throwing: error)

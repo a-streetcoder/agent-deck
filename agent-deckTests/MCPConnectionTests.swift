@@ -72,6 +72,38 @@ actor MCPStubTransport: MCPTransport {
     func sentLines() -> [String] { sent }
 }
 
+final class MCPTransportRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var linesByConnection: [[String]] = []
+    private var closeCount = 0
+    func createID() -> Int { lock.lock(); defer { lock.unlock() }; linesByConnection.append([]); return linesByConnection.count - 1 }
+    func record(_ line: String, id: Int) { lock.lock(); defer { lock.unlock() }; linesByConnection[id].append(line) }
+    func closed() { lock.lock(); defer { lock.unlock() }; closeCount += 1 }
+    func lines(for id: Int) -> [String] { lock.lock(); defer { lock.unlock() }; return linesByConnection[id] }
+    func closes() -> Int { lock.lock(); defer { lock.unlock() }; return closeCount }
+}
+
+actor MCPRecordedTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { true }
+    private let id: Int; private let recorder: MCPTransportRecorder
+    private var onLine: (@Sendable (String) -> Void)?
+    init(id: Int, recorder: MCPTransportRecorder) { self.id = id; self.recorder = recorder }
+    func start(onLine: @escaping @Sendable (String) -> Void, onClose: @escaping @Sendable (MCPError?) -> Void) async throws { self.onLine = onLine }
+    func send(_ line: String) async throws {
+        recorder.record(line, id: id)
+        let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+        let requestID = object?["id"] as? Int ?? 0
+        switch object?["method"] as? String {
+        case "initialize":
+            let offered = ((object?["params"] as? [String: Any])?["protocolVersion"] as? String) ?? "2025-03-26"
+            onLine?(#"{"jsonrpc":"2.0","id":\#(requestID),"result":{"protocolVersion":"\#(offered)","capabilities":{}}}"#)
+        case "tools/list": onLine?(#"{"jsonrpc":"2.0","id":\#(requestID),"result":{"tools":[{"name":"list_apps"}]}}"#)
+        default: break
+        }
+    }
+    func close() async { recorder.closed() }
+}
+
 /// Deterministically holds individual transport closes so a configure call can be
 /// interleaved with a newer one while MCPConnectionManager is reentrant.
 actor CloseGate {
@@ -192,6 +224,39 @@ final class MCPConnectionTests: XCTestCase {
         XCTAssertEqual(receivedContext, callContext)
         XCTAssertTrue(sent.contains(#""id":"elicitation-id""#))
     }
+    func testSecondElicitationForOneToolCallDeclinesWithoutCancellingOriginal() async throws {
+        let gate = MCPAsyncGate()
+        let responder: MCPStubTransport.Responder = { line in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] as? Int ?? 0
+            switch object?["method"] as? String {
+            case "initialize": return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-06-18","capabilities":{}}}"#]
+            case "tools/call": return [
+                #"{"jsonrpc":"2.0","id":"first","method":"elicitation/create","params":{"message":"first","requestedSchema":{"type":"object","properties":{}}}}"#,
+                #"{"jsonrpc":"2.0","id":"second","method":"elicitation/create","params":{"message":"second","requestedSchema":{"type":"object","properties":{}}}}"#
+            ]
+            default: return []
+            }
+        }
+        let transport = MCPStubTransport(responder: responder)
+        let connection = MCPConnection(name: "mock", config: MCPServerConfig(command: "noop"), requestTimeout: .milliseconds(100), interactiveRequestTimeout: .seconds(1), serverRequestHandler: { request, _ in
+            if request.id == .string("first") { await gate.wait() }
+            return .result(MCPRequestFactory.elicitationResponse(action: "accept"))
+        }, transportFactory: { _ in transport })
+        let callContext = context()
+        let call = Task { try await connection.callTool(name: "echo", arguments: nil, context: callContext) }
+        try? await Task.sleep(for: .milliseconds(20))
+        let beforeRelease = await transport.sentLines().joined()
+        XCTAssertTrue(beforeRelease.contains(#""id":"second""#))
+        XCTAssertTrue(beforeRelease.contains(#""action":"decline""#))
+        XCTAssertFalse(beforeRelease.contains(#""id":"first","jsonrpc":"2.0","result":{"action":"accept""#))
+        await gate.release()
+        do { _ = try await call.value } catch { }
+        let sent = await transport.sentLines().joined()
+        XCTAssertTrue(sent.contains(#""id":"first""#))
+        XCTAssertTrue(sent.contains(#""action":"accept""#))
+    }
+
     func testHandlerEnabledConnectionRejectsMissingOrFutureSelectedProtocolVersion() async {
         for result in [#"{}"#, #"{"protocolVersion":"2026-01-01","capabilities":{}}"#] {
             let responder: MCPStubTransport.Responder = { line in
@@ -428,6 +493,26 @@ final class MCPConnectionManagerTests: XCTestCase {
         ])
         let result = try await manager.call(server: "alpha", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "alpha", tool: "echo"))
         XCTAssertEqual(result.combinedText, "ok")
+    }
+
+    func testProvenanceCollisionReplacesEligibleConnectionWithoutElicitation() async {
+        let recorder = MCPTransportRecorder()
+        let manager = MCPConnectionManager(transportFactory: { _ in
+            MCPRecordedTransport(id: recorder.createID(), recorder: recorder)
+        })
+        let config = MCPServerConfig(command: "same-helper")
+        let plugin = MCPServerEntry(name: "codex-computer-use", config: config, sourcePath: "/plugin", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
+        await manager.setServerRequestHandler { _, _ in .result(MCPRequestFactory.elicitationResponse(action: "accept")) }
+        await manager.configure(servers: [plugin])
+        _ = await manager.discoverCatalog(serverNames: [plugin.name])
+        XCTAssertTrue(recorder.lines(for: 0).joined().contains(#""elicitation":{}"#))
+
+        let collision = MCPServerEntry(name: plugin.name, config: config, sourcePath: "/user", provenance: .config, toolPolicy: .unrestricted)
+        await manager.configure(servers: [collision])
+        _ = await manager.discoverCatalog(serverNames: [collision.name])
+        XCTAssertEqual(recorder.closes(), 1)
+        XCTAssertEqual(recorder.lines(for: 1).filter { $0.contains("initialize") }.count, 1)
+        XCTAssertFalse(recorder.lines(for: 1).joined().contains("elicitation"))
     }
 
     func testComputerUseCatalogRetainsListAppsFiltersActionsAndDeniesDirectCall() async throws {

@@ -35,6 +35,18 @@ actor MCPConnectionManager {
 
     private var configs: [String: MCPServerConfig] = [:]
     private var policies: [String: MCPServerToolPolicy] = [:]
+    /// Only the discovered Codex plugin is eligible for interactive elicitation.
+    /// A user server with the same name, and every remote transport, stays excluded.
+    private var elicitationEligibleServers: Set<String> = []
+    private struct ConnectionIdentity: Hashable {
+        let config: MCPServerConfig
+        let policy: MCPServerToolPolicy
+        let provenance: MCPServerProvenance
+        let isElicitationEligible: Bool
+    }
+    /// Identity is intentionally broader than the command line: a collision can
+    /// retain identical stdio bytes while losing trusted plugin provenance.
+    private var connectionIdentities: [String: ConnectionIdentity] = [:]
     /// Incremented before any awaited close. Older configure calls re-check this
     /// epoch before they mutate state, so actor reentrancy cannot restore stale config.
     private var configurationEpoch: UInt64 = 0
@@ -47,12 +59,29 @@ actor MCPConnectionManager {
     /// Installed by a future approval surface. Absence intentionally declines elicitation.
     private var serverRequestHandler: MCPServerRequestHandler?
 
-    func setServerRequestHandler(_ handler: MCPServerRequestHandler?) {
+    func setServerRequestHandler(_ handler: MCPServerRequestHandler?) async {
+        let availabilityChanged = (serverRequestHandler == nil) != (handler == nil)
         serverRequestHandler = handler
+        // The initialize capability and handler are immutable per connection. Restart
+        // eligible stdio connections whenever UI servicing comes or goes.
+        guard availabilityChanged else { return }
+        for name in elicitationEligibleServers {
+            if let connection = connections.removeValue(forKey: name) {
+                toolCache[name] = nil
+                await connection.close()
+            }
+        }
     }
 
     func setAuthTokenProvider(_ provider: @escaping @Sendable (String) async -> String?) {
         authTokenProvider = provider
+    }
+
+    private func isElicitationEligible(_ entry: MCPServerEntry) -> Bool {
+        guard entry.config.resolvedTransport == .stdio,
+              entry.toolPolicy == .computerUseObservationOnly else { return false }
+        if case .codexPlugin = entry.provenance { return true }
+        return false
     }
 
     init(clientName: String = "Agent Deck",
@@ -78,13 +107,18 @@ actor MCPConnectionManager {
         let epoch = configurationEpoch
         var newConfigs: [String: MCPServerConfig] = [:]
         var newPolicies: [String: MCPServerToolPolicy] = [:]
+        var newElicitationEligible: Set<String> = []
+        var newIdentities: [String: ConnectionIdentity] = [:]
         for entry in servers where entry.isAvailable {
+            let eligible = isElicitationEligible(entry)
             newConfigs[entry.name] = entry.config
             newPolicies[entry.name] = entry.toolPolicy
+            newIdentities[entry.name] = .init(config: entry.config, policy: entry.toolPolicy, provenance: entry.provenance, isElicitationEligible: eligible)
+            if eligible { newElicitationEligible.insert(entry.name) }
         }
 
-        // Close connections that were removed or whose config changed.
-        for (name, connection) in connections where newConfigs[name] != configs[name] {
+        // Close connections whose config, policy, or trust provenance changed.
+        for (name, connection) in connections where newIdentities[name] != connectionIdentities[name] {
             await connection.close()
             // A newer configure may have run while close() suspended this actor.
             // Do not clear its live connection or publish this older config.
@@ -95,10 +129,13 @@ actor MCPConnectionManager {
         guard epoch == configurationEpoch, refreshIsCurrent() else { return }
         configs = newConfigs
         policies = newPolicies
+        elicitationEligibleServers = newElicitationEligible
+        connectionIdentities = newIdentities
         // Drop connections for servers no longer present.
         for name in connections.keys where newConfigs[name] == nil {
             connections[name] = nil
             toolCache[name] = nil
+            connectionIdentities[name] = nil
         }
     }
 
@@ -134,8 +171,11 @@ actor MCPConnectionManager {
             config: config,
             clientName: clientName,
             clientVersion: clientVersion,
+            // Discovery stays bounded at five seconds; an interactive tools/call
+            // gets enough time for the 60-second user decision and completion.
             requestTimeout: policies[name] == .computerUseObservationOnly ? .seconds(5) : requestTimeout,
-            serverRequestHandler: config.resolvedTransport == .stdio ? serverRequestHandler : nil,
+            interactiveRequestTimeout: elicitationEligibleServers.contains(name) ? .seconds(120) : nil,
+            serverRequestHandler: elicitationEligibleServers.contains(name) ? serverRequestHandler : nil,
             transportFactory: factory
         )
         connections[name] = connection
@@ -242,7 +282,8 @@ actor MCPConnectionManager {
             clientName: clientName,
             clientVersion: clientVersion,
             requestTimeout: entry.toolPolicy == .computerUseObservationOnly ? .seconds(5) : .seconds(20),
-            serverRequestHandler: entry.config.resolvedTransport == .stdio ? serverRequestHandler : nil,
+            interactiveRequestTimeout: isElicitationEligible(entry) ? .seconds(120) : nil,
+            serverRequestHandler: isElicitationEligible(entry) ? serverRequestHandler : nil,
             transportFactory: factory
         )
         do {

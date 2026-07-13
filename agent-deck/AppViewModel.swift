@@ -342,6 +342,8 @@ final class AppViewModel: NSObject {
     let projectServerService = ProjectServerService()
     /// App-shared MCP server connections. Survives across sessions; torn down at quit.
     let mcpConnectionManager = MCPConnectionManager()
+    /// In-memory native approval queue for confirmation-only Computer Use elicitation.
+    let computerUseApprovalCoordinator = ComputerUseApprovalCoordinator()
     /// Cached catalog of all configured MCP tools, refreshed off-main. Read synchronously
     /// by the launch-time catalog provider, so it must never be recomputed in a view body.
     @ObservationIgnored private var mcpCatalogSnapshot: [MCPCatalogEntry] = []
@@ -425,6 +427,23 @@ final class AppViewModel: NSObject {
             skillBatchActionMessage = "Removed the obsolete Codex Computer Use skill reference. Enable Computer Use from MCP Servers instead."
         }
         reloadLoopDefinitions()
+        computerUseApprovalCoordinator.setUIServicingRequests(true)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.mcpConnectionManager.setServerRequestHandler { [weak self] request, context in
+                guard let self, let context,
+                      context.server == ComputerUseCapability.serverName else {
+                    return .result(.object(["action": .string("decline"), "content": .object([:])]))
+                }
+                guard let elicitation = MCPElicitationRequest(id: request.id, params: request.params) else {
+                    return .result(.object(["action": .string("decline"), "content": .object([:])]))
+                }
+                return await self.computerUseApprovalCoordinator.enqueue(
+                    elicitation, context: context,
+                    sessionIsLive: self.piAgentSessionStore.sessions.contains { $0.id == context.sessionID }
+                )
+            }
+        }
         ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
         ThemeManager.shared.setMarkdownHighlightingEnabled(appSettingsController.settings.piAgentMarkdownHighlightingEnabled)
         #if DEBUG
@@ -4432,6 +4451,11 @@ final class AppViewModel: NSObject {
             let merged = CodexComputerUseMCPIntegration.merge(configured: configured, discovery: discovery)
             self.mergedMCPEntries = merged
             self.mcpConfiguredServerNames = Set(merged.map(\.name))
+            if !merged.contains(where: { entry in
+                entry.name == ComputerUseCapability.serverName && entry.isAvailable && entry.toolPolicy == .computerUseObservationOnly && { if case .codexPlugin = entry.provenance { return true }; return false }()
+            }) {
+                self.computerUseApprovalCoordinator.resolveAll()
+            }
             guard enabled else {
                 guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: [], manager: self.mcpConnectionManager),
                       !Task.isCancelled else { return }
@@ -4476,6 +4500,8 @@ final class AppViewModel: NSObject {
 
     /// Tears down all MCP connections. Called at app termination.
     func shutdownMCP() async {
+        computerUseApprovalCoordinator.resolveAll()
+        computerUseApprovalCoordinator.setUIServicingRequests(false)
         await mcpConnectionManager.shutdown()
     }
 
@@ -4616,6 +4642,7 @@ final class AppViewModel: NSObject {
     }
 
     func setMcpServer(_ name: String, enabled: Bool, for project: DiscoveredProject) {
+        if !enabled, name == ComputerUseCapability.serverName { computerUseApprovalCoordinator.resolveAll() }
         projectPreferencesStore.setAssignedMcpServer(name, assigned: enabled, for: project.path)
         applyProjectPreferenceChanges()
         // Assignment now governs which servers we actually connect, so re-run scoped
@@ -4630,6 +4657,7 @@ final class AppViewModel: NSObject {
     }
 
     func setMcpServerEnabledForAllProjects(_ name: String, enabled: Bool) {
+        if !enabled, name == ComputerUseCapability.serverName { computerUseApprovalCoordinator.resolveAll() }
         appSettingsController.setDefaultMcpServer(name, enabled: enabled)
         appSettings = appSettingsController.settings
         // A default assignment makes this server in-scope for every project, so re-run
@@ -4638,6 +4666,7 @@ final class AppViewModel: NSObject {
     }
 
     func setMCPEnabled(_ enabled: Bool) {
+        if !enabled { computerUseApprovalCoordinator.resolveAll() }
         appSettingsController.setMCPEnabled(enabled)
         appSettings = appSettingsController.settings
         refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
@@ -4847,6 +4876,7 @@ final class AppViewModel: NSObject {
     }
 
     func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {
+        computerUseApprovalCoordinator.cancel(subagentRunID: runID)
         if let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }), run.children?.isEmpty == false {
             stopNativeSubagentGraph(runID: runID, parentSessionID: parentSessionID)
             return
@@ -4854,11 +4884,20 @@ final class AppViewModel: NSObject {
         nativeSubagentRunner.stop(runID: runID, parentSessionID: parentSessionID)
     }
 
+    /// Keeps individual graph-child cleanup ordered: dismiss any approval before
+    /// terminating the execution that owns its MCP client request.
+    static func stopGraphChildExecution(_ executionRunID: UUID, coordinator: ComputerUseApprovalCoordinator, stop: (UUID) -> Void) {
+        coordinator.cancel(subagentRunID: executionRunID)
+        stop(executionRunID)
+    }
+
     func stopNativeSubagentGraph(runID: UUID, parentSessionID: UUID) {
         guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
         for child in run.children ?? [] where child.status.isActive {
             if let executionRunID = child.executionRunID {
-                nativeSubagentRunner.stop(runID: executionRunID, parentSessionID: parentSessionID)
+                Self.stopGraphChildExecution(executionRunID, coordinator: computerUseApprovalCoordinator) { executionRunID in
+                    nativeSubagentRunner.stop(runID: executionRunID, parentSessionID: parentSessionID)
+                }
             }
         }
         let completedAt = Date()
@@ -4883,7 +4922,9 @@ final class AppViewModel: NSObject {
         guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == graphRunID }),
               let child = (run.children ?? []).first(where: { $0.id == childID }) else { return }
         if let executionRunID = child.executionRunID, child.status.isActive {
-            nativeSubagentRunner.stop(runID: executionRunID, parentSessionID: parentSessionID)
+            Self.stopGraphChildExecution(executionRunID, coordinator: computerUseApprovalCoordinator) { executionRunID in
+                nativeSubagentRunner.stop(runID: executionRunID, parentSessionID: parentSessionID)
+            }
         }
         let completedAt = Date()
         piAgentSessionStore.updateSubagentRun(graphRunID, parentSessionID: parentSessionID) { run in
@@ -5988,6 +6029,7 @@ final class AppViewModel: NSObject {
 
     func stopSelectedPiAgentSession() {
         guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        computerUseApprovalCoordinator.cancel(sessionID: sessionID)
         piAgentRunner.stop(sessionID: sessionID)
         refreshRepositoryChangesForPiAgentSession()
     }
@@ -6037,6 +6079,7 @@ final class AppViewModel: NSObject {
     }
 
     func deletePiAgentSessions(_ sessionIDs: Set<UUID>, fallbackSelectionID: UUID? = nil) {
+        for sessionID in sessionIDs { computerUseApprovalCoordinator.cancel(sessionID: sessionID) }
         for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID)
             || piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status == .starting {
             piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)
