@@ -5,7 +5,7 @@ Use this file to quickly find the source of a behavior.
 ## Core models
 
 - `agent-deck/Models.swift` — resource records, agent configs, effective agents, skills, prompts, settings summaries, env keys, snapshots
-- `agent-deck/PiAgentSessionModels.swift` — Pi Agent session state, native subagent records, bridge request payloads, supervisor request models
+- `agent-deck/PiAgentSessionModels.swift` — Pi Agent session state (including per-parent child launch overrides), native subagent records, bridge request payloads, supervisor request models
 - `agent-deck/GitHubModels.swift` — GitHub auth, issue, board, and repository change models
 - `agent-deck/LoopModels.swift` — loop definitions, runs, outcomes, validation, and transcript codecs
 

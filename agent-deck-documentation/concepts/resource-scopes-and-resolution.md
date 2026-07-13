@@ -26,7 +26,7 @@ For agent names that appear in multiple places, the native-subagent winning defi
 
 For same-name assigned catalog records, Agent Deck prefers library/global catalog records; project assignment controls where the selected catalog record is available, not which local file wins.
 
-Builtin overrides are different from custom replacements: they patch supported fields only when the builtin remains the winner. Project overrides refine global builtin overrides field-by-field: project-set fields win, while omitted fields continue to inherit global override values. Builtin-disable flags can hide builtins entirely.
+Builtin overrides are different from custom replacements: Agent Deck writes and applies supported builtin patches only in global settings when the builtin remains the winner. It ignores project `.pi/settings.json` `subagents` configuration (including overrides and `disableBuiltins`) and never rewrites those project settings. Builtin-disable flags are global-only.
 
 ## Skill references
 

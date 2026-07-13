@@ -2,6 +2,28 @@ import XCTest
 @testable import agent_deck
 
 final class PiAgentLaunchResolverTests: XCTestCase {
+    @MainActor
+    func testBuiltinOverrideSkillReferenceReplacementChangesOnlyMatchingSkills() throws {
+        let root: [String: Any] = [
+            "unrelated": ["kept": true],
+            "subagents": [
+                "agentOverrides": [
+                    "explorer": ["skills": ["old-skill", "other-skill"]],
+                    "coder": ["skills": "old-skill"]
+                ]
+            ]
+        ]
+
+        let updated = try XCTUnwrap(AppViewModel.replacingBuiltinOverrideSkillReferences(in: root, from: "old-skill", to: "new-skill"))
+        let subagents = try XCTUnwrap(updated["subagents"] as? [String: Any])
+        let overrides = try XCTUnwrap(subagents["agentOverrides"] as? [String: Any])
+        let explorer = try XCTUnwrap(overrides["explorer"] as? [String: Any])
+        let coder = try XCTUnwrap(overrides["coder"] as? [String: Any])
+        XCTAssertEqual(explorer["skills"] as? [String], ["new-skill", "other-skill"])
+        XCTAssertEqual(coder["skills"] as? String, "new-skill")
+        XCTAssertEqual((updated["unrelated"] as? [String: Bool])?["kept"], true)
+    }
+
     func testUnassignedCustomAgentsStayCatalogOnly() {
         let custom = agentRecord(name: "coder", kind: .global, path: "/tmp/coder.md")
         let snapshot = ScanSnapshot.empty
@@ -47,7 +69,7 @@ final class PiAgentLaunchResolverTests: XCTestCase {
         XCTAssertEqual(reviewer?.resolutionKind, .globalCustom)
     }
 
-    func testProjectBuiltinOverrideMergesGlobalModelOverride() {
+    func testProjectBuiltinSubagentConfigurationIsIgnored() {
         let projectRoot = "/tmp/project"
         let builtin = agentRecord(name: "explorer", kind: .builtin, path: "/app/bundled-agents/explorer.md")
         let globalSettings = settingsSummary(
@@ -58,7 +80,7 @@ final class PiAgentLaunchResolverTests: XCTestCase {
                     path: "/Users/test/.pi/agent/settings.json",
                     values: [
                         "model": .string("openai-codex/gpt-5.4-mini"),
-                        "thinking": .bool(false),
+                        "thinking": .string("medium"),
                         "skills": .array([.string("agent-authoring")])
                     ]
                 )
@@ -71,11 +93,13 @@ final class PiAgentLaunchResolverTests: XCTestCase {
                     name: "explorer",
                     path: "\(projectRoot)/.pi/settings.json",
                     values: [
-                        "skills": .array([.string("agent-authoring")]),
+                        "model": .string("project/ignored"),
+                        "skills": .array([.string("project-only-skill")]),
                         "thinking": .bool(false)
                     ]
                 )
-            ]
+            ],
+            disableBuiltins: true
         )
         let snapshot = ScanSnapshot.empty.replacing(
             projectRoot: projectRoot,
@@ -92,8 +116,9 @@ final class PiAgentLaunchResolverTests: XCTestCase {
 
         let explorer = effective.first { $0.name == "explorer" }
         XCTAssertEqual(explorer?.resolved.model, "openai-codex/gpt-5.4-mini")
-        XCTAssertEqual(explorer?.resolved.thinking, "off")
+        XCTAssertEqual(explorer?.resolved.thinking, "medium")
         XCTAssertEqual(explorer?.resolved.skills, ["agent-authoring"])
+        XCTAssertNil(explorer?.projectOverride)
         XCTAssertEqual(explorer?.resolutionKind, .builtinWithOverride)
     }
 

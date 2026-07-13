@@ -926,6 +926,20 @@ enum PiAgentNoProjectMode: String, Codable, Hashable {
     case agentDeckBuilder
 }
 
+/// A per-parent-session child-launch field. Absence uses the persistent Models
+/// value; `piDefault` deliberately bypasses it and lets Pi inherit from parent.
+enum PiAgentSessionLaunchOverrideValue: Codable, Hashable {
+    case piDefault
+    case value(String)
+}
+
+struct PiAgentSessionAgentLaunchOverride: Codable, Hashable {
+    var model: PiAgentSessionLaunchOverrideValue?
+    var thinking: PiAgentSessionLaunchOverrideValue?
+
+    var isEmpty: Bool { model == nil && thinking == nil }
+}
+
 struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     let id: UUID
     var kind: PiAgentSessionKind
@@ -979,6 +993,9 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     /// popover's Memory section, mirroring `subagentsEnabled` for Deck agents.
     var memoryEnabled: Bool
     var agentSelection: Set<String>?
+    /// Per-parent-session child launch overrides. These never modify agent or
+    /// settings files and are applied only when a future child is launched.
+    var agentLaunchOverrides: [String: PiAgentSessionAgentLaunchOverride]?
     var injectedExtensions: [String]?
     var agentName: String?
     var noProjectMode: PiAgentNoProjectMode?
@@ -1075,7 +1092,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case status, lastError, lastSummary, needsAttention, lastNotificationAt, lastUserMessageAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost, costBreakdown
         case finalSystemPrompt, finalSystemPromptCapturedAt
-        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, createdAt, updatedAt
+        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, agentLaunchOverrides, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, createdAt, updatedAt
         case forkedFromSessionID, forkedFromParentTitle, forkedFromUserMessageText, forkedFromTranscriptSnapshot
         case recalledMemoryPrompt, recalledMemoryIDs, memoryRecallCompleted
     }
@@ -1127,6 +1144,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         subagentsEnabled: Bool,
         memoryEnabled: Bool = true,
         agentSelection: Set<String>? = nil,
+        agentLaunchOverrides: [String: PiAgentSessionAgentLaunchOverride]? = nil,
         injectedExtensions: [String]? = nil,
         agentName: String? = nil,
         noProjectMode: PiAgentNoProjectMode? = nil,
@@ -1188,6 +1206,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.subagentsEnabled = subagentsEnabled
         self.memoryEnabled = memoryEnabled
         self.agentSelection = agentSelection
+        self.agentLaunchOverrides = agentLaunchOverrides
         self.injectedExtensions = injectedExtensions
         self.agentName = agentName
         self.noProjectMode = noProjectMode
@@ -1253,6 +1272,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             subagentsEnabled: try container.decodeIfPresent(Bool.self, forKey: .subagentsEnabled) ?? true,
             memoryEnabled: try container.decodeIfPresent(Bool.self, forKey: .memoryEnabled) ?? true,
             agentSelection: try container.decodeIfPresent(Set<String>.self, forKey: .agentSelection),
+            agentLaunchOverrides: try container.decodeIfPresent([String: PiAgentSessionAgentLaunchOverride].self, forKey: .agentLaunchOverrides),
             injectedExtensions: try container.decodeIfPresent([String].self, forKey: .injectedExtensions),
             agentName: try container.decodeIfPresent(String.self, forKey: .agentName),
             noProjectMode: try container.decodeIfPresent(PiAgentNoProjectMode.self, forKey: .noProjectMode),

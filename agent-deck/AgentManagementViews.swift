@@ -93,12 +93,6 @@ struct AgentsScreen: View {
                         onSetBuiltinGloballyEnabled: { isEnabled in
                             viewModel.setBuiltinGloballyEnabled(isEnabled, for: agent)
                         },
-                        isBuiltinDisabledInProject: { project in
-                            viewModel.builtinIsDisabled(agentName: agent.name, inProject: project.path)
-                        },
-                        onSetBuiltinDisabledInProject: { project, isDisabled in
-                            viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: .project, explicitProjectRoot: project.path)
-                        },
                         managedAgent: libraryManagedAgentRecord(for: agent, libraryAgents: viewModel.globalCatalogSnapshot.libraryAgents),
                         isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
                         assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
@@ -1012,8 +1006,6 @@ private struct AgentDetailView: View {
     let globalDisableBuiltinsActive: Bool
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     let onSetBuiltinGloballyEnabled: (Bool) -> Void
-    let isBuiltinDisabledInProject: (DiscoveredProject) -> Bool
-    let onSetBuiltinDisabledInProject: (DiscoveredProject, Bool) -> Void
     let managedAgent: AgentRecord?
     let isAgentGlobal: (AgentRecord) -> Bool
     let assignedAgentProjects: (AgentRecord) -> [DiscoveredProject]
@@ -1526,8 +1518,8 @@ private struct AgentDetailView: View {
             AppCard(title: "Disable Agent") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(isDisabledGlobally
-                         ? "Re-enable this built-in agent so Pi loads it again across every project that hasn't disabled it explicitly."
-                         : "Turn this built-in agent off everywhere so Pi does not load it. Per-project overrides still apply.")
+                         ? "Re-enable this built-in agent for Agent Deck launches everywhere."
+                         : "Turn this built-in agent off everywhere so Agent Deck does not launch it.")
                         .font(.callout)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1543,45 +1535,6 @@ private struct AgentDetailView: View {
                             onSetBuiltinDisabled(.global, true)
                         }
                         .appDestructiveButton()
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var builtinProjectAssignmentCard: some View {
-        AppCard(title: "Project Assignment") {
-            VStack(alignment: .leading, spacing: 10) {
-                let isGloballyEnabled = !isDisabledGlobally
-
-                Text("Enable this built-in agent for every project at once, or pick specific projects below. Toggling All Projects clears any per-project overrides so the global setting wins.")
-                    .foregroundStyle(AppTheme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    AllProjectsAssignmentRow(
-                        isOn: Binding(
-                            get: { isGloballyEnabled },
-                            set: { enabled in
-                                onSetBuiltinGloballyEnabled(enabled)
-                            }
-                        )
-                    )
-                    Divider()
-                    ForEach(projects) { project in
-                        ProjectAssignmentToggleRow(
-                            project: project,
-                            isOn: Binding(
-                                get: { isGloballyEnabled ? true : !isBuiltinDisabledInProject(project) },
-                                set: { enabled in
-                                    onSetBuiltinDisabledInProject(project, !enabled)
-                                }
-                            )
-                        )
-                        .opacity(isGloballyEnabled ? 0.4 : 1)
-                        .allowsHitTesting(!isGloballyEnabled)
-                        if project.id != projects.last?.id { Divider() }
                     }
                 }
             }
@@ -1643,9 +1596,7 @@ private struct AgentDetailView: View {
 
     private var agentVisibilityManagementCards: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            if isPureBuiltin {
-                builtinProjectAssignmentCard
-            } else if let managedAgent {
+            if !isPureBuiltin, let managedAgent {
                 AppCard(title: "Project Assignment") {
                     VStack(alignment: .leading, spacing: 10) {
                         let visibilityIssues = skillVisibilityIssues(agent)
@@ -1801,7 +1752,7 @@ private func agentFieldHelpText(for title: String) -> String? {
     case "When to Use":
         return "Concise routing guidance for parent sessions deciding whether to delegate to this agent. Prefer one short sentence."
     case "Model":
-        return "Default model for this agent. Builtin overrides can change this. Custom agents save it in frontmatter."
+        return "Persistent model defaults are managed in the Models view."
     case "Fallback Models":
         return "Ordered backup models Pi can use when the primary model is unavailable or unsuitable."
     case "Thinking":
@@ -2030,36 +1981,8 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "Model & Reasoning") {
+            AppCard(title: "Fallback Models") {
                 editSection {
-                    configRow("Model") {
-                        Picker("Model", selection: modelSelectionBinding) {
-                            Text("Use Pi Default Model").tag("")
-                            ForEach(availableModels, id: \.identifier) { model in
-                                Text(model.identifier).tag(model.identifier)
-                            }
-                        }
-                        .appMenuPicker()
-                        .frame(maxWidth: 360, alignment: .leading)
-                        Text(modelSummary)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
-                    configRow("Thinking") {
-                        Picker("Thinking", selection: thinkingSelectionBinding) {
-                            Text("Pi Default").tag("off")
-                            ForEach(availableThinkingLevels.filter { $0 != "off" }, id: \.self) { level in
-                                Text(level.capitalized).tag(level)
-                            }
-                        }
-                        .appMenuPicker()
-                        .frame(maxWidth: 180, alignment: .leading)
-                        Text(selectedModel == nil ? "Applies while using Pi's default model when supported." : "Only values supported by the selected model are shown.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
                     configRow("Fallback Models") {
                         VStack(alignment: .leading, spacing: 10) {
                             Menu("Add Fallback Model") {

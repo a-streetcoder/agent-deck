@@ -46,14 +46,14 @@ The resolved values are passed to `PiRPCClient`, which appends `--provider`, `--
 
 ## Native subagent model and thinking values
 
-Native subagents can set `model` and `thinking` independently in agent frontmatter. For builtin agents, global and project settings overrides are merged field-by-field before launch: project-set fields win, and omitted project fields inherit global override values.
+Native subagents use persistent per-agent `model` and `thinking` defaults managed in the **Models** view. Builtin overrides are global-only; Agent Deck ignores project `.pi/settings.json` `subagents` configuration.
 
 Resolution order for child launches:
 
-1. If the agent sets `model`, use that model.
-2. Otherwise inherit the parent session's selected/reported model.
-3. If the agent sets `thinking`, use that thinking level even when the model is inherited.
-4. Otherwise inherit the parent session thinking level.
+1. A parent-session picker override wins when present. `Pi default` bypasses the persistent per-agent field and inherits parent/Pi.
+2. Otherwise use the persistent Models value.
+3. If no model is set, inherit the parent session's selected/reported model.
+4. If no thinking level is set, inherit the parent session thinking level.
 
 Native subagents usually encode the resolved thinking level as a `:<thinking>` suffix on the child `--model` argument, including `:off` when the agent is explicitly configured with Thinking Off.
 
@@ -167,6 +167,7 @@ Session-title generation also uses launch-time model configuration. It passes mo
 | `PiAgentRunnerService.swift` | Stores changes, decides whether to relaunch now or later, builds launch configuration. |
 | `PiRPCClient.swift` | Converts launch configuration into Pi CLI arguments. |
 | `PiSubagentLaunchPlanner.swift` | Resolves native subagent model/thinking, including agent thinking with inherited model. |
+| `PiAgentSessionModels.swift` | Persists per-parent-session child launch overrides. |
 | `PiAgentSessionListViews.swift` / `PiAgentViews.swift` | UI surfaces for model/thinking controls and session state. |
 | `PiAgentBridgeSmokeTests.swift` / `PiSubagentRuntimeSmokeTests.swift` | Smoke tests ensuring launch arguments are used and mutation RPCs are not sent. |
 

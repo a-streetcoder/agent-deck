@@ -39,7 +39,9 @@ nonisolated struct PiScanner: @unchecked Sendable {
 
         let settings = [
             scanSettings(at: globalSettings, scope: .global),
-            scanSettings(at: projectSettings, scope: .project)
+            // Preserve unrelated project settings for their own consumers, but
+            // never import Pi's project-local subagent configuration.
+            scanSettings(at: projectSettings, scope: .project, includesSubagentConfiguration: false)
         ].compactMap { $0 }
 
         let libraryAgents = scanAgents(at: agentLibraryDirectory, scope: .library)
@@ -63,7 +65,6 @@ nonisolated struct PiScanner: @unchecked Sendable {
             scanEnv(at: projectEnv, scope: .project)
 
         let globalSettingsSummary = settings.first(where: { $0.path == globalSettings.path })
-        let projectSettingsSummary = settings.first(where: { $0.path == projectSettings?.path })
         let promptScan = scanPromptTemplates(
             projectRoot: nil,
             globalPromptsDirectory: globalPrompts,
@@ -83,9 +84,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
             legacyProject: legacyProjectAgents,
             project: projectAgents,
             userOverrides: globalSettingsSummary?.agentOverrides ?? [],
-            projectOverrides: projectSettingsSummary?.agentOverrides ?? [],
-            userDisableBuiltins: globalSettingsSummary?.disableBuiltins,
-            projectDisableBuiltins: projectSettingsSummary?.disableBuiltins
+            userDisableBuiltins: globalSettingsSummary?.disableBuiltins
         )
 
         let warnings = buildWarnings(
@@ -624,7 +623,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
         return deduped
     }
 
-    private func scanSettings(at file: URL?, scope: ResourceScopeKind) -> SettingsSummary? {
+    private func scanSettings(at file: URL?, scope: ResourceScopeKind, includesSubagentConfiguration: Bool = true) -> SettingsSummary? {
         guard let file, let data = try? Data(contentsOf: file) else { return nil }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return SettingsSummary(path: file.path, packages: [], prompts: [], disableBuiltins: nil, agentOverrides: [])
@@ -632,7 +631,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
 
         let packages = packageSources(from: root["packages"])
         let prompts = resolvePromptSettingEntries(root["prompts"], settingsFile: file)
-        let subagents = root["subagents"] as? [String: Any]
+        let subagents = includesSubagentConfiguration ? root["subagents"] as? [String: Any] : nil
         let disableBuiltins = subagents?["disableBuiltins"] as? Bool
         let overridesRoot = (subagents?["agentOverrides"] as? [String: Any]) ?? [:]
         let overrides: [BuiltinOverrideRecord] = overridesRoot.compactMap { name, payload in
@@ -684,9 +683,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
         legacyProject: [AgentRecord],
         project: [AgentRecord],
         userOverrides: [BuiltinOverrideRecord],
-        projectOverrides: [BuiltinOverrideRecord],
-        userDisableBuiltins: Bool?,
-        projectDisableBuiltins: Bool?
+        userDisableBuiltins: Bool?
     ) -> [EffectiveAgentRecord] {
         let allNames = Set(
             builtin.map(\.name) +
@@ -694,8 +691,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
             global.map(\.name) +
             legacyProject.map(\.name) +
             project.map(\.name) +
-            userOverrides.map(\.agentName) +
-            projectOverrides.map(\.agentName)
+            userOverrides.map(\.agentName)
         )
 
         return allNames.sorted().compactMap { name in
@@ -703,22 +699,14 @@ nonisolated struct PiScanner: @unchecked Sendable {
             let globalRecord = legacyGlobal.first(where: { $0.name == name }) ?? global.first(where: { $0.name == name })
             let projectRecord = project.first(where: { $0.name == name }) ?? legacyProject.first(where: { $0.name == name })
             let userOverride = userOverrides.first(where: { $0.agentName == name })
-            let projectOverride = projectOverrides.first(where: { $0.agentName == name })
+            let projectOverride: BuiltinOverrideRecord? = nil
 
             let winner = projectRecord ?? globalRecord ?? builtinRecord
             guard var resolved = winner?.parsed else { return nil }
             if winner?.source.kind == .builtin {
-                if let projectOverride {
-                    // Project overrides should refine global builtin overrides field-by-field.
-                    // Keep the existing disabled precedence: a project override does not
-                    // inherit global disabled state unless it explicitly sets `disabled`.
-                    resolved = applyOverride(userOverride, to: resolved, includeDisabled: false)
-                    resolved = applyOverride(projectOverride, to: resolved)
-                } else if projectDisableBuiltins == true {
-                    resolved.disabled = true
-                } else if let userOverride {
+                if let userOverride {
                     resolved = applyOverride(userOverride, to: resolved)
-                } else if projectDisableBuiltins == nil, userDisableBuiltins == true {
+                } else if userDisableBuiltins == true {
                     resolved.disabled = true
                 }
             }

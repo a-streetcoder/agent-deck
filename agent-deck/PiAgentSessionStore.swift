@@ -582,6 +582,7 @@ final class PiAgentSessionStore {
             pendingFollowUpMessages: [],
             subagentsEnabled: parent.subagentsEnabled,
             agentSelection: parent.agentSelection,
+            agentLaunchOverrides: parent.agentLaunchOverrides,
             injectedExtensions: parent.injectedExtensions,
             isCompacting: false,
             isTitleUserEdited: false,

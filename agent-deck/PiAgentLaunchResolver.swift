@@ -9,27 +9,19 @@ nonisolated enum PiAgentLaunchResolver {
     ) -> [EffectiveAgentRecord] {
         // Overrides are tagged with `kind: .override` regardless of source file,
         // so partition them by the originating settings file path instead.
+        // Project `.pi/settings.json` subagent configuration is owned by Pi,
+        // not Agent Deck. Only global Agent Deck builtin overrides participate.
         let userOverrides = globalSettings(in: snapshot)?.agentOverrides ?? []
-        let projectOverrides = projectSettings(in: snapshot)?.agentOverrides ?? []
         let userDisableBuiltins = globalSettings(in: snapshot)?.disableBuiltins
-        let projectDisableBuiltins = projectSettings(in: snapshot)?.disableBuiltins
 
         var byName: [String: EffectiveAgentRecord] = [:]
         for builtin in snapshot.builtinAgents {
             let userOverride = userOverrides.first { $0.agentName == builtin.name }
-            let projectOverride = projectOverrides.first { $0.agentName == builtin.name }
+            let projectOverride: BuiltinOverrideRecord? = nil
             var resolved = builtin.parsed
-            if let projectOverride {
-                // Project overrides should refine global builtin overrides field-by-field.
-                // Keep the existing disabled precedence: a project override does not
-                // inherit global disabled state unless it explicitly sets `disabled`.
-                resolved = applyOverride(userOverride, to: resolved, includeDisabled: false)
-                resolved = applyOverride(projectOverride, to: resolved)
-            } else if projectDisableBuiltins == true {
-                resolved.disabled = true
-            } else if let userOverride {
+            if let userOverride {
                 resolved = applyOverride(userOverride, to: resolved)
-            } else if projectDisableBuiltins == nil, userDisableBuiltins == true {
+            } else if userDisableBuiltins == true {
                 resolved.disabled = true
             }
             byName[builtin.name] = EffectiveAgentRecord(
@@ -55,7 +47,7 @@ nonisolated enum PiAgentLaunchResolver {
                 globalCustom: record,
                 projectCustom: nil,
                 userOverride: userOverrides.first { $0.agentName == name },
-                projectOverride: projectOverrides.first { $0.agentName == name }
+                projectOverride: nil
             )
         }
         for name in projectAgentNames.sorted(by: localizedSort) {
@@ -68,7 +60,7 @@ nonisolated enum PiAgentLaunchResolver {
                 globalCustom: record,
                 projectCustom: nil,
                 userOverride: existing?.userOverride ?? userOverrides.first { $0.agentName == name },
-                projectOverride: existing?.projectOverride ?? projectOverrides.first { $0.agentName == name }
+                projectOverride: nil
             )
         }
 
@@ -147,11 +139,6 @@ nonisolated enum PiAgentLaunchResolver {
         return snapshot.settings.first { URL(fileURLWithPath: $0.path).standardizedFileURL.path != projectSettingsPath }
     }
 
-    private static func projectSettings(in snapshot: ScanSnapshot) -> SettingsSummary? {
-        guard let projectRoot = snapshot.projectRoot else { return nil }
-        let projectSettingsPath = URL(fileURLWithPath: projectRoot).appendingPathComponent(".pi/settings.json").standardizedFileURL.path
-        return snapshot.settings.first { URL(fileURLWithPath: $0.path).standardizedFileURL.path == projectSettingsPath }
-    }
 
     private static func applyOverride(_ override: BuiltinOverrideRecord?, to config: AgentConfig, includeDisabled: Bool = true) -> AgentConfig {
         guard let override else { return config }

@@ -7245,6 +7245,26 @@ final class AppViewModel: NSObject {
         reconcileRunningSessionLaunchResourceFingerprints()
     }
 
+    func setAgentLaunchOverride(
+        _ value: PiAgentSessionLaunchOverrideValue?,
+        for agentName: String,
+        field: WritableKeyPath<PiAgentSessionAgentLaunchOverride, PiAgentSessionLaunchOverrideValue?>,
+        sessionID: UUID
+    ) {
+        piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
+            guard !session.isNoProject else { return }
+            var overrides = session.agentLaunchOverrides ?? [:]
+            var override = overrides[agentName] ?? .init(model: nil, thinking: nil)
+            override[keyPath: field] = value
+            if override.isEmpty {
+                overrides.removeValue(forKey: agentName)
+            } else {
+                overrides[agentName] = override
+            }
+            session.agentLaunchOverrides = overrides.isEmpty ? nil : overrides
+        }
+    }
+
     private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {
         switch scope {
         case .global:
@@ -7555,7 +7575,42 @@ final class AppViewModel: NSObject {
             agents = startupSnapshot(forProjectPath: projectPath).effectiveAgents
         }
         var seen = Set<String>()
-        return agents.filter { $0.resolved.disabled != true && seen.insert($0.name).inserted }
+        return agents
+            .filter { $0.resolved.disabled != true && seen.insert($0.name).inserted }
+            .map { applyingSessionLaunchOverrides(to: $0, session: session) }
+    }
+
+    private func applyingSessionLaunchOverrides(to agent: EffectiveAgentRecord, session: PiAgentSessionRecord) -> EffectiveAgentRecord {
+        guard let override = session.agentLaunchOverrides?[agent.name] else { return agent }
+        var resolved = agent.resolved
+        switch override.model {
+        case .piDefault:
+            resolved.model = nil
+        case let .value(value):
+            resolved.model = value.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        case nil:
+            break
+        }
+        switch override.thinking {
+        case .piDefault:
+            resolved.thinking = nil
+        case let .value(value):
+            resolved.thinking = value.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        case nil:
+            break
+        }
+        return EffectiveAgentRecord(
+            id: agent.id,
+            name: agent.name,
+            projectRoot: agent.projectRoot,
+            builtin: agent.builtin,
+            globalCustom: agent.globalCustom,
+            projectCustom: agent.projectCustom,
+            userOverride: agent.userOverride,
+            projectOverride: agent.projectOverride,
+            resolved: resolved,
+            resolutionKind: agent.resolutionKind
+        )
     }
 
     /// Whether a session has any non-disabled agent it could run as a subagent.
@@ -8363,31 +8418,40 @@ final class AppViewModel: NSObject {
     }
 
     private func replaceSkillReferencesInBuiltinOverrides(from oldName: String, to newName: String) throws {
-        for settingsPath in allSettingsPaths() {
-            var root = try loadJSONDictionary(at: settingsPath)
-            guard var subagents = root["subagents"] as? [String: Any], var overrides = subagents["agentOverrides"] as? [String: Any] else { continue }
-            var changed = false
-            for key in overrides.keys {
-                guard var override = overrides[key] as? [String: Any] else { continue }
-                if let skills = override["skills"] as? [Any] {
-                    let updated = skills.map { value -> Any in
-                        guard let skill = value as? String, skill == oldName else { return value }
-                        changed = true
-                        return newName
-                    }
-                    override["skills"] = updated
-                    overrides[key] = override
-                } else if let skill = override["skills"] as? String, skill == oldName {
-                    override["skills"] = newName
-                    overrides[key] = override
+        // Builtin overrides are global-only. Never enumerate or rewrite a
+        // project's `.pi/settings.json` while renaming a skill.
+        let settingsPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/settings.json")
+            .standardizedFileURL.path
+        let root = try loadJSONDictionary(at: settingsPath)
+        guard let updatedRoot = Self.replacingBuiltinOverrideSkillReferences(in: root, from: oldName, to: newName) else { return }
+        try writeJSONDictionary(updatedRoot, to: settingsPath)
+    }
+
+    static func replacingBuiltinOverrideSkillReferences(in root: [String: Any], from oldName: String, to newName: String) -> [String: Any]? {
+        var updatedRoot = root
+        guard var subagents = updatedRoot["subagents"] as? [String: Any], var overrides = subagents["agentOverrides"] as? [String: Any] else { return nil }
+        var changed = false
+        for key in overrides.keys {
+            guard var override = overrides[key] as? [String: Any] else { continue }
+            if let skills = override["skills"] as? [Any] {
+                let updated = skills.map { value -> Any in
+                    guard let skill = value as? String, skill == oldName else { return value }
                     changed = true
+                    return newName
                 }
+                override["skills"] = updated
+                overrides[key] = override
+            } else if let skill = override["skills"] as? String, skill == oldName {
+                override["skills"] = newName
+                overrides[key] = override
+                changed = true
             }
-            guard changed else { continue }
-            subagents["agentOverrides"] = overrides
-            root["subagents"] = subagents
-            try writeJSONDictionary(root, to: settingsPath)
         }
+        guard changed else { return nil }
+        subagents["agentOverrides"] = overrides
+        updatedRoot["subagents"] = subagents
+        return updatedRoot
     }
 
     private func settingsContainPromptFile(_ filePath: String) -> Bool {
@@ -10305,28 +10369,10 @@ final class AppViewModel: NSObject {
         }
     }
 
-    /// Toggles the global state for a builtin and, atomically, wipes every
-    /// per-project `disabled` override for the same agent. Per-project
-    /// overrides take precedence in [[builtinIsDisabled]] (see
-    /// `PiAgentLaunchResolver`), so without this sweep "All Projects" would
-    /// silently fail in any project that had been individually toggled off.
+    /// Builtin enablement is global-only; Agent Deck never rewrites project
+    /// `.pi/settings.json` subagent configuration.
     func setBuiltinGloballyEnabled(_ isEnabled: Bool, for agent: EffectiveAgentRecord) {
         setBuiltinDisabled(!isEnabled, for: agent, scope: .global)
-
-        for (projectPath, snap) in allProjectSnapshots {
-            let projectSettingsPath = URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/settings.json").standardizedFileURL.path
-            let hasDisabledOverride = snap.settings.contains { summary in
-                URL(fileURLWithPath: summary.path).standardizedFileURL.path == projectSettingsPath
-                && summary.agentOverrides.contains { $0.agentName == agent.name && $0.values["disabled"] != nil }
-            }
-            guard hasDisabledOverride else { continue }
-            do {
-                try agentPersistence.clearBuiltinDisabledOverride(for: agent, scope: .project, projectRoot: projectPath)
-                patchBuiltinDisabledOverrideCleared(agentName: agent.name, projectRoot: projectPath)
-            } catch {
-                githubLastError = error.localizedDescription
-            }
-        }
     }
 
     private func patchBuiltinDisabledOverrideCleared(agentName: String, projectRoot: String) {

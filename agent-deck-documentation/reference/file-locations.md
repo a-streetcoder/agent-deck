@@ -25,7 +25,7 @@ This page lists the important paths Agent Deck scans or writes.
 | Legacy global catalog | `~/.agents/*.md` |
 | Library/catalog | `~/.pi/agent/agent-library/agents/*.md` |
 | Assignment state | Agent Deck app settings/project preferences |
-| Builtin overrides | `settings.json -> subagents.agentOverrides` |
+| Builtin overrides | Global `~/.pi/agent/settings.json -> subagents.agentOverrides` (Agent Deck does not read or write project `subagents` settings) |
 
 Project-specific availability is controlled by Agent Deck assignment state. Agent Deck does not discover project-local `.pi/agents` or legacy project `.agents` folders as resource catalog sources.
 

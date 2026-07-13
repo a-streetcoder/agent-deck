@@ -3,6 +3,41 @@ import XCTest
 
 @MainActor
 final class PiAgentSessionStoreTests: XCTestCase {
+    func testForkCopiesParentLaunchOverridesButAgentChatForkDoesNot() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let parent = store.createSession(kind: .project, title: "Parent", project: try PiTestSupport.makeProject(), repository: nil)
+        store.updateSession(parent.id) {
+            $0.agentLaunchOverrides = ["explorer": .init(model: .value("openai/gpt-5.4-mini"), thinking: .piDefault)]
+        }
+        let current = try XCTUnwrap(store.sessions.first(where: { $0.id == parent.id }))
+        let fork = store.forkSession(from: current, newPiSessionFile: "/tmp/fork.jsonl", newPiSessionId: nil, composerSeed: "Continue")
+        XCTAssertEqual(fork.agentLaunchOverrides, current.agentLaunchOverrides)
+
+        let agentFork = store.forkSessionAsAgentChat(
+            from: current,
+            agent: PiTestSupport.makeAgent(name: "explorer"),
+            composerSeed: "Continue"
+        )
+        XCTAssertNil(agentFork.agentLaunchOverrides)
+    }
+
+    func testLaunchOverridesPersistAcrossReload() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Overrides", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.updateSession(session.id) {
+            $0.agentLaunchOverrides = ["explorer": .init(model: .piDefault, thinking: .value("high"))]
+        }
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+        XCTAssertEqual(
+            reloadedStore.sessions.first(where: { $0.id == session.id })?.agentLaunchOverrides,
+            ["explorer": .init(model: .piDefault, thinking: .value("high"))]
+        )
+    }
+
     func testLastUserMessageTimestampTracksUserEntriesOnly() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "Activity", project: try PiTestSupport.makeProject(), repository: nil)

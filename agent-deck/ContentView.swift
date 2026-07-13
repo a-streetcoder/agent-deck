@@ -1325,20 +1325,12 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var agentsPrimaryToolbarContent: some ToolbarContent {
-        // Utility island: filter the list, bulk-edit models, and (contextually)
-        // create a replacement for a selected builtin agent.
+        // Utility island: filter the list and, contextually, create a
+        // replacement for a selected builtin agent. Persistent model editing
+        // is available only from the Models screen.
         ToolbarItem(placement: .primaryAction) {
             ControlGroup {
                 agentsFilterButton
-
-                Button {
-                    agentModelQuickEditor = currentAgentModelQuickEditorContext
-                } label: {
-                    Label("Quick Edit Models", systemImage: "cpu")
-                }
-                .toolbarNeutralChrome()
-                .help("Quick edit agent models and thinking")
-                .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
 
                 if let agent = viewModel.selectedAgent {
                     replacementAgentButton(for: agent)

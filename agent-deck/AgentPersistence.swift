@@ -24,7 +24,8 @@ struct AgentPersistence {
         }
 
         guard let builtin = agent.builtin?.parsed else { return nil }
-        let scope: AgentEditingTarget.OverrideScope = preferredOverrideScope ?? .global
+        // Builtin overrides are global only. Project settings remain untouched.
+        let scope: AgentEditingTarget.OverrideScope = .global
         let seededConfig = seededBuiltinOverrideConfig(for: agent, base: builtin, scope: scope)
         return AgentEditorDraft(
             target: .builtinOverride(scope: scope),
@@ -147,6 +148,9 @@ struct AgentPersistence {
     }
 
     private func saveBuiltinOverride(_ edited: AgentConfig, original: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
+        guard scope == .global else {
+            throw PersistenceError.invalidWriteTarget("Project builtin overrides are not supported. Use Models for global defaults or session launch overrides.")
+        }
         guard let builtin = original.builtin?.parsed else {
             throw PersistenceError.missingBuiltinBase(original.name)
         }
@@ -209,6 +213,9 @@ struct AgentPersistence {
     }
 
     func setDisableBuiltins(_ isDisabled: Bool?, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
+        guard scope == .global else {
+            throw PersistenceError.invalidWriteTarget("Project builtin overrides are not supported.")
+        }
         let path = settingsPath(for: scope, projectRoot: projectRoot)
         var root = try loadJSONObject(at: path)
         var subagents = root["subagents"] as? [String: Any] ?? [:]
@@ -229,6 +236,9 @@ struct AgentPersistence {
     }
 
     func setBuiltinDisabled(_ isDisabled: Bool, for agent: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
+        guard scope == .global else {
+            throw PersistenceError.invalidWriteTarget("Project builtin overrides are not supported.")
+        }
         let path = settingsPath(for: scope, projectRoot: projectRoot)
         var root = try loadJSONObject(at: path)
         var subagents = root["subagents"] as? [String: Any] ?? [:]
@@ -264,6 +274,9 @@ struct AgentPersistence {
     /// Used when toggling "All Projects" so per-project disable overrides don't
     /// stick around and silently negate the new global state.
     func clearBuiltinDisabledOverride(for agent: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
+        guard scope == .global else {
+            throw PersistenceError.invalidWriteTarget("Project builtin overrides are not supported.")
+        }
         let path = settingsPath(for: scope, projectRoot: projectRoot)
         var root = try loadJSONObject(at: path)
         var subagents = root["subagents"] as? [String: Any] ?? [:]

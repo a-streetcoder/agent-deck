@@ -947,8 +947,12 @@ struct PiAgentSessionSubagentPickerCard: View {
             selectedModelIdentifier: editableModelIdentifier(for: agent),
             selectedThinkingLevel: editableThinkingLevel(for: agent),
             thinkingLevels: editableThinkingLevels(for: agent),
+            hasModelLaunchOverride: session.agentLaunchOverrides?[agent.name]?.model != nil,
+            hasThinkingLaunchOverride: session.agentLaunchOverrides?[agent.name]?.thinking != nil,
             onSelectModel: { applyModel($0, to: agent) },
             onSelectThinking: { applyThinking($0, to: agent) },
+            onResetModel: { resetModel(for: agent) },
+            onResetThinking: { resetThinking(for: agent) },
             onToggle: { apply(selection, name: agent.name, include: !checked) },
             onStartDirectChat: {
                 withAnimation(.easeOut(duration: 0.22)) {
@@ -1002,10 +1006,8 @@ struct PiAgentSessionSubagentPickerCard: View {
 
     // MARK: - Per-agent launch controls
     //
-    // Inline model + thinking chips let the user override an agent's model and
-    // reasoning effort directly from the picker, persisting via the same
-    // `saveAgentDraft` path as the agent editor. These mirror the chip pair
-    // that used to live on each picker row.
+    // Inline model + thinking chips are per-parent-session launch overrides.
+    // Persistent per-agent defaults are edited only on the Models screen.
 
     private func launchDetail(for agent: EffectiveAgentRecord) -> String {
         let modelPart = editableModelIdentifier(for: agent)
@@ -1065,30 +1067,22 @@ struct PiAgentSessionSubagentPickerCard: View {
         defaultThinkingLevels.firstIndex(of: level) ?? Int.max
     }
 
-    private var overrideScope: AgentEditingTarget.OverrideScope {
-        let path = viewModel.selectedProjectPath
-        return (path == nil || path?.isEmpty == true) ? .global : .project
-    }
-
     private func applyModel(_ identifier: String?, to agent: EffectiveAgentRecord) {
-        guard var draft = viewModel.makeAgentDraft(for: agent, preferredOverrideScope: overrideScope) else { return }
-        draft.config.model = (identifier?.isEmpty == false) ? identifier : nil
-        saveAgentDraft(draft, for: agent)
+        let value: PiAgentSessionLaunchOverrideValue = identifier.flatMap(trimmed).map(PiAgentSessionLaunchOverrideValue.value) ?? .piDefault
+        viewModel.setAgentLaunchOverride(value, for: agent.name, field: \.model, sessionID: session.id)
     }
 
     private func applyThinking(_ level: String?, to agent: EffectiveAgentRecord) {
-        guard var draft = viewModel.makeAgentDraft(for: agent, preferredOverrideScope: overrideScope) else { return }
-        let resolved = trimmed(level)
-        draft.config.thinking = (resolved == nil || resolved == "off") ? nil : resolved
-        saveAgentDraft(draft, for: agent)
+        let value: PiAgentSessionLaunchOverrideValue = level.flatMap(trimmed).map(PiAgentSessionLaunchOverrideValue.value) ?? .piDefault
+        viewModel.setAgentLaunchOverride(value, for: agent.name, field: \.thinking, sessionID: session.id)
     }
 
-    private func saveAgentDraft(_ draft: AgentEditorDraft, for agent: EffectiveAgentRecord) {
-        do {
-            try viewModel.saveAgentDraft(draft, for: agent)
-        } catch {
-            NSSound.beep()
-        }
+    private func resetModel(for agent: EffectiveAgentRecord) {
+        viewModel.setAgentLaunchOverride(nil, for: agent.name, field: \.model, sessionID: session.id)
+    }
+
+    private func resetThinking(for agent: EffectiveAgentRecord) {
+        viewModel.setAgentLaunchOverride(nil, for: agent.name, field: \.thinking, sessionID: session.id)
     }
 }
 
@@ -1265,23 +1259,28 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard subviews.count == 2 else { return .zero }
         let width = proposal.width ?? 220
-        let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
-        if width >= mediumThreshold {
-            return .init(width: widths(for: width).reduce(0, +) + spacing, height: max(sizes[0].height, sizes[1].height))
+        let configuration = configuration(
+            for: width,
+            height: proposal.height,
+            hasFiniteWidth: proposal.width?.isFinite == true,
+            subviews: subviews
+        )
+        let sizes = measurements(widths: configuration.widths, height: proposal.height, subviews: subviews, cache: &cache)
+        if configuration.isHorizontal {
+            return .init(width: configuration.widths.reduce(0, +) + spacing, height: max(sizes[0].height, sizes[1].height))
         }
-        return .init(width: max(sizes[0].width, sizes[1].width), height: sizes[0].height + 6 + sizes[1].height)
+        return .init(width: max(sizes[0].width, sizes[1].width), height: sizes[0].height + verticalSpacing + sizes[1].height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 2 else { return }
-        let horizontal = bounds.width >= mediumThreshold
-        let widths = widths(for: bounds.width)
-        let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
-        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
-        let secondOrigin = horizontal
-            ? CGPoint(x: bounds.minX + widths[0] + spacing, y: bounds.minY)
-            : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + 6)
-        subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
+        let configuration = configuration(for: bounds.width, height: proposal.height, hasFiniteWidth: true, subviews: subviews)
+        let sizes = measurements(widths: configuration.widths, height: proposal.height, subviews: subviews, cache: &cache)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: configuration.widths[0], height: sizes[0].height))
+        let secondOrigin = configuration.isHorizontal
+            ? CGPoint(x: bounds.minX + configuration.widths[0] + spacing, y: bounds.minY)
+            : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + verticalSpacing)
+        subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: configuration.widths[1], height: sizes[1].height))
     }
 }
 
@@ -1301,8 +1300,12 @@ private struct PiAgentSubagentPickerRow: View {
     let selectedModelIdentifier: String?
     let selectedThinkingLevel: String?
     let thinkingLevels: [String]
+    let hasModelLaunchOverride: Bool
+    let hasThinkingLaunchOverride: Bool
     let onSelectModel: (String?) -> Void
     let onSelectThinking: (String?) -> Void
+    let onResetModel: () -> Void
+    let onResetThinking: () -> Void
     let onToggle: () -> Void
     let onStartDirectChat: () -> Void
 
@@ -1360,8 +1363,12 @@ private struct PiAgentSubagentPickerRow: View {
             selectedModelIdentifier: selectedModelIdentifier,
             selectedThinkingLevel: selectedThinkingLevel,
             thinkingLevels: thinkingLevels,
+            hasModelLaunchOverride: hasModelLaunchOverride,
+            hasThinkingLaunchOverride: hasThinkingLaunchOverride,
             onSelectModel: onSelectModel,
-            onSelectThinking: onSelectThinking
+            onSelectThinking: onSelectThinking,
+            onResetModel: onResetModel,
+            onResetThinking: onResetThinking
         )
     }
 
@@ -1419,6 +1426,21 @@ struct PiAgentSubagentPickerRowLayoutFixture: View {
     }
 }
 
+/// Production-layout fixture for deterministic compact-width tests.
+struct PiAgentAdaptiveControlsLayoutFixture: View {
+    let firstWidth: CGFloat
+    let secondWidth: CGFloat
+    let width: CGFloat
+
+    var body: some View {
+        PiAgentAdaptiveControlsLayout {
+            Color.clear.frame(width: firstWidth, height: 20)
+            Color.clear.frame(width: secondWidth, height: 20)
+        }
+        .frame(width: width, alignment: .leading)
+    }
+}
+
 /// Inline per-agent model + thinking chips for a picker row. The model chip
 /// opens a popover listing Pi's known models grouped by provider (plus "Pi
 /// default"); the thinking chip lists the levels supported by the current
@@ -1431,8 +1453,12 @@ private struct PiAgentPickerLaunchControls: View {
     let selectedModelIdentifier: String?
     let selectedThinkingLevel: String?
     let thinkingLevels: [String]
+    let hasModelLaunchOverride: Bool
+    let hasThinkingLaunchOverride: Bool
     let onSelectModel: (String?) -> Void
     let onSelectThinking: (String?) -> Void
+    let onResetModel: () -> Void
+    let onResetThinking: () -> Void
 
     @State private var isModelPresented = false
     @State private var isThinkingPresented = false
@@ -1520,10 +1546,17 @@ private struct PiAgentPickerLaunchControls: View {
                 let groups = groupedModels
                 LazyVStack(alignment: .leading, spacing: 12) {
                     Button {
+                        onResetModel()
+                        isModelPresented = false
+                    } label: {
+                        popoverRow(label: "Agent default", isSelected: !hasModelLaunchOverride)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
                         onSelectModel(nil)
                         isModelPresented = false
                     } label: {
-                        popoverRow(label: "Pi default", isSelected: selectedModelIdentifier == nil)
+                        popoverRow(label: "Pi default", isSelected: hasModelLaunchOverride && selectedModelIdentifier == nil)
                     }
                     .buttonStyle(.plain)
                     ForEach(groups, id: \.provider) { group in
