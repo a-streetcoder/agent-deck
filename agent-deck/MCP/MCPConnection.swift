@@ -16,8 +16,12 @@ actor MCPConnection {
     private var nextID = 1
     private var supportsDuplexServerRequests = false
     private var interactiveElicitationEnabled = false
-    private var sentRequestIDs: Set<Int> = []
-    private struct Pending { let continuation: CheckedContinuation<JSONRPCResponse, Error>; let method: String; let context: MCPCallContext? }
+    private struct Pending {
+        let continuation: CheckedContinuation<JSONRPCResponse, Error>
+        let method: String
+        let context: MCPCallContext?
+        var sendStarted = false
+    }
     private var pending: [Int: Pending] = [:]
     private var timeoutTasks: [Int: Task<Void, Never>] = [:]
 
@@ -39,7 +43,18 @@ actor MCPConnection {
         let initializeResponse = try await request(method: MCPMethod.initialize, params: MCPRequestFactory.initialize(id: 0, clientName: clientName, clientVersion: clientVersion, supportsElicitation: offerElicitation).params, context: nil)
         if let result = initializeResponse.result,
            let selected = try? JSONDecoder().decode(MCPInitializeResult.self, from: JSONEncoder().encode(result)) {
-            interactiveElicitationEnabled = offerElicitation && MCPProtocolVersion.supportsElicitation(selected.protocolVersion)
+            // The server must select exactly the version we offered for elicitation;
+            // accepting a future string would incorrectly assume an unknown shape.
+            interactiveElicitationEnabled = offerElicitation && selected.protocolVersion == MCPProtocolVersion.elicitationIntroduced
+            if offerElicitation, !interactiveElicitationEnabled {
+                await transport.close()
+                self.transport = nil
+                throw MCPError.transportFailed("server selected unsupported MCP protocol version")
+            }
+        } else if offerElicitation {
+            await transport.close()
+            self.transport = nil
+            throw MCPError.decoding("initialize response missing protocol version")
         }
         try await sendNotification(MCPRequestFactory.initialized()); isConnected = true
     }
@@ -65,11 +80,9 @@ actor MCPConnection {
                 guard !Task.isCancelled else { continuation.resume(throwing: MCPError.cancelled); return }
                 pending[id] = .init(continuation: continuation, method: method, context: context)
                 timeoutTasks[id] = Task { [weak self, requestTimeout] in try? await Task.sleep(for: requestTimeout); await self?.failPending(id: id, error: MCPError.timeout(method), reason: "request timed out") }
-                Task { [weak self] in
-                    do { guard let transport = await self?.transport else { await self?.failPending(id: id, error: MCPError.transportFailed("transport not started"), reason: "transport unavailable"); return }; await self?.markSent(id); try await transport.send(line) }
-                    catch let error as MCPError { await self?.failPending(id: id, error: error, reason: "transport failed") }
-                    catch { await self?.failPending(id: id, error: MCPError.transportFailed(error.localizedDescription), reason: "transport failed") }
-                }
+                // The detached task owns no request state. It must re-enter the actor
+                // and prove the request is still pending before any transport write.
+                Task { [weak self] in await self?.sendPending(id: id, line: line) }
             }
         }, onCancel: { Task { await self.failPending(id: id, error: MCPError.cancelled, reason: "caller cancelled") } })
     }
@@ -105,13 +118,21 @@ actor MCPConnection {
         let disposition = await handler(request, context)
         switch disposition { case let .result(result): await sendResponse(.result(id: request.id, result)); case let .error(code, message): await sendResponse(.error(id: request.id, code: code, message: message)) }
     }
-    private func markSent(_ id: Int) { sentRequestIDs.insert(id) }
-    private func resolvePending(id: Int, response: JSONRPCResponse) { timeoutTasks.removeValue(forKey: id)?.cancel(); sentRequestIDs.remove(id); pending.removeValue(forKey: id)?.continuation.resume(returning: response) }
+    private func sendPending(id: Int, line: String) async {
+        guard var entry = pending[id], !entry.sendStarted else { return }
+        guard let transport else { failPending(id: id, error: MCPError.transportFailed("transport not started"), reason: "transport unavailable"); return }
+        entry.sendStarted = true
+        pending[id] = entry
+        do { try await transport.send(line) }
+        catch let error as MCPError { failPending(id: id, error: error, reason: "transport failed") }
+        catch { failPending(id: id, error: MCPError.transportFailed(error.localizedDescription), reason: "transport failed") }
+    }
+    private func resolvePending(id: Int, response: JSONRPCResponse) { timeoutTasks.removeValue(forKey: id)?.cancel(); pending.removeValue(forKey: id)?.continuation.resume(returning: response) }
     private func failPending(id: Int, error: Error, reason: String) {
         timeoutTasks.removeValue(forKey: id)?.cancel()
-        guard let pending = pending.removeValue(forKey: id) else { return }
-        if pending.method != MCPMethod.initialize, sentRequestIDs.remove(id) != nil { Task { try? await self.sendNotification(MCPRequestFactory.cancelled(id: id, reason: reason)) } }
-        pending.continuation.resume(throwing: error)
+        guard let entry = pending.removeValue(forKey: id) else { return }
+        if entry.method != MCPMethod.initialize, entry.sendStarted { Task { try? await self.sendNotification(MCPRequestFactory.cancelled(id: id, reason: reason)) } }
+        entry.continuation.resume(throwing: error)
     }
     private func failAllPending(_ error: Error, reason: String) { let ids = Array(pending.keys); for id in ids { failPending(id: id, error: error, reason: reason) } }
     private func decodeResult<T: Decodable>(_ response: JSONRPCResponse, as type: T.Type) throws -> T { if let error = response.error { throw MCPError.rpc(code: error.code, message: error.message) }; guard let result = response.result else { throw MCPError.decoding("missing result for \(T.self)") }; do { return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(result)) } catch { throw MCPError.decoding(error.localizedDescription) } }

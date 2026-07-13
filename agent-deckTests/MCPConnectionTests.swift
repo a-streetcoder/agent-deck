@@ -3,7 +3,14 @@ import XCTest
 
 /// In-process transport that answers outgoing JSON lines via a pure responder,
 /// simulating an MCP server without spawning a process.
+actor MCPContextBox {
+    private var stored: MCPCallContext?
+    func set(_ context: MCPCallContext?) { stored = context }
+    func value() -> MCPCallContext? { stored }
+}
+
 actor MCPStubTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { true }
     typealias Responder = @Sendable (String) -> [String]
     private let responder: Responder
     private var onLine: (@Sendable (String) -> Void)?
@@ -101,6 +108,50 @@ enum MCPMockServer {
 }
 
 final class MCPConnectionTests: XCTestCase {
+    private func context(tool: String = "echo") -> MCPCallContext {
+        MCPCallContext(sessionID: UUID(), projectID: "project", server: "mock", tool: tool, requestingAgent: "bound-agent", subagentRunID: UUID())
+    }
+
+    func testIntegerServerRequestIDCannotResolvePendingClientCallAndDeclines() async throws {
+        let responder: MCPStubTransport.Responder = { line in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] as? Int ?? 0
+            switch object?["method"] as? String {
+            case "initialize": return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{}}}"#]
+            case "tools/call": return [#"{"jsonrpc":"2.0","id":\#(id),"method":"elicitation/create","params":{"message":"x","requestedSchema":{"type":"object","properties":{}}}}"#, MCPMockServer.callResult(id: id, text: "after-request")]
+            default: return []
+            }
+        }
+        let transport = MCPStubTransport(responder: responder)
+        let connection = MCPConnection(name: "mock", config: MCPServerConfig(command: "noop"), transportFactory: { _ in transport })
+        let result = try await connection.callTool(name: "echo", arguments: nil, context: context())
+        XCTAssertEqual(result.combinedText, "after-request")
+        try? await Task.sleep(for: .milliseconds(20))
+        let sent = await transport.sentLines().joined()
+        XCTAssertTrue(sent.contains(#""action":"decline""#))
+    }
+
+    func testHandlerUsesExactNegotiatedVersionAndReceivesContext() async throws {
+        let seen = MCPContextBox()
+        let responder: MCPStubTransport.Responder = { line in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] as? Int ?? 0
+            switch object?["method"] as? String {
+            case "initialize": return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-06-18","capabilities":{}}}"#]
+            case "tools/call": return [#"{"jsonrpc":"2.0","id":"elicitation-id","method":"elicitation/create","params":{"message":"x","requestedSchema":{"type":"object","properties":{}}}}"#]
+            default: return []
+            }
+        }
+        let transport = MCPStubTransport(responder: responder)
+        let connection = MCPConnection(name: "mock", config: MCPServerConfig(command: "noop"), requestTimeout: .milliseconds(100), serverRequestHandler: { _, callContext in await seen.set(callContext); return .result(.object(["action": .string("accept")])) }, transportFactory: { _ in transport })
+        let callContext = context()
+        do { _ = try await connection.callTool(name: "echo", arguments: nil, context: callContext); XCTFail("expected timeout") } catch { }
+        try? await Task.sleep(for: .milliseconds(20))
+        let receivedContext = await seen.value()
+        let sent = await transport.sentLines().joined()
+        XCTAssertEqual(receivedContext, callContext)
+        XCTAssertTrue(sent.contains(#""id":"elicitation-id""#))
+    }
     private func makeConnection(timeout: Duration = .seconds(5),
                                answerCall: @escaping @Sendable (String) -> String?) -> MCPConnection {
         let responder = MCPMockServer.responder(answerCall: answerCall)
