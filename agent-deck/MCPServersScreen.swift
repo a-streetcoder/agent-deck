@@ -287,16 +287,25 @@ struct MCPServersScreen: View {
 
     @ViewBuilder
     private func detailStatusTag(_ entry: MCPServerEntry) -> some View {
+        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseObservationOnly
         switch statusByServer[entry.name] {
         case .probing:
             HStack(spacing: 6) { AppSpinner().controlSize(.small); Text("Connecting…").font(.caption).foregroundStyle(.secondary) }
+        case let .ok(tools) where isComputerUse:
+            let ready = Set(tools.map(\.name)).isSuperset(of: ["list_apps", "get_app_state"])
+            AppLabelTag(text: ready ? "Observation ready" : "Observation status unknown", color: ready ? .green : .orange)
         case let .ok(tools):
             AppLabelTag(text: "Connected · \(tools.count) tool\(tools.count == 1 ? "" : "s")", color: .green)
+        case let .failed(message) where isComputerUse:
+            let needsPermission = ["automation", "accessibility", "screen recording"].contains { message.localizedCaseInsensitiveContains($0) }
+            AppLabelTag(text: needsPermission ? "Permissions required" : "Observation status unknown", color: .orange)
         case .failed:
             AppLabelTag(text: "Not reachable", color: .orange)
         case nil:
             if !entry.isAvailable {
                 AppLabelTag(text: "Unavailable", color: .orange)
+            } else if isComputerUse {
+                AppLabelTag(text: "Observation status unknown", color: .secondary)
             } else if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
                 AppLabelTag(text: "Signed in", color: .green)
             } else {

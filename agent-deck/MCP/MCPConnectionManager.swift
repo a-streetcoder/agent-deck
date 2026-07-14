@@ -205,15 +205,22 @@ actor MCPConnectionManager {
 
     func call(server: String, tool: String, arguments: JSONValue?, context: MCPCallContext) async throws -> MCPCallResult {
         guard policies[server, default: .unrestricted].allows(tool) else {
-            throw MCPError.policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps is allowed.")
+            throw MCPError.policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps and get_app_state are allowed.")
         }
-        let result = try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
-        if policies[server] == .computerUseObservationOnly,
-           result.isError == true,
-           result.combinedText.contains("-1743") {
-            throw MCPError.runtimeAuthorization("Codex Computer Use needs macOS Automation authorization (error -1743). Allow it in System Settings before retrying list_apps.")
+        do {
+            let result = try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
+            if policies[server] == .computerUseObservationOnly,
+               result.isError == true,
+               let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: result.combinedText) {
+                throw MCPError.runtimeAuthorization(diagnostic)
+            }
+            return result
+        } catch let error as MCPError {
+            if case .runtimeAuthorization = error { throw error }
+            guard policies[server] == .computerUseObservationOnly,
+                  let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: error.errorDescription ?? "") else { throw error }
+            throw MCPError.runtimeAuthorization(diagnostic)
         }
-        return result
     }
 
     /// Returns a cached descriptor for `server/tool`, discovering the server's tools

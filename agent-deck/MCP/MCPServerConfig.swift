@@ -94,7 +94,7 @@ nonisolated enum MCPServerToolPolicy: Hashable, Sendable {
     func allows(_ tool: String) -> Bool {
         switch self {
         case .unrestricted: true
-        case .computerUseObservationOnly: tool == "list_apps"
+        case .computerUseObservationOnly: ["list_apps", "get_app_state"].contains(tool)
         }
     }
 }

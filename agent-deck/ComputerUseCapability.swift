@@ -12,10 +12,9 @@ nonisolated enum ComputerUseCapability {
     /// restrictive agents without granting Pi's filesystem `read` tool.
     static let guide = """
     Computer Use (observation-only):
-    - Call the proxy as `mcp({ tool: \"codex-computer-use/list_apps\", args: {} })`.
-    - Only tools currently catalogued and allowed by Agent Deck may be used. At this observation-only phase, do not assume `get_app_state` or action tools are available.
-    - Prefer element IDs when later catalogued tools support them. Obtain fresh state before and after every action once action tools exist.
-    - Ask for explicit confirmation before any risky external effect.
+    - Use `mcp({ tool: \"codex-computer-use/list_apps\", args: {} })` to identify an app, then call `get_app_state` with its returned app identifier.
+    - `get_app_state` returns accessibility text and may include a screenshot. Prefer returned `element_index` identifiers when referring to elements.
+    - Before any future action, obtain fresh app state; refresh it after changes. Only currently catalogued tools are callable—actions are blocked in this phase.
     """
 
     static func isComputerUsePluginSkill(_ reference: CodexPluginSkillReference) -> Bool {
@@ -66,11 +65,39 @@ nonisolated enum ComputerUseCapability {
         catalogEntries: [MCPCatalogEntry]
     ) -> Bool {
         guard scope.contains(serverName),
-              catalogEntries.contains(where: { $0.server == serverName && $0.tool == "list_apps" }),
+              ["list_apps", "get_app_state"].allSatisfy({ tool in catalogEntries.contains { $0.server == serverName && $0.tool == tool } }),
               let entry = entries.first(where: { $0.name == serverName }) else { return false }
         guard entry.isAvailable, entry.toolPolicy == .computerUseObservationOnly else { return false }
         if case .codexPlugin = entry.provenance { return true }
         return false
+    }
+
+    /// Converts known helper failures into safe, actionable guidance while retaining
+    /// a bounded sanitized helper message for troubleshooting.
+    static func runtimeDiagnostic(for helperError: String) -> String? {
+        let normalized = helperError.lowercased()
+        let guidance: String
+        if normalized.contains("-1743") {
+            guidance = "Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
+        } else if normalized.contains("accessibility") && (normalized.contains("denied") || normalized.contains("pending") || normalized.contains("permission") || normalized.contains("authorized")) {
+            guidance = "Computer Use needs macOS Accessibility permission. In System Settings > Privacy & Security > Accessibility, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
+        } else if (normalized.contains("screen recording") || normalized.contains("screenrecording")) && (normalized.contains("denied") || normalized.contains("pending") || normalized.contains("permission") || normalized.contains("authorized")) {
+            guidance = "Computer Use needs macOS Screen Recording permission. In System Settings > Privacy & Security > Screen Recording, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
+        } else if normalized.contains("cold start") || normalized.contains("service unavailable") || normalized.contains("service is unavailable") || normalized.contains("request timed out") || normalized.contains("timed out") {
+            guidance = "Computer Use request timed out. The installed signed Computer Use service/Codex component may still be starting, unavailable, awaiting permission, or blocked. Wait briefly and retry; if it persists, check that component and macOS permissions (not Pi)."
+        } else {
+            return nil
+        }
+        return "\(guidance) Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: \(sanitizedDiagnostic(helperError))"
+    }
+
+    private static func sanitizedDiagnostic(_ value: String) -> String {
+        let clipped = value.replacing(/\s+/, with: " ").prefix(500)
+        return clipped.split(separator: " ").map { token in
+            let text = String(token)
+            let base64ish = text.count >= 32 && text.allSatisfy { $0.isLetter || $0.isNumber || "+/=_-".contains($0) }
+            return base64ish ? "[redacted]" : text
+        }.joined(separator: " ")
     }
 
     static func appendGuide(

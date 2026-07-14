@@ -44,7 +44,7 @@ final class ComputerUseCapabilityTests: XCTestCase {
     }
 
     func testGuideIsInjectedAtEachMCPAssignmentScopeExactlyOnce() {
-        let catalog = "MCP tools (call through the `mcp` proxy tool):\n- codex-computer-use/list_apps"
+        let catalog = "MCP tools (call through the `mcp` proxy tool):\n- codex-computer-use/list_apps\n- codex-computer-use/get_app_state"
         let scopes: [(String, Set<String>)] = [
             ("global parent", [ComputerUseCapability.serverName]),
             ("project parent", [ComputerUseCapability.serverName]),
@@ -52,19 +52,56 @@ final class ComputerUseCapabilityTests: XCTestCase {
             ("delegated agent", [ComputerUseCapability.serverName])
         ]
         for (name, scope) in scopes {
-            let prompt = ComputerUseCapability.appendGuide(to: catalog, scope: scope, entries: [pluginEntry()], catalogEntries: [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil)])
+            let prompt = ComputerUseCapability.appendGuide(to: catalog, scope: scope, entries: [pluginEntry()], catalogEntries: [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil), .init(server: ComputerUseCapability.serverName, tool: "get_app_state", description: nil)])
             XCTAssertEqual(prompt?.components(separatedBy: "Computer Use (observation-only):").count, 2, name)
-            XCTAssertTrue(prompt?.contains("mcp({ tool: \"codex-computer-use/list_apps\", args: {} })") == true, name)
+            XCTAssertTrue(prompt?.contains("get_app_state") == true, name)
+            XCTAssertTrue(prompt?.contains("accessibility text") == true, name)
+            XCTAssertTrue(prompt?.contains("element_index") == true, name)
+            XCTAssertTrue(prompt?.contains("actions are blocked") == true, name)
         }
     }
 
     func testGuideIsNotInjectedWhenUnassignedUnavailableOrCollided() {
-        let catalogEntries: [MCPCatalogEntry] = [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil)]
+        let catalogEntries: [MCPCatalogEntry] = [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil), .init(server: ComputerUseCapability.serverName, tool: "get_app_state", description: nil)]
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [], entries: [pluginEntry()], catalogEntries: catalogEntries), "catalog")
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [ComputerUseCapability.serverName], entries: [pluginEntry(available: false)], catalogEntries: catalogEntries), "catalog")
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [ComputerUseCapability.serverName], entries: [pluginEntry()], catalogEntries: []), "catalog")
+        XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [ComputerUseCapability.serverName], entries: [pluginEntry()], catalogEntries: [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil)]), "catalog")
         let collision = MCPServerEntry(name: ComputerUseCapability.serverName, config: MCPServerConfig(command: "user-server"), sourcePath: "/user/mcp.json")
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [ComputerUseCapability.serverName], entries: [collision], catalogEntries: catalogEntries), "catalog")
+    }
+
+    func testKnownPermissionRuntimeDiagnosticsAreActionableAndSanitized() {
+        let cases = [
+            ("Automation denied (-1743)", "Automation", "-1743"),
+            ("Accessibility permission pending", "Accessibility", "pending"),
+            ("Screen Recording denied", "Screen Recording", "denied")
+        ]
+        for (error, expected, original) in cases {
+            let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: error)
+            XCTAssertTrue(diagnostic?.contains(expected) == true)
+            XCTAssertTrue(diagnostic?.contains("not Pi") == true)
+            XCTAssertTrue(diagnostic?.contains("will not request, reset, or change") == true)
+            XCTAssertTrue(diagnostic?.contains(original) == true)
+        }
+    }
+
+    func testServiceTimeoutDiagnosticPreservesBoundedRawError() {
+        let helperError = MCPError.timeout("tools/call").errorDescription!
+        XCTAssertEqual(
+            ComputerUseCapability.runtimeDiagnostic(for: helperError),
+            "Computer Use request timed out. The installed signed Computer Use service/Codex component may still be starting, unavailable, awaiting permission, or blocked. Wait briefly and retry; if it persists, check that component and macOS permissions (not Pi). Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: MCP request timed out: tools/call"
+        )
+    }
+
+    func testRuntimeDiagnosticRedactsAndBoundsSensitiveLookingPayload() {
+        let sensitivePayload = String(repeating: "A", count: 600)
+        let diagnostic = try! XCTUnwrap(ComputerUseCapability.runtimeDiagnostic(for: "Automation denied (-1743) token=\(sensitivePayload)"))
+        let raw = diagnostic.components(separatedBy: "Original helper error: ").last!
+        XCTAssertTrue(diagnostic.contains("-1743"), "useful error code is retained")
+        XCTAssertFalse(diagnostic.contains(sensitivePayload))
+        XCTAssertTrue(raw.contains("[redacted]"))
+        XCTAssertLessThanOrEqual(raw.count, 500)
     }
 
     func testInstalledRawSkillIsBlockedButCopiedAndUserSkillsRemainImportable() throws {

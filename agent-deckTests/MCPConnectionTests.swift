@@ -179,6 +179,14 @@ enum MCPMockServer {
     }
 }
 
+private final class MCPComputerUseElicitationFixture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pendingToolCallID: Int?
+
+    func setPendingToolCallID(_ id: Int) { lock.lock(); defer { lock.unlock() }; pendingToolCallID = id }
+    func takePendingToolCallID() -> Int? { lock.lock(); defer { lock.unlock() }; return pendingToolCallID }
+}
+
 final class MCPConnectionTests: XCTestCase {
     private func context(tool: String = "echo") -> MCPCallContext {
         MCPCallContext(sessionID: UUID(), projectID: "project", server: "mock", tool: tool, requestingAgent: "bound-agent", subagentRunID: UUID())
@@ -515,33 +523,66 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertFalse(recorder.lines(for: 1).joined().contains("elicitation"))
     }
 
-    func testComputerUseCatalogRetainsListAppsFiltersActionsAndDeniesDirectCall() async throws {
+    func testComputerUseCatalogAllowsExactlyObservationToolsRoutesStateThroughElicitationAndDeniesActions() async throws {
+        let contextBox = MCPContextBox()
+        let fixture = MCPComputerUseElicitationFixture()
         let responder: MCPStubTransport.Responder = { line in
             let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
             let id = object?["id"] as? Int ?? 0
             switch object?["method"] as? String {
             case "initialize":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"mock"}}}"#]
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"mock"}}}"#]
             case "tools/list":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[{"name":"list_apps"},{"name":"click"}]}}"#]
-            case "tools/call": return [MCPMockServer.callResult(id: id, text: "ok")]
-            default: return []
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[{"name":"list_apps"},{"name":"get_app_state"},{"name":"click"},{"name":"perform_secondary_action"},{"name":"set_value"},{"name":"select_text"},{"name":"scroll"},{"name":"drag"},{"name":"press_key"},{"name":"type_text"}]}}"#]
+            case "tools/call":
+                let tool = ((object?["params"] as? [String: Any])?["name"] as? String) ?? ""
+                if tool == "get_app_state" {
+                    fixture.setPendingToolCallID(id)
+                    return [#"{"jsonrpc":"2.0","id":"approval","method":"elicitation/create","params":{"message":"Observe Agent Deck?","requestedSchema":{"type":"object","properties":{}}}}"#]
+                }
+                return [MCPMockServer.callResult(id: id, text: "ok")]
+            default:
+                guard object?["id"] as? String == "approval", let toolCallID = fixture.takePendingToolCallID() else { return [] }
+                return [#"{"jsonrpc":"2.0","id":\#(toolCallID),"result":{"content":[{"type":"text","text":"Agent Deck window"},{"type":"image","data":"AQI=","mimeType":"image/png"}],"isError":false}}"#]
             }
         }
-        let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
+        let transport = MCPStubTransport(responder: responder)
+        let manager = MCPConnectionManager(transportFactory: { _ in transport })
+        await manager.setServerRequestHandler { _, context in
+            await contextBox.set(context)
+            return .result(MCPRequestFactory.elicitationResponse(action: "decline"))
+        }
         await manager.configure(servers: [
             MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
         ])
         let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
-        let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
-        XCTAssertEqual(catalog.map(\.tool), ["list_apps"])
+        let sessionID = UUID()
+        let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: sessionID, projectID: nil, server: "codex-computer-use", tool: "list_apps"))
+        let stateResult = try await manager.call(server: "codex-computer-use", tool: "get_app_state", arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: sessionID, projectID: nil, server: "codex-computer-use", tool: "get_app_state"))
+        XCTAssertEqual(catalog.map(\.tool), ["list_apps", "get_app_state"])
         XCTAssertEqual(listAppsResult.combinedText, "ok")
-        do {
-            _ = try await manager.call(server: "codex-computer-use", tool: "click", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "click"))
-            XCTFail("action call must be denied before transport use")
-        } catch let error as MCPError {
-            XCTAssertEqual(error, .policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps is allowed."))
-        } catch { XCTFail("unexpected error: \(error)") }
+        XCTAssertEqual(stateResult.content?.map(\.type), ["text", "image"])
+        let envelope = PiMCPBridgeCallResultEnvelope.callResult(stateResult, server: "codex-computer-use", tool: "get_app_state")
+        XCTAssertEqual(envelope.content.map(\.type), ["text", "image"])
+        XCTAssertEqual(envelope.content[0].text, "Agent Deck window")
+        XCTAssertEqual(envelope.content[1].data, "AQI=")
+        let elicitedContext = await contextBox.value()
+        XCTAssertEqual(elicitedContext?.tool, "get_app_state", "get_app_state must use the normal elicitation bridge path")
+        let linesAfterObservation = await transport.sentLines()
+        XCTAssertTrue(linesAfterObservation.contains { $0.contains(#""protocolVersion":"2025-06-18""#) })
+        XCTAssertTrue(linesAfterObservation.contains { $0.contains(#""id":"approval""#) && $0.contains(#""action":"decline""#) })
+        for (offset, action) in ["click", "perform_secondary_action", "set_value", "select_text", "scroll", "drag", "press_key", "type_text"].enumerated() {
+            let before = await transport.sentLines().filter { $0.contains(#""method":"tools/call""#) }.count
+            let subagentRunID = offset.isMultiple(of: 2) ? nil : UUID()
+            do {
+                _ = try await manager.call(server: "codex-computer-use", tool: action, arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: action, requestingAgent: subagentRunID == nil ? nil : "child", subagentRunID: subagentRunID))
+                XCTFail("\(action) must be denied before transport use")
+            } catch let error as MCPError {
+                XCTAssertEqual(error, .policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps and get_app_state are allowed."))
+            }
+            let after = await transport.sentLines().filter { $0.contains(#""method":"tools/call""#) }.count
+            XCTAssertEqual(after, before, "\(action) must not reach the MCP transport")
+        }
     }
 
     func testComputerUseAuthorizationErrorIsRuntimeDiagnostic() async {
@@ -557,7 +598,7 @@ final class MCPConnectionManagerTests: XCTestCase {
             _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
             XCTFail("expected authorization diagnostic")
         } catch let error as MCPError {
-            XCTAssertEqual(error, .runtimeAuthorization("Codex Computer Use needs macOS Automation authorization (error -1743). Allow it in System Settings before retrying list_apps."))
+            XCTAssertEqual(error, .runtimeAuthorization("Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed signed Computer Use service/Codex component—not Pi—then retry. Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: Automation denied (-1743)"))
         } catch { XCTFail("unexpected error: \(error)") }
     }
 
