@@ -1,16 +1,27 @@
 import CryptoKit
 import Foundation
 
-/// Resolves the independently reviewed `codex-computer-use-mcp` broker that
-/// routes calls through OpenAI's signed Codex app-server. Agent Deck never
+/// Resolves Agent Deck's integrity-pinned `codex-computer-use-mcp` derivative,
+/// which routes calls through OpenAI's signed Codex app-server. Agent Deck never
 /// invokes the raw Sky helper directly because the service rejects non-OpenAI
 /// responsible processes.
 nonisolated enum CodexComputerUseBrokerDiscovery {
     static let packageName = "codex-computer-use-mcp"
     static let requiredVersion = "0.2.0"
-    /// Canonical SHA-256 of the reviewed npm package tree, including its pinned
-    /// runtime dependencies and symlink targets. See `packageTreeDigest(at:)`.
-    static let requiredPackageDigest = "5ca2b51c934c0f961bb52644ac430dd89a3dcbc772faaae6861f05030f97ab94"
+    static let upstreamPackageDigest = "5ca2b51c934c0f961bb52644ac430dd89a3dcbc772faaae6861f05030f97ab94"
+    static let variantRevision = "0.2.0-agent-deck-auto-accept.1"
+    /// Canonical SHA-256 of the reviewed Agent Deck variant, including pinned
+    /// runtime dependencies, modification notice, and symlink targets.
+    static let requiredPackageDigest = "a2f211c2a6b1600eb210fa0b5068269e6164974b87a9b77b7be0988f19199714"
+
+    private struct VariantManifest: Decodable {
+        let variant: String
+        let package: String
+        let upstreamVersion: String
+        let upstreamDigest: String
+        let packageTreeDigest: String
+        let approvalHandling: String
+    }
 
     struct Broker: Hashable, Sendable {
         let nodeURL: URL
@@ -53,8 +64,8 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
         let supportRoot = applicationSupportDirectory ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         let candidates = candidatePackageRoots ?? [
             supportRoot?
-                .appendingPathComponent("Agent Deck/Computer Use Broker", isDirectory: true)
-                .appendingPathComponent(requiredVersion, isDirectory: true)
+                .appendingPathComponent("Agent Deck/Computer Use Broker/Variants", isDirectory: true)
+                .appendingPathComponent(variantRevision, isDirectory: true)
                 .appendingPathComponent("node_modules/\(packageName)", isDirectory: true),
         ].compactMap { $0 }
 
@@ -62,16 +73,28 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
             let candidate = rawCandidate.standardizedFileURL.resolvingSymlinksInPath()
             let packageJSON = candidate.appendingPathComponent("package.json")
             let serverScript = candidate.appendingPathComponent("dist/mcp-server.js")
+            let variantManifestURL = candidate
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("agent-deck-variant.json")
             guard fileManager.isReadableFile(atPath: packageJSON.path),
                   fileManager.isReadableFile(atPath: serverScript.path),
                   let data = try? Data(contentsOf: packageJSON),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   object["name"] as? String == packageName,
                   object["version"] as? String == requiredVersion,
+                  let manifestData = try? Data(contentsOf: variantManifestURL),
+                  let manifest = try? JSONDecoder().decode(VariantManifest.self, from: manifestData),
+                  manifest.variant == variantRevision,
+                  manifest.package == packageName,
+                  manifest.upstreamVersion == requiredVersion,
+                  manifest.upstreamDigest == upstreamPackageDigest,
+                  manifest.packageTreeDigest == expectedPackageDigest,
+                  manifest.approvalHandling == "auto-accept",
                   packageTreeDigest(at: candidate, fileManager: fileManager) == expectedPackageDigest else { continue }
 
             let stateRoot = (supportRoot ?? homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true))
-                .appendingPathComponent("Agent Deck/Computer Use Broker/State", isDirectory: true)
+                .appendingPathComponent("Agent Deck/Computer Use Broker/State/auto-accept.1", isDirectory: true)
             return .available(.init(
                 nodeURL: nodeURL,
                 serverScriptURL: serverScript,
@@ -81,9 +104,9 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
         }
 
         let target = (supportRoot ?? homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true))
-            .appendingPathComponent("Agent Deck/Computer Use Broker/\(requiredVersion)", isDirectory: true).path
+            .appendingPathComponent("Agent Deck/Computer Use Broker/Variants/\(variantRevision)", isDirectory: true).path
         return .unavailable(
-            "Computer Use requires \(packageName)@\(requiredVersion) at \(target). Install that exact broker package before assigning Computer Use."
+            "Computer Use requires Agent Deck's verified auto-accept broker variant at \(target). Install the variant described in Computer Use setup, then refresh MCP."
         )
     }
 

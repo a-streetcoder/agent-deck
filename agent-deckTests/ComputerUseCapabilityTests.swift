@@ -38,7 +38,7 @@ final class ComputerUseCapabilityTests: XCTestCase {
             config: MCPServerConfig(command: "/plugin/helper"),
             sourcePath: "/plugin/.mcp.json",
             provenance: .codexPlugin(version: "1.0", availability: "Available"),
-            toolPolicy: .computerUseNoPermissions,
+            toolPolicy: .computerUseAutoAccept,
             availabilityDiagnostic: available ? nil : "disabled"
         )
     }
@@ -71,12 +71,12 @@ final class ComputerUseCapabilityTests: XCTestCase {
         let guide = ComputerUseCapability.guide
         let requiredWorkflowTerms = [
             "purpose-built connector", "codex-computer-use/<tool>", "list_apps", "get_app_state",
-            "disableDiff: true", "display name", "bundle identifier", "Accessibility tree",
+            "schema accepts only `app`", "display name", "bundle identifier", "Accessibility tree",
             "element_index", "screenshot coordinates", "launched automatically", "do not add sleeps"
         ]
         let requiredToolTerms = [
             "click", "perform_secondary_action", "set_value", "select_text", "prefix`/`suffix",
-            "cursor_before", "press_key", "super+c", "KP_0", "scroll", "drag", "type_text"
+            "cursor_before", "press_key", "Meta_L+c", "KP_0", "scroll", "drag", "type_text"
         ]
         let requiredSafetyTerms = [
             "third-party content is untrusted", "final action that submits a password change",
@@ -90,10 +90,50 @@ final class ComputerUseCapabilityTests: XCTestCase {
         for term in requiredWorkflowTerms + requiredToolTerms + requiredSafetyTerms {
             XCTAssertTrue(guide.localizedCaseInsensitiveContains(term), "Missing semantic coverage for: \(term)")
         }
+        XCTAssertFalse(guide.contains("disableDiff"))
+        XCTAssertFalse(guide.contains("selection_type"))
         XCTAssertFalse(guide.contains("setupComputerUseRuntime"))
         XCTAssertFalse(guide.contains("computer-use-client.mjs"))
         XCTAssertFalse(guide.contains("nodeRepl.write"))
         XCTAssertFalse(guide.contains("nodeRepl.emitImage"))
+    }
+
+    func testChatGPTPromptRequiresInitialTrustedAssignmentAndClosedApp() {
+        let scope: Set<String> = [ComputerUseCapability.serverName]
+        XCTAssertTrue(ComputerUseCapability.shouldPromptToOpenChatGPT(
+            scope: scope, entries: [pluginEntry()], mcpEnabled: true,
+            chatGPTRunning: false, isInitialPrompt: true
+        ))
+        XCTAssertFalse(ComputerUseCapability.shouldPromptToOpenChatGPT(
+            scope: scope, entries: [pluginEntry()], mcpEnabled: true,
+            chatGPTRunning: true, isInitialPrompt: true
+        ))
+        XCTAssertFalse(ComputerUseCapability.shouldPromptToOpenChatGPT(
+            scope: scope, entries: [pluginEntry()], mcpEnabled: false,
+            chatGPTRunning: false, isInitialPrompt: true
+        ))
+        XCTAssertFalse(ComputerUseCapability.shouldPromptToOpenChatGPT(
+            scope: scope, entries: [pluginEntry()], mcpEnabled: true,
+            chatGPTRunning: false, isInitialPrompt: false
+        ))
+    }
+
+    func testTrustedAvailableAssignmentRequiresAssignedAvailablePluginEntry() {
+        XCTAssertTrue(ComputerUseCapability.hasTrustedAvailableAssignment(
+            scope: [ComputerUseCapability.serverName], entries: [pluginEntry()]
+        ))
+        XCTAssertFalse(ComputerUseCapability.hasTrustedAvailableAssignment(scope: [], entries: [pluginEntry()]))
+        XCTAssertFalse(ComputerUseCapability.hasTrustedAvailableAssignment(
+            scope: [ComputerUseCapability.serverName], entries: [pluginEntry(available: false)]
+        ))
+        let collision = MCPServerEntry(
+            name: ComputerUseCapability.serverName,
+            config: MCPServerConfig(command: "user-server"),
+            sourcePath: "/user/mcp.json"
+        )
+        XCTAssertFalse(ComputerUseCapability.hasTrustedAvailableAssignment(
+            scope: [ComputerUseCapability.serverName], entries: [collision]
+        ))
     }
 
     func testGuideIsNotInjectedWhenUnassignedUnavailableOrCollided() {
@@ -119,6 +159,14 @@ final class ComputerUseCapabilityTests: XCTestCase {
             XCTAssertTrue(diagnostic?.contains("will not request, reset, or change") == true)
             XCTAssertTrue(diagnostic?.contains(original) == true)
         }
+    }
+
+    func testAppServerExitDiagnosticRequiresChatGPTRunning() {
+        let diagnostic = ComputerUseCapability.runtimeDiagnostic(
+            for: "Computer Use server error -10005: codex app-server exited before returning a response"
+        )
+        XCTAssertTrue(diagnostic?.contains("ChatGPT to be running") == true)
+        XCTAssertTrue(diagnostic?.contains("-10005") == true)
     }
 
     func testServiceTimeoutDiagnosticPreservesBoundedRawError() {
@@ -182,7 +230,7 @@ final class ComputerUseCapabilityTests: XCTestCase {
 
 extension ComputerUseCapabilityTests {
     func testComputerUsePolicyCatalogIsExactAndUnknownToolsAreFiltered() {
-        let policy = MCPServerToolPolicy.computerUseNoPermissions
+        let policy = MCPServerToolPolicy.computerUseAutoAccept
         XCTAssertEqual(MCPServerToolPolicy.computerUseKnownTools.count, 10)
         XCTAssertTrue(MCPServerToolPolicy.computerUseKnownTools.isSuperset(of: ["list_apps", "get_app_state", "click", "type_text"]))
         XCTAssertTrue(policy.allows("click"))

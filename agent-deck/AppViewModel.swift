@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
+private struct PendingComputerUseSessionStart {
+    let sessionID: UUID
+    let start: () -> Void
+}
+
+@MainActor
 private final class NativeSubagentCompletionGate {
     private(set) var isCompleted = false
 
@@ -349,6 +355,8 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var mcpConfiguredServerNames: Set<String> = []
     @ObservationIgnored private var codexComputerUseMCPDiscovery = CodexPluginMCPDiscovery.Result(resources: [], diagnostics: [.pluginNotInstalled])
     @ObservationIgnored private var codexComputerUseBrokerDiscovery = CodexComputerUseBrokerDiscovery.Result.unavailable("Computer Use broker has not been checked yet.")
+    private(set) var isComputerUseChatGPTStartAlertPresented = false
+    @ObservationIgnored private var pendingComputerUseSessionStart: PendingComputerUseSessionStart?
     @ObservationIgnored private let mcpRefreshCoordinator = MCPConfigurationRefreshCoordinator()
     @ObservationIgnored private var mcpRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var mcpLastRefreshKey: String?
@@ -5503,8 +5511,33 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, titleSource: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
-        guard let session = piAgentSessionStore.selectedSession else { return }
+    @discardableResult
+    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, titleSource: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil, beforeStart: () -> Void = {}) -> Bool {
+        guard let session = piAgentSessionStore.selectedSession else { return false }
+        if shouldPromptToOpenChatGPT(for: session, mode: mode) {
+            let sessionID = session.id
+            pendingComputerUseSessionStart = PendingComputerUseSessionStart(sessionID: sessionID) { [weak self] in
+                guard let self,
+                      let originalSession = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
+                self.enqueuePiAgentMessage(
+                    text, mode: mode, transcriptText: transcriptText, titleSource: titleSource,
+                    images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment,
+                    session: originalSession
+                )
+            }
+            isComputerUseChatGPTStartAlertPresented = true
+            return false
+        }
+        beforeStart()
+        enqueuePiAgentMessage(
+            text, mode: mode, transcriptText: transcriptText, titleSource: titleSource,
+            images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment,
+            session: session
+        )
+        return true
+    }
+
+    private func enqueuePiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], issueAttachment: PiAgentIssueAttachment?, session: PiAgentSessionRecord) {
         // Worktree isolation materializes on the first message, reading the
         // global setting at send time. Until then the draft is a pure record,
         // so the user can change their mind (or the setting) freely. The
@@ -5532,6 +5565,36 @@ final class AppViewModel: NSObject {
             return
         }
         deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: session)
+    }
+
+    func continuePendingComputerUseSessionStart(openChatGPT: Bool, beforeStart: () -> Void) async -> UUID? {
+        guard let pending = pendingComputerUseSessionStart else { return nil }
+        pendingComputerUseSessionStart = nil
+        isComputerUseChatGPTStartAlertPresented = false
+        if openChatGPT, !(await ComputerUseChatGPTRuntime.openAndWaitUntilRunning()) {
+            pendingComputerUseSessionStart = pending
+            isComputerUseChatGPTStartAlertPresented = true
+            return nil
+        }
+        if piAgentSessionStore.selectedSession?.id == pending.sessionID { beforeStart() }
+        pending.start()
+        return pending.sessionID
+    }
+
+    func cancelPendingComputerUseSessionStart() {
+        pendingComputerUseSessionStart = nil
+        isComputerUseChatGPTStartAlertPresented = false
+    }
+
+    private func shouldPromptToOpenChatGPT(for session: PiAgentSessionRecord, mode: PiAgentInputMode) -> Bool {
+        guard !piAgentRunner.isRunning(sessionID: session.id) else { return false }
+        return ComputerUseCapability.shouldPromptToOpenChatGPT(
+            scope: assignedMCPServerNames(for: session),
+            entries: mergedMCPEntries,
+            mcpEnabled: appSettings.mcpEnabled,
+            chatGPTRunning: ComputerUseChatGPTRuntime.isRunning,
+            isInitialPrompt: mode == .prompt
+        )
     }
 
     private func deliverPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], issueAttachment: PiAgentIssueAttachment?, session: PiAgentSessionRecord) {

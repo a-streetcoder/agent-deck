@@ -26,8 +26,8 @@ nonisolated enum CodexComputerUseMCPIntegration {
                     name: serverName,
                     config: broker.config,
                     sourcePath: broker.serverScriptURL.path,
-                    provenance: .codexPlugin(version: resource.version, availability: "Available via signed Codex app-server broker"),
-                    toolPolicy: .computerUseNoPermissions
+                    provenance: .codexPlugin(version: resource.version, availability: "Available via Agent Deck auto-accept broker and signed Codex app-server"),
+                    toolPolicy: .computerUseAutoAccept
                 )
             case let .unavailable(diagnostic):
                 merged[serverName] = MCPServerEntry(
@@ -35,7 +35,7 @@ nonisolated enum CodexComputerUseMCPIntegration {
                     config: MCPServerConfig(),
                     sourcePath: resource.sourcePath,
                     provenance: .codexPlugin(version: resource.version, availability: "Broker unavailable"),
-                    toolPolicy: .computerUseNoPermissions,
+                    toolPolicy: .computerUseAutoAccept,
                     availabilityDiagnostic: diagnostic
                 )
             }
@@ -46,7 +46,7 @@ nonisolated enum CodexComputerUseMCPIntegration {
                 config: MCPServerConfig(),
                 sourcePath: "",
                 provenance: .codexPlugin(version: nil, availability: "Unavailable"),
-                toolPolicy: .computerUseNoPermissions,
+                toolPolicy: .computerUseAutoAccept,
                 availabilityDiagnostic: status.isEmpty ? "Codex Computer Use is unavailable." : status
             )
         }

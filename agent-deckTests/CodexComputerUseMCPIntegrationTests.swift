@@ -22,7 +22,7 @@ final class CodexComputerUseMCPIntegrationTests: XCTestCase {
         ))
     }
 
-    func testAvailablePluginUsesStableIDBrokerAndNoPermissionsPolicy() {
+    func testAvailablePluginUsesStableIDBrokerAndAutoAcceptPolicy() {
         let entries = CodexComputerUseMCPIntegration.merge(
             configured: [], discovery: .init(resources: [resource()], diagnostics: []), brokerDiscovery: broker()
         )
@@ -33,7 +33,7 @@ final class CodexComputerUseMCPIntegrationTests: XCTestCase {
         XCTAssertEqual(entry.config.cwd, "/broker")
         XCTAssertEqual(entry.config.env?["CODEX_COMPUTER_USE_HOME"], "/state")
         XCTAssertEqual(entry.config.resolvedLifecycle, .lazy)
-        XCTAssertEqual(entry.toolPolicy, .computerUseNoPermissions)
+        XCTAssertEqual(entry.toolPolicy, .computerUseAutoAccept)
         XCTAssertEqual(entry.sourcePath, "/broker/dist/mcp-server.js")
         XCTAssertTrue(entry.isAvailable)
         XCTAssertFalse(entry.provenance == .config)
@@ -45,7 +45,7 @@ final class CodexComputerUseMCPIntegrationTests: XCTestCase {
             brokerDiscovery: .unavailable("install exact broker")
         ).first!
         XCTAssertEqual(entry.name, "codex-computer-use")
-        XCTAssertEqual(entry.toolPolicy, .computerUseNoPermissions)
+        XCTAssertEqual(entry.toolPolicy, .computerUseAutoAccept)
         XCTAssertFalse(entry.isAvailable)
         XCTAssertEqual(entry.availabilityDiagnostic, "install exact broker")
         XCTAssertNil(entry.config.command)

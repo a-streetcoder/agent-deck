@@ -143,8 +143,8 @@ actor MCPConnectionManager {
             // Broker startup/catalog discovery stays bounded. Direct app-server tool
             // calls get the package's documented three-minute budget without enabling
             // any Agent Deck approval handler.
-            requestTimeout: policy == .computerUseNoPermissions ? .seconds(5) : requestTimeout,
-            interactiveRequestTimeout: policy == .computerUseNoPermissions ? .seconds(180) : nil,
+            requestTimeout: policy == .computerUseAutoAccept ? .seconds(5) : requestTimeout,
+            interactiveRequestTimeout: policy == .computerUseAutoAccept ? .seconds(180) : nil,
             serverRequestHandler: nil,
             transportFactory: factory
         )
@@ -260,7 +260,7 @@ actor MCPConnectionManager {
             clientName: clientName,
             clientVersion: clientVersion,
             requestTimeout: entry.toolPolicy.isComputerUse ? .seconds(5) : .seconds(20),
-            interactiveRequestTimeout: entry.toolPolicy == .computerUseNoPermissions ? .seconds(180) : nil,
+            interactiveRequestTimeout: entry.toolPolicy == .computerUseAutoAccept ? .seconds(180) : nil,
             serverRequestHandler: nil,
             transportFactory: factory
         )

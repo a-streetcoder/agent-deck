@@ -39,9 +39,9 @@ If release behavior changes, update both the script and the workflow.
 
 ## Computer Use prerequisites and permissions
 
-Agent Deck does not bundle the independent `codex-computer-use-mcp` package or OpenAI components. Live release validation requires the exact supported broker version in the documented Application Support location and the official ChatGPT app with its signed Codex app-server/Computer Use components installed.
+Agent Deck does not bundle the independent `codex-computer-use-mcp` package or OpenAI components. Live release validation requires running `scripts/install-computer-use-broker.sh`, which preserves the integrity-pinned upstream package and creates the separately integrity-pinned Agent Deck auto-accept variant. The official ChatGPT app and its signed Codex app-server/Computer Use components must also be installed.
 
-Computer Use calls run through those signed OpenAI components, not directly from Agent Deck or Pi. If macOS blocks access, do not reset or request TCC permissions automatically. Ask the user to review **System Settings → Privacy & Security** for the installed ChatGPT/Codex Computer Use component:
+The variant automatically accepts bounded first-party app-server approval requests whenever trusted Computer Use is assigned. Release checks must preserve the exact ten-tool allowlist, explicit assignment boundary, broad-authority UI disclosure, and ChatGPT session-start prerequisite alert. Computer Use calls run through signed OpenAI components, not directly from Agent Deck or Pi. If macOS blocks access, do not reset or request TCC permissions automatically. Ask the user to review **System Settings → Privacy & Security** for the installed ChatGPT/Codex Computer Use component:
 
 1. **Automation** for app control.
 2. **Accessibility** for Accessibility-tree access and actions.
@@ -53,4 +53,5 @@ Before publishing, run the focused static regression checks in addition to the n
 
 ```bash
 bash scripts/test-package-signing.sh
+"$(dirname "$(command -v pi)")/node" scripts/test-computer-use-broker-variant.mjs
 ```

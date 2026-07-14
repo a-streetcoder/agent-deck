@@ -7470,8 +7470,8 @@ struct PiAgentScreen: View {
         let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
-        beginTranscriptAutoScrollTurn()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
+        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment, beforeStart: beginTranscriptAutoScrollTurn)
+        guard accepted else { return }
         requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
@@ -7952,6 +7952,34 @@ private struct PiAgentComposerPanel: View {
         }
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
+        }
+        .alert(
+            "Open ChatGPT to use Computer Use?",
+            isPresented: Binding(
+                get: { viewModel.isComputerUseChatGPTStartAlertPresented },
+                set: { if !$0 { viewModel.cancelPendingComputerUseSessionStart() } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { viewModel.cancelPendingComputerUseSessionStart() }
+            Button("Continue") { completePendingComputerUseSessionStart(openChatGPT: false) }
+            Button("Open ChatGPT") { completePendingComputerUseSessionStart(openChatGPT: true) }
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("This session has trusted Computer Use enabled. ChatGPT must be running and signed in to an eligible account before Computer Use can be used. You can open ChatGPT now or continue without starting it.")
+        }
+    }
+
+    private func completePendingComputerUseSessionStart(openChatGPT: Bool) {
+        Task { @MainActor in
+            guard let sessionID = await viewModel.continuePendingComputerUseSessionStart(
+                openChatGPT: openChatGPT,
+                beforeStart: onWillSend
+            ) else { return }
+            if store.selectedSession?.id == sessionID {
+                onDidSend()
+                clearComposerInput()
+            }
+            store.clearComposerDraft(for: sessionID)
         }
     }
 
@@ -8514,8 +8542,8 @@ private struct PiAgentComposerPanel: View {
         let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
-        onWillSend()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
+        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment, beforeStart: onWillSend)
+        guard accepted else { return }
         onDidSend()
         clearComposerInput()
         if let sentSessionID {

@@ -536,7 +536,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertEqual(result.combinedText, "ok")
     }
 
-    func testComputerUseNoPermissionsCallsActionsWithoutElicitationAndFiltersStatusTool() async throws {
+    func testComputerUseAutoAcceptCallsActionsWithoutOuterElicitationAndFiltersStatusTool() async throws {
         let tools = (MCPServerToolPolicy.computerUseKnownTools.sorted() + ["computer_use_status"])
             .map { #"{"name":"\#($0)"}"# }.joined(separator: ",")
         let responder: MCPStubTransport.Responder = { line in
@@ -557,7 +557,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         let manager = MCPConnectionManager(transportFactory: { _ in transport })
         let entry = MCPServerEntry(
             name: "codex-computer-use", config: MCPServerConfig(command: "broker"), sourcePath: "/broker/mcp-server.js",
-            provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseNoPermissions
+            provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseAutoAccept
         )
         await manager.configure(servers: [entry])
 
@@ -597,7 +597,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         }
         let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseNoPermissions)
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseAutoAccept)
         ])
         do {
             _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
@@ -610,7 +610,7 @@ final class MCPConnectionManagerTests: XCTestCase {
     func testUnavailableServerNeverConfiguresOrConnects() async {
         let manager = manager()
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseNoPermissions, availabilityDiagnostic: "disabled")
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseAutoAccept, availabilityDiagnostic: "disabled")
         ])
         let connectedBefore = await manager.hasLiveConnection("codex-computer-use")
         let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])

@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import SwiftUI
 
 /// Runtime → MCP. Native Model Context Protocol support: a master toggle plus the
@@ -21,6 +23,7 @@ struct MCPServersScreen: View {
     @State private var editorModel: MCPServerEditorModel?
     /// Name pending delete confirmation.
     @State private var pendingDeleteName: String?
+    @State private var isChatGPTRunning = ComputerUseChatGPTRuntime.isRunning
 
     /// Selected server in the master list.
     @State private var selectedServerID: MCPServerEntry.ID?
@@ -61,6 +64,12 @@ struct MCPServersScreen: View {
         // Window-toolbar actions (the toolbar lives in ContentView).
         .onChange(of: viewModel.mcpAddRequestToken) { _, _ in editorModel = .add }
         .onChange(of: viewModel.mcpRefreshRequestToken) { _, _ in reloadTick += 1 }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in
+            isChatGPTRunning = ComputerUseChatGPTRuntime.isRunning
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in
+            isChatGPTRunning = ComputerUseChatGPTRuntime.isRunning
+        }
         .sheet(item: $editorModel) { model in
             MCPServerEditorSheet(model: model, existingNames: Set(servers.map(\.name)), projectRoot: viewModel.projectRootURL) { name, config in
                 do {
@@ -233,7 +242,7 @@ struct MCPServersScreen: View {
 
     private func isTrustedComputerUse(_ entry: MCPServerEntry) -> Bool {
         guard entry.name == ComputerUseCapability.serverName,
-              entry.toolPolicy == .computerUseNoPermissions else { return false }
+              entry.toolPolicy == .computerUseAutoAccept else { return false }
         if case .codexPlugin = entry.provenance { return entry.config.resolvedTransport == .stdio }
         return false
     }
@@ -241,9 +250,23 @@ struct MCPServersScreen: View {
     private var computerUsePolicyCard: some View {
         AppCard(title: "Computer Use controls") {
             VStack(alignment: .leading, spacing: 8) {
+                Text("ChatGPT must be running, signed in, and have Computer Use available for the account.")
+                    .fontWeight(.semibold)
+                HStack(spacing: 8) {
+                    Label(
+                        isChatGPTRunning ? "ChatGPT: Running" : "ChatGPT: Not running",
+                        systemImage: isChatGPTRunning ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+                    )
+                    .foregroundStyle(isChatGPTRunning ? Color.green : Color.orange)
+                    Spacer()
+                    Button("Open ChatGPT") {
+                        Task { _ = await ComputerUseChatGPTRuntime.openAndWaitUntilRunning() }
+                    }
+                        .controlSize(.small)
+                }
                 Text("Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_text, scroll, drag, press_key, and type_text.")
-                Text("Assigning this MCP enables every listed method without an Agent Deck control prompt or MCP elicitation. Unassign or disable Computer Use to stop exposing the capability.")
-                Text("Calls run through the independent broker and OpenAI's installed signed Codex app-server. First-party availability checks and macOS privacy permissions still apply. Assignment and system permission are not consent for effects the user did not request.")
+                Text("Automatic authority: assigning Computer Use gives sessions in this scope access to all ten methods—including clicking, typing, scrolling, dragging, and key presses—without an Agent Deck approval prompt. Signed OpenAI app-server requests are accepted automatically.")
+                Text("Enable it only for projects or agents you trust to control this Mac. Unassign or disable Computer Use to stop exposing it. ChatGPT availability and macOS privacy permissions are prerequisites; neither is consent for effects the user did not request.")
             }
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)
@@ -308,7 +331,7 @@ struct MCPServersScreen: View {
 
     @ViewBuilder
     private func detailStatusTag(_ entry: MCPServerEntry) -> some View {
-        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseNoPermissions
+        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseAutoAccept
         switch statusByServer[entry.name] {
         case .probing:
             HStack(spacing: 6) { AppSpinner().controlSize(.small); Text("Connecting…").font(.caption).foregroundStyle(.secondary) }

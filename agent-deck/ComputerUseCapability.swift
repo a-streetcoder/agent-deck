@@ -25,7 +25,7 @@ nonisolated enum ComputerUseCapability {
     1. Start with `get_app_state` for the named app; do not call `list_apps` merely to resolve an app the task already identifies. The `app` argument may be a display name, full application path, or bundle identifier. Use `list_apps` only when the target cannot be identified or when a display-name call fails and a bundle identifier is needed.
     2. Read the returned Accessibility tree first. Use screenshots when Accessibility information is incomplete or visual context is necessary.
     3. Before each interaction, work from fresh app state. After one or more actions, call `get_app_state` again before deciding what to do next. Re-derive `element_index` values from the newest state; never reuse stale indices.
-    4. Accessibility output may be a compact diff from the previous state. Prefer that default; pass `disableDiff: true` only when a complete fresh tree is needed.
+    4. Accessibility output may be a compact diff from the previous state. Work from the returned state as-is; the broker's `get_app_state` schema accepts only `app`.
     5. Prefer current `element_index` actions. Use screenshot coordinates only when no usable Accessibility element exists or its action fails. If a display-name call fails, retry once with the bundle identifier from `list_apps` before pursuing other debugging.
     6. Apps are launched automatically when needed. Normally do not add sleeps between an action and `get_app_state`; the runtime waits for recent actions and loading indicators.
 
@@ -34,13 +34,13 @@ nonisolated enum ComputerUseCapability {
     - `click`: prefer `element_index`; coordinates are fallback. Use `mouse_button` and `click_count` only when required.
     - `perform_secondary_action`: invoke only an action explicitly exposed for that element in the Accessibility text, such as expanding, showing a menu, incrementing, or cancelling. Never guess action names.
     - `set_value`: set the value of a settable Accessibility element.
-    - `select_text`: select exact text in an editable element. Use `prefix`/`suffix` to disambiguate repeats and `selection_type` (`text`, `cursor_before`, or `cursor_after`) when cursor placement matters.
-    - `press_key`: use xdotool-style key syntax, for example `a`, `Return`, `Tab`, `super+c`, `Up`, or `KP_0`.
+    - `select_text`: select exact text in an editable element. Use `prefix`/`suffix` to disambiguate repeats and `selection` (`text`, `cursor_before`, or `cursor_after`) when cursor placement matters.
+    - `press_key`: use xdotool-style key syntax, for example `a`, `Return`, `Tab`, `Meta_L+c`, `Up`, or `KP_0`.
     - `scroll`: target an element when available and use `up`, `down`, `left`, or `right` with only the needed page count.
     - `drag`: use fresh screenshot coordinates for both endpoints.
     - `type_text`: type literal text into the target app.
 
-    Assignment enables all ten methods without an Agent Deck control prompt or MCP elicitation. The broker declines unexpected downstream elicitation instead of forwarding it. First-party Computer Use availability checks and macOS privacy permissions still apply, but they are access gates rather than user consent for consequential effects.
+    Assignment enables all ten methods without an Agent Deck control prompt. ChatGPT must be running. Agent Deck's verified broker variant automatically accepts bounded approval requests from the signed Codex app-server; macOS privacy permissions still apply. Assignment and system access are not user consent for consequential effects.
 
     ## User intent and safety
 
@@ -116,17 +116,38 @@ nonisolated enum ComputerUseCapability {
     /// The guide follows the same scope as the MCP proxy, but is only added for
     /// the discovered plugin entry. A user-configured same-name server is a collision,
     /// not this capability, and must never receive this guide.
+    static func shouldPromptToOpenChatGPT(
+        scope: Set<String>,
+        entries: [MCPServerEntry],
+        mcpEnabled: Bool,
+        chatGPTRunning: Bool,
+        isInitialPrompt: Bool
+    ) -> Bool {
+        mcpEnabled
+            && !chatGPTRunning
+            && isInitialPrompt
+            && hasTrustedAvailableAssignment(scope: scope, entries: entries)
+    }
+
+    static func hasTrustedAvailableAssignment(scope: Set<String>, entries: [MCPServerEntry]) -> Bool {
+        guard scope.contains(serverName),
+              let entry = entries.first(where: { $0.name == serverName }),
+              entry.isAvailable,
+              entry.toolPolicy == .computerUseAutoAccept else { return false }
+        if case .codexPlugin = entry.provenance { return true }
+        return false
+    }
+
     static func hasActiveAssignment(
         scope: Set<String>,
         entries: [MCPServerEntry],
         catalogEntries: [MCPCatalogEntry]
     ) -> Bool {
-        guard scope.contains(serverName),
-              MCPServerToolPolicy.computerUseKnownTools.allSatisfy({ tool in catalogEntries.contains { $0.server == serverName && $0.tool == tool } }),
-              let entry = entries.first(where: { $0.name == serverName }) else { return false }
-        guard entry.isAvailable, entry.toolPolicy == .computerUseNoPermissions else { return false }
-        if case .codexPlugin = entry.provenance { return true }
-        return false
+        guard hasTrustedAvailableAssignment(scope: scope, entries: entries),
+              MCPServerToolPolicy.computerUseKnownTools.allSatisfy({ tool in
+                  catalogEntries.contains { $0.server == serverName && $0.tool == tool }
+              }) else { return false }
+        return true
     }
 
     /// Converts known helper failures into safe, actionable guidance while retaining
@@ -134,7 +155,11 @@ nonisolated enum ComputerUseCapability {
     static func runtimeDiagnostic(for helperError: String) -> String? {
         let normalized = helperError.lowercased()
         let guidance: String
-        if normalized.contains("-1743") {
+        if normalized.contains("-10005") || normalized.contains("app-server exited before returning") {
+            guidance = "Computer Use needs ChatGPT to be running (error -10005). Open the installed ChatGPT app, keep this Mac unlocked, and retry."
+        } else if normalized.contains("approval denied via mcp elicitation") {
+            guidance = "Computer Use approval was denied by a non-auto-accept broker. Install Agent Deck's verified auto-accept broker variant, refresh MCP, and retry."
+        } else if normalized.contains("-1743") {
             guidance = "Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed ChatGPT/Codex Computer Use component—not Pi or Agent Deck—then retry."
         } else if normalized.contains("accessibility") && (normalized.contains("denied") || normalized.contains("pending") || normalized.contains("permission") || normalized.contains("authorized")) {
             guidance = "Computer Use needs macOS Accessibility permission. In System Settings > Privacy & Security > Accessibility, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
