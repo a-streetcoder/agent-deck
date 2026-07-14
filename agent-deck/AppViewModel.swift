@@ -4418,7 +4418,6 @@ final class AppViewModel: NSObject {
     // MARK: - MCP bridge
 
     private static let mcpCatalogToolCap = 60
-    private static let mcpResultCharacterCap = 50_000
 
     /// Reloads `mcp.json`, reconnects the manager, and rebuilds the cached catalog when
     /// the (mcpEnabled, project) key changes. No-op otherwise so file-watch refreshes
@@ -4784,6 +4783,12 @@ final class AppViewModel: NSObject {
         }
     }
 
+    private static func encodeMCPBridgeCallResult(_ result: PiMCPBridgeCallResultEnvelope) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: (try? encoder.encode(result)) ?? Data("MCP bridge result encoding failed.".utf8), as: UTF8.self)
+    }
+
     private func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>, sessionID: UUID, projectID: String? = nil, requestingAgent: String? = nil, subagentRunID: UUID? = nil) async -> String {
         switch request.action {
         case "search":
@@ -4814,11 +4819,9 @@ final class AppViewModel: NSObject {
             }
             do {
                 let result = try await mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context: MCPCallContext(sessionID: sessionID, projectID: projectID, server: address.server, tool: address.tool, requestingAgent: requestingAgent, subagentRunID: subagentRunID))
-                let text = result.combinedText.isEmpty ? "(tool returned no content)" : result.combinedText
-                let prefix = result.isError == true ? "MCP tool reported an error:\n" : ""
-                return String((prefix + text).prefix(Self.mcpResultCharacterCap))
+                return Self.encodeMCPBridgeCallResult(.callResult(result, server: address.server, tool: address.tool))
             } catch {
-                return "MCP call failed: \(error.localizedDescription)"
+                return Self.encodeMCPBridgeCallResult(.failure(server: address.server, tool: address.tool, message: "MCP call failed: \(error.localizedDescription)"))
             }
 
         default: // "list"

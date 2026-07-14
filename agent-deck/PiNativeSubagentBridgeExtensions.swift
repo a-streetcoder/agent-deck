@@ -490,7 +490,51 @@ struct PiNativeSubagentBridgeExtensions {
             return args;
         }
 
+        const mcpErrorDetailKey = "__agentDeckMCPBridgeErrorCallID";
+        type MCPBridgeContent =
+            | { type: "text"; text: string }
+            | { type: "image"; data: string; mimeType: string };
+        type MCPBridgeCallResult = {
+            version: 1;
+            server: string;
+            tool: string;
+            isError: boolean;
+            content: MCPBridgeContent[];
+        };
+
+        // Only call responses use this envelope. List/search/describe intentionally
+        // remain plain text for compatibility with existing bridge callers.
+        function parseMCPBridgeCallResult(raw: string): MCPBridgeCallResult | undefined {
+            try {
+                const value = JSON.parse(raw) as Partial<MCPBridgeCallResult>;
+                if (value.version !== 1 || typeof value.server !== "string" || typeof value.tool !== "string" ||
+                    typeof value.isError !== "boolean" || !Array.isArray(value.content)) return undefined;
+                for (const block of value.content) {
+                    if (!block || typeof block !== "object") return undefined;
+                    if (block.type === "text" && typeof (block as { text?: unknown }).text === "string") continue;
+                    if (block.type === "image" && typeof (block as { data?: unknown }).data === "string" &&
+                        typeof (block as { mimeType?: unknown }).mimeType === "string") continue;
+                    return undefined;
+                }
+                return value as MCPBridgeCallResult;
+            } catch {
+                return undefined;
+            }
+        }
+
         export default function (pi: ExtensionAPI) {
+            // Pi 0.80.6 derives a custom tool's initial error state from a thrown
+            // execute(), not an `isError` property returned by execute. Its documented
+            // tool_result event can replace that state. The per-call marker avoids
+            // shared mutable state, so parallel mcp invocations cannot cross-mark.
+            pi.on("tool_result", (event) => {
+                if (event.toolName !== "mcp" || !event.details || typeof event.details !== "object") return;
+                const details = event.details as Record<string, unknown>;
+                if (details[mcpErrorDetailKey] !== event.toolCallId) return;
+                const { [mcpErrorDetailKey]: _marker, ...publicDetails } = details;
+                return { details: publicDetails, isError: true };
+            });
+
             pi.registerTool({
                 name: "mcp",
                 label: "MCP",
@@ -539,6 +583,21 @@ struct PiNativeSubagentBridgeExtensions {
                         onUpdate?.({ content: [{ type: "text", text: `Calling ${tool}…` }] });
                     }
                     const result = await ctx.ui.editor("AGENT_DECK_BRIDGE mcp", payload);
+                    if (action === "call") {
+                        const callResult = parseMCPBridgeCallResult(result);
+                        if (callResult) {
+                            return {
+                                content: callResult.content,
+                                details: {
+                                    version: callResult.version,
+                                    server: callResult.server,
+                                    tool: callResult.tool,
+                                    isError: callResult.isError,
+                                    ...(callResult.isError ? { [mcpErrorDetailKey]: toolCallId } : {})
+                                }
+                            };
+                        }
+                    }
                     return { content: [{ type: "text", text: result || "MCP returned no output." }] };
                 }
             });
