@@ -3,7 +3,14 @@ import XCTest
 
 final class PiNativeBridgeExtensionSourceTests: XCTestCase {
     @MainActor
-    func testOpenAIFastExtensionInjectsPriorityOnlyForEligibleConfiguredCodexModels() throws {
+    func testOpenAIFastEligibilityIncludesEveryCodexModel() {
+        XCTAssertTrue(PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: "openai-codex"))
+        XCTAssertFalse(PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: "openai"))
+        XCTAssertFalse(PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: nil))
+    }
+
+    @MainActor
+    func testOpenAIFastExtensionInjectsPriorityForConfiguredOAuthCodexModels() throws {
         let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.openAIFastExtensionURL(), encoding: .utf8)
 
         XCTAssertTrue(source.contains(#"before_provider_request"#))
@@ -11,8 +18,7 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains(#""priority""#))
         XCTAssertTrue(source.contains(#""openai-codex""#))
         XCTAssertTrue(source.contains(#""openai-codex-responses""#))
-        XCTAssertTrue(source.contains(#""gpt-5.4""#))
-        XCTAssertTrue(source.contains(#""gpt-5.5""#))
+        XCTAssertFalse(source.contains("SUPPORTED_MODELS"))
         XCTAssertTrue(source.contains("AGENT_DECK_OPENAI_FAST_CONFIG"))
         XCTAssertTrue(source.contains("ctx.modelRegistry.isUsingOAuth(model)"))
         XCTAssertTrue(source.contains(#""service_tier" in event.payload"#))

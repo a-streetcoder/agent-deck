@@ -114,7 +114,7 @@ Each automation has its own model picker — use the on-device Foundation Model 
 
 ## Models, providers, environment
 
-Auto-discover models from configured Pi providers. Group by provider. Set defaults, per-agent, and per-session overrides. Hide noisy unused entries. Opt eligible OpenAI models into priority service tier with a bundled extension.
+Auto-discover models from configured Pi providers. Group by provider. Set defaults, per-agent, and per-session overrides. Hide noisy unused entries. Opt ChatGPT-auth Codex models into priority service tier with a bundled extension.
 
 The **Environment** view manages `.env` files across scopes with secret masking — never modifying bundled resources.
 

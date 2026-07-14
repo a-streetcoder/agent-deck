@@ -279,10 +279,8 @@ struct PiNativeSubagentBridgeExtensions {
         }
     }
 
-    static func isOpenAIFastEligibleModel(provider: String?, modelID: String?) -> Bool {
-        guard provider == "openai-codex", let modelID else { return false }
-        let baseModel = modelID.split(separator: ":", maxSplits: 1).first.map(String.init) ?? modelID
-        return baseModel == "gpt-5.4" || baseModel == "gpt-5.5"
+    static func isOpenAIFastEligibleModel(provider: String?) -> Bool {
+        provider == "openai-codex"
     }
 
     private static let openAIFastExtensionSource = """
@@ -292,7 +290,6 @@ struct PiNativeSubagentBridgeExtensions {
         const PROVIDER_ID = "openai-codex";
         const API_ID = "openai-codex-responses";
         const FAST_SERVICE_TIER = "priority";
-        const SUPPORTED_MODELS = new Set(["gpt-5.4", "gpt-5.5"]);
 
         type PayloadRecord = Record<string, unknown>;
 
@@ -325,7 +322,6 @@ struct PiNativeSubagentBridgeExtensions {
             if (!id) return false;
             if (model.provider !== PROVIDER_ID) return false;
             if (model.api !== API_ID) return false;
-            if (!SUPPORTED_MODELS.has(id)) return false;
             if (!enabledModels().has(`${PROVIDER_ID}/${id}`)) return false;
             return ctx.modelRegistry.isUsingOAuth(model);
         }

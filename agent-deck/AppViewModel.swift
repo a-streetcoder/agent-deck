@@ -3287,7 +3287,7 @@ final class AppViewModel: NSObject {
     }
 
     func setOpenAIFastMode(_ model: AvailableModel, isEnabled: Bool) {
-        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider, modelID: model.model) else { return }
+        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider) else { return }
         guard appSettingsController.setOpenAIFastMode(identifier: model.identifier, isEnabled: isEnabled) else { return }
         syncAppSettings()
     }

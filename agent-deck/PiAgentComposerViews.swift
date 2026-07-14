@@ -420,7 +420,7 @@ struct PiAgentComposerBox: View {
         let fallback = viewModel.defaultPiAgentModel()
         let provider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
         let modelID = session.modelOverrideID ?? session.model ?? fallback?.model
-        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: provider, modelID: modelID) else { return nil }
+        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: provider) else { return nil }
         let baseModelID = modelID?.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
         let identifier = "\(provider ?? "")/\(baseModelID)"
         return viewModel.availableModels.first { $0.identifier == identifier }

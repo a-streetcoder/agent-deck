@@ -765,7 +765,7 @@ struct ModelsScreen: View {
                     }
                     AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
                     AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
-                    if PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider, modelID: model.model) {
+                    if PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider) {
                         fastModeTagButton(for: model, isModelEnabled: isEnabled)
                     }
                 }
