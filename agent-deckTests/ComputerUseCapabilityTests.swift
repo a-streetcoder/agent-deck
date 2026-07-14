@@ -143,3 +143,15 @@ final class ComputerUseCapabilityTests: XCTestCase {
         XCTAssertEqual(try PiSkillLaunchResolver.childSkillArguments(agent: userAgent, snapshot: userSnapshot, ignoredMissingSkillNames: restarted.legacyComputerUseSkillNames), ["--skill", "/user/SKILL.md"])
     }
 }
+
+
+extension ComputerUseCapabilityTests {
+    func testComputerUsePolicyRemainsObservationOnly() {
+        let policy = MCPServerToolPolicy.computerUseObservationOnly
+        XCTAssertTrue(policy.allows("list_apps"))
+        XCTAssertTrue(policy.allows("get_app_state"))
+        XCTAssertFalse(policy.allows("click"))
+        XCTAssertFalse(policy.allows("type"))
+        XCTAssertFalse(policy.allows("run_action"))
+    }
+}

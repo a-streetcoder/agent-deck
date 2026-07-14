@@ -33,19 +33,29 @@ struct ComputerUseApprovalSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Computer Use approval", systemImage: "hand.raised.fill")
+            Label(request.kind == .controlApp ? "Allow control for this session" : "Computer Use approval", systemImage: "hand.raised.fill")
                 .font(.title2.weight(.semibold))
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                 GridRow { Text("Server / tool").foregroundStyle(.secondary); Text("\(request.server)/\(request.tool)").textSelection(.enabled) }
                 GridRow { Text("Project").foregroundStyle(.secondary); Text(request.projectID ?? "No project") }
-                GridRow { Text("Requesting agent").foregroundStyle(.secondary); Text(request.requestingAgent ?? "Parent session") }
-                if let subagentRunID = request.subagentRunID { GridRow { Text("Subagent run").foregroundStyle(.secondary); Text(subagentRunID.uuidString) } }
+                if request.kind == .controlApp {
+                    GridRow { Text("Requester").foregroundStyle(.secondary); Text(request.requester.displayName).textSelection(.enabled) }
+                    if let subagentRunID = request.subagentRunID { GridRow { Text("Subagent run").foregroundStyle(.secondary); Text(subagentRunID.uuidString).textSelection(.enabled) } }
+                    if let appTarget = request.appTarget { GridRow { Text("App").foregroundStyle(.secondary); Text(appTarget).textSelection(.enabled) } }
+                } else {
+                    GridRow { Text("Requesting agent").foregroundStyle(.secondary); Text(request.requestingAgent ?? "Parent session") }
+                    if let subagentRunID = request.subagentRunID { GridRow { Text("Subagent run").foregroundStyle(.secondary); Text(subagentRunID.uuidString) } }
+                }
             }
             if let title = request.title, !title.isEmpty { Text(title).font(.headline) }
             Text(request.message)
                 .textSelection(.enabled)
                 .accessibilityLabel("Computer Use request message: \(request.message)")
             Text(request.schemaSummary).font(.callout).foregroundStyle(.secondary)
+            if request.kind == .controlApp {
+                Text("This memory-only grant is scoped to this requester and expires when the session ends, this delegated run ends, or Computer Use is disabled. It does not replace confirmation for risky effects.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             Text("macOS Automation, Accessibility, and Screen Recording permissions are separate from this approval.")
                 .font(.callout).foregroundStyle(.secondary)
             if !request.advertisedPersistenceModes.isEmpty {
@@ -63,9 +73,9 @@ struct ComputerUseApprovalSheet: View {
                 Button("Decline", role: .destructive, action: decline)
                     .keyboardShortcut("d", modifiers: [.command])
                     .accessibilityHint("Denies the Computer Use request")
-                Button("Accept", action: accept)
+                Button(request.kind == .controlApp ? "Allow for Session" : "Accept", action: accept)
                     .keyboardShortcut(.defaultAction)
-                    .accessibilityHint("Approves this single Computer Use request")
+                    .accessibilityHint(request.kind == .controlApp ? "Allows this requester to control this app for the current session" : "Approves this single Computer Use request")
             }
         }
         .padding(24)

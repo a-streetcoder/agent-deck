@@ -483,6 +483,11 @@ final class AppViewModel: NSObject {
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
+        piAgentRunner.onSessionProcessTerminated = { [weak self] sessionID in
+            // A naturally ended parent process begins a new authority period on
+            // resume, so its memory-only app-control grants must not carry over.
+            self?.computerUseApprovalCoordinator.revoke(sessionID: sessionID)
+        }
         piAgentRunner.onSessionLaunched = { [weak self] sessionID in
             Task { @MainActor in await self?.recordCurrentLaunchResourceFingerprint(sessionID: sessionID) }
         }
@@ -4154,7 +4159,10 @@ final class AppViewModel: NSObject {
             return placeholder
         }
         do {
-            return try await nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, onCompletion: completion)
+            return try await nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, onCompletion: { [weak self] completed in
+                self?.computerUseApprovalCoordinator.revoke(subagentRunID: completed.id)
+                completion?(completed)
+            })
         } catch {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agent Launch Failed", text: error.localizedDescription))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: error.localizedDescription)
@@ -4423,6 +4431,9 @@ final class AppViewModel: NSObject {
     /// the (mcpEnabled, project) key changes. No-op otherwise so file-watch refreshes
     /// don't churn server processes. Pass `forced: true` after the user edits config.
     func refreshMCPConfigurationIfNeeded(projectURL: URL?, forced: Bool = false) {
+        // A forced refresh follows an MCP configuration/plugin update. Do not carry
+        // a memory-only control authority across a changed helper or assignment.
+        if forced { computerUseApprovalCoordinator.revokeAll() }
         let enabled = appSettings.mcpEnabled
         let key = "\(enabled)#\(projectURL?.path ?? "")"
         if !forced, key == mcpLastRefreshKey { return }
@@ -4453,7 +4464,7 @@ final class AppViewModel: NSObject {
             if !merged.contains(where: { entry in
                 entry.name == ComputerUseCapability.serverName && entry.isAvailable && entry.toolPolicy == .computerUseObservationOnly && { if case .codexPlugin = entry.provenance { return true }; return false }()
             }) {
-                self.computerUseApprovalCoordinator.resolveAll()
+                self.computerUseApprovalCoordinator.revokeAll()
             }
             guard enabled else {
                 guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: [], manager: self.mcpConnectionManager),
@@ -4499,7 +4510,7 @@ final class AppViewModel: NSObject {
 
     /// Tears down all MCP connections. Called at app termination.
     func shutdownMCP() async {
-        computerUseApprovalCoordinator.resolveAll()
+        computerUseApprovalCoordinator.revokeAll()
         computerUseApprovalCoordinator.setUIServicingRequests(false)
         await mcpConnectionManager.shutdown()
     }
@@ -4641,7 +4652,7 @@ final class AppViewModel: NSObject {
     }
 
     func setMcpServer(_ name: String, enabled: Bool, for project: DiscoveredProject) {
-        if !enabled, name == ComputerUseCapability.serverName { computerUseApprovalCoordinator.resolveAll() }
+        if !enabled, name == ComputerUseCapability.serverName { computerUseApprovalCoordinator.revokeAll() }
         projectPreferencesStore.setAssignedMcpServer(name, assigned: enabled, for: project.path)
         applyProjectPreferenceChanges()
         // Assignment now governs which servers we actually connect, so re-run scoped
@@ -4656,7 +4667,7 @@ final class AppViewModel: NSObject {
     }
 
     func setMcpServerEnabledForAllProjects(_ name: String, enabled: Bool) {
-        if !enabled, name == ComputerUseCapability.serverName { computerUseApprovalCoordinator.resolveAll() }
+        if !enabled, name == ComputerUseCapability.serverName { computerUseApprovalCoordinator.revokeAll() }
         appSettingsController.setDefaultMcpServer(name, enabled: enabled)
         appSettings = appSettingsController.settings
         // A default assignment makes this server in-scope for every project, so re-run
@@ -4665,7 +4676,7 @@ final class AppViewModel: NSObject {
     }
 
     func setMCPEnabled(_ enabled: Bool) {
-        if !enabled { computerUseApprovalCoordinator.resolveAll() }
+        if !enabled { computerUseApprovalCoordinator.revokeAll() }
         appSettingsController.setMCPEnabled(enabled)
         appSettings = appSettingsController.settings
         refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
@@ -4879,7 +4890,7 @@ final class AppViewModel: NSObject {
     }
 
     func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {
-        computerUseApprovalCoordinator.cancel(subagentRunID: runID)
+        computerUseApprovalCoordinator.revoke(subagentRunID: runID)
         if let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }), run.children?.isEmpty == false {
             stopNativeSubagentGraph(runID: runID, parentSessionID: parentSessionID)
             return
@@ -4890,7 +4901,7 @@ final class AppViewModel: NSObject {
     /// Keeps individual graph-child cleanup ordered: dismiss any approval before
     /// terminating the execution that owns its MCP client request.
     static func stopGraphChildExecution(_ executionRunID: UUID, coordinator: ComputerUseApprovalCoordinator, stop: (UUID) -> Void) {
-        coordinator.cancel(subagentRunID: executionRunID)
+        coordinator.revoke(subagentRunID: executionRunID)
         stop(executionRunID)
     }
 
@@ -6032,7 +6043,7 @@ final class AppViewModel: NSObject {
 
     func stopSelectedPiAgentSession() {
         guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
-        computerUseApprovalCoordinator.cancel(sessionID: sessionID)
+        computerUseApprovalCoordinator.revoke(sessionID: sessionID)
         piAgentRunner.stop(sessionID: sessionID)
         refreshRepositoryChangesForPiAgentSession()
     }
@@ -6082,7 +6093,7 @@ final class AppViewModel: NSObject {
     }
 
     func deletePiAgentSessions(_ sessionIDs: Set<UUID>, fallbackSelectionID: UUID? = nil) {
-        for sessionID in sessionIDs { computerUseApprovalCoordinator.cancel(sessionID: sessionID) }
+        for sessionID in sessionIDs { computerUseApprovalCoordinator.revoke(sessionID: sessionID) }
         for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID)
             || piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status == .starting {
             piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)

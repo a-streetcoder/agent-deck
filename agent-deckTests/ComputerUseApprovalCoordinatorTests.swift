@@ -112,3 +112,106 @@ final class ComputerUseApprovalCoordinatorTests: XCTestCase {
         XCTAssertEqual(action(unavailable), "decline")
     }
 }
+
+
+extension ComputerUseApprovalCoordinatorTests {
+    private func appArguments(_ app: JSONValue) -> JSONValue { .object(["app": app]) }
+
+    func testControlGrantsAreScopedToParentBoundAndDelegatedRequesters() async {
+        let coordinator = ComputerUseApprovalCoordinator(timeout: 10)
+        coordinator.setUIServicingRequests(true)
+        let session = UUID(), runA = UUID(), runB = UUID()
+        let parent = context(sessionID: session, agent: nil)
+        let bound = context(sessionID: session, agent: "bound")
+        let childA = context(sessionID: session, agent: "child", run: runA)
+        let childB = context(sessionID: session, agent: "child", run: runB)
+        let task = Task { await coordinator.authorize(appArguments: self.appArguments(.string(" Safari.app ")), context: childA, sessionIsLive: true) }
+        await Task.yield()
+        let request = try! XCTUnwrap(coordinator.request(for: session))
+        XCTAssertEqual(request.kind, .controlApp)
+        XCTAssertEqual(request.appTarget, "safari.app")
+        XCTAssertTrue(request.message.contains("Allow"))
+        coordinator.accept(request)
+        let taskResult = await task.value
+        XCTAssertEqual(taskResult, .authorized)
+        XCTAssertTrue(coordinator.hasGrant(appArguments: appArguments(.string("safari.app")), context: childA))
+        XCTAssertFalse(coordinator.hasGrant(appArguments: appArguments(.string("safari.app")), context: parent))
+        XCTAssertFalse(coordinator.hasGrant(appArguments: appArguments(.string("safari.app")), context: bound))
+        XCTAssertFalse(coordinator.hasGrant(appArguments: appArguments(.string("safari.app")), context: childB))
+    }
+
+    func testSameKeyControlCoalescesAndAcceptResumesAllWaiters() async {
+        let coordinator = ComputerUseApprovalCoordinator(timeout: 10)
+        coordinator.setUIServicingRequests(true)
+        let context = context(agent: "agent")
+        let one = Task { await coordinator.authorize(appArguments: self.appArguments(.string("com.apple.Safari")), context: context, sessionIsLive: true) }
+        let two = Task { await coordinator.authorize(appArguments: self.appArguments(.string("com.apple.safari")), context: context, sessionIsLive: true) }
+        await Task.yield()
+        let request = try! XCTUnwrap(coordinator.request(for: context.sessionID))
+        XCTAssertEqual(request.appTarget, "com.apple.safari")
+        coordinator.accept(request)
+        let oneResult = await one.value
+        let twoResult = await two.value
+        XCTAssertEqual(oneResult, .authorized)
+        XCTAssertEqual(twoResult, .authorized)
+    }
+
+    func testControlDenialCancellationTimeoutAndMalformedArgumentsFailClosed() async {
+        let coordinator = ComputerUseApprovalCoordinator(timeout: 0.01)
+        coordinator.setUIServicingRequests(true)
+        let context = context()
+        let invalid = await coordinator.authorize(appArguments: nil, context: context, sessionIsLive: true)
+        let missing = await coordinator.authorize(appArguments: .object([:]), context: context, sessionIsLive: true)
+        let nonString = await coordinator.authorize(appArguments: appArguments(.number(1)), context: context, sessionIsLive: true)
+        let control = await coordinator.authorize(appArguments: appArguments(.string("bad\u{7f}")), context: context, sessionIsLive: true)
+        XCTAssertEqual(invalid, .denied(.invalidArguments))
+        XCTAssertEqual(missing, .denied(.missingApp))
+        XCTAssertEqual(nonString, .denied(.nonStringApp))
+        XCTAssertEqual(control, .denied(.appContainsControlCharacters))
+        let timed = Task { await coordinator.authorize(appArguments: self.appArguments(.string("Safari")), context: context, sessionIsLive: true) }
+        try? await Task.sleep(for: .milliseconds(40))
+        let timedResult = await timed.value
+        XCTAssertEqual(timedResult, .denied(.expired))
+        let cancelled = Task { await coordinator.authorize(appArguments: self.appArguments(.string("Notes")), context: context, sessionIsLive: true) }
+        await Task.yield(); cancelled.cancel()
+        let cancelledResult = await cancelled.value
+        XCTAssertEqual(cancelledResult, .denied(.cancelled))
+    }
+
+    func testControlRevocationAndServiceElicitationDoNotCreateGrants() async {
+        let coordinator = ComputerUseApprovalCoordinator(timeout: 10)
+        coordinator.setUIServicingRequests(true)
+        let session = UUID(), run = UUID()
+        let child = context(sessionID: session, agent: "child", run: run)
+        let task = Task { await coordinator.authorize(appArguments: self.appArguments(.string("/Applications/Safari.app")), context: child, sessionIsLive: true) }
+        await Task.yield(); coordinator.accept(coordinator.request(for: session)!)
+        _ = await task.value
+        XCTAssertTrue(coordinator.hasGrant(appArguments: appArguments(.string("/Applications/Safari.app")), context: child))
+        coordinator.revoke(subagentRunID: run)
+        XCTAssertFalse(coordinator.hasGrant(appArguments: appArguments(.string("/Applications/Safari.app")), context: child))
+        let elicitationTask = Task { await coordinator.enqueue(self.elicitation(), context: child, sessionIsLive: true) }
+        await Task.yield(); coordinator.accept(coordinator.request(for: session)!)
+        _ = await elicitationTask.value
+        XCTAssertFalse(coordinator.hasGrant(appArguments: appArguments(.string("/Applications/Safari.app")), context: child))
+        coordinator.revoke(sessionID: session)
+        coordinator.revokeAll()
+    }
+}
+
+extension ComputerUseApprovalCoordinatorTests {
+    func testCancellingOneCoalescedControlWaiterDoesNotCancelTheOther() async {
+        let coordinator = ComputerUseApprovalCoordinator(timeout: 10)
+        coordinator.setUIServicingRequests(true)
+        let context = context()
+        let first = Task { await coordinator.authorize(appArguments: self.appArguments(.string("Safari")), context: context, sessionIsLive: true) }
+        let second = Task { await coordinator.authorize(appArguments: self.appArguments(.string("Safari")), context: context, sessionIsLive: true) }
+        await Task.yield()
+        first.cancel()
+        let firstResult = await first.value
+        XCTAssertEqual(firstResult, .denied(.cancelled))
+        let request = try! XCTUnwrap(coordinator.request(for: context.sessionID))
+        coordinator.accept(request)
+        let secondResult = await second.value
+        XCTAssertEqual(secondResult, .authorized)
+    }
+}

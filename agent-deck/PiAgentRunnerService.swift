@@ -165,6 +165,9 @@ final class PiAgentRunnerService {
     private var idleParkingTimeout: TimeInterval?
     private let idleConfirmationDelay: Duration = .milliseconds(900)
     var onTurnFinished: ((UUID) -> Void)?
+    /// Called only when a parent Pi process ends outside an intentional stop,
+    /// idle park, or launch-configuration relaunch.
+    var onSessionProcessTerminated: ((UUID) -> Void)?
     var onSessionLaunched: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
@@ -2879,6 +2882,7 @@ final class PiAgentRunnerService {
         mark(sessionID, status: status, error: nil)
         store.append(.init(sessionID: sessionID, role: .status, title: "Process Ended", text: "Pi Agent exited with code \(exitCode)."))
         runAfterFinishHookIfNeeded(sessionID: sessionID, clientRunID: clientRunID, status: status, exitCode: exitCode)
+        onSessionProcessTerminated?(sessionID)
         onTurnFinished?(sessionID)
     }
 
