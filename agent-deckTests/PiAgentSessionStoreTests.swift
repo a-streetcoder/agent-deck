@@ -175,6 +175,70 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertFalse(restored.text.contains(png))
     }
 
+    func testHistoricalMCPEntryWithoutBlocksDecodesTextOnlyAndCurrentBlocksReload() throws {
+        let sessionID = UUID()
+        let legacy = """
+        {"id":"\(UUID().uuidString)","sessionID":"\(sessionID.uuidString)","role":"tool","title":"Tool: mcp","text":"legacy text","timestamp":0,"imageReferences":[]}
+        """
+        let legacyEntry = try JSONDecoder().decode(PiAgentTranscriptEntry.self, from: Data(legacy.utf8))
+        XCTAssertNil(legacyEntry.mcpResultBlocks)
+        XCTAssertEqual(legacyEntry.text, "legacy text")
+
+        let current = PiAgentTranscriptEntry(sessionID: sessionID, role: .tool, title: "Tool: mcp", text: "current", mcpResultBlocks: [.text("current")])
+        let reloaded = try JSONDecoder().decode(PiAgentTranscriptEntry.self, from: JSONEncoder().encode(current))
+        XCTAssertEqual(reloaded.mcpResultBlocks, [.text("current")])
+    }
+
+    func testMCPResultWithMoreThan32BlocksScrubsAllImagesAndAppendsTruncationDiagnostic() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let content: [[String: String]] = (0..<40).map { index in
+            index == 35
+                ? ["type": "image", "mimeType": "image/png", "data": png]
+                : ["type": "text", "text": "block-\(index)"]
+        }
+        let root: [String: Any] = ["type": "tool_execution_end", "result": ["content": content]]
+        let raw = String(data: try JSONSerialization.data(withJSONObject: root), encoding: .utf8)!
+
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: png, rawJSON: raw))
+        let entry = try XCTUnwrap(store.transcript(for: session.id).first)
+        XCTAssertEqual(entry.mcpResultBlocks?.count, 33)
+        XCTAssertEqual(entry.mcpResultBlocks?.prefix(32).compactMap { if case let .text(value) = $0 { return value }; return nil }, (0..<32).map { "block-\($0)" })
+        XCTAssertEqual(entry.mcpResultBlocks?.last, .diagnostic("MCP result truncated after 32 blocks."))
+        XCTAssertFalse(entry.text.contains(png))
+        XCTAssertFalse(entry.rawJSON?.contains(png) == true)
+    }
+
+    func testMCPGeneratedImageURLsStayInsideSessionDirectoryAndAreRegularFiles() throws {
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let raw = #"{"type":"tool_execution_end","result":{"content":[{"type":"image","mimeType":"image/png","data":"\#(png)"}]}}"#
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "", rawJSON: raw))
+        let path = try XCTUnwrap(store.transcript(for: session.id).first?.allTranscriptImageReferences.first?.localPath)
+        let url = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        let expectedDirectory = stateFile.deletingLastPathComponent().appendingPathComponent("agent-session-transcripts/\(session.id.uuidString)/images", isDirectory: true).standardizedFileURL
+        XCTAssertTrue(url.path.hasPrefix(expectedDirectory.path + "/"))
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        XCTAssertEqual(values.isRegularFile, true)
+        XCTAssertNotEqual(values.isSymbolicLink, true)
+    }
+
+    func testMCPAggregateImageLimitRejectsExcessWithoutPersistingBase64() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let image = (Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: 0, count: 3 * 1024 * 1024)).base64EncodedString()
+        let raw = "{\"type\":\"tool_execution_end\",\"result\":{\"content\":[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"\(image)\"},{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"\(image)\"},{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"\(image)\"}]}}"
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: image, rawJSON: raw))
+        let entry = try XCTUnwrap(store.transcript(for: session.id).first)
+        XCTAssertEqual(entry.allTranscriptImageReferences.count, 2)
+        XCTAssertTrue(entry.mcpResultBlocks?.contains(.diagnostic("Invalid MCP image result was not saved.")) == true)
+        XCTAssertFalse(entry.rawJSON?.contains(image) == true)
+        XCTAssertFalse(entry.text.contains(image))
+    }
+
     func testMCPRejectsInvalidBase64MimeMismatchAndOversizedImages() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)

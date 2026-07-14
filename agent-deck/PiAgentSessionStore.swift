@@ -3185,6 +3185,7 @@ final class PiAgentSessionStore {
     /// and 8 MiB total.
     private static let maxMCPResultImageBytes = 4 * 1024 * 1024
     private static let maxMCPResultAggregateImageBytes = 8 * 1024 * 1024
+    private static let maxMCPResultBlocks = 32
 
     /// Converts Pi's actual `{ result: { content: [...] } }` tool-end payload to
     /// ordered persisted blocks. This runs only after Pi has consumed the live RPC
@@ -3198,18 +3199,25 @@ final class PiAgentSessionStore {
         let resultKey = type == "tool_execution_update" ? "partialResult" : "result"
         guard var result = root[resultKey] as? [String: Any], var content = result["content"] as? [[String: Any]] else { return nil }
 
+        // Sanitize the complete payload before it can be serialized. Rendering is
+        // intentionally bounded, but a result's later image blocks are still
+        // untrusted base64 and must never survive in rawJSON on disk. Keep an
+        // in-memory source copy only long enough to materialize the bounded prefix.
+        let sourceContent = content
+        for index in content.indices where content[index]["type"] as? String == "image" {
+            content[index].removeValue(forKey: "data")
+        }
+
         var aggregateBytes = 0
         var blocks: [PiAgentMCPResultBlock] = []
-        for index in content.indices.prefix(32) {
-            let block = content[index]
+        for index in sourceContent.indices.prefix(Self.maxMCPResultBlocks) {
+            let block = sourceContent[index]
             switch block["type"] as? String {
             case "text":
                 if let text = block["text"] as? String { blocks.append(.text(text)) }
                 else { blocks.append(.diagnostic("Invalid MCP text result block.")) }
             case "image":
-                // Always scrub image base64, including invalid input, before rawJSON
-                // reaches disk. The local reference is the sole persisted copy.
-                content[index].removeValue(forKey: "data")
+                // The local reference is the sole persisted copy.
                 guard let encoded = block["data"] as? String,
                       let mime = block["mimeType"] as? String,
                       let data = Data(base64Encoded: encoded),
@@ -3228,6 +3236,9 @@ final class PiAgentSessionStore {
             default:
                 blocks.append(.diagnostic("Unsupported MCP result block."))
             }
+        }
+        if content.count > Self.maxMCPResultBlocks {
+            blocks.append(.diagnostic("MCP result truncated after \(Self.maxMCPResultBlocks) blocks."))
         }
         result["content"] = content
         root[resultKey] = result
