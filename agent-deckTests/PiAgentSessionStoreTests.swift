@@ -189,6 +189,42 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.mcpResultBlocks, [.text("current")])
     }
 
+    func testLazySubagentPendingSnapshotKeepsSharedImageThroughTrimAndRewindUntilFinalRemoval() throws {
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        store.configureTranscriptMemory(lazyLoadingEnabled: true, cacheLimit: 1)
+        let session = store.createSession(kind: .project, title: "Cleanup", project: try PiTestSupport.makeProject(), repository: nil)
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let mcpRaw = "{\"type\":\"tool_execution_end\",\"result\":{\"content\":[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"\(png)\"}]}}"
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "", rawJSON: mcpRaw))
+        let sharedReference = try XCTUnwrap(store.transcript(for: session.id).first?.allTranscriptImageReferences.first)
+        let sharedPath = try XCTUnwrap(sharedReference.localPath)
+
+        var protectedRun = PiSubagentRunRecord.failedPlaceholder(parentSessionID: session.id, agentName: "one", task: "one", error: "test")
+        protectedRun.status = .completed
+        var evictingRun = PiSubagentRunRecord.failedPlaceholder(parentSessionID: session.id, agentName: "two", task: "two", error: "test")
+        evictingRun.status = .completed
+        store.upsertSubagentRun(protectedRun)
+        store.upsertSubagentRun(evictingRun)
+        store.appendSubagentTranscript(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "shared", imageReferences: [sharedReference]), runID: protectedRun.id, parentSessionID: session.id)
+        store.appendSubagentTranscript(.init(sessionID: session.id, role: .tool, title: "Tool: read", text: "evict"), runID: evictingRun.id, parentSessionID: session.id)
+        XCTAssertFalse(store.hasCachedSubagentTranscript(for: protectedRun.id), "The shared reference must be retained only by its pending snapshot.")
+
+        for index in 0..<500 {
+            store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "fill-\(index)"))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sharedPath), "Trimming the original reference must respect the evicted run's pending snapshot.")
+
+        let rewindEntry = PiAgentTranscriptEntry(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "shared again", imageReferences: [sharedReference])
+        store.append(rewindEntry)
+        store.rewindSession(session.id, fromEntryID: rewindEntry.id, newPiSessionFile: "/tmp/rewound.jsonl", newPiSessionId: nil)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sharedPath), "Rewinding another shared reference must retain the pending child reference.")
+
+        store.clearSubagentTranscriptForTesting(protectedRun.id, parentSessionID: session.id)
+        store.flushForTesting()
+        XCTAssertTrue(PiTestSupport.waitUntil { !FileManager.default.fileExists(atPath: sharedPath) }, "The image must be deleted after its final pending reference is removed and flushed.")
+    }
+
     func testMCPResultWithMoreThan32BlocksScrubsAllImagesAndAppendsTruncationDiagnostic() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)

@@ -1046,6 +1046,16 @@ final class PiAgentSessionStore {
         flushPendingSave()
     }
 
+    /// Test-only mutation seam for verifying deferred subagent-image cleanup.
+    func clearSubagentTranscriptForTesting(_ runID: UUID, parentSessionID: UUID) {
+        let removed = subagentTranscriptsByRunID[runID]?.flatMap(\.allTranscriptImageReferences)
+            ?? pendingPersistSubagentTranscriptSnapshots[runID]?.flatMap(\.allTranscriptImageReferences)
+            ?? []
+        subagentTranscriptsByRunID[runID] = []
+        persistSubagentTranscript(runID)
+        removeUnreferencedTranscriptImages(removed, parentSessionID: parentSessionID)
+    }
+
     private func slugID(for title: String, fallback: String) -> String {
         let slug = title.lowercased()
             .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)

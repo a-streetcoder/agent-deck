@@ -1016,6 +1016,39 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(PiTestSupport.extensionUIResponses(in: harness.stdinLog).isEmpty)
     }
 
+    func testParentMCPStreamScrubsImagesAndPersistsOrderedBlocks() async throws {
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let harness = try PiTestSupport.makeBridgeHarness(events: [
+            ["type": "tool_execution_start", "toolCallId": "mcp-parent-1", "toolName": "mcp", "args": ["tool": "Pidgeon/preview", "args": ["id": 7]]],
+            ["type": "tool_execution_update", "toolCallId": "mcp-parent-1", "toolName": "mcp", "partialResult": ["content": [["type": "text", "text": "updating"], ["type": "image", "mimeType": "image/png", "data": png]]]],
+            ["type": "tool_execution_end", "toolCallId": "mcp-parent-1", "toolName": "mcp", "result": ["content": [["type": "text", "text": "before"], ["type": "image", "mimeType": "image/png", "data": png], ["type": "text", "text": "after"]]]]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "MCP stream", project: try PiTestSupport.makeProject(), repository: nil)
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+
+        let receivedFinalResult = await PiTestSupport.waitUntilAsync {
+            store.transcript(for: session.id).first?.mcpResultBlocks?.count == 3
+        }
+        XCTAssertTrue(receivedFinalResult)
+        let entry = try XCTUnwrap(store.transcript(for: session.id).first)
+        XCTAssertEqual(entry.text, "before\nafter")
+        XCTAssertFalse(try XCTUnwrap(entry.rawJSON).contains(png))
+        guard case .text("before")? = entry.mcpResultBlocks?[0],
+              case let .image(reference)? = entry.mcpResultBlocks?[1],
+              case .text("after")? = entry.mcpResultBlocks?[2] else { return XCTFail("Expected ordered MCP result blocks") }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
+
+        store.flushForTesting()
+        let transcriptURL = stateFile.deletingLastPathComponent().appendingPathComponent("agent-session-transcripts/parent-\(session.id.uuidString).json")
+        XCTAssertFalse(try String(contentsOf: transcriptURL, encoding: .utf8).contains(png))
+    }
+
     private func responseValue(id: String, in logURL: URL) -> String? {
         PiTestSupport.extensionUIResponses(in: logURL).first { $0["id"] as? String == id }?["value"] as? String
     }

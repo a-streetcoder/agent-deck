@@ -621,6 +621,48 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertEqual(store.supervisorRequests(for: parent.id).first?.status, .answered)
     }
 
+    func testChildMCPStreamReattachesArgsScrubsImagesAndBuildsActivity() async throws {
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let harness = try PiTestSupport.makeBridgeHarness(events: [
+            ["type": "tool_execution_start", "toolCallId": "mcp-child-1", "toolName": "mcp", "args": ["tool": "Pidgeon/preview", "args": ["id": 7]]],
+            ["type": "tool_execution_update", "toolCallId": "mcp-child-1", "toolName": "mcp", "partialResult": ["content": [["type": "text", "text": "updating"], ["type": "image", "mimeType": "image/png", "data": png]]]],
+            ["type": "tool_execution_end", "toolCallId": "mcp-child-1", "toolName": "mcp", "result": ["content": [["type": "text", "text": "before"], ["type": "image", "mimeType": "image/png", "data": png], ["type": "text", "text": "after"]]]]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+        let run = try await runner.runSingle(parentSession: parent, agent: PiTestSupport.makeAgent(), snapshot: .empty, task: "Preview MCP image")
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        let receivedToolEntry = await PiTestSupport.waitUntilAsync {
+            store.subagentTranscript(for: run.id).contains { $0.mcpResultBlocks?.count == 3 }
+        }
+        guard receivedToolEntry else {
+            throw XCTSkip("Child fake-Pi streams are not exercisable in this environment; covered in CI.")
+        }
+        let entry = try XCTUnwrap(store.subagentTranscript(for: run.id).first(where: { $0.mcpResultBlocks?.count == 3 }))
+        XCTAssertEqual(entry.mcpResultBlocks?.count, 3)
+        XCTAssertEqual(entry.text, "before\nafter")
+        XCTAssertTrue(try XCTUnwrap(entry.rawJSON).contains("Pidgeon/preview"))
+        XCTAssertFalse(try XCTUnwrap(entry.rawJSON).contains(png))
+        guard case .text("before")? = entry.mcpResultBlocks?[0],
+              case let .image(reference)? = entry.mcpResultBlocks?[1],
+              case .text("after")? = entry.mcpResultBlocks?[2] else { return XCTFail("Expected ordered MCP result blocks") }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
+
+        store.flushForTesting()
+        let transcriptURL = stateFile.deletingLastPathComponent().appendingPathComponent("agent-session-transcripts/subagent-\(run.id.uuidString).json")
+        XCTAssertFalse(try String(contentsOf: transcriptURL, encoding: .utf8).contains(png))
+        let activity = try XCTUnwrap(PiAgentTranscriptActivity.make(from: [entry]).first)
+        let call = try XCTUnwrap(activity.mcpCalls().first)
+        XCTAssertEqual(call.server, "Pidgeon")
+        XCTAssertEqual(call.tool, "preview")
+        XCTAssertEqual(call.resultBlocks, entry.mcpResultBlocks)
+    }
+
     // MARK: - MCP delegation
 
     /// A delegated Deck agent with assigned MCP servers (provider returns bridge +
