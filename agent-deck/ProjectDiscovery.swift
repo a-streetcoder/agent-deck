@@ -127,6 +127,11 @@ nonisolated struct ProjectDiscovery {
                 options: [.skipsHiddenFiles]
             )) ?? []
             for url in children {
+                // A dependency directory can itself sit directly under a configured
+                // projects root. Treating it as a candidate makes the fallback Xcode
+                // search walk thousands of packages before any real project is
+                // published, leaving the library apparently empty during startup.
+                guard url.lastPathComponent != "node_modules", url.lastPathComponent != "Pods" else { continue }
                 appendProject(url, allowManualDirectory: false)
             }
         }
