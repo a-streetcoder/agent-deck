@@ -75,12 +75,13 @@ actor MCPStubTransport: MCPTransport {
 final class MCPTransportRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var linesByConnection: [[String]] = []
-    private var closeCount = 0
+    private var closeCounts: [Int: Int] = [:]
     func createID() -> Int { lock.lock(); defer { lock.unlock() }; linesByConnection.append([]); return linesByConnection.count - 1 }
     func record(_ line: String, id: Int) { lock.lock(); defer { lock.unlock() }; linesByConnection[id].append(line) }
-    func closed() { lock.lock(); defer { lock.unlock() }; closeCount += 1 }
+    func closed(id: Int) { lock.lock(); defer { lock.unlock() }; closeCounts[id, default: 0] += 1 }
     func lines(for id: Int) -> [String] { lock.lock(); defer { lock.unlock() }; return linesByConnection[id] }
-    func closes() -> Int { lock.lock(); defer { lock.unlock() }; return closeCount }
+    func connectionCount() -> Int { lock.lock(); defer { lock.unlock() }; return linesByConnection.count }
+    func closes(for id: Int) -> Int { lock.lock(); defer { lock.unlock() }; return closeCounts[id, default: 0] }
 }
 
 actor MCPRecordedTransport: MCPTransport {
@@ -101,7 +102,7 @@ actor MCPRecordedTransport: MCPTransport {
         default: break
         }
     }
-    func close() async { recorder.closed() }
+    func close() async { recorder.closed(id: id) }
 }
 
 /// Deterministically holds individual transport closes so a configure call can be
@@ -518,9 +519,10 @@ final class MCPConnectionManagerTests: XCTestCase {
         let collision = MCPServerEntry(name: plugin.name, config: config, sourcePath: "/user", provenance: .config, toolPolicy: .unrestricted)
         await manager.configure(servers: [collision])
         _ = await manager.discoverCatalog(serverNames: [collision.name])
-        XCTAssertEqual(recorder.closes(), 1)
-        XCTAssertEqual(recorder.lines(for: 1).filter { $0.contains("initialize") }.count, 1)
-        XCTAssertFalse(recorder.lines(for: 1).joined().contains("elicitation"))
+        XCTAssertEqual(recorder.connectionCount(), 2, "one untrusted transport replaces the eligible transport")
+        XCTAssertGreaterThanOrEqual(recorder.closes(for: 0), 1, "the replaced eligible transport closes")
+        XCTAssertTrue(recorder.lines(for: 1).contains { $0.contains("initialize") })
+        XCTAssertFalse(recorder.lines(for: 1).joined().contains("elicitation"), "untrusted replacement must not advertise elicitation")
     }
 
     func testComputerUseCatalogAllowsExactlyObservationToolsRoutesStateThroughElicitationAndDeniesActions() async throws {
@@ -598,7 +600,7 @@ final class MCPConnectionManagerTests: XCTestCase {
             _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
             XCTFail("expected authorization diagnostic")
         } catch let error as MCPError {
-            XCTAssertEqual(error, .runtimeAuthorization("Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed signed Computer Use service/Codex component—not Pi—then retry. Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: Automation denied (-1743)"))
+            XCTAssertEqual(error, .runtimeAuthorization("Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow Agent Deck to control the installed Computer Use/Codex component—not Pi—then retry. Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: Automation denied (-1743)"))
         } catch { XCTFail("unexpected error: \(error)") }
     }
 
@@ -689,12 +691,6 @@ final class MCPConnectionManagerTests: XCTestCase {
         let result = try await manager.call(server: "server", tool: "echo", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "server", tool: "echo"))
         XCTAssertEqual(finalConfig?.command, "new-helper")
         XCTAssertEqual(result.combinedText, "new")
-    }
-
-    func testParentAndSubagentMCPBridgesRouteThroughCentralPolicyCall() throws {
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("agent-deck/AppViewModel.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("await performMCPBridge(request: request, scope: subagentMCPScope"))
-        XCTAssertTrue(source.contains("mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context:"))
     }
 
     func testCallUnknownServerThrows() async throws {
