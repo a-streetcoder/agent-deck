@@ -646,8 +646,10 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         let entry = try XCTUnwrap(store.subagentTranscript(for: run.id).first(where: { $0.mcpResultBlocks?.count == 3 }))
         XCTAssertEqual(entry.mcpResultBlocks?.count, 3)
         XCTAssertEqual(entry.text, "before\nafter")
-        XCTAssertTrue(try XCTUnwrap(entry.rawJSON).contains("Pidgeon/preview"))
-        XCTAssertFalse(try XCTUnwrap(entry.rawJSON).contains(png))
+        let rawJSON = try XCTUnwrap(entry.rawJSON)
+        let rawEvent = try JSONDecoder().decode(JSONValue.self, from: Data(rawJSON.utf8))
+        XCTAssertEqual(rawEvent["args"]?["tool"]?.stringValue, "Pidgeon/preview")
+        XCTAssertFalse(rawJSON.contains(png))
         guard case .text("before")? = entry.mcpResultBlocks?[0],
               case let .image(reference)? = entry.mcpResultBlocks?[1],
               case .text("after")? = entry.mcpResultBlocks?[2] else { return XCTFail("Expected ordered MCP result blocks") }
