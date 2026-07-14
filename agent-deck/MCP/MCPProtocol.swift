@@ -118,6 +118,148 @@ nonisolated struct MCPToolsListResult: Decodable, Hashable, Sendable { var tools
 nonisolated struct MCPContentBlock: Decodable, Hashable, Sendable { var type: String; var text: String?; var data: String?; var mimeType: String?; var url: String? }
 nonisolated struct MCPCallResult: Decodable, Hashable, Sendable { var content: [MCPContentBlock]?; var isError: Bool?; var combinedText: String { (content ?? []).map { $0.type == "text" ? ($0.text ?? "") : ($0.text?.isEmpty == false ? $0.text! : "[\($0.type) content]") }.joined(separator: "\n") } }
 
+/// Versioned, inline-only result transported from the native MCP client through
+/// Pi's string editor bridge. `content` uses Pi's supported text/image shape and
+/// deliberately preserves the MCP server's block order after validation.
+nonisolated struct PiMCPBridgeCallResultEnvelope: Codable, Hashable, Sendable {
+    static let currentVersion = 1
+    static let maximumTextBlockCharacters = 20_000
+    static let maximumAggregateTextCharacters = 50_000
+    static let maximumImageDecodedBytes = 4 * 1_024 * 1_024
+    static let maximumAggregateImageDecodedBytes = 8 * 1_024 * 1_024
+    static let maximumContentBlocks = 64
+    static let maximumEncodedEnvelopeBytes = 12 * 1_024 * 1_024
+    private static let maximumMetadataCharacters = 256
+    static let supportedImageMIMETypes: Set<String> = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+
+    struct ContentBlock: Codable, Hashable, Sendable {
+        var type: String
+        var text: String?
+        var data: String?
+        var mimeType: String?
+
+        static func text(_ text: String) -> Self { .init(type: "text", text: text, data: nil, mimeType: nil) }
+        static func image(data: String, mimeType: String) -> Self { .init(type: "image", text: nil, data: data, mimeType: mimeType) }
+    }
+
+    var version: Int
+    var server: String
+    var tool: String
+    var isError: Bool
+    var content: [ContentBlock]
+
+    static func callResult(_ result: MCPCallResult, server: String, tool: String) -> Self {
+        var textCharacters = 0
+        var imageBytes = 0
+        var content: [ContentBlock] = []
+        var truncated = false
+
+        func append(_ block: ContentBlock) {
+            guard content.count < maximumContentBlocks else { truncated = true; return }
+            content.append(block)
+        }
+
+        for block in result.content ?? [] {
+            guard content.count < maximumContentBlocks else { truncated = true; break }
+            switch block.type {
+            case "text":
+                guard let text = block.text else {
+                    append(.text("MCP text content omitted: missing text."))
+                    continue
+                }
+                guard text.count <= maximumTextBlockCharacters else {
+                    append(.text("MCP text content omitted: exceeds the \(maximumTextBlockCharacters)-character per-block limit."))
+                    continue
+                }
+                guard textCharacters + text.count <= maximumAggregateTextCharacters else {
+                    append(.text("MCP text content omitted: exceeds the \(maximumAggregateTextCharacters)-character aggregate limit."))
+                    continue
+                }
+                textCharacters += text.count
+                append(.text(text))
+
+            case "image":
+                guard let mimeType = block.mimeType, supportedImageMIMETypes.contains(mimeType) else {
+                    append(.text("MCP image content omitted: unsupported MIME type."))
+                    continue
+                }
+                guard let data = block.data, let decoded = strictlyDecodedBase64(data), !decoded.isEmpty else {
+                    append(.text("MCP image content omitted: invalid base64 data."))
+                    continue
+                }
+                guard decoded.count <= maximumImageDecodedBytes else {
+                    append(.text("MCP image content omitted: exceeds the \(maximumImageDecodedBytes)-byte per-image limit."))
+                    continue
+                }
+                guard imageBytes + decoded.count <= maximumAggregateImageDecodedBytes else {
+                    append(.text("MCP image content omitted: exceeds the \(maximumAggregateImageDecodedBytes)-byte aggregate limit."))
+                    continue
+                }
+                imageBytes += decoded.count
+                append(.image(data: data, mimeType: mimeType))
+
+            case "resource", "resource_link":
+                append(.text("MCP resource content omitted: resources are not supported by this bridge."))
+
+            default:
+                append(.text("MCP content omitted: unsupported content type."))
+            }
+        }
+
+        if content.isEmpty { content.append(.text("(tool returned no content)")) }
+        return boundedEnvelope(server: server, tool: tool, isError: result.isError == true, content: content, truncated: truncated)
+    }
+
+    static func failure(server: String, tool: String, message: String) -> Self {
+        boundedEnvelope(server: server, tool: tool, isError: true, content: [.text(String(message.prefix(maximumTextBlockCharacters)))], truncated: false)
+    }
+
+    private static func boundedEnvelope(server: String, tool: String, isError: Bool, content: [ContentBlock], truncated: Bool) -> Self {
+        var blocks = content
+        var wasTruncated = truncated
+        if wasTruncated {
+            if blocks.count == maximumContentBlocks { blocks.removeLast() }
+            blocks.append(.text("MCP content omitted: result truncated."))
+        }
+
+        var envelope = Self(version: currentVersion, server: boundedMetadata(server), tool: boundedMetadata(tool), isError: isError, content: blocks)
+        while encodedSize(of: envelope) > maximumEncodedEnvelopeBytes, envelope.content.count > 1 {
+            envelope.content.removeLast()
+            wasTruncated = true
+        }
+        if wasTruncated, envelope.content.last?.text != "MCP content omitted: result truncated.", envelope.content.count < maximumContentBlocks {
+            let diagnostic = ContentBlock.text("MCP content omitted: result truncated.")
+            envelope.content.append(diagnostic)
+            if encodedSize(of: envelope) > maximumEncodedEnvelopeBytes { envelope.content.removeLast() }
+        }
+        if encodedSize(of: envelope) > maximumEncodedEnvelopeBytes {
+            envelope.content = [.text("MCP content omitted: result exceeded the bridge payload limit.")]
+        }
+        return envelope
+    }
+
+    private static func boundedMetadata(_ value: String) -> String {
+        value.count <= maximumMetadataCharacters ? value : String(value.prefix(maximumMetadataCharacters))
+    }
+
+    private static func encodedSize(of envelope: Self) -> Int {
+        // Codable output is the exact bridge payload; this check makes the aggregate
+        // cap deterministic even when text contains multi-byte or escaped characters.
+        (try? JSONEncoder().encode(envelope).count) ?? .max
+    }
+
+    private static func strictlyDecodedBase64(_ value: String) -> Data? {
+        guard value.count.isMultiple(of: 4),
+              value.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "+" || $0 == "/" || $0 == "=") }) else { return nil }
+        if let paddingStart = value.firstIndex(of: "=") {
+            let padding = value[paddingStart...]
+            guard padding.count <= 2, padding.allSatisfy({ $0 == "=" }) else { return nil }
+        }
+        guard let decoded = Data(base64Encoded: value), decoded.base64EncodedString() == value else { return nil }
+        return decoded
+    }
+}
+
 /// Immutable call provenance. It deliberately contains identifiers rather than data
 /// payloads; never write it to logs with project paths or request arguments.
 nonisolated struct MCPCallContext: Sendable, Hashable {
