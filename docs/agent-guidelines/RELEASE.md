@@ -37,14 +37,17 @@ bash scripts/package-dmg.sh
 
 If release behavior changes, update both the script and the workflow.
 
-## Computer Use permissions
+## Computer Use prerequisites and permissions
 
-After installing or reinstalling a newly signed Agent Deck build, Computer Use may need macOS permissions again. Do not reset or request TCC permissions automatically. Ask the user to grant them manually:
+Agent Deck does not bundle the independent `codex-computer-use-mcp` package or OpenAI components. Live release validation requires the exact supported broker version in the documented Application Support location and the official ChatGPT app with its signed Codex app-server/Computer Use components installed.
 
-1. In **System Settings → Privacy & Security → Automation**, allow **Agent Deck** to control the installed Computer Use/Codex component.
-2. If screenshots are needed, in **System Settings → Privacy & Security → Screen & System Audio Recording**, allow the **Codex Computer Use service**.
+Computer Use calls run through those signed OpenAI components, not directly from Agent Deck or Pi. If macOS blocks access, do not reset or request TCC permissions automatically. Ask the user to review **System Settings → Privacy & Security** for the installed ChatGPT/Codex Computer Use component:
 
-Accessibility is a separate permission gate when the service needs it. These permissions belong to the signed installed components, not Pi; changing a signature or reinstalling can require the user to review them again.
+1. **Automation** for app control.
+2. **Accessibility** for Accessibility-tree access and actions.
+3. **Screen & System Audio Recording** for screenshots.
+
+A new Agent Deck signature does not own these grants. Updating or reinstalling the responsible OpenAI component can require the user to review them again.
 
 Before publishing, run the focused static regression checks in addition to the normal signing/notarization flow:
 

@@ -5,24 +5,40 @@ import Foundation
 nonisolated enum CodexComputerUseMCPIntegration {
     static let serverName = "codex-computer-use"
 
-    static func merge(configured: [MCPServerEntry], discovery: CodexPluginMCPDiscovery.Result) -> [MCPServerEntry] {
+    static func merge(
+        configured: [MCPServerEntry],
+        discovery: CodexPluginMCPDiscovery.Result,
+        brokerDiscovery: CodexComputerUseBrokerDiscovery.Result? = nil
+    ) -> [MCPServerEntry] {
         var merged = Dictionary(uniqueKeysWithValues: configured.map { ($0.name, $0) })
         let resource = discovery.resources.first { $0.serverName == "computer-use" }
 
         if let existing = merged[serverName] {
             if resource != nil {
                 var entry = existing
-                entry.diagnostic = "The configured server named \(serverName) is in use instead of the Codex Plugin server and is not governed by Agent Deck's Computer Use session-control policy."
+                entry.diagnostic = "The configured server named \(serverName) is in use instead of the Codex Plugin broker and is not governed by Agent Deck's exact Computer Use tool policy."
                 merged[serverName] = entry
             }
         } else if let resource {
-            merged[serverName] = MCPServerEntry(
-                name: serverName,
-                config: resource.config,
-                sourcePath: resource.sourcePath,
-                provenance: .codexPlugin(version: resource.version, availability: "Available"),
-                toolPolicy: .computerUseSessionControlled
-            )
+            switch brokerDiscovery ?? CodexComputerUseBrokerDiscovery.discover() {
+            case let .available(broker):
+                merged[serverName] = MCPServerEntry(
+                    name: serverName,
+                    config: broker.config,
+                    sourcePath: broker.serverScriptURL.path,
+                    provenance: .codexPlugin(version: resource.version, availability: "Available via signed Codex app-server broker"),
+                    toolPolicy: .computerUseNoPermissions
+                )
+            case let .unavailable(diagnostic):
+                merged[serverName] = MCPServerEntry(
+                    name: serverName,
+                    config: MCPServerConfig(),
+                    sourcePath: resource.sourcePath,
+                    provenance: .codexPlugin(version: resource.version, availability: "Broker unavailable"),
+                    toolPolicy: .computerUseNoPermissions,
+                    availabilityDiagnostic: diagnostic
+                )
+            }
         } else {
             let status = discovery.diagnostics.map(\.localizedDescription).joined(separator: " ")
             merged[serverName] = MCPServerEntry(
@@ -30,7 +46,7 @@ nonisolated enum CodexComputerUseMCPIntegration {
                 config: MCPServerConfig(),
                 sourcePath: "",
                 provenance: .codexPlugin(version: nil, availability: "Unavailable"),
-                toolPolicy: .computerUseSessionControlled,
+                toolPolicy: .computerUseNoPermissions,
                 availabilityDiagnostic: status.isEmpty ? "Codex Computer Use is unavailable." : status
             )
         }

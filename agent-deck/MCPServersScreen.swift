@@ -233,7 +233,7 @@ struct MCPServersScreen: View {
 
     private func isTrustedComputerUse(_ entry: MCPServerEntry) -> Bool {
         guard entry.name == ComputerUseCapability.serverName,
-              entry.toolPolicy == .computerUseSessionControlled else { return false }
+              entry.toolPolicy == .computerUseNoPermissions else { return false }
         if case .codexPlugin = entry.provenance { return entry.config.resolvedTransport == .stdio }
         return false
     }
@@ -242,8 +242,8 @@ struct MCPServersScreen: View {
         AppCard(title: "Computer Use controls") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_text, scroll, drag, press_key, and type_text.")
-                Text("Observation tools do not ask for control. The first action for an app asks for per-app, per-requester approval for this session only; grants are not persisted. Stop the session or delegated run, disable or unassign Computer Use, or refresh its plugin to revoke grants.")
-                Text("App-control approval is separate from service confirmation prompts and never approves risky effects. Agents must still ask before consequential actions.")
+                Text("Assigning this MCP enables every listed method without an Agent Deck control prompt or MCP elicitation. Unassign or disable Computer Use to stop exposing the capability.")
+                Text("Calls run through the independent broker and OpenAI's installed signed Codex app-server. First-party availability checks and macOS privacy permissions still apply. Assignment and system permission are not consent for effects the user did not request.")
             }
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)
@@ -308,7 +308,7 @@ struct MCPServersScreen: View {
 
     @ViewBuilder
     private func detailStatusTag(_ entry: MCPServerEntry) -> some View {
-        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseSessionControlled
+        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseNoPermissions
         switch statusByServer[entry.name] {
         case .probing:
             HStack(spacing: 6) { AppSpinner().controlSize(.small); Text("Connecting…").font(.caption).foregroundStyle(.secondary) }

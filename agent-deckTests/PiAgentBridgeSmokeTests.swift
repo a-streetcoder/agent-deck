@@ -11,53 +11,6 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertEqual(PiAgentRunnerService.streamingFlushDelay(isSelected: false, characterCount: 4_000), 60_000_000)
     }
 
-    func testNaturalProcessTerminationRevokesControlGrantBeforeSameSessionResumes() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-control-grant-terminal-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let executable = directory.appendingPathComponent("pi")
-        // Wait for the runner's first RPC write, which occurs only after it
-        // registers this client run ID, then terminate normally.
-        try "#!/bin/sh\nread ignored\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
-        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
-        defer {
-            restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath)
-            try? FileManager.default.removeItem(at: directory)
-        }
-
-        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
-        let runner = PiAgentRunnerService(store: store)
-        let coordinator = ComputerUseApprovalCoordinator(timeout: 10)
-        coordinator.setUIServicingRequests(true)
-        let session = store.createSession(kind: .project, title: "Terminal grant", project: try PiTestSupport.makeProject(url: directory), repository: nil)
-        let context = MCPCallContext(sessionID: session.id, projectID: "project", server: ComputerUseCapability.serverName, tool: "click")
-        let arguments: JSONValue = .object(["app": .string("Safari")])
-        let authorization = Task { await coordinator.authorize(appArguments: arguments, context: context, sessionIsLive: true) }
-        await Task.yield()
-        coordinator.accept(try XCTUnwrap(coordinator.request(for: session.id)))
-        let authorizationResult = await authorization.value
-        XCTAssertEqual(authorizationResult, .authorized)
-        XCTAssertTrue(coordinator.hasGrant(appArguments: arguments, context: context))
-
-        var didTerminate = false
-        runner.onSessionProcessTerminated = { sessionID in
-            didTerminate = true
-            coordinator.revoke(sessionID: sessionID)
-        }
-        runner.resume(session: session)
-        let terminated = await PiTestSupport.waitUntilAsync(timeout: 3) { didTerminate }
-        XCTAssertTrue(terminated)
-        XCTAssertFalse(coordinator.hasGrant(appArguments: arguments, context: context))
-
-        let resumedAuthorization = Task { await coordinator.authorize(appArguments: arguments, context: context, sessionIsLive: true) }
-        await Task.yield()
-        XCTAssertEqual(coordinator.request(for: session.id)?.kind, .controlApp)
-        resumedAuthorization.cancel()
-        let resumedResult = await resumedAuthorization.value
-        XCTAssertEqual(resumedResult, .denied(.cancelled))
-    }
-
     func testLaunchResourceRelaunchRestartsIdleRunningSessionImmediately() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-resource-relaunch-idle-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

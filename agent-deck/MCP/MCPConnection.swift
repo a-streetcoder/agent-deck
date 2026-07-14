@@ -10,7 +10,7 @@ actor MCPConnection {
 
     let name: String
     private let config: MCPServerConfig; private let transportFactory: TransportFactory
-    private let clientName: String; private let clientVersion: String; private let requestTimeout: Duration; private let interactiveRequestTimeout: Duration
+    private let clientName: String; private let clientVersion: String; private let requestTimeout: Duration; private let interactiveRequestTimeout: Duration; private let usesInteractiveRequestTimeout: Bool
     private let serverRequestHandler: MCPServerRequestHandler?
     private var transport: MCPTransport?; private var connectTask: Task<Void, Error>?; private var isConnected = false
     private var nextID = 1
@@ -28,7 +28,7 @@ actor MCPConnection {
     private var serverRequestTasks: [Int: Task<Void, Never>] = [:]
 
     init(name: String, config: MCPServerConfig, clientName: String = "Agent Deck", clientVersion: String = "1.0", requestTimeout: Duration = .seconds(30), interactiveRequestTimeout: Duration? = nil, serverRequestHandler: MCPServerRequestHandler? = nil, transportFactory: @escaping TransportFactory = MCPConnection.defaultTransportFactory) {
-        self.name = name; self.config = config; self.clientName = clientName; self.clientVersion = clientVersion; self.requestTimeout = requestTimeout; self.interactiveRequestTimeout = interactiveRequestTimeout ?? requestTimeout; self.serverRequestHandler = serverRequestHandler; self.transportFactory = transportFactory
+        self.name = name; self.config = config; self.clientName = clientName; self.clientVersion = clientVersion; self.requestTimeout = requestTimeout; self.interactiveRequestTimeout = interactiveRequestTimeout ?? requestTimeout; self.usesInteractiveRequestTimeout = interactiveRequestTimeout != nil; self.serverRequestHandler = serverRequestHandler; self.transportFactory = transportFactory
     }
 
     func ensureConnected() async throws {
@@ -81,7 +81,7 @@ actor MCPConnection {
                 // Cancellation may arrive before this continuation is registered.
                 guard !Task.isCancelled else { continuation.resume(throwing: MCPError.cancelled); return }
                 pending[id] = .init(continuation: continuation, method: method, context: context)
-                let timeout = method == MCPMethod.toolsCall && serverRequestHandler != nil ? interactiveRequestTimeout : requestTimeout
+                let timeout = method == MCPMethod.toolsCall && usesInteractiveRequestTimeout ? interactiveRequestTimeout : requestTimeout
                 timeoutTasks[id] = Task { [weak self, timeout] in try? await Task.sleep(for: timeout); await self?.failPending(id: id, error: MCPError.timeout(method), reason: "request timed out") }
                 // The detached task owns no request state. It must re-enter the actor
                 // and prove the request is still pending before any transport write.

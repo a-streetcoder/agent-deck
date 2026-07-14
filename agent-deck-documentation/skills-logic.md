@@ -32,7 +32,19 @@ Importing selected skills normally stores the selected skill root paths in Agent
 
 The **Claude / Codex** source also lists skills declared by locally installed Codex plugins. Agent Deck considers a cache package installed only when Codex config lists its exact `plugin@marketplace` identity (whether enabled or disabled), or its plugin base has a valid Codex remote-install marker. It selects Codex's active cache version before validating its manifest; an invalid active package is unavailable rather than falling back to stale content. Agent Deck never changes Codex files. Importing one of these candidates stores its marketplace, plugin, and relative skill root rather than a versioned cache path. Each resource scan resolves that reference to Codex's current active package; launches use the refreshed skill catalog from that scan. An imported plugin skill therefore follows updates and remains unavailable (but retained as a reference) if the plugin is removed. Its stable relative skill folder and skill name must remain present; renamed or removed skills need re-import rather than being silently remapped.
 
-Computer Use is the targeted exception. Its installed Codex skill is not independently importable because its `node_repl` execution path is incompatible with Pi. Assigning the trusted Computer Use MCP automatically appends an Agent Deck-authored compatibility guide to the same scoped system instructions. The guide preserves the bundled skill's tool workflow, app-state guidance, and confirmation policy at semantic parity while replacing only the Codex-specific execution mechanism with Agent Deck's `mcp` proxy. Unassigning the MCP removes the guide on the next session launch.
+Computer Use is the targeted exception. Its installed Codex skill is not independently importable because its `node_repl` execution path is incompatible with Pi. Agent Deck discovers the installed Codex plugin but runs calls through the independently installed `codex-computer-use-mcp@0.2.0` broker, which uses OpenAI's signed Codex app-server instead of launching the raw helper from Agent Deck. Assigning this MCP automatically appends an Agent Deck-authored compatibility guide at the same scope and exposes the exact ten supported methods. Calls do not show Agent Deck control or MCP-elicitation prompts; assignment is the app-level enablement gate. The guide still requires explicit user-authored intent for consequential effects and replaces only the Codex-specific execution mechanism with Agent Deck's `mcp` proxy. Unassigning the MCP removes the guide on the next session launch.
+
+The broker is an external prerequisite and is not bundled into Agent Deck. Install the exact supported version into Agent Deck's explicit application-support location with Pi's sibling npm:
+
+```bash
+NPM="$(dirname "$(command -v pi)")/npm"
+"$NPM" install \
+  --prefix "$HOME/Library/Application Support/Agent Deck/Computer Use Broker/0.2.0" \
+  --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund \
+  codex-computer-use-mcp@0.2.0
+```
+
+Agent Deck verifies the package name/version, reviewed package-tree digest, broker entry point, and Node.js 22+ before marking the discovered capability available. The broker's state and bounded audit files are written under `~/Library/Application Support/Agent Deck/Computer Use Broker/State/`.
 
 When a local-folder import or Git import contains selected skills and the user enables **Import as collection**, Agent Deck also records a first-class Skill Collection with the chosen name for that source. A collection is assignment metadata, not a runtime primitive: enabling a collection for All Projects or a project expands the collection to its member skill names, then launch resolution still emits one `--skill <path>` argument for each resolved skill. Removing a skill from the catalog removes it from collection membership; Git-backed collections continue to share the repository record and sparse-checkout metadata used for updates.
 

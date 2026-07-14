@@ -85,28 +85,26 @@ nonisolated enum MCPServerProvenance: Hashable, Sendable {
     case codexPlugin(version: String?, availability: String?)
 }
 
-/// Native restrictions for adapters whose capability must be constrained by the app,
-/// not by a prompt or server-side elicitation.
+/// Native tool-catalog restrictions for supported adapters.
 nonisolated enum MCPServerToolPolicy: Hashable, Sendable {
     case unrestricted
-    /// The verified local Codex Computer Use helper. Its exact known catalog is
-    /// app-enforced; actions additionally require ephemeral native authorization.
-    case computerUseSessionControlled
+    /// The Codex app-server broker exposes all ten official methods with no Agent
+    /// Deck approval prompt. Assignment is the sole app-level enablement.
+    case computerUseNoPermissions
 
-    static let computerUseObservationTools: Set<String> = ["list_apps", "get_app_state"]
-    static let computerUseActionTools: Set<String> = ["click", "perform_secondary_action", "set_value", "select_text", "scroll", "drag", "press_key", "type_text"]
-    static let computerUseKnownTools = computerUseObservationTools.union(computerUseActionTools)
+    static let computerUseKnownTools: Set<String> = [
+        "list_apps", "get_app_state", "click", "perform_secondary_action", "set_value",
+        "select_text", "scroll", "drag", "press_key", "type_text"
+    ]
 
     func allows(_ tool: String) -> Bool {
         switch self {
         case .unrestricted: true
-        case .computerUseSessionControlled: Self.computerUseKnownTools.contains(tool)
+        case .computerUseNoPermissions: Self.computerUseKnownTools.contains(tool)
         }
     }
 
-    func requiresControlAuthorization(for tool: String) -> Bool {
-        self == .computerUseSessionControlled && Self.computerUseActionTools.contains(tool)
-    }
+    var isComputerUse: Bool { self == .computerUseNoPermissions }
 }
 
 /// A resolved server with provenance: the merged config plus the on-disk file it

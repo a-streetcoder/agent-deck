@@ -13,15 +13,42 @@ final class CodexComputerUseMCPIntegrationTests: XCTestCase {
         )
     }
 
-    func testAvailablePluginUsesStableIDReadOnlyProvenanceAndPolicy() {
-        let entries = CodexComputerUseMCPIntegration.merge(configured: [], discovery: .init(resources: [resource()], diagnostics: []))
+    private func broker() -> CodexComputerUseBrokerDiscovery.Result {
+        .available(.init(
+            nodeURL: URL(fileURLWithPath: "/runtime/node"),
+            serverScriptURL: URL(fileURLWithPath: "/broker/dist/mcp-server.js"),
+            packageRootURL: URL(fileURLWithPath: "/broker"),
+            stateRootURL: URL(fileURLWithPath: "/state")
+        ))
+    }
+
+    func testAvailablePluginUsesStableIDBrokerAndNoPermissionsPolicy() {
+        let entries = CodexComputerUseMCPIntegration.merge(
+            configured: [], discovery: .init(resources: [resource()], diagnostics: []), brokerDiscovery: broker()
+        )
         let entry = try! XCTUnwrap(entries.first)
         XCTAssertEqual(entry.name, "codex-computer-use")
-        XCTAssertEqual(entry.config.command, "/transient/root/helper")
-        XCTAssertEqual(entry.toolPolicy, .computerUseSessionControlled)
-        XCTAssertFalse(entry.sourcePath.isEmpty)
+        XCTAssertEqual(entry.config.command, "/runtime/node")
+        XCTAssertEqual(entry.config.args, ["/broker/dist/mcp-server.js"])
+        XCTAssertEqual(entry.config.cwd, "/broker")
+        XCTAssertEqual(entry.config.env?["CODEX_COMPUTER_USE_HOME"], "/state")
+        XCTAssertEqual(entry.config.resolvedLifecycle, .lazy)
+        XCTAssertEqual(entry.toolPolicy, .computerUseNoPermissions)
+        XCTAssertEqual(entry.sourcePath, "/broker/dist/mcp-server.js")
         XCTAssertTrue(entry.isAvailable)
         XCTAssertFalse(entry.provenance == .config)
+    }
+
+    func testAvailablePluginWithoutBrokerRetainsStableUnavailableEntry() {
+        let entry = CodexComputerUseMCPIntegration.merge(
+            configured: [], discovery: .init(resources: [resource()], diagnostics: []),
+            brokerDiscovery: .unavailable("install exact broker")
+        ).first!
+        XCTAssertEqual(entry.name, "codex-computer-use")
+        XCTAssertEqual(entry.toolPolicy, .computerUseNoPermissions)
+        XCTAssertFalse(entry.isAvailable)
+        XCTAssertEqual(entry.availabilityDiagnostic, "install exact broker")
+        XCTAssertNil(entry.config.command)
     }
 
     func testExplicitConfigWinsCollisionWithoutChangingIdentity() {

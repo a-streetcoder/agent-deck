@@ -35,16 +35,10 @@ actor MCPConnectionManager {
 
     private var configs: [String: MCPServerConfig] = [:]
     private var policies: [String: MCPServerToolPolicy] = [:]
-    /// Only the discovered Codex plugin is eligible for interactive elicitation.
-    /// A user server with the same name, and every remote transport, stays excluded.
-    private var elicitationEligibleServers: Set<String> = []
-    /// Same trust boundary as elicitation: discovered plugin provenance and local stdio.
-    private var controlAuthorizationEligibleServers: Set<String> = []
     private struct ConnectionIdentity: Hashable {
         let config: MCPServerConfig
         let policy: MCPServerToolPolicy
         let provenance: MCPServerProvenance
-        let isElicitationEligible: Bool
     }
     /// Identity is intentionally broader than the command line: a collision can
     /// retain identical stdio bytes while losing trusted plugin provenance.
@@ -58,39 +52,8 @@ actor MCPConnectionManager {
     /// Resolves an OAuth access token for a server name (set by AppViewModel). Used to
     /// authorize remote (http) transports.
     private var authTokenProvider: (@Sendable (String) async -> String?)?
-    /// Installed by the native approval surface. Absence intentionally declines elicitation.
-    private var serverRequestHandler: MCPServerRequestHandler?
-    /// Only the verified local Computer Use helper receives this seam. It is checked
-    /// before a connection is obtained, so denied actions never reach transport.
-    private var computerUseAuthorizationHandler: (@Sendable (JSONValue?, MCPCallContext) async -> ComputerUseApprovalCoordinator.ControlAuthorization)?
-
-    func setComputerUseAuthorizationHandler(_ handler: (@Sendable (JSONValue?, MCPCallContext) async -> ComputerUseApprovalCoordinator.ControlAuthorization)?) {
-        computerUseAuthorizationHandler = handler
-    }
-
-    func setServerRequestHandler(_ handler: MCPServerRequestHandler?) async {
-        let availabilityChanged = (serverRequestHandler == nil) != (handler == nil)
-        serverRequestHandler = handler
-        // The initialize capability and handler are immutable per connection. Restart
-        // eligible stdio connections whenever UI servicing comes or goes.
-        guard availabilityChanged else { return }
-        for name in elicitationEligibleServers {
-            if let connection = connections.removeValue(forKey: name) {
-                toolCache[name] = nil
-                await connection.close()
-            }
-        }
-    }
-
     func setAuthTokenProvider(_ provider: @escaping @Sendable (String) async -> String?) {
         authTokenProvider = provider
-    }
-
-    private func isElicitationEligible(_ entry: MCPServerEntry) -> Bool {
-        guard entry.config.resolvedTransport == .stdio,
-              entry.toolPolicy == .computerUseSessionControlled else { return false }
-        if case .codexPlugin = entry.provenance { return true }
-        return false
     }
 
     init(clientName: String = "Agent Deck",
@@ -116,18 +79,11 @@ actor MCPConnectionManager {
         let epoch = configurationEpoch
         var newConfigs: [String: MCPServerConfig] = [:]
         var newPolicies: [String: MCPServerToolPolicy] = [:]
-        var newElicitationEligible: Set<String> = []
-        var newControlAuthorizationEligible: Set<String> = []
         var newIdentities: [String: ConnectionIdentity] = [:]
         for entry in servers where entry.isAvailable {
-            let eligible = isElicitationEligible(entry)
             newConfigs[entry.name] = entry.config
             newPolicies[entry.name] = entry.toolPolicy
-            newIdentities[entry.name] = .init(config: entry.config, policy: entry.toolPolicy, provenance: entry.provenance, isElicitationEligible: eligible)
-            if eligible {
-                newElicitationEligible.insert(entry.name)
-                newControlAuthorizationEligible.insert(entry.name)
-            }
+            newIdentities[entry.name] = .init(config: entry.config, policy: entry.toolPolicy, provenance: entry.provenance)
         }
 
         // Close connections whose config, policy, or trust provenance changed.
@@ -142,8 +98,6 @@ actor MCPConnectionManager {
         guard epoch == configurationEpoch, refreshIsCurrent() else { return }
         configs = newConfigs
         policies = newPolicies
-        elicitationEligibleServers = newElicitationEligible
-        controlAuthorizationEligibleServers = newControlAuthorizationEligible
         connectionIdentities = newIdentities
         // Drop connections for servers no longer present.
         for name in connections.keys where newConfigs[name] == nil {
@@ -180,16 +134,18 @@ actor MCPConnectionManager {
                 return try MCPHTTPTransport(config: serverConfig, tokenProvider: tokenProvider)
             }
         }
+        let policy = policies[name, default: .unrestricted]
         let connection = MCPConnection(
             name: name,
             config: config,
             clientName: clientName,
             clientVersion: clientVersion,
-            // Discovery stays bounded at five seconds; an interactive tools/call
-            // gets enough time for the 60-second user decision and completion.
-            requestTimeout: policies[name] == .computerUseSessionControlled ? .seconds(5) : requestTimeout,
-            interactiveRequestTimeout: elicitationEligibleServers.contains(name) ? .seconds(120) : nil,
-            serverRequestHandler: elicitationEligibleServers.contains(name) ? serverRequestHandler : nil,
+            // Broker startup/catalog discovery stays bounded. Direct app-server tool
+            // calls get the package's documented three-minute budget without enabling
+            // any Agent Deck approval handler.
+            requestTimeout: policy == .computerUseNoPermissions ? .seconds(5) : requestTimeout,
+            interactiveRequestTimeout: policy == .computerUseNoPermissions ? .seconds(180) : nil,
+            serverRequestHandler: nil,
             transportFactory: factory
         )
         connections[name] = connection
@@ -222,19 +178,9 @@ actor MCPConnectionManager {
         guard policy.allows(tool) else {
             throw MCPError.policyDenied("Computer Use tool is not supported by Agent Deck.")
         }
-        if policy.requiresControlAuthorization(for: tool) {
-            guard controlAuthorizationEligibleServers.contains(server),
-                  ComputerUseCapability.hasValidActionArguments(arguments),
-                  let handler = computerUseAuthorizationHandler else {
-                throw MCPError.policyDenied("Computer Use control was denied before contacting the service.")
-            }
-            guard case .authorized = await handler(arguments, context) else {
-                throw MCPError.policyDenied("Computer Use control was denied before contacting the service.")
-            }
-        }
         do {
             let result = try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
-            if policies[server] == .computerUseSessionControlled,
+            if policies[server]?.isComputerUse == true,
                result.isError == true,
                let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: result.combinedText) {
                 throw MCPError.runtimeAuthorization(diagnostic)
@@ -242,7 +188,7 @@ actor MCPConnectionManager {
             return result
         } catch let error as MCPError {
             if case .runtimeAuthorization = error { throw error }
-            guard policies[server] == .computerUseSessionControlled,
+            guard policies[server]?.isComputerUse == true,
                   let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: error.errorDescription ?? "") else { throw error }
             throw MCPError.runtimeAuthorization(diagnostic)
         }
@@ -313,13 +259,13 @@ actor MCPConnectionManager {
             config: entry.config,
             clientName: clientName,
             clientVersion: clientVersion,
-            requestTimeout: entry.toolPolicy == .computerUseSessionControlled ? .seconds(5) : .seconds(20),
-            interactiveRequestTimeout: isElicitationEligible(entry) ? .seconds(120) : nil,
-            serverRequestHandler: isElicitationEligible(entry) ? serverRequestHandler : nil,
+            requestTimeout: entry.toolPolicy.isComputerUse ? .seconds(5) : .seconds(20),
+            interactiveRequestTimeout: entry.toolPolicy == .computerUseNoPermissions ? .seconds(180) : nil,
+            serverRequestHandler: nil,
             transportFactory: factory
         )
         do {
-            let tools = try await connection.listTools()
+            let tools = (try await connection.listTools()).filter { entry.toolPolicy.allows($0.name) }
             await connection.close()
             return .ok(tools.map { MCPProbeTool(name: $0.name, description: $0.description) })
         } catch {

@@ -49,6 +49,35 @@ actor MCPContextBox {
     func value() -> MCPCallContext? { stored }
 }
 
+actor MCPDelayedCallTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { true }
+    private var onLine: (@Sendable (String) -> Void)?
+
+    func start(onLine: @escaping @Sendable (String) -> Void,
+               onClose: @escaping @Sendable (MCPError?) -> Void) async throws {
+        self.onLine = onLine
+    }
+
+    func send(_ line: String) async throws {
+        let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+        let id = object?["id"] as? Int ?? 0
+        switch object?["method"] as? String {
+        case "initialize":
+            onLine?(#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{}}}"#)
+        case "tools/call":
+            let callback = onLine
+            Task {
+                try? await Task.sleep(for: .milliseconds(120))
+                callback?(MCPMockServer.callResult(id: id, text: "late success"))
+            }
+        default:
+            break
+        }
+    }
+
+    func close() async {}
+}
+
 actor MCPStubTransport: MCPTransport {
     nonisolated var supportsDuplexServerRequests: Bool { true }
     typealias Responder = @Sendable (String) -> [String]
@@ -178,14 +207,6 @@ enum MCPMockServer {
     static func callResult(id: Int, text: String) -> String {
         #"{"jsonrpc":"2.0","id":\#(id),"result":{"content":[{"type":"text","text":"\#(text)"}],"isError":false}}"#
     }
-}
-
-private final class MCPComputerUseElicitationFixture: @unchecked Sendable {
-    private let lock = NSLock()
-    private var pendingToolCallID: Int?
-
-    func setPendingToolCallID(_ id: Int) { lock.lock(); defer { lock.unlock() }; pendingToolCallID = id }
-    func takePendingToolCallID() -> Int? { lock.lock(); defer { lock.unlock() }; return pendingToolCallID }
 }
 
 final class MCPConnectionTests: XCTestCase {
@@ -443,6 +464,17 @@ final class MCPConnectionTests: XCTestCase {
         }
     }
 
+    func testInteractiveToolTimeoutAppliesWithoutServerRequestHandler() async throws {
+        let transport = MCPDelayedCallTransport()
+        let connection = MCPConnection(
+            name: "broker", config: MCPServerConfig(command: "broker"),
+            requestTimeout: .milliseconds(30), interactiveRequestTimeout: .milliseconds(500),
+            serverRequestHandler: nil, transportFactory: { _ in transport }
+        )
+        let result = try await connection.callTool(name: "click", arguments: .object([:]))
+        XCTAssertEqual(result.combinedText, "late success")
+    }
+
     func testRpcErrorSurfacesAsMCPError() async throws {
         let connection = makeConnection { line in
             let id = ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["id"] as? Int ?? 0
@@ -504,90 +536,58 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertEqual(result.combinedText, "ok")
     }
 
-    func testProvenanceCollisionReplacesEligibleConnectionWithoutElicitation() async {
-        let recorder = MCPTransportRecorder()
-        let manager = MCPConnectionManager(transportFactory: { _ in
-            MCPRecordedTransport(id: recorder.createID(), recorder: recorder)
-        })
-        let config = MCPServerConfig(command: "same-helper")
-        let plugin = MCPServerEntry(name: "codex-computer-use", config: config, sourcePath: "/plugin", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseSessionControlled)
-        await manager.setServerRequestHandler { _, _ in .result(MCPRequestFactory.elicitationResponse(action: "accept")) }
-        await manager.configure(servers: [plugin])
-        _ = await manager.discoverCatalog(serverNames: [plugin.name])
-        XCTAssertTrue(recorder.lines(for: 0).joined().contains(#""elicitation":{}"#))
-
-        let collision = MCPServerEntry(name: plugin.name, config: config, sourcePath: "/user", provenance: .config, toolPolicy: .unrestricted)
-        await manager.configure(servers: [collision])
-        _ = await manager.discoverCatalog(serverNames: [collision.name])
-        XCTAssertEqual(recorder.connectionCount(), 2, "one untrusted transport replaces the eligible transport")
-        XCTAssertGreaterThanOrEqual(recorder.closes(for: 0), 1, "the replaced eligible transport closes")
-        XCTAssertTrue(recorder.lines(for: 1).contains { $0.contains("initialize") })
-        XCTAssertFalse(recorder.lines(for: 1).joined().contains("elicitation"), "untrusted replacement must not advertise elicitation")
-    }
-
-    func testComputerUseCatalogFiltersUnknownToolsObservesWithoutControlAndAuthorizesKnownActionsBeforeWrite() async throws {
-        let contextBox = MCPContextBox()
-        let fixture = MCPComputerUseElicitationFixture()
+    func testComputerUseNoPermissionsCallsActionsWithoutElicitationAndFiltersStatusTool() async throws {
+        let tools = (MCPServerToolPolicy.computerUseKnownTools.sorted() + ["computer_use_status"])
+            .map { #"{"name":"\#($0)"}"# }.joined(separator: ",")
         let responder: MCPStubTransport.Responder = { line in
             let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
             let id = object?["id"] as? Int ?? 0
             switch object?["method"] as? String {
             case "initialize":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"mock"}}}"#]
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"broker"}}}"#]
             case "tools/list":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[{"name":"list_apps"},{"name":"get_app_state"},{"name":"click"},{"name":"perform_secondary_action"},{"name":"set_value"},{"name":"select_text"},{"name":"scroll"},{"name":"drag"},{"name":"press_key"},{"name":"type_text"}]}}"#]
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[\#(tools)]}}"#]
             case "tools/call":
-                let tool = ((object?["params"] as? [String: Any])?["name"] as? String) ?? ""
-                if tool == "get_app_state" {
-                    fixture.setPendingToolCallID(id)
-                    return [#"{"jsonrpc":"2.0","id":"approval","method":"elicitation/create","params":{"message":"Observe Agent Deck?","requestedSchema":{"type":"object","properties":{}}}}"#]
-                }
-                return [MCPMockServer.callResult(id: id, text: "ok")]
+                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"content":[{"type":"text","text":"clicked"},{"type":"image","data":"AQI=","mimeType":"image/png"}],"isError":false}}"#]
             default:
-                guard object?["id"] as? String == "approval", let toolCallID = fixture.takePendingToolCallID() else { return [] }
-                return [#"{"jsonrpc":"2.0","id":\#(toolCallID),"result":{"content":[{"type":"text","text":"Agent Deck window"},{"type":"image","data":"AQI=","mimeType":"image/png"}],"isError":false}}"#]
+                return []
             }
         }
         let transport = MCPStubTransport(responder: responder)
         let manager = MCPConnectionManager(transportFactory: { _ in transport })
-        await manager.setServerRequestHandler { _, context in
-            await contextBox.set(context)
-            return .result(MCPRequestFactory.elicitationResponse(action: "decline"))
-        }
-        await manager.setComputerUseAuthorizationHandler { _, _ in .authorized }
-        await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseSessionControlled)
-        ])
-        let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
-        let sessionID = UUID()
-        let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: sessionID, projectID: nil, server: "codex-computer-use", tool: "list_apps"))
-        let stateResult = try await manager.call(server: "codex-computer-use", tool: "get_app_state", arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: sessionID, projectID: nil, server: "codex-computer-use", tool: "get_app_state"))
+        let entry = MCPServerEntry(
+            name: "codex-computer-use", config: MCPServerConfig(command: "broker"), sourcePath: "/broker/mcp-server.js",
+            provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseNoPermissions
+        )
+        await manager.configure(servers: [entry])
+
+        let catalog = await manager.discoverCatalog(serverNames: [entry.name])
         XCTAssertEqual(Set(catalog.map(\.tool)), MCPServerToolPolicy.computerUseKnownTools)
-        XCTAssertEqual(listAppsResult.combinedText, "ok")
-        XCTAssertEqual(stateResult.content?.map(\.type), ["text", "image"])
-        let envelope = PiMCPBridgeCallResultEnvelope.callResult(stateResult, server: "codex-computer-use", tool: "get_app_state")
-        XCTAssertEqual(envelope.content.map(\.type), ["text", "image"])
-        XCTAssertEqual(envelope.content[0].text, "Agent Deck window")
-        XCTAssertEqual(envelope.content[1].data, "AQI=")
-        let elicitedContext = await contextBox.value()
-        XCTAssertEqual(elicitedContext?.tool, "get_app_state", "get_app_state must use the normal elicitation bridge path")
-        let linesAfterObservation = await transport.sentLines()
-        XCTAssertTrue(linesAfterObservation.contains { $0.contains(#""protocolVersion":"2025-06-18""#) })
-        XCTAssertTrue(linesAfterObservation.contains { $0.contains(#""id":"approval""#) && $0.contains(#""action":"decline""#) })
-        for (offset, action) in MCPServerToolPolicy.computerUseActionTools.sorted().enumerated() {
-            let before = await transport.sentLines().filter { $0.contains(#""method":"tools/call""#) }.count
-            let subagentRunID = offset.isMultiple(of: 2) ? nil : UUID()
-            _ = try await manager.call(server: "codex-computer-use", tool: action, arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: action, requestingAgent: subagentRunID == nil ? nil : "child", subagentRunID: subagentRunID))
-            let after = await transport.sentLines().filter { $0.contains(#""method":"tools/call""#) }.count
-            XCTAssertEqual(after, before + 1, "\(action) reaches transport only after authorization")
-        }
-        let beforeUnknown = await transport.sentLines().count
+        XCTAssertFalse(catalog.contains { $0.tool == "computer_use_status" })
+
+        let result = try await manager.call(
+            server: entry.name, tool: "click", arguments: .object([:]),
+            context: MCPCallContext(sessionID: UUID(), projectID: nil, server: entry.name, tool: "click")
+        )
+        XCTAssertEqual(result.content?.map(\.type), ["text", "image"])
+        let sent = await transport.sentLines()
+        XCTAssertFalse(sent.first(where: { $0.contains(#""method":"initialize""#) })?.contains("elicitation") == true)
+
+        let writesBeforeDeniedCall = sent.count
         do {
-            _ = try await manager.call(server: "codex-computer-use", tool: "future_action", arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "future_action"))
-            XCTFail("unknown Computer Use tools must be denied")
+            _ = try await manager.call(
+                server: entry.name, tool: "computer_use_status", arguments: nil,
+                context: MCPCallContext(sessionID: UUID(), projectID: nil, server: entry.name, tool: "computer_use_status")
+            )
+            XCTFail("status must remain outside the exact Agent Deck allowlist")
         } catch {}
-        let afterUnknown = await transport.sentLines().count
-        XCTAssertEqual(afterUnknown, beforeUnknown)
+        let writesAfterDeniedCall = await transport.sentLines().count
+        XCTAssertEqual(writesAfterDeniedCall, writesBeforeDeniedCall)
+
+        let probeManager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
+        let probe = await probeManager.probe(entry: entry)
+        guard case let .ok(probeTools) = probe else { return XCTFail("expected successful probe") }
+        XCTAssertEqual(Set(probeTools.map(\.name)), MCPServerToolPolicy.computerUseKnownTools)
     }
 
     func testComputerUseAuthorizationErrorIsRuntimeDiagnostic() async {
@@ -597,20 +597,20 @@ final class MCPConnectionManagerTests: XCTestCase {
         }
         let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseSessionControlled)
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseNoPermissions)
         ])
         do {
             _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
             XCTFail("expected authorization diagnostic")
         } catch let error as MCPError {
-            XCTAssertEqual(error, .runtimeAuthorization("Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow Agent Deck to control the installed Computer Use/Codex component—not Pi—then retry. Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: Automation denied (-1743)"))
+            XCTAssertEqual(error, .runtimeAuthorization("Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed ChatGPT/Codex Computer Use component—not Pi or Agent Deck—then retry. Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: Automation denied (-1743)"))
         } catch { XCTFail("unexpected error: \(error)") }
     }
 
     func testUnavailableServerNeverConfiguresOrConnects() async {
         let manager = manager()
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseSessionControlled, availabilityDiagnostic: "disabled")
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseNoPermissions, availabilityDiagnostic: "disabled")
         ])
         let connectedBefore = await manager.hasLiveConnection("codex-computer-use")
         let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])

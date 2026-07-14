@@ -38,7 +38,7 @@ final class ComputerUseCapabilityTests: XCTestCase {
             config: MCPServerConfig(command: "/plugin/helper"),
             sourcePath: "/plugin/.mcp.json",
             provenance: .codexPlugin(version: "1.0", availability: "Available"),
-            toolPolicy: .computerUseSessionControlled,
+            toolPolicy: .computerUseNoPermissions,
             availabilityDiagnostic: available ? nil : "disabled"
         )
     }
@@ -61,7 +61,8 @@ final class ComputerUseCapabilityTests: XCTestCase {
             XCTAssertTrue(prompt?.contains("get_app_state") == true, name)
             XCTAssertTrue(prompt?.contains("Accessibility tree") == true, name)
             XCTAssertTrue(prompt?.contains("element_index") == true, name)
-            XCTAssertTrue(prompt?.contains("ask_user") == true, name)
+            XCTAssertTrue(prompt?.contains("without an Agent Deck control prompt") == true, name)
+            XCTAssertTrue(prompt?.contains("do not insert a second Agent Deck approval prompt") == true, name)
             XCTAssertTrue(prompt?.contains("as user consent") == true, name)
         }
     }
@@ -83,7 +84,8 @@ final class ComputerUseCapabilityTests: XCTestCase {
             "newly downloaded software", "representational communications", "financial transactions",
             "local system settings", "medical-care actions", "submitting age verification",
             "uploading files", "transmitting sensitive data", "cookie-consent UI",
-            "downloading files from the Internet", "ask_user", "contact_supervisor"
+            "downloading files requested by the user", "explicitly authorizes the effect",
+            "without an Agent Deck control prompt", "contact_supervisor"
         ]
         for term in requiredWorkflowTerms + requiredToolTerms + requiredSafetyTerms {
             XCTAssertTrue(guide.localizedCaseInsensitiveContains(term), "Missing semantic coverage for: \(term)")
@@ -180,13 +182,11 @@ final class ComputerUseCapabilityTests: XCTestCase {
 
 extension ComputerUseCapabilityTests {
     func testComputerUsePolicyCatalogIsExactAndUnknownToolsAreFiltered() {
-        let policy = MCPServerToolPolicy.computerUseSessionControlled
+        let policy = MCPServerToolPolicy.computerUseNoPermissions
         XCTAssertEqual(MCPServerToolPolicy.computerUseKnownTools.count, 10)
         XCTAssertTrue(MCPServerToolPolicy.computerUseKnownTools.isSuperset(of: ["list_apps", "get_app_state", "click", "type_text"]))
         XCTAssertTrue(policy.allows("click"))
         XCTAssertFalse(policy.allows("type"))
         XCTAssertFalse(policy.allows("run_action"))
-        XCTAssertTrue(policy.requiresControlAuthorization(for: "click"))
-        XCTAssertFalse(policy.requiresControlAuthorization(for: "get_app_state"))
     }
 }
