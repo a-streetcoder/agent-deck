@@ -155,6 +155,15 @@ final class PiAgentSessionStore {
     /// first-frame state.
     var onLoadApplied: (() -> Void)?
 
+    enum TranscriptRevisionPolicy: Equatable {
+        /// Normal transcript mutations are globally coalesced, including selected
+        /// tool/status updates that may arrive more frequently than text streaming.
+        case coalesced
+        /// Only the runner's paced assistant/thinking stream and authoritative final
+        /// message writes use this for the selected session.
+        case immediateForSelectedSession
+    }
+
     private var composerTextDraftsBySessionID: [UUID: String] = [:]
     private var composerImageDraftsBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
     private var composerPasteDraftsBySessionID: [UUID: [PiAgentPasteAttachment]] = [:]
@@ -495,6 +504,7 @@ final class PiAgentSessionStore {
         guard sessions.contains(where: { $0.id == id }) else { return }
         guard selectedSessionID != id else { return }
         selectedSessionID = id
+        discardPendingTranscriptRevisionForSelection(id)
         if lazyTranscriptLoadingEnabled {
             requestTranscriptLoad(for: id)
             prewarmNeighborTranscripts(of: id)
@@ -502,6 +512,12 @@ final class PiAgentSessionStore {
             _ = transcript(for: id)
         }
         saveStructuralChange()
+    }
+
+    /// Discards a revision queued while this session was in the background. Selection
+    /// itself hydrates the transcript, so publishing the old pulse afterward is stale.
+    private func discardPendingTranscriptRevisionForSelection(_ sessionID: UUID) {
+        pendingTranscriptRevisionSessionIDs.remove(sessionID)
     }
 
     /// Kick background decodes for the sessions adjacent to the selection in
@@ -2741,7 +2757,12 @@ final class PiAgentSessionStore {
         touchSession(entry.sessionID, bumpUpdatedAt: true)
     }
 
-    func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil, persist: Bool = true) {
+    func upsert(
+        _ entry: PiAgentTranscriptEntry,
+        before beforeEntryID: UUID? = nil,
+        persist: Bool = true,
+        revisionPolicy: TranscriptRevisionPolicy = .coalesced
+    ) {
         let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
         let isNewEntry: Bool
         var insertedEntry = false
@@ -2766,7 +2787,7 @@ final class PiAgentSessionStore {
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: entry.sessionID)
         markTranscriptSessionUsed(entry.sessionID)
         isNewEntry = insertedEntry
-        bumpTranscriptRevision(entry.sessionID)
+        bumpTranscriptRevision(entry.sessionID, policy: revisionPolicy)
         bumpGitActivityRevisionIfNeeded(for: entry)
         cacheLastUserMessageTimestampIfNeeded(for: entry)
         guard persist else { return }
@@ -2846,6 +2867,9 @@ final class PiAgentSessionStore {
                 selectedSessionID = fallbackSelectionID
             } else {
                 selectedSessionID = sessions.first?.id
+            }
+            if let selectedSessionID {
+                discardPendingTranscriptRevisionForSelection(selectedSessionID)
             }
         }
         saveStructuralChange()
@@ -3096,7 +3120,19 @@ final class PiAgentSessionStore {
         gitActivityRevision &+= 1
     }
 
-    private func bumpTranscriptRevision(_ sessionID: UUID) {
+    private func bumpTranscriptRevision(
+        _ sessionID: UUID,
+        policy: TranscriptRevisionPolicy = .coalesced
+    ) {
+        // The runner owns selected-session streaming cadence. Only its paced stream
+        // writes (and authoritative finals) bypass the global coalescer; tool/status
+        // mutations remain coalesced even when their session is selected.
+        if policy == .immediateForSelectedSession, selectedSessionID == sessionID {
+            pendingTranscriptRevisionSessionIDs.remove(sessionID)
+            transcriptRevisionsBySessionID[sessionID, default: 0] += 1
+            return
+        }
+
         pendingTranscriptRevisionSessionIDs.insert(sessionID)
         guard pendingTranscriptRevisionTask == nil else { return }
         pendingTranscriptRevisionTask = Task { [weak self] in
@@ -3104,6 +3140,10 @@ final class PiAgentSessionStore {
             guard !Task.isCancelled else { return }
             self?.flushPendingTranscriptRevisions()
         }
+    }
+
+    func flushPendingTranscriptRevisionsForTesting() {
+        flushPendingTranscriptRevisions()
     }
 
     private func flushPendingTranscriptRevisions() {

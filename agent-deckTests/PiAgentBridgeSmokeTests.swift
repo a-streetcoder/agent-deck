@@ -3,6 +3,14 @@ import XCTest
 
 @MainActor
 final class PiAgentBridgeSmokeTests: XCTestCase {
+    func testStreamingFlushCadenceUsesFixedSelectedPolicyAndAdaptiveBackgroundPolicy() {
+        XCTAssertEqual(PiAgentRunnerService.streamingFlushDelay(isSelected: true, characterCount: 0), 33_000_000)
+        XCTAssertEqual(PiAgentRunnerService.streamingFlushDelay(isSelected: true, characterCount: 10_000), 33_000_000)
+        XCTAssertEqual(PiAgentRunnerService.streamingFlushDelay(isSelected: false, characterCount: 999), 33_000_000)
+        XCTAssertEqual(PiAgentRunnerService.streamingFlushDelay(isSelected: false, characterCount: 1_000), 45_000_000)
+        XCTAssertEqual(PiAgentRunnerService.streamingFlushDelay(isSelected: false, characterCount: 4_000), 60_000_000)
+    }
+
     func testNaturalProcessTerminationRevokesControlGrantBeforeSameSessionResumes() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-control-grant-terminal-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

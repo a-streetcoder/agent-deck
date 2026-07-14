@@ -3,6 +3,64 @@ import XCTest
 
 @MainActor
 final class PiAgentSessionStoreTests: XCTestCase {
+    func testSelectingSessionDiscardsItsPendingBackgroundRevisionWithoutSubsequentMutation() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let background = store.createSession(kind: .project, title: "Background", project: try PiTestSupport.makeProject(), repository: nil)
+        _ = store.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(sessionID: background.id, role: .assistant, title: "Assistant", text: "background"))
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[background.id], 0)
+
+        store.select(background.id)
+        store.flushPendingTranscriptRevisionsForTesting()
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[background.id], 0)
+    }
+
+    func testDeletingSelectedSessionDiscardsPendingFallbackRevisionWithoutSubsequentMutation() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let fallback = store.createSession(kind: .project, title: "Fallback", project: try PiTestSupport.makeProject(), repository: nil)
+        let selected = store.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(sessionID: fallback.id, role: .assistant, title: "Assistant", text: "background"))
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[fallback.id], 0)
+
+        store.deleteSessions([selected.id], fallbackSelectionID: fallback.id)
+        XCTAssertEqual(store.selectedSessionID, fallback.id)
+        store.flushPendingTranscriptRevisionsForTesting()
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[fallback.id], 0)
+    }
+
+    func testOnlyExplicitPacedSelectedUpsertsPublishImmediately() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.upsert(
+            .init(sessionID: session.id, role: .assistant, title: "Assistant", text: "paced"),
+            persist: false,
+            revisionPolicy: .immediateForSelectedSession
+        )
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[session.id], 1)
+
+        // A selected tool update retains normal coalescing and cannot introduce a
+        // second high-frequency revision source alongside the runner's text cadence.
+        store.upsert(.init(sessionID: session.id, role: .tool, title: "Tool", text: "update"), persist: false)
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[session.id], 1)
+        store.flushPendingTranscriptRevisionsForTesting()
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[session.id], 2)
+    }
+
+    func testBackgroundTranscriptRevisionRemainsCoalesced() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let background = store.createSession(kind: .project, title: "Background", project: try PiTestSupport.makeProject(), repository: nil)
+        _ = store.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(sessionID: background.id, role: .assistant, title: "Assistant", text: "background"))
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[background.id], 0)
+
+        store.flushPendingTranscriptRevisionsForTesting()
+        XCTAssertEqual(store.transcriptRevisionsBySessionID[background.id], 1)
+    }
+
     func testForkCopiesParentLaunchOverridesButAgentChatForkDoesNot() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let parent = store.createSession(kind: .project, title: "Parent", project: try PiTestSupport.makeProject(), repository: nil)

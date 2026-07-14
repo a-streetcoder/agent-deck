@@ -1832,22 +1832,26 @@ final class PiAgentRunnerService {
     }
 
     private func streamingFlushDelay(for sessionID: UUID) -> UInt64 {
-        // Cadence governs how big each per-flush scroll step is. Bigger delays = more
-        // text per flush = bigger pixel jumps when pinned-to-bottom scrollToBottom snaps
-        // the origin. Previously these were 60/80/120 ms to keep CPU low — each flush
-        // re-ran the SwiftUI MarkdownTextView body and triggered a fresh per-block view
-        // tree (slow). With markdown measurement now going through TextKit and streaming
-        // updates being in-place NSTextStorage replacements (Step 4), each flush is
-        // ~microseconds of layout work; we can afford much faster cadence and the user
-        // perceives streaming as smooth scroll instead of discrete steps.
         let characterCount = (assistantTextBySessionID[sessionID]?.count ?? 0) + (thinkingTextBySessionID[sessionID]?.count ?? 0)
+        return Self.streamingFlushDelay(
+            isSelected: store.selectedSessionID == sessionID,
+            characterCount: characterCount
+        )
+    }
+
+    /// The selected transcript owns the visible streaming cadence. Background sessions
+    /// retain an adaptive policy so they do not spend the same UI budget on unseen work.
+    static func streamingFlushDelay(isSelected: Bool, characterCount: Int) -> UInt64 {
+        if isSelected {
+            return 33_000_000 // ~30 fps
+        }
         switch characterCount {
         case 0..<1_000:
-            return 33_000_000   // ~30 fps
+            return 33_000_000 // ~30 fps
         case 1_000..<4_000:
-            return 45_000_000   // ~22 fps
+            return 45_000_000 // ~22 fps
         default:
-            return 60_000_000   // ~17 fps for very long messages
+            return 60_000_000 // ~17 fps
         }
     }
 
@@ -1862,7 +1866,7 @@ final class PiAgentRunnerService {
                 title: "Thinking",
                 text: thinkingText,
                 rawJSON: nil
-            ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
+            ), before: assistantEntryIDsBySessionID[sessionID], persist: false, revisionPolicy: .immediateForSelectedSession)
         }
 
         if let assistantEntryID = assistantEntryIDsBySessionID[sessionID],
@@ -1874,7 +1878,7 @@ final class PiAgentRunnerService {
                 title: "Assistant",
                 text: assistantText,
                 rawJSON: nil
-            ), persist: false)
+            ), persist: false, revisionPolicy: .immediateForSelectedSession)
         }
     }
 
@@ -1937,7 +1941,7 @@ final class PiAgentRunnerService {
                     }
                     return
                 }
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: visibleText, rawJSON: nil))
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: visibleText, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
             } else if !streamedText.isEmpty {
                 // The end event carried no assistant body. Some model backends
                 // stream the response only through deltas and omit the text from the
@@ -1947,7 +1951,7 @@ final class PiAgentRunnerService {
                 // stream vanishes on reload. Persist the streamed buffer on the SAME
                 // entry id (updates the in-memory streamed entry in place, so no
                 // duplicate).
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: streamedText, rawJSON: nil))
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: streamedText, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
             } else if let errorText = assistantErrorMessage(from: message) {
                 // Pi aborted the turn (provider/auth failure, etc.). The final
                 // assistant message carries stopReason:"error" + errorMessage with
@@ -1965,11 +1969,11 @@ final class PiAgentRunnerService {
                     }
                     return
                 }
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .error, title: "Model Error", text: errorText, rawJSON: rawLine))
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .error, title: "Model Error", text: errorText, rawJSON: rawLine), revisionPolicy: .immediateForSelectedSession)
             } else {
                 let thinkingText = extractAssistantThinking(from: message)
                 if !thinkingText.isEmpty {
-                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: nil), before: thinkingBeforeID)
+                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: nil), before: thinkingBeforeID, revisionPolicy: .immediateForSelectedSession)
                 }
             }
             // `message_end` only completes one message. Pi may still continue the same

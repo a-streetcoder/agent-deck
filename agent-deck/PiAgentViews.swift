@@ -120,7 +120,6 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
     fileprivate var lastItemsBuildComponents: [String: Int] = [:]
 #endif
 
-    private var updateTask: Task<Void, Never>?
     private var lastSessionID: UUID?
     /// The session whose entries the cache currently holds. The transcript host
     /// stamps this onto the items it builds, so the coordinator can refuse to
@@ -178,7 +177,6 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
 
     func scheduleUpdate(sessionID: UUID?, revision: Int, rawEntries: [PiAgentTranscriptEntry]) {
         guard let sessionID else {
-            updateTask?.cancel()
             entries = []
             threads = []
             lastThreadID = nil
@@ -198,7 +196,6 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         // session reuses its thread revisions instead of re-hashing every entry.
         lastSessionID = sessionID
         lastRevision = revision
-        updateTask?.cancel()
 
         if isSessionSwitch {
             publish(rawEntries)
@@ -210,21 +207,14 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         // session's rows until this publish, so it must not sit out the
         // streaming coalesce window below; land it now.
         if entries.isEmpty, !rawEntries.isEmpty {
-            updateTask?.cancel()
             publish(rawEntries)
             return
         }
 
-        updateTask = Task { [weak self] in
-            // Lowered from 66 ms (the previous safety value when each publish triggered
-            // an expensive SwiftUI body rebuild) to 33 ms. With TextKit-based markdown
-            // measurement and in-place NSTextStorage updates, each publish is cheap;
-            // halving the coalesce window means streaming feels like smooth scroll
-            // instead of discrete 66 ms steps.
-            try? await Task.sleep(nanoseconds: 33_000_000)
-            guard !Task.isCancelled else { return }
-            self?.publish(rawEntries)
-        }
+        // The runner and selected-session revision now provide the sole visible
+        // streaming cadence. Publish this already-paced update immediately rather
+        // than adding another same-session 33 ms delay.
+        publish(rawEntries)
     }
 
     private func publish(_ rawEntries: [PiAgentTranscriptEntry]) {
@@ -1379,10 +1369,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var sessionSwitchSettleGeneration = 0
         private var pendingRemeasureWork: DispatchWorkItem?
         private var pendingRemeasureIDs = Set<String>()
-        private var pendingStreamingReconfigureWork: DispatchWorkItem?
-        private var pendingStreamingReconfigureIDs = Set<String>()
-        private var pendingStreamingReconfigureWasFollowing = false
-        private let streamingReconfigureInterval: TimeInterval = 0.033
         private var pendingScrollSettle = false
         private var pendingWidthWork: DispatchWorkItem?
         private var widthReconfigureGeneration = 0
@@ -2159,10 +2145,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingSessionSwitchSettleWork?.cancel()
             pendingRemeasureWork?.cancel()
             pendingRemeasureIDs.removeAll()
-            pendingStreamingReconfigureWork?.cancel()
-            pendingStreamingReconfigureWork = nil
-            pendingStreamingReconfigureIDs.removeAll()
-            pendingStreamingReconfigureWasFollowing = false
             pendingWidthWork?.cancel()
             stopFollowGlide()
         }
@@ -2281,7 +2263,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     pendingRemeasureWork?.cancel()
                     pendingRemeasureWork = nil
                     pendingRemeasureIDs.removeAll()
-                    cancelPendingStreamingReconfigure()
                     pendingSessionSwitchSettleWork?.cancel()
                     pendingSessionSwitchSettleWork = nil
                     sessionSwitchSettleGeneration &+= 1
@@ -2291,7 +2272,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     // evaluation.
                     prewarmBlockedIDs.removeAll()
                 }
-                cancelPendingStreamingReconfigure()
                 let previousIDs = Set(orderedIDs)
                 let removedIDs = previousIDs.subtracting(nextIDs)
                 for id in removedIDs {
@@ -2360,9 +2340,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             } else {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
                 for (id, revision) in nextRevisions { contentRevisionByID[id] = revision }
-                if changedIDs.isEmpty, structuralUpdate || !streamingUpdate || explicitScroll {
-                    flushPendingStreamingReconfigure()
-                }
                 if !changedIDs.isEmpty {
                     // Keep the last measured height (see the idsChanged branch):
                     // the cell re-renders and reports the new height, so the
@@ -2371,13 +2348,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                         estimateByID.removeValue(forKey: id)
                     }
                     let changedIDSet = Set(changedIDs)
-                    let coalesceStreamingReconfigure = streamingUpdate && !structuralUpdate && !explicitScroll
-                    if coalesceStreamingReconfigure {
-                        scheduleStreamingVisibleReconfigure(forIDs: changedIDSet, wasFollowing: wasFollowing)
-                    } else {
-                        flushPendingStreamingReconfigure()
-                        reconfigureVisibleCellsForIDs(changedIDSet)
-                    }
+                    // The selected transcript is already paced by the runner; configure
+                    // each visible changed row in this incoming update rather than
+                    // delaying it through a second streaming reconfigure timer.
+                    reconfigureVisibleCellsForIDs(changedIDSet)
                     // Re-tile the changed rows synchronously, in this same pass.
                     // The cell was just handed taller content; if we wait for the
                     // debounced async measurement (~16ms) the row stays tiled at
@@ -2416,7 +2390,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     // pinned streaming row needs its height in this same pass.
                     let pinnedToBottom = wasFollowing && !isUserScrollingRecently
                         && (streamingUpdate || structuralUpdate)
-                    if pinnedToBottom, !coalesceStreamingReconfigure {
+                    if pinnedToBottom {
                         let retileIDs = profiler.measureForced {
                             measureChangedCellsSynchronously(
                                 changedIDSet,
@@ -2437,7 +2411,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     isSessionSwitch: false,
                     explicitScroll: explicitScroll,
                     wasFollowing: wasFollowing,
-                    contentAdvanced: !changedIDs.isEmpty && !(streamingUpdate && !structuralUpdate && !explicitScroll)
+                    contentAdvanced: !changedIDs.isEmpty
                 )
             }
 
@@ -2855,64 +2829,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                       let item = itemByID[id],
                       let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
                 configure(cell, with: item, row: row, via: "stream-reconfig")
-            }
-        }
-
-        private func scheduleStreamingVisibleReconfigure(forIDs ids: Set<String>, wasFollowing: Bool) {
-            guard !ids.isEmpty else { return }
-            pendingStreamingReconfigureIDs.formUnion(ids)
-            pendingStreamingReconfigureWasFollowing = pendingStreamingReconfigureWasFollowing || wasFollowing
-            guard pendingStreamingReconfigureWork == nil else { return }
-            let work = DispatchWorkItem { [weak self] in
-                self?.flushPendingStreamingReconfigure()
-            }
-            pendingStreamingReconfigureWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + streamingReconfigureInterval, execute: work)
-        }
-
-        private func cancelPendingStreamingReconfigure() {
-            pendingStreamingReconfigureWork?.cancel()
-            pendingStreamingReconfigureWork = nil
-            pendingStreamingReconfigureIDs.removeAll()
-            pendingStreamingReconfigureWasFollowing = false
-        }
-
-        private func flushPendingStreamingReconfigure() {
-            guard !pendingStreamingReconfigureIDs.isEmpty else {
-                pendingStreamingReconfigureWork?.cancel()
-                pendingStreamingReconfigureWork = nil
-                pendingStreamingReconfigureWasFollowing = false
-                return
-            }
-            pendingStreamingReconfigureWork?.cancel()
-            pendingStreamingReconfigureWork = nil
-            let ids = pendingStreamingReconfigureIDs
-            let wasFollowing = pendingStreamingReconfigureWasFollowing
-            pendingStreamingReconfigureIDs.removeAll()
-            pendingStreamingReconfigureWasFollowing = false
-
-            reconfigureVisibleCellsForIDs(ids)
-            if wasFollowing && !isUserScrollingRecently {
-                let retileIDs = profiler.measureForced {
-                    measureChangedCellsSynchronously(
-                        ids,
-                        budgetMs: 4,
-                        maxRows: 1,
-                        deferUnmeasured: true
-                    )
-                }
-                if !retileIDs.isEmpty {
-                    flushPendingHeightWorkSynchronously()
-                    noteHeightsChanged(forIDs: retileIDs)
-                }
-                handleScrollAfterUpdate(
-                    isSessionSwitch: false,
-                    explicitScroll: false,
-                    wasFollowing: wasFollowing,
-                    contentAdvanced: true
-                )
-            } else {
-                publishPinnedState(isAutoFollowing)
             }
         }
 
