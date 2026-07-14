@@ -409,6 +409,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
         var argsPreview: String?
         var resultPreview: String?
         var imageReferences: [PiAgentTranscriptImageReference] = []
+        var resultBlocks: [PiAgentMCPResultBlock]? = nil
         var isError: Bool
     }
 
@@ -436,7 +437,8 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 tool: address.tool,
                 argsPreview: PiAgentTranscriptActivity.mcpArgsPreview(args?["args"]),
                 resultPreview: resultText.isEmpty ? nil : resultText,
-                imageReferences: entry.imageReferences,
+                imageReferences: entry.allTranscriptImageReferences,
+                resultBlocks: entry.mcpResultBlocks,
                 isError: isError
             )
         }
@@ -1757,6 +1759,7 @@ struct PiAgentNativeMCPResultSheet: View {
     let server: String
     let tool: String
     let text: String
+    var blocks: [PiAgentMCPResultBlock]? = nil
     let onDone: () -> Void
 
     var body: some View {
@@ -1779,10 +1782,43 @@ struct PiAgentNativeMCPResultSheet: View {
                 Button("Done", action: onDone)
                     .keyboardShortcut(.cancelAction)
             }
-            PiAgentMCPResultTextView(text: text)
+            if let blocks {
+                PiAgentMCPResultBlocksView(blocks: blocks)
+            } else {
+                PiAgentMCPResultTextView(text: text)
+            }
         }
         .padding(AppTheme.pagePadding)
         .frame(minWidth: 620, idealWidth: 820, minHeight: 440, idealHeight: 620)
+    }
+}
+
+private struct PiAgentMCPResultBlocksView: View {
+    let blocks: [PiAgentMCPResultBlock]
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    switch block {
+                    case let .text(text): PiAgentMCPResultTextView(text: text)
+                    case let .image(reference): PiAgentMCPResultImageView(reference: reference)
+                    case let .diagnostic(message): Text(message).font(AppTheme.Font.caption).foregroundStyle(AppTheme.roleError)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PiAgentMCPResultImageView: View {
+    let reference: PiAgentTranscriptImageReference
+    var body: some View {
+        if let path = reference.localPath, let image = NSImage(contentsOfFile: path) {
+            Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 360, alignment: .leading)
+        } else {
+            Text("MCP image is unavailable.").font(AppTheme.Font.caption).foregroundStyle(AppTheme.mutedText)
+        }
     }
 }
 

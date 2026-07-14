@@ -32,6 +32,7 @@ struct NativeToolGroupModel {
             /// The full response text, shown in the "View" modal (never inline).
             var resultPreview: String?
             var imageReferences: [PiAgentTranscriptImageReference] = []
+            var resultBlocks: [PiAgentMCPResultBlock]? = nil
             var isError: Bool
             /// A concise one-line error message (the text before any JSON body), shown
             /// inline on error rows so the failure reads at a glance without opening View.
@@ -242,6 +243,7 @@ extension NativeToolGroupModel {
                             tool: call.tool,
                             resultPreview: call.resultPreview,
                             imageReferences: visibility.showImages ? call.imageReferences : [],
+                            resultBlocks: visibility.showImages ? call.resultBlocks : nil,
                             isError: call.isError,
                             errorSummary: call.isError ? mcpErrorSummary(call.resultPreview) : nil
                         )
@@ -754,7 +756,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         // Both success and error responses get a View button — an error IS the
         // response, and the user must be able to read it (Copy is inside the modal).
         if let result = row.resultPreview, !result.isEmpty {
-            mcpResultByRowID[row.id.uuidString] = (server: row.server, tool: row.tool, result: result)
+            mcpResultByRowID[row.id.uuidString] = (server: row.server, tool: row.tool, result: result, blocks: row.resultBlocks)
             let viewBtn = NSButton(title: "View", target: self, action: #selector(openMCPResult(_:)))
             viewBtn.bezelStyle = .rounded
             viewBtn.controlSize = .small
@@ -867,7 +869,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         return min(naturalWidth, availableWidth)
     }
 
-    private var mcpResultByRowID: [String: (server: String, tool: String, result: String)] = [:]
+    private var mcpResultByRowID: [String: (server: String, tool: String, result: String, blocks: [PiAgentMCPResultBlock]?)] = [:]
 
     /// Present the full MCP response in a modal (hosting the SwiftUI sheet — a modal
     /// is not a scroll hot path), mirroring how the diff "Open" button works.
@@ -875,7 +877,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         guard let raw = sender.identifier?.rawValue, let call = mcpResultByRowID[raw],
               let host = window?.contentViewController else { return }
         var hosting: NSViewController?
-        let sheet = PiAgentNativeMCPResultSheet(server: call.server, tool: call.tool, text: call.result) { [weak host] in
+        let sheet = PiAgentNativeMCPResultSheet(server: call.server, tool: call.tool, text: call.result, blocks: call.blocks) { [weak host] in
             if let hosting { host?.dismiss(hosting) }
         }
         let controller = NSHostingController(rootView: sheet)

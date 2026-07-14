@@ -148,6 +148,76 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
     }
 
+    func testMCPResultBlocksPersistInOrderWithoutBase64AndReload() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: fileURL)
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let raw = """
+        {"type":"tool_execution_end","toolName":"mcp","args":{"tool":"server/tool"},"result":{"content":[{"type":"text","text":"before"},{"type":"image","mimeType":"image/png","data":"\(png)"},{"type":"text","text":"after"}]}}
+        """
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "before\nafter", rawJSON: raw))
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertEqual(entry.mcpResultBlocks?.count, 3)
+        guard case .text("before")? = entry.mcpResultBlocks?[0],
+              case let .image(reference)? = entry.mcpResultBlocks?[1],
+              case .text("after")? = entry.mcpResultBlocks?[2] else { return XCTFail("Expected text-image-text MCP blocks") }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
+        XCTAssertFalse(try XCTUnwrap(entry.rawJSON).contains(png))
+        XCTAssertFalse(entry.text.contains(png))
+        store.flushForTesting()
+
+        let reloaded = PiAgentSessionStore(fileURL: fileURL)
+        await reloaded.waitForLoadForTesting()
+        let restored = try XCTUnwrap(reloaded.transcriptForCacheUpdate(session.id).first)
+        XCTAssertEqual(restored.mcpResultBlocks?.count, 3)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(restored.allTranscriptImageReferences.first?.localPath)))
+        XCTAssertFalse(restored.text.contains(png))
+    }
+
+    func testMCPRejectsInvalidBase64MimeMismatchAndOversizedImages() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let pngHeader = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let oversized = (pngHeader + Data(repeating: 0, count: 4 * 1024 * 1024)).base64EncodedString()
+        let raw = """
+        {"type":"tool_execution_end","result":{"content":[
+          {"type":"image","mimeType":"image/png","data":"not-base64!"},
+          {"type":"image","mimeType":"image/jpeg","data":"\(pngHeader.base64EncodedString())"},
+          {"type":"image","mimeType":"image/png","data":"\(oversized)"}
+        ]}}
+        """
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: oversized, rawJSON: raw))
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertEqual(entry.mcpResultBlocks?.count, 3)
+        XCTAssertTrue(entry.mcpResultBlocks?.allSatisfy { if case .diagnostic = $0 { return true }; return false } == true)
+        XCTAssertTrue(entry.allTranscriptImageReferences.isEmpty)
+        XCTAssertFalse(entry.text.contains(oversized))
+        XCTAssertFalse(entry.rawJSON?.contains(oversized) == true)
+    }
+
+    func testImageOnlyMCPResultUsesSafeTextWithoutBase64() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        let raw = "{\"type\":\"tool_execution_end\",\"result\":{\"content\":[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"\(png)\"}]}}"
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: png, rawJSON: raw))
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertEqual(entry.text, "MCP returned an image.")
+        XCTAssertFalse(entry.rawJSON?.contains(png) == true)
+    }
+
+    func testInvalidMCPImageIsDiagnosticAndDoesNotWriteFile() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
+        let raw = #"{"type":"tool_execution_end","result":{"content":[{"type":"image","mimeType":"image/png","data":"bm90LWFuLWltYWdl"}]}}"#
+        store.append(.init(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "", rawJSON: raw))
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        guard case .diagnostic? = entry.mcpResultBlocks?.first else { return XCTFail("Expected safe diagnostic") }
+        XCTAssertTrue(entry.allTranscriptImageReferences.isEmpty)
+        XCTAssertFalse(try XCTUnwrap(entry.rawJSON).contains("bm90LWFuLWltYWdl"))
+    }
+
     func testUserTranscriptImagesMaterializeFromMarkdownAndPlainDataURLs() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "User Images", project: try PiTestSupport.makeProject(), repository: nil)

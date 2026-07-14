@@ -26,6 +26,7 @@ final class PiSubagentRunService {
     private var thinkingEntryIDsByRunID: [UUID: UUID] = [:]
     private var thinkingTextByRunID: [UUID: String] = [:]
     private var toolEntryIDsByCallID: [String: UUID] = [:]
+    private var toolStartArgsByCallID: [String: JSONValue] = [:]
     private var afterFinishHookRunIDs: Set<UUID> = []
     private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
     private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
@@ -494,15 +495,20 @@ final class PiSubagentRunService {
             }
         case "tool_execution_start", "tool_execution_update", "tool_execution_end":
             let toolName = event.toolName ?? "tool"
-            let toolText = event.args?.compactDescription ?? event.partialResult?.compactDescription ?? event.result?.compactDescription ?? event.error?.compactDescription ?? event.type ?? "tool"
-            let transcript = PiAgentTranscriptEntry(sessionID: parentSessionID, role: .tool, title: "Tool: \(toolName)", text: toolText, rawJSON: rawLine)
+            let safePartial = toolName == "mcp" ? Self.mcpSafeResultText(event.partialResult) : nil
+            let safeResult = toolName == "mcp" ? Self.mcpSafeResultText(event.result) : nil
+            let toolText = event.args?.compactDescription ?? safePartial ?? (toolName == "mcp" && event.partialResult != nil ? "MCP result updating…" : nil) ?? safeResult ?? (toolName == "mcp" && event.result != nil ? "MCP returned a result." : nil) ?? event.partialResult?.compactDescription ?? event.result?.compactDescription ?? event.error?.compactDescription ?? event.type ?? "tool"
             if let toolCallID = event.toolCallId {
                 let key = "\(runID.uuidString):\(toolCallID)"
+                if event.type == "tool_execution_start", let args = event.args { toolStartArgsByCallID[key] = args }
+                var effectiveRawJSON = rawLine
+                if event.args == nil, let args = toolStartArgsByCallID[key] { effectiveRawJSON = Self.rawJSON(rawLine, attaching: args) ?? rawLine }
                 let entryID = toolEntryIDsByCallID[key] ?? UUID()
                 toolEntryIDsByCallID[key] = event.type == "tool_execution_end" ? nil : entryID
-                store.upsertSubagentTranscript(.init(id: entryID, sessionID: transcript.sessionID, role: transcript.role, title: transcript.title, text: transcript.text, rawJSON: transcript.rawJSON), runID: runID, parentSessionID: parentSessionID)
+                if event.type == "tool_execution_end" { toolStartArgsByCallID[key] = nil }
+                store.upsertSubagentTranscript(.init(id: entryID, sessionID: parentSessionID, role: .tool, title: "Tool: \(toolName)", text: toolText, rawJSON: effectiveRawJSON), runID: runID, parentSessionID: parentSessionID)
             } else {
-                store.appendSubagentTranscript(transcript, runID: runID, parentSessionID: parentSessionID)
+                store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .tool, title: "Tool: \(toolName)", text: toolText, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             }
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                 run.child?.currentTool = event.type == "tool_execution_end" ? nil : toolName
@@ -523,6 +529,20 @@ final class PiSubagentRunService {
                 store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .raw, title: type, text: event.data?.compactDescription ?? rawLine, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             }
         }
+    }
+
+    private static func mcpSafeResultText(_ result: JSONValue?) -> String? {
+        guard case let .array(blocks)? = result?["content"] else { return nil }
+        let text = blocks.compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }.joined(separator: "\n")
+        if !text.isEmpty { return text }
+        return blocks.contains { $0["type"]?.stringValue == "image" } ? "MCP returned an image." : nil
+    }
+
+    private static func rawJSON(_ rawLine: String, attaching args: JSONValue) -> String? {
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(rawLine.utf8))) as? [String: Any],
+              let data = try? JSONEncoder().encode(args), let value = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        object["args"] = value
+        return (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
     private func handleMessageUpdate(_ event: PiAgentRPCEvent, runID: UUID, parentSessionID: UUID) {
@@ -592,6 +612,7 @@ final class PiSubagentRunService {
         thinkingTextByRunID[runID] = nil
         let keyPrefix = "\(runID.uuidString):"
         toolEntryIDsByCallID = toolEntryIDsByCallID.filter { !$0.key.hasPrefix(keyPrefix) }
+        toolStartArgsByCallID = toolStartArgsByCallID.filter { !$0.key.hasPrefix(keyPrefix) }
     }
 
     private func resolvedModelName(from data: JSONValue) -> String? {

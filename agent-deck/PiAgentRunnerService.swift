@@ -2221,7 +2221,12 @@ final class PiAgentRunnerService {
             if let args = event.args { toolStartArgsByCallID[toolKey] = args }
             text = event.args?.compactDescription ?? "Starting…"
         case "tool_execution_update":
-            text = extractText(from: event.partialResult ?? .null).isEmpty ? (event.partialResult?.compactDescription ?? "Running…") : extractText(from: event.partialResult ?? .null)
+            let partialText = extractText(from: event.partialResult ?? .null)
+            if toolName == "mcp" {
+                text = Self.mcpSafeResultText(event.partialResult) ?? (partialText.isEmpty ? "MCP result updating…" : partialText)
+            } else {
+                text = partialText.isEmpty ? (event.partialResult?.compactDescription ?? "Running…") : partialText
+            }
         case "tool_execution_end":
             // Also close out on tool end — by the time the next thinking_delta arrives,
             // we want a brand-new thinking entry whose timestamp is after this tool's.
@@ -2230,7 +2235,13 @@ final class PiAgentRunnerService {
             // while Pi spends the next few seconds on its follow-up model call.
             store.setProcessingActivity(.awaitingModel, for: sessionID)
             let resultText = extractText(from: event.result ?? .null)
-            text = resultText.isEmpty ? (event.result?.compactDescription ?? "Completed.") : resultText
+            if toolName == "mcp" {
+                // Never construct a transcript fallback from an image block's
+                // compactDescription: it includes its base64 data.
+                text = Self.mcpSafeResultText(event.result) ?? (resultText.isEmpty ? "MCP returned a result." : resultText)
+            } else {
+                text = resultText.isEmpty ? (event.result?.compactDescription ?? "Completed.") : resultText
+            }
             toolEntryIDsByCallID[toolKey] = nil
         default:
             text = rawLine
@@ -2246,6 +2257,13 @@ final class PiAgentRunnerService {
         }
         if event.type == "tool_execution_end" { toolStartArgsByCallID[toolKey] = nil }
         store.upsert(.init(id: entryID, sessionID: sessionID, role: event.isError == true ? .error : .tool, title: title, text: text, rawJSON: effectiveRawJSON))
+    }
+
+    private static func mcpSafeResultText(_ result: JSONValue?) -> String? {
+        guard case let .array(blocks)? = result?["content"] else { return nil }
+        let text = blocks.compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }.joined(separator: "\n")
+        if !text.isEmpty { return text }
+        return blocks.contains { $0["type"]?.stringValue == "image" } ? "MCP returned an image." : nil
     }
 
     /// Returns `rawLine` (a JSON object string) with the tool-call `args` re-attached

@@ -1443,6 +1443,39 @@ struct PiAgentTranscriptImageReference: Identifiable, Codable, Hashable, Sendabl
     }
 }
 
+/// An ordered MCP call result. Images are materialized in the parent session's
+/// transcript-image directory; the base64 received from Pi is deliberately never
+/// retained in this model or in the persisted RPC payload.
+enum PiAgentMCPResultBlock: Codable, Hashable, Sendable {
+    case text(String)
+    case image(PiAgentTranscriptImageReference)
+    case diagnostic(String)
+
+    private enum CodingKeys: String, CodingKey { case type, text, image, message }
+    private enum Kind: String, Codable { case text, image, diagnostic }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .type) {
+        case .text: self = .text(try container.decode(String.self, forKey: .text))
+        case .image: self = .image(try container.decode(PiAgentTranscriptImageReference.self, forKey: .image))
+        case .diagnostic: self = .diagnostic(try container.decode(String.self, forKey: .message))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .text(text):
+            try container.encode(Kind.text, forKey: .type); try container.encode(text, forKey: .text)
+        case let .image(image):
+            try container.encode(Kind.image, forKey: .type); try container.encode(image, forKey: .image)
+        case let .diagnostic(message):
+            try container.encode(Kind.diagnostic, forKey: .type); try container.encode(message, forKey: .message)
+        }
+    }
+}
+
 struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
     let id: UUID
     var sessionID: UUID
@@ -1452,6 +1485,9 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
     var rawJSON: String?
     var timestamp: Date
     var imageReferences: [PiAgentTranscriptImageReference]
+    /// Present only for MCP call results created by newer clients. Nil preserves
+    /// historical text-only cards and distinguishes them from an empty result.
+    var mcpResultBlocks: [PiAgentMCPResultBlock]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -1462,6 +1498,7 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
         case rawJSON
         case timestamp
         case imageReferences
+        case mcpResultBlocks
     }
 
     init(
@@ -1472,7 +1509,8 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
         text: String,
         rawJSON: String? = nil,
         timestamp: Date = Date(),
-        imageReferences: [PiAgentTranscriptImageReference] = []
+        imageReferences: [PiAgentTranscriptImageReference] = [],
+        mcpResultBlocks: [PiAgentMCPResultBlock]? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -1482,6 +1520,7 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
         self.rawJSON = rawJSON
         self.timestamp = timestamp
         self.imageReferences = imageReferences
+        self.mcpResultBlocks = mcpResultBlocks
     }
 
     init(from decoder: Decoder) throws {
@@ -1494,10 +1533,20 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
         rawJSON = try container.decodeIfPresent(String.self, forKey: .rawJSON)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         imageReferences = try container.decodeIfPresent([PiAgentTranscriptImageReference].self, forKey: .imageReferences) ?? []
+        mcpResultBlocks = try container.decodeIfPresent([PiAgentMCPResultBlock].self, forKey: .mcpResultBlocks)
     }
 }
 
 extension PiAgentTranscriptEntry {
+    /// Includes legacy/general references and ordered MCP image blocks. Keeping this
+    /// centralized makes retention cleanup safe when an image is shared by entries.
+    var allTranscriptImageReferences: [PiAgentTranscriptImageReference] {
+        imageReferences + (mcpResultBlocks ?? []).compactMap { block in
+            guard case let .image(reference) = block else { return nil }
+            return reference
+        }
+    }
+
     /// A per-tool failure (titled `Tool: <name>`). Frequent and tied to a tool
     /// call, so it renders as a compact grouped row and honors the Errors toggle.
     var isToolError: Bool { role == .error && title.hasPrefix("Tool: ") }

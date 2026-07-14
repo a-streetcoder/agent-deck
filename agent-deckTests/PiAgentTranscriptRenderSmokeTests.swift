@@ -465,7 +465,7 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
             title: "Tool: mcp",
             text: "Image result",
             rawJSON: "{\"args\": {\"tool\": \"Pidgeon/preview\", \"args\": {}}}",
-            imageReferences: [imageReference]
+            mcpResultBlocks: [.text("before"), .image(imageReference), .text("after")]
         )
         let mcpImageGroup = PiAgentThreadToolGroup(
             id: mcpImageEntry.id,
@@ -473,6 +473,10 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
             activities: PiAgentTranscriptActivity.make(from: [mcpImageEntry])
         )
         XCTAssertEqual(NativeToolGroupModel.make(group: mcpImageGroup, visibility: imagesOff, projectPath: nil)?.mcp?.rows.first?.imageReferences, [])
+        XCTAssertNil(NativeToolGroupModel.make(group: mcpImageGroup, visibility: imagesOff, projectPath: nil)?.mcp?.rows.first?.resultBlocks)
+        let orderedMCPRow = NativeToolGroupModel.make(group: mcpImageGroup, visibility: .init(), projectPath: nil)?.mcp?.rows.first
+        XCTAssertEqual(orderedMCPRow?.resultBlocks?.count, 3)
+        XCTAssertEqual(orderedMCPRow?.imageReferences, [imageReference])
 
         // MCP is excluded from the generic tool-call recap (only Read remains)...
         let toolRecap = NativeToolGroupModel.toolCallRecap(from: entries)

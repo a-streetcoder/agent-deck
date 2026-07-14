@@ -2631,10 +2631,12 @@ final class PiAgentSessionStore {
 
     func appendSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID) {
         let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
+        var removedReferences: [PiAgentTranscriptImageReference] = []
         modifySubagentTranscriptEntries(for: runID) { entries in
             entries.append(entry)
-            trimTranscriptEntries(&entries)
+            removedReferences = trimTranscriptEntries(&entries)
         }
+        removeUnreferencedTranscriptImages(removedReferences, parentSessionID: parentSessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: parentSessionID)
         persistSubagentTranscript(runID)
         markSubagentTranscriptUsed(runID)
@@ -2644,6 +2646,7 @@ final class PiAgentSessionStore {
 
     func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil) {
         let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
+        var removedReferences: [PiAgentTranscriptImageReference] = []
         modifySubagentTranscriptEntries(for: runID) { entries in
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 var next = entry
@@ -2656,8 +2659,9 @@ final class PiAgentSessionStore {
             } else {
                 entries.append(entry)
             }
-            trimTranscriptEntries(&entries)
+            removedReferences = trimTranscriptEntries(&entries)
         }
+        removeUnreferencedTranscriptImages(removedReferences, parentSessionID: parentSessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: parentSessionID)
         persistSubagentTranscript(runID)
         markSubagentTranscriptUsed(runID)
@@ -2696,10 +2700,10 @@ final class PiAgentSessionStore {
         var removedImageReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: sessionID) { entries in
             guard let index = entries.firstIndex(where: { $0.id == fromEntryID }) else { return }
-            removedImageReferences = entries[index...].flatMap(\.imageReferences)
+            removedImageReferences = entries[index...].flatMap(\.allTranscriptImageReferences)
             entries.removeSubrange(index...)
         }
-        deleteTranscriptImages(removedImageReferences)
+        removeUnreferencedTranscriptImages(removedImageReferences, parentSessionID: sessionID)
         updateSession(sessionID) { record in
             record.piSessionFile = newPiSessionFile
             record.piSessionId = newPiSessionId
@@ -2711,10 +2715,12 @@ final class PiAgentSessionStore {
 
     func append(_ entry: PiAgentTranscriptEntry) {
         let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
+        var removedReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: entry.sessionID) { entries in
             entries.append(entry)
-            trimTranscriptEntries(&entries)
+            removedReferences = trimTranscriptEntries(&entries)
         }
+        removeUnreferencedTranscriptImages(removedReferences, parentSessionID: entry.sessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: entry.sessionID)
         persistTranscript(entry.sessionID)
         markTranscriptSessionUsed(entry.sessionID)
@@ -2729,6 +2735,7 @@ final class PiAgentSessionStore {
         let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
         let isNewEntry: Bool
         var insertedEntry = false
+        var removedReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: entry.sessionID) { entries in
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 var next = entry
@@ -2743,8 +2750,9 @@ final class PiAgentSessionStore {
                 entries.append(entry)
                 insertedEntry = true
             }
-            trimTranscriptEntries(&entries)
+            removedReferences = trimTranscriptEntries(&entries)
         }
+        removeUnreferencedTranscriptImages(removedReferences, parentSessionID: entry.sessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: entry.sessionID)
         markTranscriptSessionUsed(entry.sessionID)
         isNewEntry = insertedEntry
@@ -3155,6 +3163,9 @@ final class PiAgentSessionStore {
     }
 
     private func materializedImageEntry(_ entry: PiAgentTranscriptEntry, parentSessionID: UUID) -> PiAgentTranscriptEntry {
+        if let mcpEntry = materializedMCPResultEntry(entry, parentSessionID: parentSessionID) {
+            return mcpEntry
+        }
         guard entry.imageReferences.isEmpty, shouldMaterializeImages(for: entry) else { return entry }
         let candidates = Self.transcriptImageCandidates(
             text: entry.text,
@@ -3167,6 +3178,101 @@ final class PiAgentSessionStore {
             materializeTranscriptImage(candidate, entryID: entry.id, parentSessionID: parentSessionID)
         }
         return copy
+    }
+
+    /// MCP bridge output is intentionally stricter than the general transcript
+    /// attachment cap: a single tool result may contain at most 4 MiB per image
+    /// and 8 MiB total.
+    private static let maxMCPResultImageBytes = 4 * 1024 * 1024
+    private static let maxMCPResultAggregateImageBytes = 8 * 1024 * 1024
+
+    /// Converts Pi's actual `{ result: { content: [...] } }` tool-end payload to
+    /// ordered persisted blocks. This runs only after Pi has consumed the live RPC
+    /// event, so its original base64 payload is never modified in flight.
+    private func materializedMCPResultEntry(_ entry: PiAgentTranscriptEntry, parentSessionID: UUID) -> PiAgentTranscriptEntry? {
+        guard entry.title == "Tool: mcp",
+              let rawJSON = entry.rawJSON, var root = (try? JSONSerialization.jsonObject(with: Data(rawJSON.utf8))) as? [String: Any],
+              let type = root["type"] as? String,
+              type == "tool_execution_update" || type == "tool_execution_end" else { return nil }
+        // Pi uses `partialResult` for updates and `result` for final events.
+        let resultKey = type == "tool_execution_update" ? "partialResult" : "result"
+        guard var result = root[resultKey] as? [String: Any], var content = result["content"] as? [[String: Any]] else { return nil }
+
+        var aggregateBytes = 0
+        var blocks: [PiAgentMCPResultBlock] = []
+        for index in content.indices.prefix(32) {
+            let block = content[index]
+            switch block["type"] as? String {
+            case "text":
+                if let text = block["text"] as? String { blocks.append(.text(text)) }
+                else { blocks.append(.diagnostic("Invalid MCP text result block.")) }
+            case "image":
+                // Always scrub image base64, including invalid input, before rawJSON
+                // reaches disk. The local reference is the sole persisted copy.
+                content[index].removeValue(forKey: "data")
+                guard let encoded = block["data"] as? String,
+                      let mime = block["mimeType"] as? String,
+                      let data = Data(base64Encoded: encoded),
+                      data.count <= Self.maxMCPResultImageBytes,
+                      aggregateBytes + data.count <= Self.maxMCPResultAggregateImageBytes,
+                      let ext = Self.validatedImageExtension(data: data, mimeType: mime) else {
+                    blocks.append(.diagnostic("Invalid MCP image result was not saved."))
+                    continue
+                }
+                aggregateBytes += data.count
+                if let reference = materializeMCPResultImage(data: data, mimeType: mime, extension: ext, entryID: entry.id, parentSessionID: parentSessionID) {
+                    blocks.append(.image(reference))
+                } else {
+                    blocks.append(.diagnostic("MCP image result could not be saved."))
+                }
+            default:
+                blocks.append(.diagnostic("Unsupported MCP result block."))
+            }
+        }
+        result["content"] = content
+        root[resultKey] = result
+        guard let sanitized = try? JSONSerialization.data(withJSONObject: root),
+              let sanitizedRawJSON = String(data: sanitized, encoding: .utf8) else { return nil }
+        var copy = entry
+        copy.rawJSON = sanitizedRawJSON
+        copy.mcpResultBlocks = blocks
+        // `extractText` falls back to compactDescription for image-only results;
+        // that representation includes the base64 payload. Persist only text blocks.
+        let text = blocks.compactMap { block -> String? in
+            guard case let .text(value) = block else { return nil }
+            return value
+        }.joined(separator: "\n")
+        copy.text = text.isEmpty ? (blocks.contains { if case .image = $0 { return true }; return false } ? "MCP returned an image." : "MCP returned a result.") : text
+        return copy
+    }
+
+    private func materializeMCPResultImage(data: Data, mimeType: String, extension ext: String, entryID: UUID, parentSessionID: UUID) -> PiAgentTranscriptImageReference? {
+        let directory = transcriptImageDirectory(for: parentSessionID)
+        let destination = directory.appendingPathComponent("mcp-\(entryID.uuidString)-\(UUID().uuidString)").appendingPathExtension(ext).standardizedFileURL
+        guard destination.path.hasPrefix(directory.standardizedFileURL.path + "/") else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: destination, options: .atomic)
+            return .init(name: "mcp-result.\(ext)", mimeType: mimeType.lowercased(), localPath: destination.standardizedFileURL.path, source: "mcp")
+        } catch { return nil }
+    }
+
+    /// Accept only known MIME types whose byte signature agrees. This prevents a
+    /// server from writing an arbitrary blob under an image extension.
+    private nonisolated static func validatedImageExtension(data: Data, mimeType: String) -> String? {
+        let mime = mimeType.lowercased()
+        let bytes = [UInt8](data.prefix(12))
+        let actual: String?
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { actual = "png" }
+        else if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { actual = "jpg" }
+        else if bytes.starts(with: Array("GIF87a".utf8)) || bytes.starts(with: Array("GIF89a".utf8)) { actual = "gif" }
+        else if bytes.starts(with: Array("RIFF".utf8)), bytes.count >= 12, Array(bytes[8..<12]) == Array("WEBP".utf8) { actual = "webp" }
+        else { actual = nil }
+        guard let actual else { return nil }
+        switch (mime, actual) {
+        case ("image/png", "png"), ("image/jpeg", "jpg"), ("image/jpg", "jpg"), ("image/gif", "gif"), ("image/webp", "webp"): return actual
+        default: return nil
+        }
     }
 
     private static let maxTranscriptImageCandidatesPerEntry = 8
@@ -3518,10 +3624,12 @@ final class PiAgentSessionStore {
         mutate(&subagentTranscriptsByRunID[runID, default: []])
     }
 
-    private func trimTranscriptEntries(_ entries: inout [PiAgentTranscriptEntry]) {
-        if entries.count > maxTranscriptEntriesPerSession {
-            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
-        }
+    @discardableResult
+    private func trimTranscriptEntries(_ entries: inout [PiAgentTranscriptEntry]) -> [PiAgentTranscriptImageReference] {
+        guard entries.count > maxTranscriptEntriesPerSession else { return [] }
+        let removed = entries.prefix(entries.count - maxTranscriptEntriesPerSession).flatMap(\.allTranscriptImageReferences)
+        entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
+        return removed
     }
 
     private func loadInitialTranscriptCache() {
@@ -3762,13 +3870,32 @@ final class PiAgentSessionStore {
         }
     }
 
-    private func deleteTranscriptImages(_ references: [PiAgentTranscriptImageReference]) {
+    /// Cleanup runs only at destructive mutation boundaries (rewind/trim), not on
+    /// every append. It checks retained parent and delegated transcripts first so a
+    /// deliberately shared reference is never removed prematurely.
+    private func removeUnreferencedTranscriptImages(_ references: [PiAgentTranscriptImageReference], parentSessionID: UUID) {
         guard !references.isEmpty else { return }
-        let paths = references.compactMap(\.localPath)
+        let directory = transcriptImageDirectory(for: parentSessionID).standardizedFileURL.path + "/"
+        let runIDs = subagentRunsBySessionID[parentSessionID]?.map(\.id) ?? []
+        // A rare mutation boundary may run while a delegated transcript is lazily
+        // evicted. Decode just those known transcript files instead of treating the
+        // cache as authoritative (and without any filesystem-wide scan).
+        let pendingReferences = runIDs.flatMap { pendingPersistSubagentTranscriptSnapshots[$0] ?? [] }.flatMap(\.allTranscriptImageReferences)
+        // A pending snapshot is newer than its on-disk predecessor and wins when
+        // deciding retention; do not read the stale file for that run.
+        let unloadedReferences = runIDs.filter { subagentTranscriptsByRunID[$0] == nil && pendingPersistSubagentTranscriptSnapshots[$0] == nil && persistedSubagentTranscriptRunIDs.contains($0) }
+            .flatMap { (try? Self.readSubagentTranscript(from: subagentTranscriptURL($0))) ?? [] }
+            .flatMap(\.allTranscriptImageReferences)
+        let retained = Set((transcriptsBySessionID[parentSessionID] ?? []).flatMap(\.allTranscriptImageReferences)
+            + runIDs.flatMap { subagentTranscriptsByRunID[$0] ?? [] }.flatMap(\.allTranscriptImageReferences)
+            + pendingReferences + unloadedReferences)
+        let paths = Set(references.compactMap(\.localPath)).filter { path in
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            return standardized.hasPrefix(directory) && !retained.contains(where: { $0.localPath == standardized })
+        }
+        guard !paths.isEmpty else { return }
         saveQueue.async {
-            for path in paths {
-                try? FileManager.default.removeItem(atPath: path)
-            }
+            for path in paths { try? FileManager.default.removeItem(atPath: path) }
         }
     }
 
