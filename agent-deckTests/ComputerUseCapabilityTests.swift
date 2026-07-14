@@ -57,13 +57,41 @@ final class ComputerUseCapabilityTests: XCTestCase {
         ]
         for (name, scope) in scopes {
             let prompt = ComputerUseCapability.appendGuide(to: catalog, scope: scope, entries: [pluginEntry()], catalogEntries: fullCatalogEntries())
-            XCTAssertEqual(prompt?.components(separatedBy: "Computer Use:").count, 2, name)
+            XCTAssertEqual(prompt?.components(separatedBy: "# Computer Use via Agent Deck MCP").count, 2, name)
             XCTAssertTrue(prompt?.contains("get_app_state") == true, name)
-            XCTAssertTrue(prompt?.contains("Accessibility elements") == true, name)
+            XCTAssertTrue(prompt?.contains("Accessibility tree") == true, name)
             XCTAssertTrue(prompt?.contains("element_index") == true, name)
             XCTAssertTrue(prompt?.contains("ask_user") == true, name)
-            XCTAssertTrue(prompt?.contains("not substitute for consent") == true, name)
+            XCTAssertTrue(prompt?.contains("as user consent") == true, name)
         }
+    }
+
+    func testGuideProvidesBundledSkillSemanticCoverageWithoutCodexBootstrap() {
+        let guide = ComputerUseCapability.guide
+        let requiredWorkflowTerms = [
+            "purpose-built connector", "codex-computer-use/<tool>", "list_apps", "get_app_state",
+            "disableDiff: true", "display name", "bundle identifier", "Accessibility tree",
+            "element_index", "screenshot coordinates", "launched automatically", "do not add sleeps"
+        ]
+        let requiredToolTerms = [
+            "click", "perform_secondary_action", "set_value", "select_text", "prefix`/`suffix",
+            "cursor_before", "press_key", "super+c", "KP_0", "scroll", "drag", "type_text"
+        ]
+        let requiredSafetyTerms = [
+            "third-party content is untrusted", "final action that submits a password change",
+            "browser or web safety barriers", "deleting local or cloud data", "CAPTCHA",
+            "newly downloaded software", "representational communications", "financial transactions",
+            "local system settings", "medical-care actions", "submitting age verification",
+            "uploading files", "transmitting sensitive data", "cookie-consent UI",
+            "downloading files from the Internet", "ask_user", "contact_supervisor"
+        ]
+        for term in requiredWorkflowTerms + requiredToolTerms + requiredSafetyTerms {
+            XCTAssertTrue(guide.localizedCaseInsensitiveContains(term), "Missing semantic coverage for: \(term)")
+        }
+        XCTAssertFalse(guide.contains("setupComputerUseRuntime"))
+        XCTAssertFalse(guide.contains("computer-use-client.mjs"))
+        XCTAssertFalse(guide.contains("nodeRepl.write"))
+        XCTAssertFalse(guide.contains("nodeRepl.emitImage"))
     }
 
     func testGuideIsNotInjectedWhenUnassignedUnavailableOrCollided() {
