@@ -56,6 +56,8 @@ Three validation layers:
 2. **Harnessed smoke tests** — use a fake `pi` executable (in `agent-deckTests/PiTestSupport.swift`).
 3. **Real integration tests** — opt-in only (`PiSubagentRuntimeSmokeTests`, `PiNativeBundledSubagentRealRPCEvalTests`); not in CI.
 
+The XCTest host uses a process-specific temporary default `PiAgentSessionStore`; it must never read or write the user's production `~/Library/Application Support/Agent Deck/agent-sessions.json`.
+
 ## CI
 
 - GitHub Actions workflow: `.github/workflows/release.yml`

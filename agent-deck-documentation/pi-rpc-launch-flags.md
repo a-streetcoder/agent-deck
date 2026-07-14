@@ -136,6 +136,7 @@ Current launch shape:
 Runtime context/resources:
 
 - Working directory is the session project/worktree path.
+- Before spawning Pi, Agent Deck resolves launch-time resources such as the scoped MCP catalog and memory append prompts. A 45-second watchdog fails this preparation with an actionable transcript error if a provider does not return; Pi is not spawned and an existing session file is not changed.
 - Environment is produced by `EnvRuntimeEnvironment().environment(projectRoot:extra:)` and includes merged global/project `.env` values plus `AGENT_DECK_PARENT_SESSION_ID=<uuid>`.
 - Ambient extension discovery is disabled.
 - Explicit Agent Deck extensions are loaded:

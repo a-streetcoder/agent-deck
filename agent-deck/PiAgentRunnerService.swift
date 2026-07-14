@@ -81,6 +81,11 @@ final class PiAgentRunnerService {
     /// Identifies the only startup continuation allowed to register a client for
     /// a session. Replaced by a newer resume and invalidated by stop().
     private var launchGenerationsBySessionID: [UUID: UUID] = [:]
+    /// Bounds all launch-time preparation before PiRPCClient is registered. Providers
+    /// can involve MCP discovery or memory lookup; if one wedges, fail the launch
+    /// instead of leaving the session permanently stuck in Starting.
+    private var launchWatchdogTasksBySessionID: [UUID: Task<Void, Never>] = [:]
+    private let launchSetupTimeout: Duration
     /// User input submitted while launch-time setup (such as MCP discovery) is
     /// still awaiting a client. It is recorded immediately, then delivered in
     /// FIFO order after the registered client's initial startup action.
@@ -202,8 +207,9 @@ final class PiAgentRunnerService {
     var onMemoryMarkStale: ((UUID, AgentMemoryStaleBridgeRequest) async -> String)?
     var onMemorySearch: ((UUID, AgentMemorySearchBridgeRequest) async -> String)?
 
-    init(store: PiAgentSessionStore) {
+    init(store: PiAgentSessionStore, launchSetupTimeout: Duration = .seconds(45)) {
         self.store = store
+        self.launchSetupTimeout = launchSetupTimeout
     }
 
     func isRunning(sessionID: UUID) -> Bool {
@@ -412,6 +418,7 @@ final class PiAgentRunnerService {
 
     func stop(sessionID: UUID, recordTranscript: Bool = true, shouldDiscardPendingStartupInputs: Bool = true) {
         launchGenerationsBySessionID[sessionID] = nil
+        cancelLaunchWatchdog(sessionID: sessionID)
         RPCDebugLog.log("DEBUG-STOP stop() called session=\(sessionID.uuidString) hasClient=\(clientsBySessionID[sessionID] != nil)")
         if shouldDiscardPendingStartupInputs {
             discardPendingStartupInputs(sessionID: sessionID, title: "Queued Input Discarded", text: "The session stopped before queued input could be sent")
@@ -701,6 +708,7 @@ final class PiAgentRunnerService {
         stop(sessionID: session.id, recordTranscript: recordStopTranscript, shouldDiscardPendingStartupInputs: false)
         let launchGeneration = UUID()
         launchGenerationsBySessionID[session.id] = launchGeneration
+        scheduleLaunchWatchdog(sessionID: session.id, generation: launchGeneration)
         cancelIdleParking(for: session.id)
         parkingClientRunIDsBySessionID[session.id] = nil
         stoppingClientRunIDsBySessionID[session.id] = nil
@@ -945,6 +953,7 @@ final class PiAgentRunnerService {
                     Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, sessionID: sessionID, clientRunID: clientRunID) }
                 }
             )
+            cancelLaunchWatchdog(sessionID: session.id)
             clientsBySessionID[session.id] = client
             clientRunIDsBySessionID[session.id] = clientRunID
             store.updateSession(session.id) { record in
@@ -976,6 +985,7 @@ final class PiAgentRunnerService {
             drainPendingStartupInputs(sessionID: session.id, client: client)
         } catch {
             guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
+            cancelLaunchWatchdog(sessionID: session.id)
             launchGenerationsBySessionID[session.id] = nil
             discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent failed to launch before queued input could be sent")
             mark(session.id, status: .failed, error: error.localizedDescription)
@@ -985,6 +995,38 @@ final class PiAgentRunnerService {
 
     private func isCurrentLaunch(sessionID: UUID, generation: UUID) -> Bool {
         launchGenerationsBySessionID[sessionID] == generation
+    }
+
+    private func scheduleLaunchWatchdog(sessionID: UUID, generation: UUID) {
+        cancelLaunchWatchdog(sessionID: sessionID)
+        launchWatchdogTasksBySessionID[sessionID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: self.launchSetupTimeout)
+            } catch {
+                return
+            }
+            guard self.isCurrentLaunch(sessionID: sessionID, generation: generation),
+                  self.clientsBySessionID[sessionID] == nil else { return }
+            self.launchWatchdogTasksBySessionID[sessionID] = nil
+            self.launchGenerationsBySessionID[sessionID] = nil
+            self.discardPendingStartupInputs(
+                sessionID: sessionID,
+                title: "Queued Input Not Sent",
+                text: "Pi Agent launch preparation timed out before queued input could be sent"
+            )
+            self.mark(sessionID, status: .failed, error: "Launch preparation timed out.")
+            self.store.append(.init(
+                sessionID: sessionID,
+                role: .error,
+                title: "Launch Timed Out",
+                text: "Agent Deck could not finish launch preparation within 45 seconds. Pi was not started and the session file was not changed. Retry the session; if this repeats, test or temporarily unassign its MCP servers."
+            ))
+        }
+    }
+
+    private func cancelLaunchWatchdog(sessionID: UUID) {
+        launchWatchdogTasksBySessionID.removeValue(forKey: sessionID)?.cancel()
     }
 
     private func drainPendingStartupInputs(sessionID: UUID, client: PiRPCClient) {

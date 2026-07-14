@@ -197,6 +197,48 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         })
     }
 
+    func testLaunchPreparationTimeoutFailsWithoutStartingPiOrChangingSessionFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-startup-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let launchLog = directory.appendingPathComponent("launch.log")
+        let script = """
+        #!/bin/sh
+        printf 'launch\\n' >> \(PiTestSupport.shellSingleQuoted(launchLog.path))
+        cat >/dev/null
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store, launchSetupTimeout: .milliseconds(50))
+        var discoveryContinuation: CheckedContinuation<Void, Never>?
+        runner.mcpCatalogProvider = { _ in
+            await withCheckedContinuation { discoveryContinuation = $0 }
+            return nil
+        }
+        let session = store.createSession(kind: .project, title: "Startup Timeout", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+
+        runner.resume(session: session, initialPrompt: "unsent prompt")
+        let failed = await PiTestSupport.waitUntilAsync {
+            store.sessions.first(where: { $0.id == session.id })?.status == .failed
+        }
+        XCTAssertTrue(failed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launchLog.path))
+        XCTAssertNil(store.sessions.first(where: { $0.id == session.id })?.piSessionFile)
+        XCTAssertTrue((store.transcriptsBySessionID[session.id] ?? []).contains {
+            $0.title == "Launch Timed Out" && $0.text.contains("Pi was not started")
+        })
+
+        discoveryContinuation?.resume()
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launchLog.path))
+    }
+
     func testStopDuringMCPDiscoveryPreventsStartupLaunchAndQueuedDelivery() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-stop-startup-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

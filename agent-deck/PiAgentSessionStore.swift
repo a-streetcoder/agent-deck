@@ -213,8 +213,17 @@ final class PiAgentSessionStore {
     private var remoteTranscriptImageDownloadsInFlight: Set<UUID> = []
 
     init(fileManager: FileManager = .default) {
-        let appSupport = URL.applicationSupportDirectory
-        let directory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
+        let directory: URL
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            // The XCTest host launches the real app entry point before loading the
+            // test bundle. Keep that host store away from the user's production index.
+            directory = fileManager.temporaryDirectory
+                .appendingPathComponent("Agent Deck Test Host", isDirectory: true)
+                .appendingPathComponent(String(ProcessInfo.processInfo.processIdentifier), isDirectory: true)
+        } else {
+            directory = URL.applicationSupportDirectory
+                .appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
+        }
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("agent-sessions.json")
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
