@@ -18,7 +18,7 @@ final class CodexComputerUseMCPIntegrationTests: XCTestCase {
         let entry = try! XCTUnwrap(entries.first)
         XCTAssertEqual(entry.name, "codex-computer-use")
         XCTAssertEqual(entry.config.command, "/transient/root/helper")
-        XCTAssertEqual(entry.toolPolicy, .computerUseObservationOnly)
+        XCTAssertEqual(entry.toolPolicy, .computerUseSessionControlled)
         XCTAssertFalse(entry.sourcePath.isEmpty)
         XCTAssertTrue(entry.isAvailable)
         XCTAssertFalse(entry.provenance == .config)

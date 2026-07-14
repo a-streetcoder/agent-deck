@@ -38,13 +38,17 @@ final class ComputerUseCapabilityTests: XCTestCase {
             config: MCPServerConfig(command: "/plugin/helper"),
             sourcePath: "/plugin/.mcp.json",
             provenance: .codexPlugin(version: "1.0", availability: "Available"),
-            toolPolicy: .computerUseObservationOnly,
+            toolPolicy: .computerUseSessionControlled,
             availabilityDiagnostic: available ? nil : "disabled"
         )
     }
 
+    private func fullCatalogEntries() -> [MCPCatalogEntry] {
+        MCPServerToolPolicy.computerUseKnownTools.sorted().map { .init(server: ComputerUseCapability.serverName, tool: $0, description: nil) }
+    }
+
     func testGuideIsInjectedAtEachMCPAssignmentScopeExactlyOnce() {
-        let catalog = "MCP tools (call through the `mcp` proxy tool):\n- codex-computer-use/list_apps\n- codex-computer-use/get_app_state"
+        let catalog = "MCP tools (call through the `mcp` proxy tool):\n" + MCPServerToolPolicy.computerUseKnownTools.sorted().map { "- codex-computer-use/\($0)" }.joined(separator: "\n")
         let scopes: [(String, Set<String>)] = [
             ("global parent", [ComputerUseCapability.serverName]),
             ("project parent", [ComputerUseCapability.serverName]),
@@ -52,17 +56,18 @@ final class ComputerUseCapabilityTests: XCTestCase {
             ("delegated agent", [ComputerUseCapability.serverName])
         ]
         for (name, scope) in scopes {
-            let prompt = ComputerUseCapability.appendGuide(to: catalog, scope: scope, entries: [pluginEntry()], catalogEntries: [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil), .init(server: ComputerUseCapability.serverName, tool: "get_app_state", description: nil)])
-            XCTAssertEqual(prompt?.components(separatedBy: "Computer Use (observation-only):").count, 2, name)
+            let prompt = ComputerUseCapability.appendGuide(to: catalog, scope: scope, entries: [pluginEntry()], catalogEntries: fullCatalogEntries())
+            XCTAssertEqual(prompt?.components(separatedBy: "Computer Use:").count, 2, name)
             XCTAssertTrue(prompt?.contains("get_app_state") == true, name)
-            XCTAssertTrue(prompt?.contains("accessibility text") == true, name)
+            XCTAssertTrue(prompt?.contains("Accessibility elements") == true, name)
             XCTAssertTrue(prompt?.contains("element_index") == true, name)
-            XCTAssertTrue(prompt?.contains("actions are blocked") == true, name)
+            XCTAssertTrue(prompt?.contains("ask_user") == true, name)
+            XCTAssertTrue(prompt?.contains("not substitute for consent") == true, name)
         }
     }
 
     func testGuideIsNotInjectedWhenUnassignedUnavailableOrCollided() {
-        let catalogEntries: [MCPCatalogEntry] = [.init(server: ComputerUseCapability.serverName, tool: "list_apps", description: nil), .init(server: ComputerUseCapability.serverName, tool: "get_app_state", description: nil)]
+        let catalogEntries = fullCatalogEntries()
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [], entries: [pluginEntry()], catalogEntries: catalogEntries), "catalog")
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [ComputerUseCapability.serverName], entries: [pluginEntry(available: false)], catalogEntries: catalogEntries), "catalog")
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [ComputerUseCapability.serverName], entries: [pluginEntry()], catalogEntries: []), "catalog")
@@ -146,12 +151,14 @@ final class ComputerUseCapabilityTests: XCTestCase {
 
 
 extension ComputerUseCapabilityTests {
-    func testComputerUsePolicyRemainsObservationOnly() {
-        let policy = MCPServerToolPolicy.computerUseObservationOnly
-        XCTAssertTrue(policy.allows("list_apps"))
-        XCTAssertTrue(policy.allows("get_app_state"))
-        XCTAssertFalse(policy.allows("click"))
+    func testComputerUsePolicyCatalogIsExactAndUnknownToolsAreFiltered() {
+        let policy = MCPServerToolPolicy.computerUseSessionControlled
+        XCTAssertEqual(MCPServerToolPolicy.computerUseKnownTools.count, 10)
+        XCTAssertTrue(MCPServerToolPolicy.computerUseKnownTools.isSuperset(of: ["list_apps", "get_app_state", "click", "type_text"]))
+        XCTAssertTrue(policy.allows("click"))
         XCTAssertFalse(policy.allows("type"))
         XCTAssertFalse(policy.allows("run_action"))
+        XCTAssertTrue(policy.requiresControlAuthorization(for: "click"))
+        XCTAssertFalse(policy.requiresControlAuthorization(for: "get_app_state"))
     }
 }

@@ -208,6 +208,7 @@ struct MCPServersScreen: View {
             AppPage(entry.name, subtitle: transportLabel(entry)) {
                 VStack(alignment: .leading, spacing: 20) {
                     connectionCard(entry)
+                    if isTrustedComputerUse(entry) { computerUsePolicyCard }
                     projectAssignmentCard(entry)
                     toolsCard(entry)
                     removeCard(entry)
@@ -228,6 +229,26 @@ struct MCPServersScreen: View {
                 .font(.callout).foregroundStyle(AppTheme.mutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func isTrustedComputerUse(_ entry: MCPServerEntry) -> Bool {
+        guard entry.name == ComputerUseCapability.serverName,
+              entry.toolPolicy == .computerUseSessionControlled else { return false }
+        if case .codexPlugin = entry.provenance { return entry.config.resolvedTransport == .stdio }
+        return false
+    }
+
+    private var computerUsePolicyCard: some View {
+        AppCard(title: "Computer Use controls") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_text, scroll, drag, press_key, and type_text.")
+                Text("Observation tools do not ask for control. The first action for an app asks for per-app, per-requester approval for this session only; grants are not persisted. Stop the session or delegated run, disable or unassign Computer Use, or refresh its plugin to revoke grants.")
+                Text("App-control approval is separate from service confirmation prompts and never approves risky effects. Agents must still ask before consequential actions.")
+            }
+            .font(.caption)
+            .foregroundStyle(AppTheme.mutedText)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func connectionCard(_ entry: MCPServerEntry) -> some View {
@@ -287,25 +308,25 @@ struct MCPServersScreen: View {
 
     @ViewBuilder
     private func detailStatusTag(_ entry: MCPServerEntry) -> some View {
-        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseObservationOnly
+        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseSessionControlled
         switch statusByServer[entry.name] {
         case .probing:
             HStack(spacing: 6) { AppSpinner().controlSize(.small); Text("Connecting…").font(.caption).foregroundStyle(.secondary) }
         case let .ok(tools) where isComputerUse:
-            let ready = Set(tools.map(\.name)).isSuperset(of: ["list_apps", "get_app_state"])
-            AppLabelTag(text: ready ? "Observation ready" : "Observation status unknown", color: ready ? .green : .orange)
+            let ready = Set(tools.map(\.name)).isSuperset(of: MCPServerToolPolicy.computerUseKnownTools)
+            AppLabelTag(text: ready ? "Control ready" : "Control status unknown", color: ready ? .green : .orange)
         case let .ok(tools):
             AppLabelTag(text: "Connected · \(tools.count) tool\(tools.count == 1 ? "" : "s")", color: .green)
         case let .failed(message) where isComputerUse:
             let needsPermission = ["automation", "accessibility", "screen recording"].contains { message.localizedCaseInsensitiveContains($0) }
-            AppLabelTag(text: needsPermission ? "Permissions required" : "Observation status unknown", color: .orange)
+            AppLabelTag(text: needsPermission ? "Permissions required" : "Control status unknown", color: .orange)
         case .failed:
             AppLabelTag(text: "Not reachable", color: .orange)
         case nil:
             if !entry.isAvailable {
                 AppLabelTag(text: "Unavailable", color: .orange)
             } else if isComputerUse {
-                AppLabelTag(text: "Observation status unknown", color: .secondary)
+                AppLabelTag(text: "Control status unknown", color: .secondary)
             } else if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
                 AppLabelTag(text: "Signed in", color: .green)
             } else {

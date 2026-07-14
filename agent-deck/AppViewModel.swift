@@ -430,6 +430,14 @@ final class AppViewModel: NSObject {
         computerUseApprovalCoordinator.setUIServicingRequests(true)
         Task { [weak self] in
             guard let self else { return }
+            await self.mcpConnectionManager.setComputerUseAuthorizationHandler { [weak self] arguments, context in
+                guard let self, await self.isCurrentComputerUseRequester(context) else {
+                    return .denied(.sessionNotLive)
+                }
+                return await self.computerUseApprovalCoordinator.authorize(
+                    appArguments: arguments, context: context, sessionIsLive: true
+                )
+            }
             await self.mcpConnectionManager.setServerRequestHandler { [weak self] request, context in
                 guard let self, let context,
                       context.server == ComputerUseCapability.serverName else {
@@ -4425,6 +4433,17 @@ final class AppViewModel: NSObject {
 
     // MARK: - MCP bridge
 
+    /// Authorization is tied to the active parent execution and, for delegated
+    /// callers, its currently active run. A stale bridge context cannot reuse a grant.
+    private func isCurrentComputerUseRequester(_ context: MCPCallContext) -> Bool {
+        guard piAgentSessionStore.sessions.first(where: { $0.id == context.sessionID })?.status.isActive == true else {
+            return false
+        }
+        guard let runID = context.subagentRunID else { return true }
+        return piAgentSessionStore.subagentRuns(for: context.sessionID)
+            .first(where: { $0.id == runID })?.status.isActive == true
+    }
+
     private static let mcpCatalogToolCap = 60
 
     /// Reloads `mcp.json`, reconnects the manager, and rebuilds the cached catalog when
@@ -4462,7 +4481,7 @@ final class AppViewModel: NSObject {
             self.mergedMCPEntries = merged
             self.mcpConfiguredServerNames = Set(merged.map(\.name))
             if !merged.contains(where: { entry in
-                entry.name == ComputerUseCapability.serverName && entry.isAvailable && entry.toolPolicy == .computerUseObservationOnly && { if case .codexPlugin = entry.provenance { return true }; return false }()
+                entry.name == ComputerUseCapability.serverName && entry.isAvailable && entry.toolPolicy == .computerUseSessionControlled && { if case .codexPlugin = entry.provenance { return true }; return false }()
             }) {
                 self.computerUseApprovalCoordinator.revokeAll()
             }

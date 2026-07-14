@@ -89,13 +89,23 @@ nonisolated enum MCPServerProvenance: Hashable, Sendable {
 /// not by a prompt or server-side elicitation.
 nonisolated enum MCPServerToolPolicy: Hashable, Sendable {
     case unrestricted
-    case computerUseObservationOnly
+    /// The verified local Codex Computer Use helper. Its exact known catalog is
+    /// app-enforced; actions additionally require ephemeral native authorization.
+    case computerUseSessionControlled
+
+    static let computerUseObservationTools: Set<String> = ["list_apps", "get_app_state"]
+    static let computerUseActionTools: Set<String> = ["click", "perform_secondary_action", "set_value", "select_text", "scroll", "drag", "press_key", "type_text"]
+    static let computerUseKnownTools = computerUseObservationTools.union(computerUseActionTools)
 
     func allows(_ tool: String) -> Bool {
         switch self {
         case .unrestricted: true
-        case .computerUseObservationOnly: ["list_apps", "get_app_state"].contains(tool)
+        case .computerUseSessionControlled: Self.computerUseKnownTools.contains(tool)
         }
+    }
+
+    func requiresControlAuthorization(for tool: String) -> Bool {
+        self == .computerUseSessionControlled && Self.computerUseActionTools.contains(tool)
     }
 }
 

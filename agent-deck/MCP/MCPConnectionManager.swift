@@ -38,6 +38,8 @@ actor MCPConnectionManager {
     /// Only the discovered Codex plugin is eligible for interactive elicitation.
     /// A user server with the same name, and every remote transport, stays excluded.
     private var elicitationEligibleServers: Set<String> = []
+    /// Same trust boundary as elicitation: discovered plugin provenance and local stdio.
+    private var controlAuthorizationEligibleServers: Set<String> = []
     private struct ConnectionIdentity: Hashable {
         let config: MCPServerConfig
         let policy: MCPServerToolPolicy
@@ -56,8 +58,15 @@ actor MCPConnectionManager {
     /// Resolves an OAuth access token for a server name (set by AppViewModel). Used to
     /// authorize remote (http) transports.
     private var authTokenProvider: (@Sendable (String) async -> String?)?
-    /// Installed by a future approval surface. Absence intentionally declines elicitation.
+    /// Installed by the native approval surface. Absence intentionally declines elicitation.
     private var serverRequestHandler: MCPServerRequestHandler?
+    /// Only the verified local Computer Use helper receives this seam. It is checked
+    /// before a connection is obtained, so denied actions never reach transport.
+    private var computerUseAuthorizationHandler: (@Sendable (JSONValue?, MCPCallContext) async -> ComputerUseApprovalCoordinator.ControlAuthorization)?
+
+    func setComputerUseAuthorizationHandler(_ handler: (@Sendable (JSONValue?, MCPCallContext) async -> ComputerUseApprovalCoordinator.ControlAuthorization)?) {
+        computerUseAuthorizationHandler = handler
+    }
 
     func setServerRequestHandler(_ handler: MCPServerRequestHandler?) async {
         let availabilityChanged = (serverRequestHandler == nil) != (handler == nil)
@@ -79,7 +88,7 @@ actor MCPConnectionManager {
 
     private func isElicitationEligible(_ entry: MCPServerEntry) -> Bool {
         guard entry.config.resolvedTransport == .stdio,
-              entry.toolPolicy == .computerUseObservationOnly else { return false }
+              entry.toolPolicy == .computerUseSessionControlled else { return false }
         if case .codexPlugin = entry.provenance { return true }
         return false
     }
@@ -108,13 +117,17 @@ actor MCPConnectionManager {
         var newConfigs: [String: MCPServerConfig] = [:]
         var newPolicies: [String: MCPServerToolPolicy] = [:]
         var newElicitationEligible: Set<String> = []
+        var newControlAuthorizationEligible: Set<String> = []
         var newIdentities: [String: ConnectionIdentity] = [:]
         for entry in servers where entry.isAvailable {
             let eligible = isElicitationEligible(entry)
             newConfigs[entry.name] = entry.config
             newPolicies[entry.name] = entry.toolPolicy
             newIdentities[entry.name] = .init(config: entry.config, policy: entry.toolPolicy, provenance: entry.provenance, isElicitationEligible: eligible)
-            if eligible { newElicitationEligible.insert(entry.name) }
+            if eligible {
+                newElicitationEligible.insert(entry.name)
+                newControlAuthorizationEligible.insert(entry.name)
+            }
         }
 
         // Close connections whose config, policy, or trust provenance changed.
@@ -130,6 +143,7 @@ actor MCPConnectionManager {
         configs = newConfigs
         policies = newPolicies
         elicitationEligibleServers = newElicitationEligible
+        controlAuthorizationEligibleServers = newControlAuthorizationEligible
         connectionIdentities = newIdentities
         // Drop connections for servers no longer present.
         for name in connections.keys where newConfigs[name] == nil {
@@ -173,7 +187,7 @@ actor MCPConnectionManager {
             clientVersion: clientVersion,
             // Discovery stays bounded at five seconds; an interactive tools/call
             // gets enough time for the 60-second user decision and completion.
-            requestTimeout: policies[name] == .computerUseObservationOnly ? .seconds(5) : requestTimeout,
+            requestTimeout: policies[name] == .computerUseSessionControlled ? .seconds(5) : requestTimeout,
             interactiveRequestTimeout: elicitationEligibleServers.contains(name) ? .seconds(120) : nil,
             serverRequestHandler: elicitationEligibleServers.contains(name) ? serverRequestHandler : nil,
             transportFactory: factory
@@ -204,12 +218,23 @@ actor MCPConnectionManager {
     }
 
     func call(server: String, tool: String, arguments: JSONValue?, context: MCPCallContext) async throws -> MCPCallResult {
-        guard policies[server, default: .unrestricted].allows(tool) else {
-            throw MCPError.policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps and get_app_state are allowed.")
+        let policy = policies[server, default: .unrestricted]
+        guard policy.allows(tool) else {
+            throw MCPError.policyDenied("Computer Use tool is not supported by Agent Deck.")
+        }
+        if policy.requiresControlAuthorization(for: tool) {
+            guard controlAuthorizationEligibleServers.contains(server),
+                  ComputerUseCapability.hasValidActionArguments(arguments),
+                  let handler = computerUseAuthorizationHandler else {
+                throw MCPError.policyDenied("Computer Use control was denied before contacting the service.")
+            }
+            guard case .authorized = await handler(arguments, context) else {
+                throw MCPError.policyDenied("Computer Use control was denied before contacting the service.")
+            }
         }
         do {
             let result = try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
-            if policies[server] == .computerUseObservationOnly,
+            if policies[server] == .computerUseSessionControlled,
                result.isError == true,
                let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: result.combinedText) {
                 throw MCPError.runtimeAuthorization(diagnostic)
@@ -217,7 +242,7 @@ actor MCPConnectionManager {
             return result
         } catch let error as MCPError {
             if case .runtimeAuthorization = error { throw error }
-            guard policies[server] == .computerUseObservationOnly,
+            guard policies[server] == .computerUseSessionControlled,
                   let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: error.errorDescription ?? "") else { throw error }
             throw MCPError.runtimeAuthorization(diagnostic)
         }
@@ -288,7 +313,7 @@ actor MCPConnectionManager {
             config: entry.config,
             clientName: clientName,
             clientVersion: clientVersion,
-            requestTimeout: entry.toolPolicy == .computerUseObservationOnly ? .seconds(5) : .seconds(20),
+            requestTimeout: entry.toolPolicy == .computerUseSessionControlled ? .seconds(5) : .seconds(20),
             interactiveRequestTimeout: isElicitationEligible(entry) ? .seconds(120) : nil,
             serverRequestHandler: isElicitationEligible(entry) ? serverRequestHandler : nil,
             transportFactory: factory

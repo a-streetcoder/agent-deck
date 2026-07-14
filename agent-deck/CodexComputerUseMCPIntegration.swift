@@ -12,7 +12,7 @@ nonisolated enum CodexComputerUseMCPIntegration {
         if let existing = merged[serverName] {
             if resource != nil {
                 var entry = existing
-                entry.diagnostic = "The configured server named \(serverName) is in use instead of the Codex Plugin server and is not governed by the Computer Use observation-only policy."
+                entry.diagnostic = "The configured server named \(serverName) is in use instead of the Codex Plugin server and is not governed by Agent Deck's Computer Use session-control policy."
                 merged[serverName] = entry
             }
         } else if let resource {
@@ -21,7 +21,7 @@ nonisolated enum CodexComputerUseMCPIntegration {
                 config: resource.config,
                 sourcePath: resource.sourcePath,
                 provenance: .codexPlugin(version: resource.version, availability: "Available"),
-                toolPolicy: .computerUseObservationOnly
+                toolPolicy: .computerUseSessionControlled
             )
         } else {
             let status = discovery.diagnostics.map(\.localizedDescription).joined(separator: " ")
@@ -30,7 +30,7 @@ nonisolated enum CodexComputerUseMCPIntegration {
                 config: MCPServerConfig(),
                 sourcePath: "",
                 provenance: .codexPlugin(version: nil, availability: "Unavailable"),
-                toolPolicy: .computerUseObservationOnly,
+                toolPolicy: .computerUseSessionControlled,
                 availabilityDiagnostic: status.isEmpty ? "Codex Computer Use is unavailable." : status
             )
         }

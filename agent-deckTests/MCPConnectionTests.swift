@@ -510,7 +510,7 @@ final class MCPConnectionManagerTests: XCTestCase {
             MCPRecordedTransport(id: recorder.createID(), recorder: recorder)
         })
         let config = MCPServerConfig(command: "same-helper")
-        let plugin = MCPServerEntry(name: "codex-computer-use", config: config, sourcePath: "/plugin", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
+        let plugin = MCPServerEntry(name: "codex-computer-use", config: config, sourcePath: "/plugin", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseSessionControlled)
         await manager.setServerRequestHandler { _, _ in .result(MCPRequestFactory.elicitationResponse(action: "accept")) }
         await manager.configure(servers: [plugin])
         _ = await manager.discoverCatalog(serverNames: [plugin.name])
@@ -525,7 +525,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertFalse(recorder.lines(for: 1).joined().contains("elicitation"), "untrusted replacement must not advertise elicitation")
     }
 
-    func testComputerUseCatalogAllowsExactlyObservationToolsRoutesStateThroughElicitationAndDeniesActions() async throws {
+    func testComputerUseCatalogFiltersUnknownToolsObservesWithoutControlAndAuthorizesKnownActionsBeforeWrite() async throws {
         let contextBox = MCPContextBox()
         let fixture = MCPComputerUseElicitationFixture()
         let responder: MCPStubTransport.Responder = { line in
@@ -554,14 +554,15 @@ final class MCPConnectionManagerTests: XCTestCase {
             await contextBox.set(context)
             return .result(MCPRequestFactory.elicitationResponse(action: "decline"))
         }
+        await manager.setComputerUseAuthorizationHandler { _, _ in .authorized }
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseSessionControlled)
         ])
         let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
         let sessionID = UUID()
         let listAppsResult = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: sessionID, projectID: nil, server: "codex-computer-use", tool: "list_apps"))
         let stateResult = try await manager.call(server: "codex-computer-use", tool: "get_app_state", arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: sessionID, projectID: nil, server: "codex-computer-use", tool: "get_app_state"))
-        XCTAssertEqual(catalog.map(\.tool), ["list_apps", "get_app_state"])
+        XCTAssertEqual(Set(catalog.map(\.tool)), MCPServerToolPolicy.computerUseKnownTools)
         XCTAssertEqual(listAppsResult.combinedText, "ok")
         XCTAssertEqual(stateResult.content?.map(\.type), ["text", "image"])
         let envelope = PiMCPBridgeCallResultEnvelope.callResult(stateResult, server: "codex-computer-use", tool: "get_app_state")
@@ -573,18 +574,20 @@ final class MCPConnectionManagerTests: XCTestCase {
         let linesAfterObservation = await transport.sentLines()
         XCTAssertTrue(linesAfterObservation.contains { $0.contains(#""protocolVersion":"2025-06-18""#) })
         XCTAssertTrue(linesAfterObservation.contains { $0.contains(#""id":"approval""#) && $0.contains(#""action":"decline""#) })
-        for (offset, action) in ["click", "perform_secondary_action", "set_value", "select_text", "scroll", "drag", "press_key", "type_text"].enumerated() {
+        for (offset, action) in MCPServerToolPolicy.computerUseActionTools.sorted().enumerated() {
             let before = await transport.sentLines().filter { $0.contains(#""method":"tools/call""#) }.count
             let subagentRunID = offset.isMultiple(of: 2) ? nil : UUID()
-            do {
-                _ = try await manager.call(server: "codex-computer-use", tool: action, arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: action, requestingAgent: subagentRunID == nil ? nil : "child", subagentRunID: subagentRunID))
-                XCTFail("\(action) must be denied before transport use")
-            } catch let error as MCPError {
-                XCTAssertEqual(error, .policyDenied("Codex Computer Use is observation-only in Agent Deck; only list_apps and get_app_state are allowed."))
-            }
+            _ = try await manager.call(server: "codex-computer-use", tool: action, arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: action, requestingAgent: subagentRunID == nil ? nil : "child", subagentRunID: subagentRunID))
             let after = await transport.sentLines().filter { $0.contains(#""method":"tools/call""#) }.count
-            XCTAssertEqual(after, before, "\(action) must not reach the MCP transport")
+            XCTAssertEqual(after, before + 1, "\(action) reaches transport only after authorization")
         }
+        let beforeUnknown = await transport.sentLines().count
+        do {
+            _ = try await manager.call(server: "codex-computer-use", tool: "future_action", arguments: .object(["app": .string("Agent Deck")]), context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "future_action"))
+            XCTFail("unknown Computer Use tools must be denied")
+        } catch {}
+        let afterUnknown = await transport.sentLines().count
+        XCTAssertEqual(afterUnknown, beforeUnknown)
     }
 
     func testComputerUseAuthorizationErrorIsRuntimeDiagnostic() async {
@@ -594,7 +597,7 @@ final class MCPConnectionManagerTests: XCTestCase {
         }
         let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseObservationOnly)
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseSessionControlled)
         ])
         do {
             _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
@@ -607,7 +610,7 @@ final class MCPConnectionManagerTests: XCTestCase {
     func testUnavailableServerNeverConfiguresOrConnects() async {
         let manager = manager()
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseObservationOnly, availabilityDiagnostic: "disabled")
+            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseSessionControlled, availabilityDiagnostic: "disabled")
         ])
         let connectedBefore = await manager.hasLiveConnection("codex-computer-use")
         let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
