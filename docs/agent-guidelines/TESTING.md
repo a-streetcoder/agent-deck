@@ -17,6 +17,14 @@ xcodebuild -project agent-deck.xcodeproj -scheme agent-deck \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
+## Focused Packaging Checks
+
+After changing release signing, entitlements, or generated Info.plist settings, run:
+
+```bash
+bash scripts/test-package-signing.sh
+```
+
 ## Run Tests
 
 ```bash

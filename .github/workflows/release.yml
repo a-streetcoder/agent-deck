@@ -194,13 +194,24 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :SUScheduledCheckInterval integer 86400" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :SUScheduledCheckInterval 86400" "$PLIST"
           # Re-sign the .app since we mutated its Info.plist after Xcode signed it.
+          # This is the final main-app signature after Info.plist mutation.
+          # Keep app entitlements off nested frameworks, helpers, and services.
           codesign --force --options runtime --timestamp \
+            --entitlements agent-deck/agent-deck.entitlements \
             --sign "${{ secrets.MACOS_SIGN_IDENTITY }}" \
             "build/release/export/Agent Deck.app"
-          # Verify the keys are present + the signature is still valid.
+          # Verify the keys are present + the signature and Apple Events entitlement survive.
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$PLIST"
           /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$PLIST"
           codesign --verify --deep --strict "build/release/export/Agent Deck.app"
+          SIGNED_ENTITLEMENTS="$(mktemp "$RUNNER_TEMP/agent-deck-entitlements.XXXXXX")"
+          codesign -d --entitlements :- "build/release/export/Agent Deck.app" > "$SIGNED_ENTITLEMENTS" 2>/dev/null
+          SIGNED_APPLE_EVENTS="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.automation.apple-events' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+          rm -f "$SIGNED_ENTITLEMENTS"
+          if [ "$SIGNED_APPLE_EVENTS" != "true" ]; then
+            echo "Signed app is missing com.apple.security.automation.apple-events=true." >&2
+            exit 1
+          fi
 
       - name: Build branded DMG
         env:

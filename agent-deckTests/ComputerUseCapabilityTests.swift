@@ -75,7 +75,7 @@ final class ComputerUseCapabilityTests: XCTestCase {
         let cases = [
             ("Automation denied (-1743)", "Automation", "-1743"),
             ("Accessibility permission pending", "Accessibility", "pending"),
-            ("Screen Recording denied", "Screen Recording", "denied")
+            ("Screen Recording denied", "Screen & System Audio Recording", "denied")
         ]
         for (error, expected, original) in cases {
             let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: error)

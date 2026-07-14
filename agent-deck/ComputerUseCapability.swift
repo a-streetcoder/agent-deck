@@ -78,11 +78,11 @@ nonisolated enum ComputerUseCapability {
         let normalized = helperError.lowercased()
         let guidance: String
         if normalized.contains("-1743") {
-            guidance = "Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
+            guidance = "Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow Agent Deck to control the installed Computer Use/Codex component—not Pi—then retry."
         } else if normalized.contains("accessibility") && (normalized.contains("denied") || normalized.contains("pending") || normalized.contains("permission") || normalized.contains("authorized")) {
             guidance = "Computer Use needs macOS Accessibility permission. In System Settings > Privacy & Security > Accessibility, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
         } else if (normalized.contains("screen recording") || normalized.contains("screenrecording")) && (normalized.contains("denied") || normalized.contains("pending") || normalized.contains("permission") || normalized.contains("authorized")) {
-            guidance = "Computer Use needs macOS Screen Recording permission. In System Settings > Privacy & Security > Screen Recording, allow the installed signed Computer Use service/Codex component—not Pi—then retry."
+            guidance = "Computer Use needs macOS Screen & System Audio Recording permission. In System Settings > Privacy & Security > Screen & System Audio Recording, allow the Codex Computer Use service—not Pi—then retry."
         } else if normalized.contains("cold start") || normalized.contains("service unavailable") || normalized.contains("service is unavailable") || normalized.contains("request timed out") || normalized.contains("timed out") {
             guidance = "Computer Use request timed out. The installed signed Computer Use service/Codex component may still be starting, unavailable, awaiting permission, or blocked. Wait briefly and retry; if it persists, check that component and macOS permissions (not Pi)."
         } else {

@@ -417,7 +417,7 @@
 				INFOPLIST_KEY_CFBundleName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSAccentColorName = AccentColor;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to open Terminal or iTerm and resume agent sessions.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to control apps you explicitly permit through assigned Computer Use.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
 				INFOPLIST_KEY_SUFeedURL = "https://a-streetcoder.github.io/agent-deck/appcast.xml";
@@ -466,7 +466,7 @@
 				INFOPLIST_KEY_CFBundleName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSAccentColorName = AccentColor;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to open Terminal or iTerm and resume agent sessions.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to control apps you explicitly permit through assigned Computer Use.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
 				INFOPLIST_KEY_SUFeedURL = "https://a-streetcoder.github.io/agent-deck/appcast.xml";

@@ -39,6 +39,12 @@ VOLUME_NAME="${VOLUME_NAME:-Agent Deck}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_ENTITLEMENTS="$REPO_ROOT/agent-deck/agent-deck.entitlements"
+
+if [[ ! -f "$APP_ENTITLEMENTS" ]]; then
+  echo "Missing main-app entitlements at $APP_ENTITLEMENTS. Restore agent-deck/agent-deck.entitlements before packaging." >&2
+  exit 2
+fi
 DMG_BG="$SCRIPT_DIR/dmg/background.png"
 
 if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
@@ -154,7 +160,9 @@ TARGET_BUILD_DIR="$APP_PATH/Contents" \
   INFOPLIST_PATH="Info.plist" \
   SU_FEED_URL="$EXPECTED_SU_FEED_URL" \
   bash "$SCRIPT_DIR/inject-sparkle-info.sh"
-codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$APP_PATH"
+# The main app is signed last after Info.plist mutation. Do not pass these
+# app-specific entitlements to nested frameworks, helpers, or services.
+codesign --force --options runtime --timestamp --entitlements "$APP_ENTITLEMENTS" --sign "$DEVELOPER_ID_APPLICATION" "$APP_PATH"
 
 ACTUAL_SU_FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$PLIST" 2>/dev/null || true)"
 if [[ "$ACTUAL_SU_FEED_URL" != "$EXPECTED_SU_FEED_URL" ]]; then
@@ -162,6 +170,18 @@ if [[ "$ACTUAL_SU_FEED_URL" != "$EXPECTED_SU_FEED_URL" ]]; then
   exit 2
 fi
 codesign --verify --deep --strict "$APP_PATH"
+SIGNED_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/agent-deck-entitlements.XXXXXX")"
+if ! codesign -d --entitlements :- "$APP_PATH" > "$SIGNED_ENTITLEMENTS" 2>/dev/null; then
+  rm -f "$SIGNED_ENTITLEMENTS"
+  echo "Could not inspect signed entitlements for $APP_PATH." >&2
+  exit 2
+fi
+SIGNED_APPLE_EVENTS="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.automation.apple-events' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
+rm -f "$SIGNED_ENTITLEMENTS"
+if [[ "$SIGNED_APPLE_EVENTS" != "true" ]]; then
+  echo "Signed app is missing com.apple.security.automation.apple-events=true: $APP_PATH" >&2
+  exit 2
+fi
 
 # Build the polished DMG via create-dmg. Window/icon coordinates match the
 # layout that scripts/dmg/generate-background.swift draws (app at x=180,
