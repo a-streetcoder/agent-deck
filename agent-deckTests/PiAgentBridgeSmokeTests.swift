@@ -929,6 +929,9 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let response = try XCTUnwrap(nativeAskResponse(id: "ask-open", in: harness.stdinLog))
         XCTAssertEqual(response["kind"] as? String, "freeform")
         XCTAssertEqual(response["text"] as? String, "Ship the native ask bridge.")
+        let answer = try XCTUnwrap(store.transcript(for: session.id).last(where: \.isNativeAskResponse))
+        XCTAssertEqual(answer.text, "Ship the native ask bridge.")
+        XCTAssertNil(store.uiRequestsBySessionID[session.id])
     }
 
     func testNativeAskUserBridgeHandlesSingleChoiceWithInlineComment() throws {
@@ -952,6 +955,8 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertEqual(response["kind"] as? String, "selection")
         XCTAssertEqual(response["selections"] as? [String], ["Stable"])
         XCTAssertEqual(response["comment"] as? String, "Use this for the first public build.")
+        let answer = try XCTUnwrap(store.transcript(for: session.id).last(where: \.isNativeAskResponse))
+        XCTAssertEqual(answer.text, "Stable\n\nComment: Use this for the first public build.")
     }
 
     func testNativeAskUserBridgeHandlesMultipleChoiceWithInlineComment() throws {
@@ -973,6 +978,8 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertEqual(response["kind"] as? String, "selection")
         XCTAssertEqual(response["selections"] as? [String], ["Open question", "Multiple choice"])
         XCTAssertEqual(response["comment"] as? String, "Single choice is covered separately.")
+        let answer = try XCTUnwrap(store.transcript(for: session.id).last(where: \.isNativeAskResponse))
+        XCTAssertEqual(answer.text, "Open question\nMultiple choice\n\nComment: Single choice is covered separately.")
     }
 
     func testNativeAskUserBridgeHandlesChoiceFreeformAlternative() throws {
@@ -993,6 +1000,22 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let response = try XCTUnwrap(nativeAskResponse(id: "ask-freeform-choice", in: harness.stdinLog))
         XCTAssertEqual(response["kind"] as? String, "freeform")
         XCTAssertEqual(response["text"] as? String, "Build native, but keep the same result schema.")
+        let answer = try XCTUnwrap(store.transcript(for: session.id).last(where: \.isNativeAskResponse))
+        XCTAssertEqual(answer.text, "Build native, but keep the same result schema.")
+    }
+
+    func testNativeAskResponseProjectionRejectsMalformedOrInvalidAnswers() {
+        let request = PiAgentUIRequest(
+            id: "ask", sessionID: UUID(), method: .select, title: "Choose", message: nil,
+            options: ["Stable", "Beta"], optionDescriptions: [:], placeholder: nil, prefill: nil,
+            allowsFreeform: true, allowsComment: true, responseFormat: .nativeAsk
+        )
+
+        XCTAssertNil(request.nativeAskResponseDisplayText(from: "not-json"))
+        XCTAssertNil(request.nativeAskResponseDisplayText(from: #"{"kind":"selection","selections":[]}"#))
+        XCTAssertNil(request.nativeAskResponseDisplayText(from: #"{"kind":"selection","selections":["Unknown"]}"#))
+        XCTAssertNil(request.nativeAskResponseDisplayText(from: #"{"kind":"freeform","text":"   "}"#))
+        XCTAssertNil(request.nativeAskResponseDisplayText(from: #"{"kind":"other"}"#))
     }
 
     func testParentSessionCapturesRuntimeSystemPromptAudit() throws {

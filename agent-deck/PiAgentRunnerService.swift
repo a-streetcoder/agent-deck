@@ -385,7 +385,16 @@ final class PiAgentRunnerService {
             store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
             return
         }
+        let request = store.uiRequestsBySessionID[sessionID].flatMap { $0.id == requestID ? $0 : nil }
         client.respondToExtensionUI(id: requestID, value: value)
+        if let displayText = request?.nativeAskResponseDisplayText(from: value) {
+            store.append(.init(
+                sessionID: sessionID,
+                role: .user,
+                title: PiAgentTranscriptEntry.nativeAskResponseTitle,
+                text: displayText
+            ))
+        }
         store.clearUIRequest(sessionID: sessionID, id: requestID)
     }
 
@@ -503,7 +512,7 @@ final class PiAgentRunnerService {
     }
 
     func compact(session: PiAgentSessionRecord, customInstructions: String? = nil) {
-        let messageCount = store.transcript(for: session.id).count(where: { $0.role == .user || $0.role == .assistant })
+        let messageCount = store.transcript(for: session.id).count(where: { $0.isProviderBackedUserMessage || $0.role == .assistant })
         guard messageCount >= 2 else {
             store.append(.init(sessionID: session.id, role: .status, title: "Compaction", text: "Nothing to compact"))
             return

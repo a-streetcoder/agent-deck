@@ -1411,6 +1411,40 @@ struct PiAgentUIRequest: Identifiable, Hashable {
         ])
     }
 
+    func nativeAskResponseDisplayText(from value: String) -> String? {
+        guard responseFormat == .nativeAsk,
+              let data = value.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let kind = object["kind"] as? String else { return nil }
+
+        switch kind {
+        case "freeform":
+            guard allowsFreeform || method == .input || method == .editor,
+                  let text = object["text"] as? String else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        case "selection":
+            guard method == .select || method == .multiSelect,
+                  let selections = object["selections"] as? [String] else { return nil }
+            let trimmedSelections = selections.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            guard !trimmedSelections.isEmpty,
+                  trimmedSelections.allSatisfy({ !$0.isEmpty && options.contains($0) }),
+                  method == .multiSelect || trimmedSelections.count == 1 else { return nil }
+
+            var displayText = trimmedSelections.joined(separator: "\n")
+            if let commentValue = object["comment"] {
+                guard let comment = commentValue as? String else { return nil }
+                let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedComment.isEmpty {
+                    displayText += "\n\nComment: \(trimmedComment)"
+                }
+            }
+            return displayText
+        default:
+            return nil
+        }
+    }
+
     private static func jsonString(_ object: [String: Any]) -> String {
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
@@ -1538,6 +1572,18 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
 }
 
 extension PiAgentTranscriptEntry {
+    static let nativeAskResponseTitle = "Ask User Response"
+
+    var isNativeAskResponse: Bool {
+        role == .user && title == Self.nativeAskResponseTitle
+    }
+
+    /// A user message that exists in Pi's provider-backed conversation history.
+    /// Synthetic ask-user answers are transcript-only and must not affect fork indexes.
+    var isProviderBackedUserMessage: Bool {
+        role == .user && !isNativeAskResponse
+    }
+
     /// Includes legacy/general references and ordered MCP image blocks. Keeping this
     /// centralized makes retention cleanup safe when an image is shared by entries.
     var allTranscriptImageReferences: [PiAgentTranscriptImageReference] {

@@ -141,7 +141,7 @@ Runtime context/resources:
 - Ambient extension discovery is disabled.
 - Explicit Agent Deck extensions are loaded:
   - system-prompt audit extension, which captures the final Pi prompt back into Agent Deck;
-  - `ask_user` bridge for native app prompt cards;
+  - `ask_user` bridge for native app prompt cards; after submission, the selected option(s) or custom response remains visible as a right-aligned user card in the transcript;
   - web access extension backed by Agent Deck/Exa environment credentials;
   - enabled Agent Deck command extensions;
   - native subagent parent bridge when subagents are enabled.

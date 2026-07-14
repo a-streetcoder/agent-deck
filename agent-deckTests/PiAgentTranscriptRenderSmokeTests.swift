@@ -122,6 +122,31 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         XCTAssertGreaterThan(PiAgentUserMessageContent.displayChipsNaturalWidth(for: entry), 0)
     }
 
+    func testNativeAskResponseRendersAsInlineUserCardWithoutCreatingProviderPrompt() {
+        let sessionID = UUID()
+        let prompt = PiAgentTranscriptEntry(sessionID: sessionID, role: .user, title: "Prompt", text: "Prepare the release.")
+        let inputNeeded = PiAgentTranscriptEntry(sessionID: sessionID, role: .status, title: "Input Needed", text: "Which channel?")
+        let answer = PiAgentTranscriptEntry(
+            sessionID: sessionID,
+            role: .user,
+            title: PiAgentTranscriptEntry.nativeAskResponseTitle,
+            text: "Stable"
+        )
+        let assistant = PiAgentTranscriptEntry(sessionID: sessionID, role: .assistant, title: "Assistant", text: "Using Stable.")
+        let nextPrompt = PiAgentTranscriptEntry(sessionID: sessionID, role: .user, title: "Prompt", text: "Continue.")
+
+        let threads = PiAgentTranscriptThread.make(from: [prompt, inputNeeded, answer, assistant, nextPrompt])
+
+        XCTAssertEqual(threads.count, 2)
+        XCTAssertEqual(threads[0].question?.id, prompt.id)
+        XCTAssertEqual(threads[0].steeringMessages.map(\.id), [answer.id])
+        XCTAssertTrue(threads[0].children.contains(.steering(answer)))
+        XCTAssertEqual(threads[1].question?.id, nextPrompt.id)
+        XCTAssertTrue(answer.isNativeAskResponse)
+        XCTAssertFalse(answer.isProviderBackedUserMessage)
+        XCTAssertTrue(prompt.isProviderBackedUserMessage)
+    }
+
     func testImagesOffProjectsAutomaticImageMarkupWithoutChangingCopySource() {
         let markdownURL = "https://example.com/markdown.png"
         let htmlURL = "https://example.com/html.png"

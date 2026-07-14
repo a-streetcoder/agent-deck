@@ -106,7 +106,7 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
                 flush()
                 builder.add(entry)
                 flush()
-            } else if entry.role == .user && entry.title != "Steering" {
+            } else if entry.role == .user && entry.title != "Steering" && !entry.isNativeAskResponse {
                 flush()
                 builder.question = entry
             } else {
@@ -141,7 +141,7 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
 
         mutating func add(_ entry: PiAgentTranscriptEntry) {
             switch entry.role {
-            case .user where entry.title == "Steering":
+            case .user where entry.title == "Steering" || entry.isNativeAskResponse:
                 steeringMessages.append(entry)
                 arrivals.append((.steering, entry))
             case .thinking:

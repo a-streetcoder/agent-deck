@@ -5560,7 +5560,7 @@ final class AppViewModel: NSObject {
         var displayOverride = transcriptText
         if session.kind == .agent,
            let snapshot = session.forkedFromTranscriptSnapshot, !snapshot.isEmpty,
-           !piAgentSessionStore.transcript(for: session.id).contains(where: { $0.role == .user }) {
+           !piAgentSessionStore.transcript(for: session.id).contains(where: \.isProviderBackedUserMessage) {
             displayOverride = displayOverride ?? text
             effectiveText = """
             <forked_conversation_context>
@@ -5600,7 +5600,7 @@ final class AppViewModel: NSObject {
               !session.title.hasPrefix("Draft ·"),
               !session.isTitleUserEdited,
               let latestUserMessage = piAgentSessionStore.transcript(for: sessionID)
-                .filter({ $0.role == .user })
+                .filter(\.isProviderBackedUserMessage)
                 .max(by: { $0.timestamp < $1.timestamp })?
                 .text
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -5641,7 +5641,7 @@ final class AppViewModel: NSObject {
               session.title.hasPrefix("Draft ·"),
               !session.isTitleUserEdited,
               !piAgentTitleGeneratingSessionIDs.contains(session.id),
-              piAgentSessionStore.transcript(for: session.id).filter({ $0.role == .user }).isEmpty,
+              piAgentSessionStore.transcript(for: session.id).filter(\.isProviderBackedUserMessage).isEmpty,
               let model = piAgentTitleGenerationModel() else { return }
 
         piAgentTitleGeneratingSessionIDs.insert(session.id)
@@ -5710,9 +5710,9 @@ final class AppViewModel: NSObject {
     }
 
     func forkPiAgentSession(from entry: PiAgentTranscriptEntry) {
-        guard entry.role == .user else { return }
+        guard entry.isProviderBackedUserMessage else { return }
         let transcript = piAgentSessionStore.transcript(for: entry.sessionID)
-        let userEntries = transcript.filter { $0.role == .user }
+        let userEntries = transcript.filter(\.isProviderBackedUserMessage)
         guard let index = userEntries.firstIndex(where: { $0.id == entry.id }) else { return }
         piAgentRunner.fork(
             sessionID: entry.sessionID,
@@ -5729,9 +5729,9 @@ final class AppViewModel: NSObject {
     /// The resend reuses Pi's recorded text for the message plus the entry's
     /// recorded attachments, so the rerun is exactly the original send.
     func rerunPiAgentSession(from entry: PiAgentTranscriptEntry) {
-        guard entry.role == .user else { return }
+        guard entry.isProviderBackedUserMessage else { return }
         let transcript = piAgentSessionStore.transcript(for: entry.sessionID)
-        let userEntries = transcript.filter { $0.role == .user }
+        let userEntries = transcript.filter(\.isProviderBackedUserMessage)
         guard let index = userEntries.firstIndex(where: { $0.id == entry.id }) else { return }
         let attachments = entry.userAttachments
         piAgentRunner.fork(
