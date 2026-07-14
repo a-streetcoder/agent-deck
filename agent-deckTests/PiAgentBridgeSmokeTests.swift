@@ -188,6 +188,187 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         })
     }
 
+    func testAttachmentOnlyTranscriptProjectionLeavesCanonicalTextAndRPCPromptsUnchanged() throws {
+        let harness = try PiTestSupport.makeBridgeHarness(event: [
+            "type": "response",
+            "command": "get_state",
+            "success": true,
+            "data": ["isStreaming": false]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Attachments", project: try PiTestSupport.makeProject(), repository: nil)
+        let image = PiAgentImageAttachment(name: "image.png", mimeType: "image/png", data: "aGVsbG8=", sizeBytes: 5)
+        let paste = PiAgentPasteAttachment(id: 1, marker: "[paste #1 12 chars]", text: "pasted text")
+        let issue = try makeIssueAttachment(isPullRequest: false)
+        let pullRequest = try makeIssueAttachment(isPullRequest: true)
+
+        runner.resume(
+            session: session,
+            initialPrompt: "<github-issue-context>issue RPC context</github-issue-context>",
+            transcriptText: "",
+            images: [image],
+            issueAttachment: issue
+        )
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+        XCTAssertTrue(PiTestSupport.waitUntil { runner.isRunning(sessionID: session.id) })
+        XCTAssertTrue(PiTestSupport.waitUntil { store.sessions.first(where: { $0.id == session.id })?.status == .idle })
+
+        let attachmentOnly = "<file name=\"/tmp/notes.txt\"></file>\nfolder: `/tmp/reports`\n\(paste.marker)"
+        runner.send(attachmentOnly, mode: .prompt, to: session.id, images: [image], pasteAttachments: [paste], issueAttachment: pullRequest)
+        runner.send("", mode: .prompt, to: session.id, images: [image, image])
+        runner.send("Keep this explicit text.", mode: .prompt, to: session.id, images: [image], issueAttachment: issue)
+
+        XCTAssertTrue(PiTestSupport.waitUntil { store.transcript(for: session.id).filter { $0.role == .user }.count == 4 })
+        let entries = store.transcript(for: session.id).filter { $0.role == .user }
+        XCTAssertEqual(entries[0].text, "<file name=\"image.png\"></file>")
+        XCTAssertTrue(entries[1].text.contains("Attached files:\n- notes.txt"), "Canonical inline file syntax remains represented for the transcript renderer.")
+        XCTAssertFalse(entries[1].text.contains("Attached a pull request"))
+        XCTAssertEqual(entries[1].userAttachments?.images, [image], "Image chips remain in the persisted attachment payload.")
+        XCTAssertEqual(entries[1].userAttachments?.issue, pullRequest)
+        XCTAssertEqual(entries[1].userAttachments?.pastes, [paste])
+        XCTAssertEqual(entries[2].text, "<file name=\"image.png\"></file>\n<file name=\"image.png\"></file>")
+        XCTAssertTrue(entries[3].text.hasPrefix("Keep this explicit text."))
+        XCTAssertFalse(entries[3].text.contains("Attached an issue"))
+
+        XCTAssertEqual(PiAgentUserMessageContent.displayMessageText(for: entries[0]), "Attached an issue and an image.")
+        XCTAssertEqual(PiAgentUserMessageContent.displayMessageText(for: entries[1]), "Attached a pull request, an image, a file, a folder, and a text paste.")
+        XCTAssertEqual(PiAgentUserMessageContent.displayMessageText(for: entries[2]), "Attached 2 images.")
+        XCTAssertEqual(PiAgentUserMessageContent.displayMessageText(for: entries[3]), "Keep this explicit text.")
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            rpcPromptMessages(in: harness.stdinLog).contains("Keep this explicit text.\n\n<file name=\"image.png\"></file>")
+        })
+        let messages = rpcPromptMessages(in: harness.stdinLog)
+        XCTAssertEqual(messages, [
+            "<github-issue-context>issue RPC context</github-issue-context>\n\n<file name=\"image.png\"></file>",
+            "<file name=\"/tmp/notes.txt\"></file>\nfolder: `/tmp/reports`\n[paste #1 12 chars]\n\n<file name=\"image.png\"></file>",
+            "<file name=\"image.png\"></file>\n<file name=\"image.png\"></file>",
+            "Keep this explicit text.\n\n<file name=\"image.png\"></file>"
+        ])
+        XCTAssertFalse(messages.contains { $0.contains("Attached an issue") || $0.contains("Attached a pull request") })
+    }
+
+    func testQueuedStartupAttachmentProjectionKeepsCanonicalTranscriptAndRPC() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-queued-attachment-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        try "#!/bin/sh\ncat > \(PiTestSupport.shellSingleQuoted(stdinLog.path))\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        var discoveryContinuation: CheckedContinuation<Void, Never>?
+        runner.mcpCatalogProvider = { _ in
+            await withCheckedContinuation { discoveryContinuation = $0 }
+            return nil
+        }
+        let session = store.createSession(kind: .project, title: "Queued Attachments", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+        let image = PiAgentImageAttachment(name: "queued.png", mimeType: "image/png", data: "aGVsbG8=", sizeBytes: 5)
+        let issue = try makeIssueAttachment(isPullRequest: false)
+
+        runner.resume(session: session)
+        let discoveryStarted = await PiTestSupport.waitUntilAsync { discoveryContinuation != nil }
+        XCTAssertTrue(discoveryStarted)
+        runner.send("queued issue RPC context", mode: .steer, to: session.id, transcriptText: "", images: [image], issueAttachment: issue)
+        let entry = try XCTUnwrap(store.transcript(for: session.id).last(where: { $0.role == .user }))
+        XCTAssertEqual(entry.text, "<file name=\"queued.png\"></file>")
+        XCTAssertEqual(PiAgentUserMessageContent.displayMessageText(for: entry), "Attached an issue and an image.")
+
+        discoveryContinuation?.resume()
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+        let queuedInputDelivered = await PiTestSupport.waitUntilAsync {
+            rpcPromptMessages(in: stdinLog).contains("queued issue RPC context\n\n<file name=\"queued.png\"></file>")
+        }
+        XCTAssertTrue(queuedInputDelivered)
+        XCTAssertEqual(rpcPromptMessages(in: stdinLog), ["queued issue RPC context\n\n<file name=\"queued.png\"></file>"])
+    }
+
+    func testRunnerRerunMatchesAndResendsCanonicalAttachmentTextWithoutTranscriptProjection() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-rerun-attachment-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let forkSessionFile = directory.appendingPathComponent("fork.jsonl")
+        let canonical = #"<file name="shot.png"></file>"#
+        let script = """
+        #!/bin/sh
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> \(PiTestSupport.shellSingleQuoted(stdinLog.path))
+          case "$line" in
+            *'"type":"get_fork_messages"'*)
+              printf '%s\\n' '{"type":"response","command":"get_fork_messages","success":true,"data":{"messages":[{"entryId":"fork-entry","text":"<file name=\\"shot.png\\"></file>"}]}}'
+              ;;
+            *'"type":"fork"'*)
+              printf '%s\\n' '{"type":"response","command":"fork","success":true,"data":{"text":"<file name=\\"shot.png\\"></file>"}}'
+              ;;
+            *'"type":"get_state"'*)
+              printf '%s\\n' '{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"\(forkSessionFile.path)","sessionId":"fork-session","isStreaming":false}}'
+              ;;
+          esac
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Rerun Attachments", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+        let image = PiAgentImageAttachment(name: "shot.png", mimeType: "image/png", data: "aGVsbG8=", sizeBytes: 5)
+        let rawJSON = String(data: try JSONEncoder().encode(PiAgentUserEntryAttachments(images: [image], pastes: nil, issue: nil)), encoding: .utf8)
+        let sourceEntry = PiAgentTranscriptEntry(sessionID: session.id, role: .user, title: "Prompt", text: canonical, rawJSON: rawJSON)
+        store.append(sourceEntry)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+        XCTAssertTrue(PiTestSupport.waitUntil { runner.isRunning(sessionID: session.id) })
+        runner.fork(
+            sessionID: session.id,
+            userMessageText: canonical,
+            userMessageIndex: 0,
+            sourceEntryID: sourceEntry.id,
+            rerun: .init(images: [image])
+        )
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            rpcPromptMessages(in: stdinLog).contains(canonical)
+        })
+        XCTAssertEqual(rpcPromptMessages(in: stdinLog), [canonical])
+        let resentEntry = try XCTUnwrap(store.transcript(for: session.id).last(where: { $0.role == .user }))
+        XCTAssertEqual(resentEntry.text, canonical)
+        XCTAssertEqual(resentEntry.userAttachments?.images, [image], "Re-run retains the original image payload even though its canonical message already has the file tag.")
+    }
+
+    private func rpcPromptMessages(in logURL: URL) -> [String] {
+        guard let content = try? String(contentsOf: logURL, encoding: .utf8) else { return [] }
+        return content.split(separator: "\n").compactMap { line in
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["type"] as? String == "prompt",
+                  let message = object["message"] as? String else {
+                return nil
+            }
+            return message
+        }
+    }
+
+    private func makeIssueAttachment(isPullRequest: Bool) throws -> PiAgentIssueAttachment {
+        let kind = isPullRequest ? "pulls" : "issues"
+        let json = """
+        {"repository":"owner/repo","number":42,"title":"Attachment","url":"https://github.com/owner/repo/\(kind)/42","state":"OPEN","isPullRequest":\(isPullRequest),"labels":[],"assignees":[],"createdAt":0,"updatedAt":0,"body":"","subIssues":[],"blockedBy":[],"blocking":[],"comments":[]}
+        """
+        return try JSONDecoder().decode(PiAgentIssueAttachment.self, from: XCTUnwrap(json.data(using: .utf8)))
+    }
+
     func testPromptSendIncludesSteerFallbackWhenLocalStatusIsIdleButClientIsRunning() throws {
         let harness = try PiTestSupport.makeBridgeHarness(event: [
             "type": "response",

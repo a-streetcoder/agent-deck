@@ -92,6 +92,24 @@ final class PiAgentForkSemanticsTests: XCTestCase {
             "re-run sends the message itself; nothing parked in the composer")
     }
 
+    func testForkSeedUsesCanonicalAttachmentSyntaxNotTranscriptProjection() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let parent = try makeParent(in: store)
+        let canonical = "<file name=\"shot.png\"></file>"
+        let entry = PiAgentTranscriptEntry(sessionID: parent.id, role: .user, title: "You", text: canonical)
+        store.append(entry)
+
+        let fork = store.forkSession(
+            from: parent,
+            newPiSessionFile: "/tmp/fork-attachment.jsonl",
+            newPiSessionId: "pi-fork-attachment",
+            composerSeed: entry.text
+        )
+
+        XCTAssertEqual(store.composerDraft(for: fork.id).text, canonical)
+        XCTAssertEqual(fork.forkedFromUserMessageText, canonical)
+    }
+
     /// Re-run resends the original attachments — they must round-trip through
     /// the transcript entry's rawJSON exactly as the runner recorded them.
     func testUserEntryAttachmentsRoundTrip() throws {

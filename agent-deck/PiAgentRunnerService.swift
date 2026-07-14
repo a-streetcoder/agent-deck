@@ -1190,13 +1190,35 @@ final class PiAgentRunnerService {
         return UUID().uuidString.lowercased()
     }
 
+    /// Builds the canonical Pi RPC prompt. Attachment-only transcript labels are
+    /// projected by the renderer and must never change this source text.
     private func userMessage(_ text: String, images: [PiAgentImageAttachment]) -> String {
-        let base = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Please inspect the attached image(s)." : text
+        let base = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !images.isEmpty else { return base }
-        let fileTags = images.map { image in
-            "<file name=\"\(image.fileReference ?? image.name)\">\(image.dimensionNote ?? "")</file>"
-        }.joined(separator: "\n")
-        return "\(base)\n\n\(fileTags)"
+
+        // A re-run receives Pi's original message text as its composer seed and
+        // the original image payloads separately. That text already contains the
+        // image file tags, so append only tags that are not already represented.
+        // The payloads are still passed to PiRPCClient unchanged.
+        var existingTagCounts: [String: Int] = [:]
+        for image in images {
+            let tag = imageFileTag(for: image)
+            existingTagCounts[tag] = base.components(separatedBy: tag).count - 1
+        }
+        var emittedTagCounts: [String: Int] = [:]
+        let missingTags = images.compactMap { image -> String? in
+            let tag = imageFileTag(for: image)
+            let emittedCount = emittedTagCounts[tag, default: 0]
+            emittedTagCounts[tag] = emittedCount + 1
+            return emittedCount < existingTagCounts[tag, default: 0] ? nil : tag
+        }
+        guard !missingTags.isEmpty else { return base }
+        let fileTags = missingTags.joined(separator: "\n")
+        return base.isEmpty ? fileTags : "\(base)\n\n\(fileTags)"
+    }
+
+    private func imageFileTag(for image: PiAgentImageAttachment) -> String {
+        "<file name=\"\(image.fileReference ?? image.name)\">\(image.dimensionNote ?? "")</file>"
     }
 
     private func transcriptTitle(for mode: PiAgentInputMode, isStreaming: Bool) -> String {

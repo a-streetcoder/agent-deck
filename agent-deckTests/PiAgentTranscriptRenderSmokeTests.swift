@@ -103,6 +103,25 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         XCTAssertFalse(font(in: neutral, substring: "Quote")?.fontDescriptor.symbolicTraits.contains(.italic) == true)
     }
 
+    func testAttachmentOnlyProjectionIsSharedBySwiftUIAndNativeQuestionPayload() throws {
+        let image = PiAgentImageAttachment(name: "capture.png", mimeType: "image/png", data: "aGVsbG8=", sizeBytes: 5)
+        let rawJSON = String(data: try JSONEncoder().encode(PiAgentUserEntryAttachments(images: [image], pastes: nil, issue: nil)), encoding: .utf8)
+        let entry = PiAgentTranscriptEntry(
+            sessionID: UUID(),
+            role: .user,
+            title: "Prompt",
+            text: "<file name=\"capture.png\"></file>",
+            rawJSON: rawJSON
+        )
+
+        let projected = PiAgentUserMessageContent.displayMessageText(for: entry)
+        XCTAssertEqual(projected, "Attached an image.")
+        let payload = NativeQuestionPayload.make(entry: entry, skills: [], commandSlashNames: [], fork: nil)
+        XCTAssertEqual(payload.markdownSource, projected)
+        XCTAssertEqual(payload.copyText, entry.text, "Copy/fork source remains canonical.")
+        XCTAssertGreaterThan(PiAgentUserMessageContent.displayChipsNaturalWidth(for: entry), 0)
+    }
+
     func testImagesOffProjectsAutomaticImageMarkupWithoutChangingCopySource() {
         let markdownURL = "https://example.com/markdown.png"
         let htmlURL = "https://example.com/html.png"

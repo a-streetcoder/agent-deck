@@ -2873,15 +2873,19 @@ struct PiAgentUserMessageContent: View {
     @MainActor
     static func displayMessageText(for entry: PiAgentTranscriptEntry, skills: [SkillRecord] = [], commandSlashNames: Set<String> = []) -> String {
         let parsed = parsedContent(for: entry)
-        if parsed.skillInvocation != nil { return parsed.messageText }
-        if let inactive = inactiveSkillMatch(for: entry, parsed: parsed, skills: skills) {
-            return inactive.remainingText
+        let visibleText: String
+        if parsed.skillInvocation != nil {
+            visibleText = parsed.messageText
+        } else if let inactive = inactiveSkillMatch(for: entry, parsed: parsed, skills: skills) {
+            visibleText = inactive.remainingText
+        } else if let cmd = parsed.bareSlashInvocation {
+            visibleText = commandSlashNames.contains(cmd)
+                ? parsed.messageText
+                : (parsed.messageText.isEmpty ? "/\(cmd)" : "/\(cmd) \(parsed.messageText)")
+        } else {
+            visibleText = parsed.messageText
         }
-        if let cmd = parsed.bareSlashInvocation {
-            if commandSlashNames.contains(cmd) { return parsed.messageText }
-            return parsed.messageText.isEmpty ? "/\(cmd)" : "/\(cmd) \(parsed.messageText)"
-        }
-        return parsed.messageText
+        return visibleText.isEmpty ? attachmentSummary(for: parsed) : visibleText
     }
 
     /// Natural unwrapped width of the chip row this bubble will draw, so the
@@ -2912,33 +2916,35 @@ struct PiAgentUserMessageContent: View {
         return ChipLabelWidth.rowWidth(forLabels: labels)
     }
 
-    /// The text drawn by the bubble's MarkdownTextView. Strips the skill prefix
-    /// always (since `/skill:` is unambiguous), the command prefix only when
-    /// the bare slash matches an active command, and the inactive-skill body
-    /// when the message text begins with a known skill's body (leaving any
-    /// trailing user text).
+    /// The text drawn by the bubble. This is a display projection only: copy,
+    /// fork, and re-run continue to use the canonical `entry.text`.
     private var messageText: String {
-        if parsedContent.skillInvocation != nil { return parsedContent.messageText }
-        if let inactive = Self.inactiveSkillMatch(for: entry, parsed: parsedContent, skills: skills) {
-            return inactive.remainingText
-        }
-        if let cmd = parsedContent.bareSlashInvocation, commandSlashNames.contains(cmd) {
-            return parsedContent.messageText
-        }
-        return originalMessageText
+        Self.displayMessageText(for: entry, skills: skills, commandSlashNames: commandSlashNames)
     }
-    /// `messageText` with any slash invocation re-prepended — used when we
-    /// chose NOT to render a chip (so the slash reads as literal user text).
-    private var originalMessageText: String {
-        if let skill = parsedContent.skillInvocation {
-            let body = parsedContent.messageText
-            return body.isEmpty ? "/skill:\(skill)" : "/skill:\(skill)\n\(body)"
+
+    private static func attachmentSummary(for parsed: ParsedContent) -> String {
+        var descriptions: [String] = []
+        if let issue = parsed.issueAttachment {
+            descriptions.append(issue.isPullRequest ? "a pull request" : "an issue")
         }
-        if let cmd = parsedContent.bareSlashInvocation {
-            let body = parsedContent.messageText
-            return body.isEmpty ? "/\(cmd)" : "/\(cmd) \(body)"
+        appendAttachmentDescription(&descriptions, count: parsed.imageAttachments.count + parsed.legacyImageNames.count, singular: "image", plural: "images", article: "an")
+        appendAttachmentDescription(&descriptions, count: parsed.fileAttachments.count, singular: "file", plural: "files", article: "a")
+        appendAttachmentDescription(&descriptions, count: parsed.folderAttachments.count, singular: "folder", plural: "folders", article: "a")
+        appendAttachmentDescription(&descriptions, count: parsed.pasteAttachments.count, singular: "text paste", plural: "text pastes", article: "a")
+        guard !descriptions.isEmpty else { return "" }
+        switch descriptions.count {
+        case 1:
+            return "Attached \(descriptions[0])."
+        case 2:
+            return "Attached \(descriptions.joined(separator: " and "))."
+        default:
+            return "Attached \(descriptions.dropLast().joined(separator: ", ")), and \(descriptions.last!)."
         }
-        return parsedContent.messageText
+    }
+
+    private static func appendAttachmentDescription(_ descriptions: inout [String], count: Int, singular: String, plural: String, article: String) {
+        guard count > 0 else { return }
+        descriptions.append(count == 1 ? "\(article) \(singular)" : "\(count) \(plural)")
     }
     private var imageAttachments: [PiAgentImageAttachment] { parsedContent.imageAttachments }
     private var folderAttachments: [FolderAttachmentPreview] { parsedContent.folderAttachments }
