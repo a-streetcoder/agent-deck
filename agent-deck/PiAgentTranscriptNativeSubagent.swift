@@ -329,8 +329,7 @@ final class PiAgentNativeAgentBlockView: NSView {
 
         // Model identifier beside the name — bare condensed text via the
         // shared AppTheme.IdentifierPill style. No wrapping view; the row
-        // center-aligns mixed font sizes so the model text sits visually
-        // centered beside the larger agent name.
+        // aligns mixed font sizes on their first text baseline.
         modelLabel.font = AppTheme.IdentifierPill.nsFont()
         modelLabel.textColor = AppTheme.ns(AppTheme.mutedText)
         modelLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -367,7 +366,7 @@ final class PiAgentNativeAgentBlockView: NSView {
         let nameRow = NSStackView(views: [nameLabel, modelLabel, tokensLabel])
         nameRow.orientation = .horizontal
         nameRow.spacing = 8
-        nameRow.alignment = .centerY
+        nameRow.alignment = .firstBaseline
         let titleStack = NSStackView(views: [nameRow, metaLabel])
         titleStack.orientation = .vertical
         titleStack.alignment = .leading
