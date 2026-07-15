@@ -349,6 +349,7 @@ private struct AppListKeyboardNavigation: ViewModifier {
                 .focused($isFocused)
                 .focusEffectDisabled()
                 .onMoveCommand { direction in
+                    guard direction == .up || direction == .down else { return }
                     if let onArrowNavigate {
                         onArrowNavigate(direction)
                     } else {
