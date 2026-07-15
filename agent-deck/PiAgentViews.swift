@@ -7723,6 +7723,50 @@ struct PiAgentScreen: View {
     }
 }
 
+private struct ComputerUseChatGPTStartSheet: View {
+    let onCancel: () -> Void
+    let onContinueWithoutOpening: () -> Void
+    let onOpenChatGPT: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            AppSheetHeader(
+                systemImage: "desktopcomputer",
+                title: "Start ChatGPT for Computer Use"
+            ) {
+                EmptyView()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This session has trusted Computer Use enabled. ChatGPT must be running and signed in to an eligible account before Computer Use can be used.")
+                    .font(.callout)
+                Text("You can open ChatGPT now, or continue without opening it.")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(18)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .appSecondaryButton()
+                    .keyboardShortcut(.cancelAction)
+                Button("Continue Without Opening", action: onContinueWithoutOpening)
+                    .appSecondaryButton()
+                Button("Open ChatGPT", action: onOpenChatGPT)
+                    .appPrimaryButton()
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(18)
+        }
+        .frame(width: 460)
+        .background(AppTheme.windowBackground)
+    }
+}
+
 private struct PiAgentComposerPanel: View {
     var viewModel: AppViewModel
     var store: PiAgentSessionStore
@@ -7953,19 +7997,17 @@ private struct PiAgentComposerPanel: View {
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
         }
-        .alert(
-            "Open ChatGPT to use Computer Use?",
+        .sheet(
             isPresented: Binding(
                 get: { viewModel.isComputerUseChatGPTStartAlertPresented },
                 set: { if !$0 { viewModel.cancelPendingComputerUseSessionStart() } }
             )
         ) {
-            Button("Cancel", role: .cancel) { viewModel.cancelPendingComputerUseSessionStart() }
-            Button("Continue") { completePendingComputerUseSessionStart(openChatGPT: false) }
-            Button("Open ChatGPT") { completePendingComputerUseSessionStart(openChatGPT: true) }
-                .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("This session has trusted Computer Use enabled. ChatGPT must be running and signed in to an eligible account before Computer Use can be used. You can open ChatGPT now or continue without starting it.")
+            ComputerUseChatGPTStartSheet(
+                onCancel: { viewModel.cancelPendingComputerUseSessionStart() },
+                onContinueWithoutOpening: { completePendingComputerUseSessionStart(openChatGPT: false) },
+                onOpenChatGPT: { completePendingComputerUseSessionStart(openChatGPT: true) }
+            )
         }
     }
 
