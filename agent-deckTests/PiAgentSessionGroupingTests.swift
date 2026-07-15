@@ -338,6 +338,70 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertEqual(sections.map(\.title), ["alpha", "zeta"])
     }
 
+    func testPreviousSessionsInitiallyRevealFifteenNewest() throws {
+        let sessions = try (0..<40).map { index in
+            try makeSession(title: "previous-\(index)", updatedAt: now.addingTimeInterval(-Double(index)))
+        }
+
+        let split = PiAgentSessionGrouping.previousSessionsSplit(
+            sessions: Array(sessions.reversed()),
+            visibleLimit: PiAgentSessionGrouping.previousSessionsPageSize,
+            selectedSessionID: nil
+        )
+
+        XCTAssertEqual(split.preview.count, 15)
+        XCTAssertEqual(split.hidden.count, 25)
+        XCTAssertEqual(split.preview.map(\.title), (0..<15).map { "previous-\($0)" })
+    }
+
+    func testPreviousSessionsRevealInFixedFifteenRowSteps() throws {
+        let sessions = try (0..<40).map { index in
+            try makeSession(title: "previous-\(index)", updatedAt: now.addingTimeInterval(-Double(index)))
+        }
+
+        let first = PiAgentSessionGrouping.previousSessionsSplit(sessions: sessions, visibleLimit: 15, selectedSessionID: nil)
+        let second = PiAgentSessionGrouping.previousSessionsSplit(sessions: sessions, visibleLimit: 30, selectedSessionID: nil)
+        let third = PiAgentSessionGrouping.previousSessionsSplit(sessions: sessions, visibleLimit: 45, selectedSessionID: nil)
+
+        XCTAssertEqual(first.preview.count, 15)
+        XCTAssertEqual(second.preview.count, 30)
+        XCTAssertEqual(third.preview.count, 40)
+        XCTAssertTrue(third.hidden.isEmpty)
+    }
+
+    func testPreviousSessionsKeepSelectedOlderRowVisibleWithoutDroppingNewest() throws {
+        let sessions = try (0..<40).map { index in
+            try makeSession(title: "previous-\(index)", updatedAt: now.addingTimeInterval(-Double(index)))
+        }
+        let selected = sessions[30]
+
+        let split = PiAgentSessionGrouping.previousSessionsSplit(
+            sessions: sessions,
+            visibleLimit: 15,
+            selectedSessionID: selected.id
+        )
+
+        XCTAssertEqual(split.preview.count, 16)
+        XCTAssertEqual(split.preview.prefix(15).map(\.id), sessions.prefix(15).map(\.id))
+        XCTAssertEqual(split.preview.last?.id, selected.id)
+        XCTAssertFalse(split.hidden.contains(where: { $0.id == selected.id }))
+    }
+
+    func testPreviousSessionsUncappedModeReturnsEverySearchMatch() throws {
+        let sessions = try (0..<40).map { index in
+            try makeSession(title: "match-\(index)", updatedAt: now.addingTimeInterval(-Double(index)))
+        }
+
+        let split = PiAgentSessionGrouping.previousSessionsSplit(
+            sessions: sessions,
+            visibleLimit: nil,
+            selectedSessionID: nil
+        )
+
+        XCTAssertEqual(split.preview.count, 40)
+        XCTAssertTrue(split.hidden.isEmpty)
+    }
+
     func testPreviousSectionStyleSurvivesItemRefresh() throws {
         let session = try makeSession(title: "previous", updatedAt: now)
         let section = PiAgentSessionListSection(

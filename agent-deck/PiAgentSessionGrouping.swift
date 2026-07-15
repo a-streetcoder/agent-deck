@@ -23,6 +23,7 @@ enum PiAgentSessionGrouping {
 
     /// Identity of the flat trailing list shown after focused project groups.
     static let previousSessionsSectionID = "agent-deck.session-group.previous"
+    static let previousSessionsPageSize = 15
 
     /// Splits the filtered global session set into the focused population and
     /// its exact-recency-sorted remainder. The caller supplies the focus rule so
@@ -37,6 +38,28 @@ enum PiAgentSessionGrouping {
             .filter { !focusedIDs.contains($0.id) }
             .sorted { PiAgentSessionRecord.sessionListPrecedesExact($0, $1) }
         return PiAgentSessionFocusPartition(focused: focused, previous: previous)
+    }
+
+    /// Applies the flat Previous Sessions reveal limit. Search/filter callers
+    /// pass nil to expose every match. A selected older row is unioned into the
+    /// preview so selection never points at a hidden session.
+    static func previousSessionsSplit(
+        sessions: [PiAgentSessionRecord],
+        visibleLimit: Int?,
+        selectedSessionID: UUID?
+    ) -> PiAgentSessionPreviewSplit {
+        let sorted = sessions.sorted { PiAgentSessionRecord.sessionListPrecedesExact($0, $1) }
+        guard let visibleLimit else {
+            return PiAgentSessionPreviewSplit(all: sorted, preview: sorted, hidden: [])
+        }
+
+        var visibleIDs = Set(sorted.prefix(max(0, visibleLimit)).map(\.id))
+        if let selectedSessionID, sorted.contains(where: { $0.id == selectedSessionID }) {
+            visibleIDs.insert(selectedSessionID)
+        }
+        let preview = sorted.filter { visibleIDs.contains($0.id) }
+        let hidden = sorted.filter { !visibleIDs.contains($0.id) }
+        return PiAgentSessionPreviewSplit(all: sorted, preview: preview, hidden: hidden)
     }
 
     /// Split one project's sessions into the preview set and the hidden set.

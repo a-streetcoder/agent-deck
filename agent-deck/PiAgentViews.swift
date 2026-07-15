@@ -3856,6 +3856,7 @@ private struct SessionListContent: View, Equatable {
     let onRename: (UUID, String) -> Void
     let onDelete: (UUID) -> Void
     let onSetPinned: (UUID, Bool) -> Void
+    let onShowMorePrevious: () -> Void
     /// Toggle a project group's "Show more/less" state.
     let onToggleExpand: (String) -> Void
     /// Toggle a project group's disclosure collapse (header-only / expanded).
@@ -3933,7 +3934,7 @@ private struct SessionListContent: View, Equatable {
             AppListSection(
                 id: section.id,
                 header: section.style == .previous
-                    ? AnyView(PiAgentPreviousSessionsHeader(count: section.totalCount))
+                    ? AnyView(PiAgentPreviousSessionsHeader())
                     : (shouldShowHeader(for: section)
                         ? AnyView(PiAgentSessionGroupHeader(
                             section: section,
@@ -3941,12 +3942,7 @@ private struct SessionListContent: View, Equatable {
                             onCreateSession: { onCreateSessionForProject(section.id) }
                         ))
                         : nil),
-                footer: shouldShowFooter(for: section)
-                    ? AnyView(PiAgentSessionGroupFooter(
-                        section: section,
-                        onToggleShowMore: { onToggleExpand(section.id) }
-                    ))
-                    : nil,
+                footer: footer(for: section),
                 items: section.items
             )
         }
@@ -3960,8 +3956,16 @@ private struct SessionListContent: View, Equatable {
         isGrouped
     }
 
-    private func shouldShowFooter(for section: PiAgentSessionListSection) -> Bool {
-        section.style == .project && isGrouped && !section.isCollapsed && (section.hiddenCount > 0 || section.isShowMoreActive)
+    private func footer(for section: PiAgentSessionListSection) -> AnyView? {
+        if section.style == .previous {
+            guard section.hiddenCount > 0 else { return nil }
+            return AnyView(PiAgentPreviousSessionsFooter(hiddenCount: section.hiddenCount, onShowMore: onShowMorePrevious))
+        }
+        guard isGrouped && !section.isCollapsed && (section.hiddenCount > 0 || section.isShowMoreActive) else { return nil }
+        return AnyView(PiAgentSessionGroupFooter(
+            section: section,
+            onToggleShowMore: { onToggleExpand(section.id) }
+        ))
     }
 
     @ViewBuilder
@@ -4115,17 +4119,12 @@ private struct PiAgentSessionGroupFooter: View {
 }
 
 private struct PiAgentPreviousSessionsHeader: View {
-    let count: Int
-
     var body: some View {
         HStack(spacing: 6) {
             Text("Previous Sessions")
                 .font(AppTheme.Font.footnote.weight(.semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(.primary)
-            Text("\(count)")
-                .font(AppTheme.Font.caption2.weight(.medium))
-                .foregroundStyle(AppTheme.mutedText)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
@@ -4137,6 +4136,31 @@ private struct PiAgentPreviousSessionsHeader: View {
                 .frame(height: 1)
                 .padding(.horizontal, 2)
         }
+    }
+}
+
+private struct PiAgentPreviousSessionsFooter: View {
+    let hiddenCount: Int
+    let onShowMore: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onShowMore) {
+            Text("Show more")
+                .font(AppTheme.Font.footnote.weight(.semibold))
+                .foregroundStyle(isHovering ? AppTheme.brandAccentBright : AppTheme.brandAccent)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovering ? AppTheme.brandAccent.opacity(0.10) : Color.clear)
+        )
+        .onHover { isHovering = $0 }
+        .help("Show \(min(hiddenCount, PiAgentSessionGrouping.previousSessionsPageSize)) more previous sessions")
     }
 }
 
@@ -4182,6 +4206,7 @@ struct CodingAgentExpandedPanel: View {
     /// current session (which may have been picked from the collapsed recents
     /// while this list sat hidden at a stale scroll offset).
     @State private var sessionScrollRequest: UUID?
+    @State private var previousSessionsVisibleLimit = PiAgentSessionGrouping.previousSessionsPageSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -4236,6 +4261,7 @@ struct CodingAgentExpandedPanel: View {
                     onRename: { viewModel.renamePiAgentSession($0, title: $1) },
                     onDelete: { id in requestDeleteSessions(selectedSessionIDs.contains(id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [id]) },
                     onSetPinned: { id, pinned in setSessionPinned(id, pinned: pinned) },
+                    onShowMorePrevious: showMorePreviousSessions,
                     onToggleExpand: { projectID in
                         if viewModel.expandedProjects.contains(projectID) { viewModel.expandedProjects.remove(projectID) }
                         else { viewModel.expandedProjects.insert(projectID) }
@@ -4303,11 +4329,14 @@ struct CodingAgentExpandedPanel: View {
         // later rebuild (the original first-launch "all Other" symptom).
         .onChange(of: viewModel.discoveredProjectsRevision) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: store.selectedSession?.id) { _, _ in
+            rebuildVisibleSessionsDeferredIfNeeded()
             syncMultiSelectionToSelectedSession()
-            // Keep the selected row in view for both click selection and keyboard
-            // navigation. While hidden, this still pre-positions the list before
-            // the next expand; while active, it tracks ↑/↓ and ⌘]/⌘[ jumps.
-            sessionScrollRequest = store.selectedSession?.id
+            // Rebuild first so a selected older Previous session is included
+            // before AppList consumes the scroll request.
+            Task { @MainActor in
+                await Task.yield()
+                sessionScrollRequest = store.selectedSession?.id
+            }
         }
         .onChange(of: visibleSessionIDs) { _, _ in
             syncVisibleSessionSelection()
@@ -4540,6 +4569,11 @@ struct CodingAgentExpandedPanel: View {
             touchedThisRunSessionIDs: viewModel.piAgentSessionsTouchedThisRunIDs
         )
         if !partition.previous.isEmpty {
+            let previousSplit = PiAgentSessionGrouping.previousSessionsSplit(
+                sessions: partition.previous,
+                visibleLimit: query.isEmpty && !viewModel.showPiAgentAttentionOnly ? previousSessionsVisibleLimit : nil,
+                selectedSessionID: store.selectedSession?.id
+            )
             sections.append(PiAgentSessionListSection(
                 id: PiAgentSessionGrouping.previousSessionsSectionID,
                 title: "Previous Sessions",
@@ -4547,16 +4581,21 @@ struct CodingAgentExpandedPanel: View {
                 iconFileURL: nil,
                 fallbackSymbolName: "clock",
                 assetName: nil,
-                items: partition.previous,
-                hiddenCount: 0,
+                items: previousSplit.preview,
+                hiddenCount: previousSplit.hidden.count,
                 isShowMoreActive: false,
                 isCollapsed: false,
-                totalCount: partition.previous.count,
+                totalCount: previousSplit.all.count,
                 style: .previous,
                 isProjectGroup: false
             ))
         }
         return sections
+    }
+
+    private func showMorePreviousSessions() {
+        previousSessionsVisibleLimit += PiAgentSessionGrouping.previousSessionsPageSize
+        rebuildVisibleSessionsDeferredIfNeeded()
     }
 
     private var workingVisibleSessionIDs: Set<UUID> {
@@ -5248,6 +5287,7 @@ struct PiAgentScreen: View {
                                     sessionScrollRequest = id
                                 }
                             },
+                            onShowMorePrevious: {},
                             onToggleExpand: { projectID in
                                 if viewModel.expandedProjects.contains(projectID) { viewModel.expandedProjects.remove(projectID) }
                                 else { viewModel.expandedProjects.insert(projectID) }
