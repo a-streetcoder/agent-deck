@@ -822,7 +822,8 @@ struct PiAgentUIRequestSheet: View {
             TextEditor(text: $draft)
                 .font(.system(.body, design: .monospaced))
                 .scrollContentBackground(.hidden)
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.never)
+                .hideNativeScrollers()
                 .padding(14)
             if draft.isEmpty {
                 Text("Type your custom response…")
