@@ -579,7 +579,6 @@ struct PiAgentUIRequestSheet: View {
     private let freeformSentinel = "✏️ Type custom response..."
     private let sheetWidth: CGFloat = 820
     private let sheetHeight: CGFloat = 600
-    private let askAccent = AppTheme.roleUser
 
     let request: PiAgentUIRequest
     let onSubmitValue: (String) -> Void
@@ -636,7 +635,7 @@ struct PiAgentUIRequestSheet: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "questionmark.bubble.fill")
                 .font(AppTheme.Font.headline)
-                .foregroundStyle(askAccent)
+                .foregroundStyle(AppTheme.brandAccent)
                 .frame(width: 22, alignment: .center)
 
             Text("Ask User")
@@ -752,7 +751,7 @@ struct PiAgentUIRequestSheet: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: selectionIcon(for: option, allowsMultiple: allowsMultiple))
                     .font(AppTheme.Font.caption.weight(.semibold))
-                    .foregroundStyle(selectedOptions.contains(option) ? askAccent : AppTheme.mutedText)
+                    .foregroundStyle(selectedOptions.contains(option) ? AppTheme.brandAccent : AppTheme.mutedText)
                     .frame(width: 18, height: 20, alignment: .center)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option)
@@ -773,7 +772,7 @@ struct PiAgentUIRequestSheet: View {
             .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous)
-                    .strokeBorder(selectedOptions.contains(option) ? askAccent.opacity(0.55) : AppTheme.contentStroke, lineWidth: selectedOptions.contains(option) ? 1 : 0.5)
+                    .strokeBorder(selectedOptions.contains(option) ? AppTheme.brandAccent.opacity(0.55) : AppTheme.contentStroke, lineWidth: selectedOptions.contains(option) ? 1 : 0.5)
             )
             .contentShape(Rectangle())
         }
@@ -813,8 +812,7 @@ struct PiAgentUIRequestSheet: View {
             text: $draft,
             placeholder: request.placeholder ?? "Response",
             axis: request.method == .editor ? .vertical : .horizontal,
-            onSubmit: { if canSubmit { submitCurrent() } },
-            accent: askAccent
+            onSubmit: { if canSubmit { submitCurrent() } }
         )
         .lineLimit(request.method == .editor ? 4...10 : 1...3)
     }
@@ -823,7 +821,6 @@ struct PiAgentUIRequestSheet: View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $draft)
                 .font(.system(.body, design: .monospaced))
-                .tint(askAccent)
                 .scrollContentBackground(.hidden)
                 .scrollIndicators(.never)
                 .hideNativeScrollers()
@@ -858,7 +855,7 @@ struct PiAgentUIRequestSheet: View {
                 Button("Cancel", action: onCancel)
                     .appSecondaryButton()
                 Button("Submit") { submitFreeform() }
-                    .appPrimaryButton(tint: askAccent)
+                    .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSubmitFreeform)
             } else if request.method == .confirm {
@@ -866,7 +863,7 @@ struct PiAgentUIRequestSheet: View {
                 Button("No") { onConfirm(false) }
                     .appSecondaryButton()
                 Button("Yes") { onConfirm(true) }
-                    .appPrimaryButton(tint: askAccent)
+                    .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                 Button("Cancel", action: onCancel)
                     .appSecondaryButton()
@@ -875,7 +872,7 @@ struct PiAgentUIRequestSheet: View {
                 Button("Cancel", action: onCancel)
                     .appSecondaryButton()
                 Button("Submit") { submitCurrent() }
-                    .appPrimaryButton(tint: askAccent)
+                    .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSubmit)
             }
@@ -955,25 +952,23 @@ private extension PiAgentUIRequest {
     }
 }
 
-#Preview("Ask User · Role User Accent") {
-    PiAgentUIRequestSheet(
-        request: PiAgentUIRequest(
-            id: "ask-user-preview",
-            sessionID: UUID(),
-            method: .input,
-            title: "How should the answer appear?",
-            message: "Describe the visual treatment the coding agent should use.",
-            options: [],
-            optionDescriptions: [:],
-            placeholder: "Your answer",
-            prefill: "Keep it right aligned and label it Answer.",
-            allowsFreeform: true,
-            allowsComment: true,
-            responseFormat: .nativeAsk
-        ),
-        onSubmitValue: { _ in },
-        onSubmitFreeform: { _, _ in },
-        onConfirm: { _ in },
-        onCancel: {}
+#if DEBUG
+#Preview("Ask User · Transcript Answer") {
+    let answer = PiAgentTranscriptEntry(
+        sessionID: UUID(),
+        role: .user,
+        title: "Ask User Response",
+        text: "Keep it right aligned, but use the Ask User symbol and call it Answer."
     )
+
+    HStack(spacing: 0) {
+        Spacer(minLength: 72)
+        PiAgentTranscriptCard(entry: answer, style: .question)
+            .frame(maxWidth: 560, alignment: .trailing)
+    }
+    .frame(width: 720, height: 120, alignment: .trailing)
+    .padding(24)
+    .background(AppTheme.windowBackground)
+    .environment(\.transcriptContentWidth, 720)
 }
+#endif

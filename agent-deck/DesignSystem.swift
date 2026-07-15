@@ -679,8 +679,7 @@ struct AppSpinner: View {
 /// bezel + ring ourselves — full theme control without an
 /// NSViewRepresentable bridge.
 ///
-/// Caret color tracks `accent`, which defaults to the app brand accent.
-/// Text-selection
+/// Caret color tracks the theme via `.appBrandTint()`. Text-selection
 /// background still pulls from the system field editor
 /// (`NSColor.selectedTextBackgroundColor`) and would need an
 /// NSViewRepresentable bridge to override; left on system since it's only
@@ -692,7 +691,6 @@ struct AppTextField: View {
     var font: Font = .body
     var axis: Axis = .horizontal
     var onSubmit: (() -> Void)? = nil
-    var accent: Color = AppTheme.brandAccent
     var cornerRadius: CGFloat = 6
     /// Optional explicit horizontal/vertical padding overrides. Defaults
     /// match native NSTextField metrics within ~1pt.
@@ -707,7 +705,7 @@ struct AppTextField: View {
             .textFieldStyle(.plain)
             .font(font)
             .focused($isFocused)
-            .tint(accent)
+            .appBrandTint()
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
             .background(
@@ -717,7 +715,7 @@ struct AppTextField: View {
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
-                        isFocused && isEnabled ? accent : AppTheme.contentStroke,
+                        isFocused && isEnabled ? AppTheme.brandAccent : AppTheme.contentStroke,
                         lineWidth: isFocused && isEnabled ? 2 : 1
                     )
             )
