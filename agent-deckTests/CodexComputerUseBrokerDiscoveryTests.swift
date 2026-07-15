@@ -35,7 +35,9 @@ final class CodexComputerUseBrokerDiscoveryTests: XCTestCase {
             "upstreamVersion": CodexComputerUseBrokerDiscovery.requiredVersion,
             "upstreamDigest": CodexComputerUseBrokerDiscovery.upstreamPackageDigest,
             "packageTreeDigest": digest,
-            "approvalHandling": "auto-accept"
+            "approvalHandling": "auto-accept",
+            "auditFileMaxBytes": CodexComputerUseBrokerDiscovery.auditFileMaxBytes,
+            "auditBackupCount": CodexComputerUseBrokerDiscovery.auditBackupCount
         ]
         try JSONSerialization.data(withJSONObject: manifest).write(
             to: variantRoot.appendingPathComponent("agent-deck-variant.json")
@@ -92,6 +94,8 @@ final class CodexComputerUseBrokerDiscoveryTests: XCTestCase {
         XCTAssertTrue(script.contains("mcpServerOpenaiFormElicitation: true"))
         XCTAssertTrue(script.contains("approvalPolicy: \"on-request\""))
         XCTAssertTrue(script.contains("action: \"accept\", content: {}"))
+        XCTAssertTrue(script.contains("maxAuditBytes = 5 * 1024 * 1024"))
+        XCTAssertTrue(script.contains("auditBackupCount\": 1"))
     }
 
     func testTamperedPackageIsRejectedEvenWhenNameAndVersionMatch() throws {

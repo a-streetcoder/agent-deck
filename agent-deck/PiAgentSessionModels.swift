@@ -300,7 +300,7 @@ enum PiSubagentExpectedOutcome: String, Codable, Hashable, CaseIterable, Identif
     }
 }
 
-struct PiAgentUsageCostBreakdown: Codable, Hashable {
+nonisolated struct PiAgentUsageCostBreakdown: Codable, Hashable {
     var input: Double?
     var output: Double?
     var cacheRead: Double?
@@ -599,7 +599,7 @@ struct PiAgentModelOption: Identifiable, Codable, Hashable {
     }
 }
 
-struct PiAgentContextBreakdownItem: Identifiable, Codable, Hashable {
+nonisolated struct PiAgentContextBreakdownItem: Identifiable, Codable, Hashable {
     var id: String { key }
 
     var key: String
@@ -940,7 +940,7 @@ struct PiAgentSessionAgentLaunchOverride: Codable, Hashable {
     var isEmpty: Bool { model == nil && thinking == nil }
 }
 
-struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
+nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     let id: UUID
     var kind: PiAgentSessionKind
     var title: String
@@ -950,6 +950,9 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var issueNumber: Int?
     var issueURL: URL?
     var piSessionFile: String?
+    /// Every Pi JSONL file owned by this logical Agent Deck session, including
+    /// prior in-place rerun branches. Session deletion removes this full set.
+    var ownedPiSessionFiles: [String]
     var piSessionId: String?
     var model: String?
     var modelProvider: String?
@@ -1027,6 +1030,17 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var createdAt: Date
     var updatedAt: Date
 
+    mutating func recordPiSessionFile(_ path: String?) {
+        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return }
+        if let current = piSessionFile, !current.isEmpty, !ownedPiSessionFiles.contains(current) {
+            ownedPiSessionFiles.append(current)
+        }
+        piSessionFile = path
+        if !ownedPiSessionFiles.contains(path) {
+            ownedPiSessionFiles.append(path)
+        }
+    }
+
     var displayTitle: String {
         if let issueNumber {
             return "#\(issueNumber) \(title)"
@@ -1087,7 +1101,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var isAgentBound: Bool { kind == .agent && (agentName?.isEmpty == false) }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
+        case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, ownedPiSessionFiles, piSessionId
         case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath, sourceBranch
         case status, lastError, lastSummary, needsAttention, lastNotificationAt, lastUserMessageAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost, costBreakdown
@@ -1158,7 +1172,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         recalledMemoryIDs: [String]? = nil,
         memoryRecallCompleted: Bool = false,
         createdAt: Date,
-        updatedAt: Date
+        updatedAt: Date,
+        ownedPiSessionFiles: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -1169,6 +1184,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.issueNumber = issueNumber
         self.issueURL = issueURL
         self.piSessionFile = piSessionFile
+        self.ownedPiSessionFiles = Array(Set((ownedPiSessionFiles ?? []) + [piSessionFile].compactMap { $0 })).sorted()
         self.piSessionId = piSessionId
         self.model = model
         self.modelProvider = modelProvider
@@ -1286,7 +1302,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             recalledMemoryIDs: try container.decodeIfPresent([String].self, forKey: .recalledMemoryIDs),
             memoryRecallCompleted: try container.decodeIfPresent(Bool.self, forKey: .memoryRecallCompleted) ?? false,
             createdAt: try container.decode(Date.self, forKey: .createdAt),
-            updatedAt: try container.decode(Date.self, forKey: .updatedAt)
+            updatedAt: try container.decode(Date.self, forKey: .updatedAt),
+            ownedPiSessionFiles: try container.decodeIfPresent([String].self, forKey: .ownedPiSessionFiles)
         )
     }
 }

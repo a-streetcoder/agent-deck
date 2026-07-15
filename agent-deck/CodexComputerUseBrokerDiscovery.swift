@@ -9,10 +9,12 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
     static let packageName = "codex-computer-use-mcp"
     static let requiredVersion = "0.2.0"
     static let upstreamPackageDigest = "5ca2b51c934c0f961bb52644ac430dd89a3dcbc772faaae6861f05030f97ab94"
-    static let variantRevision = "0.2.0-agent-deck-auto-accept.1"
+    static let variantRevision = "0.2.0-agent-deck-auto-accept.2"
     /// Canonical SHA-256 of the reviewed Agent Deck variant, including pinned
     /// runtime dependencies, modification notice, and symlink targets.
-    static let requiredPackageDigest = "a2f211c2a6b1600eb210fa0b5068269e6164974b87a9b77b7be0988f19199714"
+    static let requiredPackageDigest = "8a0343806c8f90f06f8d762aaf9fd3574987555df7cbee90446859396b183c78"
+    static let auditFileMaxBytes = 5 * 1024 * 1024
+    static let auditBackupCount = 1
 
     private struct VariantManifest: Decodable {
         let variant: String
@@ -21,6 +23,8 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
         let upstreamDigest: String
         let packageTreeDigest: String
         let approvalHandling: String
+        let auditFileMaxBytes: Int
+        let auditBackupCount: Int
     }
 
     struct Broker: Hashable, Sendable {
@@ -91,6 +95,8 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
                   manifest.upstreamDigest == upstreamPackageDigest,
                   manifest.packageTreeDigest == expectedPackageDigest,
                   manifest.approvalHandling == "auto-accept",
+                  manifest.auditFileMaxBytes == auditFileMaxBytes,
+                  manifest.auditBackupCount == auditBackupCount,
                   packageTreeDigest(at: candidate, fileManager: fileManager) == expectedPackageDigest else { continue }
 
             let stateRoot = (supportRoot ?? homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true))

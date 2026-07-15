@@ -7,7 +7,7 @@ PACKAGE_ROOT="$UPSTREAM_ROOT/node_modules/codex-computer-use-mcp"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 printf 'Computer Use broker source: %s\n' "$PACKAGE_ROOT"
-printf 'Computer Use broker variant: %s\n' "$BROKER_ROOT/Variants/0.2.0-agent-deck-auto-accept.1"
+printf 'Computer Use broker variant: %s\n' "$BROKER_ROOT/Variants/0.2.0-agent-deck-auto-accept.2"
 printf 'Computer Use broker state: %s\n' "$BROKER_ROOT/State/auto-accept.1"
 
 if [[ ! -f "$PACKAGE_ROOT/package.json" ]]; then

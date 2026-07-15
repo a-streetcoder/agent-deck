@@ -20,6 +20,8 @@ struct PiSubagentMemoryLaunchContext {
 final class PiSubagentRunService {
     private let store: PiAgentSessionStore
     private var clientsByRunID: [UUID: PiRPCClient] = [:]
+    private var parentSessionIDByRunID: [UUID: UUID] = [:]
+    private var deletedParentSessionIDs: Set<UUID> = []
     private var finalTextByRunID: [UUID: String] = [:]
     private var assistantEntryIDsByRunID: [UUID: UUID] = [:]
     private var assistantTextByRunID: [UUID: String] = [:]
@@ -65,6 +67,7 @@ final class PiSubagentRunService {
 
     @discardableResult
     func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) async throws -> PiSubagentRunRecord {
+        guard !deletedParentSessionIDs.contains(parentSession.id) else { throw NativeSubagentError.parentSessionDeleted }
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty else { throw NativeSubagentError.emptyTask }
         guard agent.resolved.disabled != true else { throw NativeSubagentError.disabledAgent(agent.name) }
@@ -74,6 +77,14 @@ final class PiSubagentRunService {
         let continuingRun = try continuableRun(parentSessionID: parentSession.id, runID: continueRunID)
         let isContinuation = continuingRun != nil
         let runID = continuingRun?.id ?? UUID()
+        parentSessionIDByRunID[runID] = parentSession.id
+        var retainsRunMapping = false
+        defer {
+            if !retainsRunMapping { parentSessionIDByRunID[runID] = nil }
+            if deletedParentSessionIDs.contains(parentSession.id) {
+                try? fileManager.removeItem(at: artifactRootURL(for: runID))
+            }
+        }
         let artifactDirectory = try isContinuation ? continuationArtifactDirectory(for: runID) : artifactDirectory(for: runID)
         let skillArguments = try childSkillArgumentsProvider?(agent, snapshot)
             ?? PiSkillLaunchResolver.childSkillArguments(agent: agent, snapshot: snapshot)
@@ -309,6 +320,7 @@ final class PiSubagentRunService {
             run.injectedMemoryIDs = memoryLaunchContext.memoryIDs
             run.injectedMemoryTitles = memoryLaunchContext.memoryTitles
         }
+        guard !deletedParentSessionIDs.contains(parentSession.id) else { throw NativeSubagentError.parentSessionDeleted }
         store.upsertSubagentRun(run)
         upsertSubagentStatusCard(run: run, parentSessionID: parentSession.id, isContinuation: isContinuation)
 
@@ -360,6 +372,7 @@ final class PiSubagentRunService {
             }
         )
         clientsByRunID[runID] = client
+        retainsRunMapping = true
         terminationHolder.client = client
         if let onCompletion {
             completionHandlersByRunID[runID] = onCompletion
@@ -411,6 +424,7 @@ final class PiSubagentRunService {
 
     func stop(runID: UUID, parentSessionID: UUID, recordTranscript: Bool = true) {
         guard let client = clientsByRunID.removeValue(forKey: runID) else { return }
+        parentSessionIDByRunID[runID] = nil
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
         client.stop()
@@ -443,6 +457,7 @@ final class PiSubagentRunService {
 
         for runID in Array(clientsByRunID.keys) {
             clientsByRunID.removeValue(forKey: runID)?.stop()
+            parentSessionIDByRunID[runID] = nil
             clearStreamingState(for: runID)
         }
 
@@ -451,6 +466,36 @@ final class PiSubagentRunService {
         }
         supervisorTimeoutTasksByRequestID.removeAll()
         completionHandlersByRunID.removeAll()
+    }
+
+    /// Stops child processes for sessions being deleted without writing final
+    /// status rows or invoking graph/loop completion callbacks.
+    @discardableResult
+    func cancelForSessionDeletion(parentSessionIDs: Set<UUID>) -> Set<UUID> {
+        deletedParentSessionIDs.formUnion(parentSessionIDs)
+        let persistedRunIDs = Set(parentSessionIDs.flatMap { parentID in
+            (store.subagentRunsBySessionID[parentID] ?? []).map(\.id)
+        })
+        let pendingRunIDs = Set(parentSessionIDByRunID.compactMap { runID, parentID in
+            parentSessionIDs.contains(parentID) ? runID : nil
+        })
+        let runIDs = persistedRunIDs.union(pendingRunIDs)
+        guard !runIDs.isEmpty else { return [] }
+
+        for parentID in parentSessionIDs {
+            for request in store.supervisorRequests(for: parentID) where runIDs.contains(request.runID) {
+                supervisorTimeoutTasksByRequestID.removeValue(forKey: request.id)?.cancel()
+            }
+        }
+        for runID in runIDs {
+            completionHandlersByRunID[runID] = nil
+            clientsByRunID.removeValue(forKey: runID)?.stop()
+            clearStreamingState(for: runID)
+            finalTextByRunID[runID] = nil
+            afterFinishHookRunIDs.remove(runID)
+            parentSessionIDByRunID[runID] = nil
+        }
+        return runIDs
     }
 
     private func handle(rawLine: String, event: PiAgentRPCEvent?, runID: UUID, parentSessionID: UUID) {
@@ -652,6 +697,7 @@ final class PiSubagentRunService {
         // run. So both "no identity" and "different identity" are treated as stale.
         guard let terminatingClient, clientsByRunID[runID] === terminatingClient else { return }
         clientsByRunID[runID] = nil
+        parentSessionIDByRunID[runID] = nil
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
         if exitCode == 0 {
@@ -882,6 +928,7 @@ final class PiSubagentRunService {
 
     private func failRun(runID: UUID, parentSessionID: UUID, message: String) {
         let client = clientsByRunID.removeValue(forKey: runID)
+        parentSessionIDByRunID[runID] = nil
         client?.stop()
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
@@ -970,12 +1017,15 @@ final class PiSubagentRunService {
         return (stdout, stderr, process.terminationStatus)
     }
 
-    private func artifactDirectory(for runID: UUID) throws -> URL {
-        let appSupport = URL.applicationSupportDirectory
-        let directory = appSupport
+    private func artifactRootURL(for runID: UUID) -> URL {
+        URL.applicationSupportDirectory
             .appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
             .appendingPathComponent("Subagent Runs", isDirectory: true)
             .appendingPathComponent(runID.uuidString, isDirectory: true)
+    }
+
+    private func artifactDirectory(for runID: UUID) throws -> URL {
+        let directory = artifactRootURL(for: runID)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
@@ -1471,6 +1521,7 @@ private enum NativeSubagentError: LocalizedError {
     case emptyTask
     case disabledAgent(String)
     case noProjectUnavailable
+    case parentSessionDeleted
     case worktreeFailed(String)
     case continuationUnavailable(String)
 
@@ -1482,6 +1533,8 @@ private enum NativeSubagentError: LocalizedError {
             return "Agent \(name) is disabled."
         case .noProjectUnavailable:
             return "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
+        case .parentSessionDeleted:
+            return "The parent session was deleted before the Deck agent could start."
         case let .worktreeFailed(message):
             return "Could not create Deck agent worktree: \(message)"
         case let .continuationUnavailable(message):

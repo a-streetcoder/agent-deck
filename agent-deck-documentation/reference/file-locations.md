@@ -14,7 +14,10 @@ This page lists the important paths Agent Deck scans or writes.
 | Pi global env | `~/.pi/agent/.env` |
 | Pi project env | `PROJECT/.pi/.env` |
 | Agent Deck app data | `~/Library/Application Support/Agent Deck/` |
-| Native subagent artifacts | `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/` |
+| Pi parent session history | `~/.pi/agent/sessions/**/<session>.jsonl` |
+| Agent Deck transcript records | `~/Library/Application Support/Agent Deck/agent-session-transcripts/parent-<session-id>.json` |
+| Session-owned transcript and MCP images | `~/Library/Application Support/Agent Deck/agent-session-transcripts/<parent-session-id>/images/` |
+| Native subagent artifacts and child Pi sessions | `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/` |
 
 ## Agents
 
@@ -66,8 +69,8 @@ Project-specific availability is controlled by Agent Deck assignment state. Agen
 | Pi project MCP config (read-only in Agent Deck) | `PROJECT/.pi/mcp.json` |
 | Explicit `+` sheet import sources (read-only scan, selected servers copied into `~/.pi/agent/mcp.json`) | Claude Desktop, Claude Code, and Codex config files |
 | Verified upstream Computer Use broker source (never modified in place) | `~/Library/Application Support/Agent Deck/Computer Use Broker/0.2.0/node_modules/codex-computer-use-mcp/` |
-| Agent Deck auto-accept Computer Use broker variant | `~/Library/Application Support/Agent Deck/Computer Use Broker/Variants/0.2.0-agent-deck-auto-accept.1/` |
-| Computer Use variant state and bounded audit log | `~/Library/Application Support/Agent Deck/Computer Use Broker/State/auto-accept.1/` |
+| Agent Deck auto-accept Computer Use broker variant | `~/Library/Application Support/Agent Deck/Computer Use Broker/Variants/0.2.0-agent-deck-auto-accept.2/` |
+| Computer Use variant state and bounded metadata-only audit log (5 MiB current + one 5 MiB backup) | `~/Library/Application Support/Agent Deck/Computer Use Broker/State/auto-accept.1/` |
 
 Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet. For remote MCP servers that require a pre-registered OAuth client, the optional client ID, client secret, and scopes entered in the Add/Edit sheet are stored in `mcp-auth.json`, not `mcp.json`.
 

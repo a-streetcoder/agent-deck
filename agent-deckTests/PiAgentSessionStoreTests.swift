@@ -283,6 +283,43 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(PiTestSupport.waitUntil { !FileManager.default.fileExists(atPath: sharedPath) }, "The image must be deleted after its final pending reference is removed and flushed.")
     }
 
+    func testMCPUpsertRemovesSupersededParentAndSubagentImages() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "MCP replacement", project: try PiTestSupport.makeProject(), repository: nil)
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        func entry(id: UUID, type: String) -> PiAgentTranscriptEntry {
+            let resultKey = type == "tool_execution_update" ? "partialResult" : "result"
+            let raw = """
+            {"type":"\(type)","\(resultKey)":{"content":[{"type":"image","mimeType":"image/png","data":"\(png)"}]}}
+            """
+            return .init(id: id, sessionID: session.id, role: .tool, title: "Tool: mcp", text: "", rawJSON: raw)
+        }
+
+        let parentEntryID = UUID()
+        store.upsert(entry(id: parentEntryID, type: "tool_execution_update"))
+        let parentPartialPath = try XCTUnwrap(store.transcript(for: session.id).first?.allTranscriptImageReferences.first?.localPath)
+        store.upsert(entry(id: parentEntryID, type: "tool_execution_end"))
+        let parentFinalPath = try XCTUnwrap(store.transcript(for: session.id).first?.allTranscriptImageReferences.first?.localPath)
+        XCTAssertNotEqual(parentPartialPath, parentFinalPath)
+
+        let run = PiSubagentRunRecord.failedPlaceholder(parentSessionID: session.id, agentName: "child", task: "child", error: "test")
+        store.upsertSubagentRun(run)
+        let childEntryID = UUID()
+        store.upsertSubagentTranscript(entry(id: childEntryID, type: "tool_execution_update"), runID: run.id, parentSessionID: session.id)
+        let childPartialPath = try XCTUnwrap(store.subagentTranscript(for: run.id).first?.allTranscriptImageReferences.first?.localPath)
+        store.upsertSubagentTranscript(entry(id: childEntryID, type: "tool_execution_end"), runID: run.id, parentSessionID: session.id)
+        let childFinalPath = try XCTUnwrap(store.subagentTranscript(for: run.id).first?.allTranscriptImageReferences.first?.localPath)
+        XCTAssertNotEqual(childPartialPath, childFinalPath)
+
+        let removed = await PiTestSupport.waitUntilAsync {
+            !FileManager.default.fileExists(atPath: parentPartialPath)
+                && !FileManager.default.fileExists(atPath: childPartialPath)
+        }
+        XCTAssertTrue(removed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: parentFinalPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: childFinalPath))
+    }
+
     func testMCPResultWithMoreThan32BlocksScrubsAllImagesAndAppendsTruncationDiagnostic() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "MCP", project: try PiTestSupport.makeProject(), repository: nil)
@@ -481,6 +518,99 @@ final class PiAgentSessionStoreTests: XCTestCase {
             !FileManager.default.fileExists(atPath: imageDirectory.path)
         }
         XCTAssertTrue(removed)
+    }
+
+    func testSessionTracksAllOwnedPiFilesAcrossInPlaceRebindsAndReload() async throws {
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let session = store.createSession(kind: .project, title: "Branches", project: try PiTestSupport.makeProject(), repository: nil)
+        store.updateSession(session.id) { $0.recordPiSessionFile("/tmp/first.jsonl") }
+        store.updateSession(session.id) { $0.recordPiSessionFile("/tmp/second.jsonl") }
+        XCTAssertEqual(Set(store.sessions.first(where: { $0.id == session.id })?.ownedPiSessionFiles ?? []), ["/tmp/first.jsonl", "/tmp/second.jsonl"])
+        store.flushForTesting()
+
+        let reloaded = PiAgentSessionStore(fileURL: stateFile)
+        await reloaded.waitForLoadForTesting()
+        XCTAssertEqual(Set(reloaded.sessions.first(where: { $0.id == session.id })?.ownedPiSessionFiles ?? []), ["/tmp/first.jsonl", "/tmp/second.jsonl"])
+    }
+
+    func testSessionOwnedArtifactCleanupRemovesOnlyValidatedPiAndSubagentFiles() throws {
+        let root = PiTestSupport.temporaryStateFile().deletingLastPathComponent()
+        let piRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let piProject = piRoot.appendingPathComponent("project", isDirectory: true)
+        let runRoot = root.appendingPathComponent("Subagent Runs", isDirectory: true)
+        let runID = UUID()
+        let runDirectory = runRoot.appendingPathComponent(runID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: piProject, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+        let piFile = piProject.appendingPathComponent("parent-session.jsonl")
+        let childPiFile = piProject.appendingPathComponent("child-session.jsonl")
+        let outsideFile = root.appendingPathComponent("outside.jsonl")
+        try Data("session".utf8).write(to: piFile)
+        try Data("child".utf8).write(to: childPiFile)
+        try Data("outside".utf8).write(to: outsideFile)
+        try Data("artifact".utf8).write(to: runDirectory.appendingPathComponent("output.md"))
+        var run = PiSubagentRunRecord.failedPlaceholder(parentSessionID: UUID(), agentName: "child", task: "child", error: "test")
+        run.childPiSessionFile = childPiFile.path
+        XCTAssertEqual(PiAgentSessionOwnedArtifactCleanup.childPiSessionFiles(in: [run]), [childPiFile.path])
+
+        PiAgentSessionOwnedArtifactCleanup.delete(
+            piSessionFiles: [piFile.path, childPiFile.path, outsideFile.path],
+            subagentRunIDs: [runID],
+            piSessionsRoot: piRoot,
+            subagentRunsRoot: runRoot
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: piFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: childPiFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outsideFile.path))
+    }
+
+    func testDeletedSessionRejectsLateTranscriptAndSubagentImageWrites() async throws {
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let session = store.createSession(kind: .project, title: "Deleted", project: try PiTestSupport.makeProject(), repository: nil)
+        let run = PiSubagentRunRecord.failedPlaceholder(parentSessionID: session.id, agentName: "child", task: "late", error: "test")
+        store.upsertSubagentRun(run)
+        let directory = stateFile.deletingLastPathComponent()
+            .appendingPathComponent("agent-session-transcripts/\(session.id.uuidString)/images", isDirectory: true)
+        store.deleteSession(session.id)
+
+        let raw = #"{"type":"tool_execution_end","result":{"content":[{"type":"image","mimeType":"image/png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}]}}"#
+        let lateEntry = PiAgentTranscriptEntry(sessionID: session.id, role: .tool, title: "Tool: mcp", text: "", rawJSON: raw)
+        store.append(lateEntry)
+        store.upsert(lateEntry)
+        store.upsertSubagentRun(run)
+        store.appendSubagentTranscript(lateEntry, runID: run.id, parentSessionID: session.id)
+        store.upsertSubagentTranscript(lateEntry, runID: run.id, parentSessionID: session.id)
+        store.flushForTesting()
+
+        XCTAssertNil(store.transcriptsBySessionID[session.id])
+        XCTAssertNil(store.subagentRunsBySessionID[session.id])
+        XCTAssertNil(store.subagentTranscriptsByRunID[run.id])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testRemoteImageCompletionAfterSessionDeletionDoesNotRecreateStorage() async throws {
+        defer { PiAgentSessionStore.remoteImageDownloaderForTesting = nil }
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
+        PiAgentSessionStore.remoteImageDownloaderForTesting = { _ in
+            try await Task.sleep(for: .milliseconds(150))
+            return (png, "image/png")
+        }
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let session = store.createSession(kind: .project, title: "Deleted remote", project: try PiTestSupport.makeProject(), repository: nil)
+        let directory = stateFile.deletingLastPathComponent()
+            .appendingPathComponent("agent-session-transcripts/\(session.id.uuidString)/images", isDirectory: true)
+
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
+        store.deleteSession(session.id)
+        try await Task.sleep(for: .milliseconds(350))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertNil(store.transcriptsBySessionID[session.id])
     }
 
     func testTranscriptImagesAreNotMaterializedForStatusRows() throws {

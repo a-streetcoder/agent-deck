@@ -4517,8 +4517,8 @@ struct CodingAgentExpandedPanel: View {
 
     private var deleteSessionsAlertMessage: String {
         pendingDeleteSessionIDs.count == 1
-            ? "This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName)."
-            : "This removes the selected Pi Agent sessions and their local transcripts from \(AppBrand.displayName)."
+            ? "This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+            : "This removes the selected sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
     }
 
     private func requestDeleteSessions(_ ids: Set<UUID>) {
@@ -5009,14 +5009,14 @@ struct PiAgentScreen: View {
     private var deleteSessionsAlertMessage: String {
         if pendingDeleteIsClearAll {
             if pendingDeleteClearAllProjects {
-                return "This removes all Pi Agent sessions and their local transcripts for every project from \(AppBrand.displayName)."
+                return "This removes all sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
             }
             let projectName = pendingDeleteProjectName ?? "the current project"
-            return "This removes all Pi Agent sessions and their local transcripts for \(projectName) from \(AppBrand.displayName). Other projects are not affected."
+            return "This removes local conversation data, saved MCP images, and Deck agent artifacts for \(projectName) from this Mac. Other projects are not affected."
         }
         return pendingDeleteSessionIDs.count == 1
-            ? "This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName)."
-            : "This removes the selected Pi Agent sessions and their local transcripts from \(AppBrand.displayName)."
+            ? "This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+            : "This removes the selected sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
     }
 
     private var sessionDeleteTargets: Set<UUID> {

@@ -95,6 +95,7 @@ private final class TranscriptRemoteImageDownloader: NSObject, URLSessionDataDel
 @Observable
 final class PiAgentSessionStore {
     private(set) var sessions: [PiAgentSessionRecord] = []
+    private var deletedSessionIDs: Set<UUID> = []
     /// Bumps only when the session list's membership, order, or per-row visibility-relevant
     /// fields (needsAttention, title, projectPath) change. Streaming token / stats writes
     /// hit `sessions[index]` many times per frame; observing the array directly fires
@@ -2645,6 +2646,7 @@ final class PiAgentSessionStore {
     }
 
     func upsertSubagentRun(_ run: PiSubagentRunRecord) {
+        guard !deletedSessionIDs.contains(run.parentSessionID) else { return }
         var runs = subagentRunsBySessionID[run.parentSessionID] ?? []
         if let index = runs.firstIndex(where: { $0.id == run.id }) {
             runs[index] = run
@@ -2656,6 +2658,7 @@ final class PiAgentSessionStore {
     }
 
     func updateSubagentRun(_ runID: UUID, parentSessionID: UUID, mutate: (inout PiSubagentRunRecord) -> Void) {
+        guard !deletedSessionIDs.contains(parentSessionID) else { return }
         var runs = subagentRunsBySessionID[parentSessionID] ?? []
         guard let index = runs.firstIndex(where: { $0.id == runID }) else { return }
         mutate(&runs[index])
@@ -2665,6 +2668,7 @@ final class PiAgentSessionStore {
     }
 
     func appendSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID) {
+        guard !deletedSessionIDs.contains(parentSessionID) else { return }
         let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
         var removedReferences: [PiAgentTranscriptImageReference] = []
         modifySubagentTranscriptEntries(for: runID) { entries in
@@ -2680,21 +2684,24 @@ final class PiAgentSessionStore {
     }
 
     func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil) {
+        guard !deletedSessionIDs.contains(parentSessionID) else { return }
         let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
         var removedReferences: [PiAgentTranscriptImageReference] = []
         modifySubagentTranscriptEntries(for: runID) { entries in
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                let previousReferences = entries[index].allTranscriptImageReferences
                 var next = entry
                 if next.imageReferences.isEmpty {
                     next.imageReferences = entries[index].imageReferences
                 }
                 entries[index] = next
+                removedReferences.append(contentsOf: previousReferences.filter { !next.allTranscriptImageReferences.contains($0) })
             } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
                 entries.insert(entry, at: beforeIndex)
             } else {
                 entries.append(entry)
             }
-            removedReferences = trimTranscriptEntries(&entries)
+            removedReferences.append(contentsOf: trimTranscriptEntries(&entries))
         }
         removeUnreferencedTranscriptImages(removedReferences, parentSessionID: parentSessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: parentSessionID)
@@ -2705,6 +2712,7 @@ final class PiAgentSessionStore {
     }
 
     func upsertSupervisorRequest(_ request: PiSubagentSupervisorRequest) {
+        guard !deletedSessionIDs.contains(request.parentSessionID) else { return }
         var requests = supervisorRequestsBySessionID[request.parentSessionID] ?? []
         if let index = requests.firstIndex(where: { $0.id == request.id }) {
             requests[index] = request
@@ -2716,6 +2724,7 @@ final class PiAgentSessionStore {
     }
 
     func updateSupervisorRequest(_ id: String, parentSessionID: UUID, mutate: (inout PiSubagentSupervisorRequest) -> Void) {
+        guard !deletedSessionIDs.contains(parentSessionID) else { return }
         var requests = supervisorRequestsBySessionID[parentSessionID] ?? []
         guard let index = requests.firstIndex(where: { $0.id == id }) else { return }
         mutate(&requests[index])
@@ -2740,7 +2749,7 @@ final class PiAgentSessionStore {
         }
         removeUnreferencedTranscriptImages(removedImageReferences, parentSessionID: sessionID)
         updateSession(sessionID) { record in
-            record.piSessionFile = newPiSessionFile
+            record.recordPiSessionFile(newPiSessionFile)
             record.piSessionId = newPiSessionId
         }
         persistTranscript(sessionID)
@@ -2749,6 +2758,7 @@ final class PiAgentSessionStore {
     }
 
     func append(_ entry: PiAgentTranscriptEntry) {
+        guard !deletedSessionIDs.contains(entry.sessionID) else { return }
         let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
         var removedReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: entry.sessionID) { entries in
@@ -2772,17 +2782,20 @@ final class PiAgentSessionStore {
         persist: Bool = true,
         revisionPolicy: TranscriptRevisionPolicy = .coalesced
     ) {
+        guard !deletedSessionIDs.contains(entry.sessionID) else { return }
         let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
         let isNewEntry: Bool
         var insertedEntry = false
         var removedReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: entry.sessionID) { entries in
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                let previousReferences = entries[index].allTranscriptImageReferences
                 var next = entry
                 if next.imageReferences.isEmpty {
                     next.imageReferences = entries[index].imageReferences
                 }
                 entries[index] = next
+                removedReferences.append(contentsOf: previousReferences.filter { !next.allTranscriptImageReferences.contains($0) })
             } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
                 entries.insert(entry, at: beforeIndex)
                 insertedEntry = true
@@ -2790,7 +2803,7 @@ final class PiAgentSessionStore {
                 entries.append(entry)
                 insertedEntry = true
             }
-            removedReferences = trimTranscriptEntries(&entries)
+            removedReferences.append(contentsOf: trimTranscriptEntries(&entries))
         }
         removeUnreferencedTranscriptImages(removedReferences, parentSessionID: entry.sessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: entry.sessionID)
@@ -2810,16 +2823,21 @@ final class PiAgentSessionStore {
     }
 
     func updateEntry(_ entryID: UUID, in sessionID: UUID, persist: Bool = true, mutate: (inout PiAgentTranscriptEntry) -> Void) {
+        guard !deletedSessionIDs.contains(sessionID) else { return }
         loadTranscriptIfNeeded(sessionID)
         guard transcriptsBySessionID[sessionID] != nil else { return }
         var didUpdate = false
+        var removedReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: sessionID) { entries in
             guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
+            let previousReferences = entries[index].allTranscriptImageReferences
             mutate(&entries[index])
             entries[index] = materializedImageEntry(entries[index], parentSessionID: sessionID)
+            removedReferences = previousReferences.filter { !entries[index].allTranscriptImageReferences.contains($0) }
             didUpdate = true
         }
         guard didUpdate else { return }
+        removeUnreferencedTranscriptImages(removedReferences, parentSessionID: sessionID)
         if let entry = transcriptsBySessionID[sessionID]?.first(where: { $0.id == entryID }) {
             scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: sessionID)
         }
@@ -2840,6 +2858,7 @@ final class PiAgentSessionStore {
         let existingIDs = Set(sessions.map(\.id)).intersection(sessionIDs)
         guard !existingIDs.isEmpty else { return }
 
+        deletedSessionIDs.formUnion(existingIDs)
         sessions.removeAll { existingIDs.contains($0.id) }
         bumpSessionListRevision()
         for sessionID in existingIDs {
@@ -3317,6 +3336,7 @@ final class PiAgentSessionStore {
     }
 
     private func materializeMCPResultImage(data: Data, mimeType: String, extension ext: String, entryID: UUID, parentSessionID: UUID) -> PiAgentTranscriptImageReference? {
+        guard !deletedSessionIDs.contains(parentSessionID) else { return nil }
         let directory = transcriptImageDirectory(for: parentSessionID)
         let destination = directory.appendingPathComponent("mcp-\(entryID.uuidString)-\(UUID().uuidString)").appendingPathExtension(ext).standardizedFileURL
         guard destination.path.hasPrefix(directory.standardizedFileURL.path + "/") else { return nil }
@@ -3496,6 +3516,7 @@ final class PiAgentSessionStore {
     }
 
     private func materializeTranscriptImage(_ candidate: TranscriptImageCandidate, entryID: UUID, parentSessionID: UUID) -> PiAgentTranscriptImageReference? {
+        guard !deletedSessionIDs.contains(parentSessionID) else { return nil }
         if let remoteURL = candidate.remoteURL {
             return PiAgentTranscriptImageReference(
                 name: candidate.name ?? Self.remoteImageName(remoteURL),
@@ -3576,7 +3597,9 @@ final class PiAgentSessionStore {
     }
 
     private func materializeDownloadedRemoteImage(referenceID: UUID, parentSessionID: UUID, data: Data, mimeType: String?) {
-        guard data.count <= Self.maxTranscriptImageBytes else { return }
+        guard data.count <= Self.maxTranscriptImageBytes,
+              !deletedSessionIDs.contains(parentSessionID),
+              transcriptImageReference(referenceID, parentSessionID: parentSessionID)?.isRemotePlaceholder == true else { return }
         let directory = transcriptImageDirectory(for: parentSessionID)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var changedParentSessionIDs = Set<UUID>()
@@ -3950,9 +3973,13 @@ final class PiAgentSessionStore {
         // A rare mutation boundary may run while a delegated transcript is lazily
         // evicted. Decode just those known transcript files instead of treating the
         // cache as authoritative (and without any filesystem-wide scan).
-        let pendingReferences = runIDs.flatMap { pendingPersistSubagentTranscriptSnapshots[$0] ?? [] }.flatMap(\.allTranscriptImageReferences)
-        // A pending snapshot is newer than its on-disk predecessor and wins when
-        // deciding retention; do not read the stale file for that run.
+        let pendingReferences = runIDs
+            .filter { subagentTranscriptsByRunID[$0] == nil }
+            .flatMap { pendingPersistSubagentTranscriptSnapshots[$0] ?? [] }
+            .flatMap(\.allTranscriptImageReferences)
+        // A pending snapshot for an unloaded run is newer than its on-disk
+        // predecessor and wins. A loaded transcript is authoritative over its
+        // prior pending snapshot during an in-place replacement.
         let unloadedReferences = runIDs.filter { subagentTranscriptsByRunID[$0] == nil && pendingPersistSubagentTranscriptSnapshots[$0] == nil && persistedSubagentTranscriptRunIDs.contains($0) }
             .flatMap { (try? Self.readSubagentTranscript(from: subagentTranscriptURL($0))) ?? [] }
             .flatMap(\.allTranscriptImageReferences)

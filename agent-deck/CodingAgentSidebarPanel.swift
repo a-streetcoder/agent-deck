@@ -201,7 +201,7 @@ struct CodingAgentCollapsedPanel: View {
             }
             Button("Cancel", role: .cancel) { pendingDeleteSessionID = nil }
         } message: {
-            Text("This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName).")
+            Text("This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac.")
         }
     }
 

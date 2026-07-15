@@ -44,7 +44,9 @@ The broker is an external prerequisite and is not bundled into Agent Deck. From 
 bash scripts/install-computer-use-broker.sh
 ```
 
-The installer never modifies the verified upstream tree in place. Agent Deck verifies the variant manifest, package identity, complete derived package-tree digest, broker entry point, and Node.js 22+ before marking the capability available. Variant state and bounded audit files are written under `~/Library/Application Support/Agent Deck/Computer Use Broker/State/auto-accept.1/`.
+The installer never modifies the verified upstream tree in place. Agent Deck verifies the variant manifest, package identity, complete derived package-tree digest, broker entry point, and Node.js 22+ before marking the capability available. Variant state and a metadata-only audit are written under `~/Library/Application Support/Agent Deck/Computer Use Broker/State/auto-accept.1/`; the audit contains no screenshots, prompts, typed values, arguments, or result content and is capped at 5 MiB plus one 5 MiB backup.
+
+Computer Use screenshots returned through MCP are materialized under the parent session's `agent-session-transcripts/<session-id>/images/` directory. Deleting the parent session stops its parent and child processes, rejects late transcript writes, and removes its Agent Deck transcript, saved MCP images, Pi session JSONL, and native Deck-agent artifact directories. Global broker installation files and the bounded metadata-only audit remain capability-level data rather than session content.
 
 When a local-folder import or Git import contains selected skills and the user enables **Import as collection**, Agent Deck also records a first-class Skill Collection with the chosen name for that source. A collection is assignment metadata, not a runtime primitive: enabling a collection for All Projects or a project expands the collection to its member skill names, then launch resolution still emits one `--skill <path>` argument for each resolved skill. Removing a skill from the catalog removes it from collection membership; Git-backed collections continue to share the repository record and sparse-checkout metadata used for updates.
 

@@ -22,12 +22,13 @@ nonisolated enum ComputerUseCapability {
 
     ## Workflow
 
-    1. Start with `get_app_state` for the named app; do not call `list_apps` merely to resolve an app the task already identifies. The `app` argument may be a display name, full application path, or bundle identifier. Use `list_apps` only when the target cannot be identified or when a display-name call fails and a bundle identifier is needed.
-    2. Read the returned Accessibility tree first. Use screenshots when Accessibility information is incomplete or visual context is necessary.
-    3. Before each interaction, work from fresh app state. After one or more actions, call `get_app_state` again before deciding what to do next. Re-derive `element_index` values from the newest state; never reuse stale indices.
-    4. Accessibility output may be a compact diff from the previous state. Work from the returned state as-is; the broker's `get_app_state` schema accepts only `app`.
-    5. Prefer current `element_index` actions. Use screenshot coordinates only when no usable Accessibility element exists or its action fails. If a display-name call fails, retry once with the bundle identifier from `list_apps` before pursuing other debugging.
-    6. Apps are launched automatically when needed. Normally do not add sleeps between an action and `get_app_state`; the runtime waits for recent actions and loading indicators.
+    1. Targeted calls are background-only: the target app must not be frontmost when a call starts and must stay in the background until it finishes. If the broker reports a frontmost or focus-safety error, do not retry in a loop. Ask the user to put Agent Deck or another app in front and keep focus there. A focus-safety error can occur after an action, so inspect the target before deciding whether another action is needed.
+    2. Start with `get_app_state` for the named app; do not call `list_apps` merely to resolve an app the task already identifies. The `app` argument may be a display name, full application path, or bundle identifier. Use `list_apps` only when the target cannot be identified or when a display-name call fails and a bundle identifier is needed.
+    3. Read the returned Accessibility tree first. Use screenshots when Accessibility information is incomplete or visual context is necessary.
+    4. Before each interaction, work from fresh app state. After one or more actions, call `get_app_state` again before deciding what to do next. Re-derive `element_index` values from the newest state; never reuse stale indices.
+    5. Accessibility output may be a compact diff from the previous state. Work from the returned state as-is; the broker's `get_app_state` schema accepts only `app`.
+    6. Prefer current `element_index` actions. Use screenshot coordinates only when no usable Accessibility element exists or its action fails. If a display-name call fails, retry once with the bundle identifier from `list_apps` before pursuing other debugging.
+    7. Apps are launched automatically when needed. Normally do not add sleeps between an action and `get_app_state`; the runtime waits for recent actions and loading indicators.
 
     ## Tool guidance
 
@@ -159,6 +160,10 @@ nonisolated enum ComputerUseCapability {
             guidance = "Computer Use needs ChatGPT to be running (error -10005). Open the installed ChatGPT app, keep this Mac unlocked, and retry."
         } else if normalized.contains("approval denied via mcp elicitation") {
             guidance = "Computer Use approval was denied by a non-auto-accept broker. Install Agent Deck's verified auto-accept broker variant, refresh MCP, and retry."
+        } else if normalized.contains("target app is already frontmost") || normalized.contains("background-only dispatch was refused") {
+            guidance = "Computer Use intentionally requires the target app to start in the background. Put Agent Deck or another app in front, keep the target app open behind it, then retry."
+        } else if normalized.contains("target focus changed") || normalized.contains("focus telemetry failed") || normalized.contains("not trusted as background-safe") {
+            guidance = "Computer Use could not prove that the target stayed safely in the background. The action may already have occurred, so inspect the target before retrying; if another call is needed, put a different app in front and avoid changing focus while it runs."
         } else if normalized.contains("-1743") {
             guidance = "Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed ChatGPT/Codex Computer Use component—not Pi or Agent Deck—then retry."
         } else if normalized.contains("accessibility") && (normalized.contains("denied") || normalized.contains("pending") || normalized.contains("permission") || normalized.contains("authorized")) {

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = process.env.AGENT_DECK_COMPUTER_USE_BROKER_ROOT
   ?? path.join(os.homedir(), "Library/Application Support/Agent Deck/Computer Use Broker");
-const packageRoot = path.join(root, "Variants/0.2.0-agent-deck-auto-accept.1/node_modules/codex-computer-use-mcp");
+const packageRoot = path.join(root, "Variants/0.2.0-agent-deck-auto-accept.2/node_modules/codex-computer-use-mcp");
 const { callOfficialDirectTool } = await import(pathToFileURL(path.join(packageRoot, "dist/direct-broker.js")));
+const { appendAudit } = await import(pathToFileURL(path.join(packageRoot, "dist/audit.js")));
 const temp = await mkdtemp(path.join(os.tmpdir(), "agent-deck-auto-accept-test."));
 const fakeServer = path.join(temp, "fake-app-server.mjs");
 const toolsURL = pathToFileURL(path.join(packageRoot, "dist/tools.js")).href;
@@ -72,7 +73,39 @@ try {
       /unexpected Computer Use approval request/,
     );
   }
-  console.log("Computer Use auto-accept variant protocol tests passed");
+  const maxAuditBytes = 5 * 1024 * 1024;
+  const auditState = path.join(temp, "bounded-audit-state");
+  for (let index = 0; index < 6; index += 1) {
+    await appendAudit(auditState, { index, padding: "x".repeat(1024 * 1024) });
+  }
+  const auditPath = path.join(auditState, "audit/direct-computer-use.jsonl");
+  const backupPath = `${auditPath}.1`;
+  const [auditInfo, backupInfo] = await Promise.all([stat(auditPath), stat(backupPath)]);
+  assert.ok(auditInfo.size <= maxAuditBytes);
+  assert.ok(backupInfo.size <= maxAuditBytes);
+  assert.ok(auditInfo.size + backupInfo.size <= 2 * maxAuditBytes);
+  assert.equal(auditInfo.mode & 0o777, 0o600);
+  assert.equal(backupInfo.mode & 0o777, 0o600);
+  for (const file of [auditPath, backupPath]) {
+    for (const line of (await readFile(file, "utf8")).trim().split("\n")) JSON.parse(line);
+  }
+
+  const legacyState = path.join(temp, "oversized-legacy-audit-state");
+  const legacyAuditDirectory = path.join(legacyState, "audit");
+  await mkdir(legacyAuditDirectory, { recursive: true, mode: 0o700 });
+  const legacyAuditPath = path.join(legacyAuditDirectory, "direct-computer-use.jsonl");
+  await writeFile(legacyAuditPath, "x".repeat(maxAuditBytes + 1), { mode: 0o600 });
+  await writeFile(`${legacyAuditPath}.1`, "x".repeat(maxAuditBytes + 1), { mode: 0o600 });
+  await appendAudit(legacyState, { reset: true });
+  assert.ok((await stat(legacyAuditPath)).size < 1024);
+  await assert.rejects(lstat(`${legacyAuditPath}.1`), error => error?.code === "ENOENT");
+
+  await assert.rejects(
+    appendAudit(path.join(temp, "oversized-record-state"), { padding: "x".repeat(maxAuditBytes) }),
+    /exceeds the maximum audit file size/,
+  );
+
+  console.log("Computer Use auto-accept and bounded-audit variant tests passed");
 } finally {
   await rm(temp, { recursive: true, force: true });
 }

@@ -1770,7 +1770,7 @@ final class PiAgentRunnerService {
         let pendingThinkingLevel = pendingThinkingLevelsBySessionID[sessionID]
         var shouldScheduleIdleParking = false
         store.updateSession(sessionID) { record in
-            record.piSessionFile = data["sessionFile"]?.stringValue ?? record.piSessionFile
+            record.recordPiSessionFile(data["sessionFile"]?.stringValue)
             record.piSessionId = data["sessionId"]?.stringValue ?? record.piSessionId
             if let modelObject = data["model"] {
                 updateModelFields(on: &record, from: modelObject, useAsOverride: false)

@@ -45,7 +45,7 @@ File watching uses `FileWatchEventMonitor` (macOS FSEvents) with a 1-second debo
 | `AgentPersistence` | Write custom agents and builtin overrides |
 | `EnvPersistence` | Write `.env` files; hides secret values by default |
 | `SubagentConfigPersistence` | Subagent configuration JSON |
-| `PiAgentSessionStore` | Session file persistence |
+| `PiAgentSessionStore` | Agent Deck session/transcript persistence and session-owned MCP image lifecycle |
 | `MCPConnectionManager` | Scoped MCP catalogs, connections, policy, and calls |
 | `CodexComputerUseBrokerDiscovery` | Resolve and integrity-check Agent Deck's derived auto-accept Computer Use broker and Node runtime |
 

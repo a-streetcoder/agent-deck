@@ -792,7 +792,7 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName).")
+            Text("This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac.")
         }
         .toolbar { mainToolbarContent }
         // Detect the selected project's dev-server commands off the render path

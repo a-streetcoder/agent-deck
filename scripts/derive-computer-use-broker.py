@@ -15,9 +15,9 @@ import tempfile
 PACKAGE_NAME = "codex-computer-use-mcp"
 UPSTREAM_VERSION = "0.2.0"
 UPSTREAM_DIGEST = "5ca2b51c934c0f961bb52644ac430dd89a3dcbc772faaae6861f05030f97ab94"
-VARIANT_REVISION = "0.2.0-agent-deck-auto-accept.1"
+VARIANT_REVISION = "0.2.0-agent-deck-auto-accept.2"
 # Filled after deriving and reviewing the deterministic variant.
-VARIANT_DIGEST = "a2f211c2a6b1600eb210fa0b5068269e6164974b87a9b77b7be0988f19199714"
+VARIANT_DIGEST = "8a0343806c8f90f06f8d762aaf9fd3574987555df7cbee90446859396b183c78"
 
 REPLACEMENTS = {
     "dist/direct-broker.js": [
@@ -89,6 +89,99 @@ REPLACEMENTS = {
             '        firstPartyApprovalHandling: "agent-deck-auto-accept",',
         ),
     ],
+    "dist/audit.js": [
+        (
+            'import { chmod, lstat, mkdir, open } from "node:fs/promises";',
+            'import { chmod, lstat, mkdir, open, rename, rm } from "node:fs/promises";',
+        ),
+        (
+            'export async function appendAudit(stateDir, record, fileName = "direct-computer-use.jsonl") {\n'
+            '    if (path.basename(fileName) !== fileName)\n'
+            '        throw new Error("Audit filename must not contain a path");\n'
+            '    await ensurePrivateDirectory(stateDir);\n'
+            '    const auditDir = path.join(stateDir, "audit");\n'
+            '    await ensurePrivateDirectory(auditDir);\n'
+            '    const auditPath = path.join(auditDir, fileName);\n'
+            '    const flags = constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_NOFOLLOW;\n'
+            '    const handle = await open(auditPath, flags, 0o600);\n'
+            '    try {\n'
+            '        const info = await handle.stat();\n'
+            '        if (!info.isFile())\n'
+            '            throw new Error("Audit target must be a regular file");\n'
+            '        await handle.chmod(0o600);\n'
+            '        await handle.writeFile(`${JSON.stringify(record)}\\n`, "utf8");\n'
+            '        await handle.sync();\n'
+            '    }\n'
+            '    finally {\n'
+            '        await handle.close();\n'
+            '    }\n'
+            '    return auditPath;\n'
+            '}',
+            'const maxAuditBytes = 5 * 1024 * 1024;\n'
+            'let auditQueue = Promise.resolve();\n'
+            'async function appendAuditSerialized(stateDir, record, fileName) {\n'
+            '    if (path.basename(fileName) !== fileName)\n'
+            '        throw new Error("Audit filename must not contain a path");\n'
+            '    const line = `${JSON.stringify(record)}\\n`;\n'
+            '    if (Buffer.byteLength(line, "utf8") > maxAuditBytes)\n'
+            '        throw new Error("Audit record exceeds the maximum audit file size");\n'
+            '    await ensurePrivateDirectory(stateDir);\n'
+            '    const auditDir = path.join(stateDir, "audit");\n'
+            '    await ensurePrivateDirectory(auditDir);\n'
+            '    const auditPath = path.join(auditDir, fileName);\n'
+            '    const backupPath = `${auditPath}.1`;\n'
+            '    let currentSize = 0;\n'
+            '    try {\n'
+            '        const info = await lstat(auditPath);\n'
+            '        if (info.isSymbolicLink() || !info.isFile())\n'
+            '            throw new Error("Audit target must be a regular non-symlink file");\n'
+            '        currentSize = info.size;\n'
+            '    }\n'
+            '    catch (error) {\n'
+            '        if (error?.code !== "ENOENT")\n'
+            '            throw error;\n'
+            '    }\n'
+            '    if (currentSize + Buffer.byteLength(line, "utf8") > maxAuditBytes) {\n'
+            '        try {\n'
+            '            const backupInfo = await lstat(backupPath);\n'
+            '            if (backupInfo.isSymbolicLink() || !backupInfo.isFile())\n'
+            '                throw new Error("Audit backup must be a regular non-symlink file");\n'
+            '            await rm(backupPath);\n'
+            '        }\n'
+            '        catch (error) {\n'
+            '            if (error?.code !== "ENOENT")\n'
+            '                throw error;\n'
+            '        }\n'
+            '        if (currentSize > maxAuditBytes) {\n'
+            '            await rm(auditPath);\n'
+            '        }\n'
+            '        else if (currentSize > 0) {\n'
+            '            await rename(auditPath, backupPath);\n'
+            '            await chmod(backupPath, 0o600);\n'
+            '        }\n'
+            '    }\n'
+            '    const flags = constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_NOFOLLOW;\n'
+            '    const handle = await open(auditPath, flags, 0o600);\n'
+            '    try {\n'
+            '        const info = await handle.stat();\n'
+            '        if (!info.isFile())\n'
+            '            throw new Error("Audit target must be a regular file");\n'
+            '        await handle.chmod(0o600);\n'
+            '        await handle.writeFile(line, "utf8");\n'
+            '        await handle.sync();\n'
+            '    }\n'
+            '    finally {\n'
+            '        await handle.close();\n'
+            '    }\n'
+            '    return auditPath;\n'
+            '}\n'
+            'export async function appendAudit(stateDir, record, fileName = "direct-computer-use.jsonl") {\n'
+            '    const operation = auditQueue.then(() => appendAuditSerialized(stateDir, record, fileName));\n'
+            '    auditQueue = operation.catch(() => undefined);\n'
+            '    return operation;\n'
+            '}',
+        ),
+    ],
 }
 
 NOTICE = """# Agent Deck Computer Use broker variant
@@ -101,7 +194,8 @@ app-server approval flow:
 - use `approvalPolicy: \"on-request\"` for the empty ephemeral thread;
 - automatically accept bounded `mcpServer/elicitation/request` messages with
   empty content;
-- report that first-party approval is handled by Agent Deck auto-accept.
+- report that first-party approval is handled by Agent Deck auto-accept;
+- cap metadata-only audit storage at 5 MiB plus one 5 MiB backup.
 
 The exact derived package tree is integrity-pinned by Agent Deck. OpenAI
 binaries and plugin resources are not modified or redistributed.
@@ -180,6 +274,8 @@ def derive(package_root: Path, variant_root: Path) -> str:
             "upstreamDigest": UPSTREAM_DIGEST,
             "packageTreeDigest": digest,
             "approvalHandling": "auto-accept",
+            "auditFileMaxBytes": 5 * 1024 * 1024,
+            "auditBackupCount": 1,
         }
         (staging / "agent-deck-variant.json").write_text(json.dumps(variant_manifest, indent=2, sort_keys=True) + "\n")
         staging.rename(variant_root)

@@ -37,6 +37,7 @@ private final class NativeParallelGraphScheduler {
     var active = 0
     var completed = 0
     var failed = false
+    var isCancelled = false
 
     init(parentSession: PiAgentSessionRecord, graphRunID: UUID, tasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, forcedExpectedOutcome: PiSubagentExpectedOutcome? = nil, completion: ((PiSubagentRunRecord) -> Void)?) {
         self.parentSession = parentSession
@@ -46,6 +47,51 @@ private final class NativeParallelGraphScheduler {
         self.useWorktreeIsolation = useWorktreeIsolation
         self.forcedExpectedOutcome = forcedExpectedOutcome
         self.completion = completion
+    }
+}
+
+enum PiAgentSessionOwnedArtifactCleanup {
+    static func childPiSessionFiles(in runs: [PiSubagentRunRecord]) -> Set<String> {
+        Set(runs.flatMap { run in
+            [run.childPiSessionFile, run.child?.sessionFile].compactMap { $0 }
+                + (run.children ?? []).compactMap(\.sessionFile)
+        })
+    }
+
+    nonisolated static func delete(
+        piSessionFiles: Set<String>,
+        subagentRunIDs: Set<UUID>,
+        piSessionsRoot: URL? = nil,
+        subagentRunsRoot: URL? = nil
+    ) {
+        let fileManager = FileManager.default
+        let piRoot = (piSessionsRoot ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/sessions", isDirectory: true)).resolvingSymlinksInPath().standardizedFileURL
+        let runRoot = (subagentRunsRoot ?? URL.applicationSupportDirectory
+            .appendingPathComponent(AppBrand.displayName, isDirectory: true)
+            .appendingPathComponent("Subagent Runs", isDirectory: true)).resolvingSymlinksInPath().standardizedFileURL
+
+        for path in piSessionFiles {
+            let candidate = URL(fileURLWithPath: path).standardizedFileURL
+            let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+            guard resolved.path.hasPrefix(piRoot.path + "/"), resolved.pathExtension == "jsonl",
+                  let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+            try? fileManager.removeItem(at: candidate)
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path != piRoot.path,
+               (try? fileManager.contentsOfDirectory(atPath: parent.path).isEmpty) == true {
+                try? fileManager.removeItem(at: parent)
+            }
+        }
+
+        for runID in subagentRunIDs {
+            let candidate = runRoot.appendingPathComponent(runID.uuidString, isDirectory: true).standardizedFileURL
+            guard candidate.path.hasPrefix(runRoot.path + "/"),
+                  let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isDirectory == true, values.isSymbolicLink != true else { continue }
+            try? fileManager.removeItem(at: candidate)
+        }
     }
 }
 
@@ -3864,6 +3910,9 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
+        guard piAgentSessionStore.sessions.contains(where: { $0.id == parentSession.id }) else {
+            return PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: "The parent session was deleted.")
+        }
         guard !parentSession.isNoProject, let projectPath = parentSession.projectPathForProjectFeatures else {
             let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
@@ -4199,6 +4248,8 @@ final class AppViewModel: NSObject {
     }
 
     private func pumpNativeParallelScheduler(_ scheduler: NativeParallelGraphScheduler) async {
+        guard !scheduler.isCancelled,
+              piAgentSessionStore.sessions.contains(where: { $0.id == scheduler.parentSession.id }) else { return }
         if scheduler.completed == scheduler.tasks.count {
             let run = piAgentSessionStore.subagentRuns(for: scheduler.parentSession.id).first(where: { $0.id == scheduler.graphRunID })
             // children is insertion-sorted by index (invariant documented on PiSubagentRunRecord).
@@ -4207,7 +4258,9 @@ final class AppViewModel: NSObject {
             nativeParallelSchedulersByID[scheduler.id] = nil
             return
         }
-        while scheduler.active < scheduler.concurrency && scheduler.nextIndex < scheduler.tasks.count {
+        while !scheduler.isCancelled,
+              piAgentSessionStore.sessions.contains(where: { $0.id == scheduler.parentSession.id }),
+              scheduler.active < scheduler.concurrency && scheduler.nextIndex < scheduler.tasks.count {
             let index = scheduler.nextIndex
             scheduler.nextIndex += 1
             scheduler.active += 1
@@ -4216,7 +4269,7 @@ final class AppViewModel: NSObject {
             let allowDirectProjectWrites = expectedOutcome == .directProjectWrites
             updateNativeGraphChild(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index) { $0.status = .running }
             let childRun = await runNativeSubagent(parentSession: scheduler.parentSession, agentName: item.agentName, task: item.task, useWorktreeIsolation: scheduler.useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome) { [weak self, weak scheduler] childResult in
-                guard let self, let scheduler else { return }
+                guard let self, let scheduler, !scheduler.isCancelled else { return }
                 self.updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childResult)
                 scheduler.active = max(0, scheduler.active - 1)
                 scheduler.completed += 1
@@ -4226,6 +4279,7 @@ final class AppViewModel: NSObject {
                     await self.pumpNativeParallelScheduler(scheduler)
                 }
             }
+            guard !scheduler.isCancelled else { return }
             updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childRun)
         }
     }
@@ -6118,6 +6172,29 @@ final class AppViewModel: NSObject {
             piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)
         }
 
+        let deletedSubagentRuns = sessionIDs.flatMap { piAgentSessionStore.subagentRunsBySessionID[$0] ?? [] }
+        let retainedSubagentRuns = piAgentSessionStore.subagentRunsBySessionID
+            .filter { !sessionIDs.contains($0.key) }
+            .flatMap(\.value)
+        let cancelledSubagentRunIDs = nativeSubagentRunner.cancelForSessionDeletion(parentSessionIDs: sessionIDs)
+        let deletedSubagentRunIDs = Set(deletedSubagentRuns.map(\.id)).union(cancelledSubagentRunIDs)
+        let retainedPiSessionFiles = Set(piAgentSessionStore.sessions
+            .filter { !sessionIDs.contains($0.id) }
+            .flatMap(\.ownedPiSessionFiles)).union(PiAgentSessionOwnedArtifactCleanup.childPiSessionFiles(in: retainedSubagentRuns))
+        let deletedPiSessionFiles = Set(piAgentSessionStore.sessions
+            .filter { sessionIDs.contains($0.id) }
+            .flatMap(\.ownedPiSessionFiles)).union(PiAgentSessionOwnedArtifactCleanup.childPiSessionFiles(in: deletedSubagentRuns))
+            .subtracting(retainedPiSessionFiles)
+        for scheduler in nativeParallelSchedulersByID.values where sessionIDs.contains(scheduler.parentSession.id) {
+            scheduler.isCancelled = true
+        }
+        nativeParallelSchedulersByID = nativeParallelSchedulersByID.filter {
+            !sessionIDs.contains($0.value.parentSession.id)
+        }
+        activePipelineChildRunByLoopID = activePipelineChildRunByLoopID.filter {
+            !deletedSubagentRunIDs.contains($0.value)
+        }
+
         // Cancel any pending completion-notification timers for sessions being
         // deleted. Without this, a 5-minute-deferred notification task keeps the
         // session ID alive in `pendingPiAgentNotificationTasks` until it fires
@@ -6141,6 +6218,12 @@ final class AppViewModel: NSObject {
         // most-recent session. The store ignores the hint when the active
         // selection survives the delete.
         piAgentSessionStore.deleteSessions(sessionIDs, fallbackSelectionID: fallbackSelectionID)
+        Task.detached {
+            PiAgentSessionOwnedArtifactCleanup.delete(
+                piSessionFiles: deletedPiSessionFiles,
+                subagentRunIDs: deletedSubagentRunIDs
+            )
+        }
         // Belt-and-suspenders: still reconcile in the same runloop turn so the
         // UI only ever observes the final selection — without this, launch-time
         // draft pruning briefly selected an out-of-scope session and the

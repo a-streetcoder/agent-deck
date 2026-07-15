@@ -72,7 +72,8 @@ final class ComputerUseCapabilityTests: XCTestCase {
         let requiredWorkflowTerms = [
             "purpose-built connector", "codex-computer-use/<tool>", "list_apps", "get_app_state",
             "schema accepts only `app`", "display name", "bundle identifier", "Accessibility tree",
-            "element_index", "screenshot coordinates", "launched automatically", "do not add sleeps"
+            "element_index", "screenshot coordinates", "launched automatically", "do not add sleeps",
+            "background-only", "do not retry in a loop", "keep focus there"
         ]
         let requiredToolTerms = [
             "click", "perform_secondary_action", "set_value", "select_text", "prefix`/`suffix",
@@ -167,6 +168,20 @@ final class ComputerUseCapabilityTests: XCTestCase {
         )
         XCTAssertTrue(diagnostic?.contains("ChatGPT to be running") == true)
         XCTAssertTrue(diagnostic?.contains("-10005") == true)
+    }
+
+    func testBackgroundSafetyDiagnosticsExplainHowToRetryWithoutWeakeningPolicy() {
+        let frontmost = ComputerUseCapability.runtimeDiagnostic(
+            for: "Target app is already frontmost; direct background-only dispatch was refused"
+        )
+        XCTAssertTrue(frontmost?.contains("requires the target app to start in the background") == true)
+        XCTAssertTrue(frontmost?.contains("another app in front") == true)
+
+        let focusChanged = ComputerUseCapability.runtimeDiagnostic(
+            for: "Target focus changed or focus telemetry failed; the completed tool call is not trusted as background-safe"
+        )
+        XCTAssertTrue(focusChanged?.contains("action may already have occurred") == true)
+        XCTAssertTrue(focusChanged?.contains("inspect the target before retrying") == true)
     }
 
     func testServiceTimeoutDiagnosticPreservesBoundedRawError() {
