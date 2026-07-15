@@ -3458,6 +3458,23 @@ final class AppViewModel: NSObject {
         piAgentRunner.syncSessionName(for: id)
     }
 
+    func setPiAgentSessionPinned(_ id: UUID, pinned: Bool) {
+        if pinned, let session = piAgentSessionStore.sessions.first(where: { $0.id == id }) {
+            let sectionID: String
+            if session.isAgentDeckBuilderSession {
+                sectionID = PiAgentSessionGrouping.agentDeckBuilderSectionID
+            } else if session.isNoProject {
+                sectionID = PiAgentSessionGrouping.noProjectSectionID
+            } else if projectByPath[session.projectPath] != nil {
+                sectionID = session.projectPath
+            } else {
+                sectionID = PiAgentSessionGrouping.otherSectionID
+            }
+            collapsedProjects.remove(sectionID)
+        }
+        piAgentSessionStore.setSessionPinned(id, pinned: pinned)
+    }
+
     var canOpenSelectedPiAgentSessionInTerminal: Bool {
         guard let session = piAgentSessionStore.selectedSession else { return false }
         if let sessionFile = session.piSessionFile, FileManager.default.fileExists(atPath: sessionFile) { return true }

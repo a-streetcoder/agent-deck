@@ -153,6 +153,9 @@ struct CodingAgentCollapsedPanel: View {
                     onDelete: { id in
                         pendingDeleteSessionID = id
                         isDeleteSessionAlertPresented = true
+                    },
+                    onSetPinned: { id, pinned in
+                        viewModel.setPiAgentSessionPinned(id, pinned: pinned)
                     }
                 )
                 .equatable()
@@ -307,6 +310,7 @@ private struct CodingAgentRecentList: View, Equatable {
     let scrollRequest: Binding<UUID?>
     let onSelect: (UUID) -> Void
     let onDelete: (UUID) -> Void
+    let onSetPinned: (UUID, Bool) -> Void
 
     static func == (lhs: CodingAgentRecentList, rhs: CodingAgentRecentList) -> Bool {
         lhs.sessions == rhs.sessions
@@ -341,6 +345,19 @@ private struct CodingAgentRecentList: View, Equatable {
                 onDelete: { onDelete(session.id) }
             )
             .equatable()
+            .contextMenu {
+                Button {
+                    onSetPinned(session.id, session.pinnedAt == nil)
+                } label: {
+                    Label(session.pinnedAt == nil ? "Pin Session" : "Unpin Session", systemImage: session.pinnedAt == nil ? "pin" : "pin.slash")
+                }
+                Divider()
+                Button(role: .destructive) {
+                    onDelete(session.id)
+                } label: {
+                    Label("Delete Session", systemImage: "trash")
+                }
+            }
         }
     }
 
@@ -393,6 +410,16 @@ struct CodingAgentRecentRow: View, Equatable {
                 assetName: iconAssetName
             )
             .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
+
+            if session.pinnedAt != nil {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 11, height: 11)
+                    .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
+                    .help("Pinned")
+                    .accessibilityHidden(true)
+            }
 
             HoverMarqueeTitleText(text: session.displayTitle, isHovering: isHovering)
                 .font(AppTheme.Font.footnote.weight(.medium))

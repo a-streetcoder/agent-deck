@@ -427,7 +427,16 @@ struct PiAgentSessionRow: View, Equatable {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .center, spacing: 5) {
+                if session.pinnedAt != nil {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 11, height: 11)
+                        .help("Pinned")
+                        .accessibilityHidden(true)
+                }
+
                 titleView
                     .layoutPriority(1)
 

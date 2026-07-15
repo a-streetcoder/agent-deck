@@ -1027,6 +1027,9 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     /// than recalling again, which keeps the system prompt stable across the
     /// conversation and avoids duplicate "Memory Recalled" cards.
     var memoryRecallCompleted: Bool
+    /// Persistent manual ordering override for the expanded session groups.
+    /// Nil means unpinned; the timestamp orders multiple pins newest-first.
+    var pinnedAt: Date?
     var createdAt: Date
     var updatedAt: Date
 
@@ -1106,7 +1109,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case status, lastError, lastSummary, needsAttention, lastNotificationAt, lastUserMessageAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost, costBreakdown
         case finalSystemPrompt, finalSystemPromptCapturedAt
-        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, agentLaunchOverrides, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, createdAt, updatedAt
+        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, agentLaunchOverrides, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, pinnedAt, createdAt, updatedAt
         case forkedFromSessionID, forkedFromParentTitle, forkedFromUserMessageText, forkedFromTranscriptSnapshot
         case recalledMemoryPrompt, recalledMemoryIDs, memoryRecallCompleted
     }
@@ -1171,6 +1174,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         recalledMemoryPrompt: String? = nil,
         recalledMemoryIDs: [String]? = nil,
         memoryRecallCompleted: Bool = false,
+        pinnedAt: Date? = nil,
         createdAt: Date,
         updatedAt: Date,
         ownedPiSessionFiles: [String]? = nil
@@ -1235,6 +1239,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.recalledMemoryPrompt = recalledMemoryPrompt
         self.recalledMemoryIDs = recalledMemoryIDs
         self.memoryRecallCompleted = memoryRecallCompleted
+        self.pinnedAt = pinnedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -1301,6 +1306,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             recalledMemoryPrompt: try container.decodeIfPresent(String.self, forKey: .recalledMemoryPrompt),
             recalledMemoryIDs: try container.decodeIfPresent([String].self, forKey: .recalledMemoryIDs),
             memoryRecallCompleted: try container.decodeIfPresent(Bool.self, forKey: .memoryRecallCompleted) ?? false,
+            pinnedAt: try container.decodeIfPresent(Date.self, forKey: .pinnedAt),
             createdAt: try container.decode(Date.self, forKey: .createdAt),
             updatedAt: try container.decode(Date.self, forKey: .updatedAt),
             ownedPiSessionFiles: try container.decodeIfPresent([String].self, forKey: .ownedPiSessionFiles)

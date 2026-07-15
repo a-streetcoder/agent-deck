@@ -3855,6 +3855,7 @@ private struct SessionListContent: View, Equatable {
     let onEndRename: () -> Void
     let onRename: (UUID, String) -> Void
     let onDelete: (UUID) -> Void
+    let onSetPinned: (UUID, Bool) -> Void
     /// Toggle a project group's "Show more/less" state.
     let onToggleExpand: (String) -> Void
     /// Toggle a project group's disclosure collapse (header-only / expanded).
@@ -3998,6 +3999,12 @@ private struct SessionListContent: View, Equatable {
             }
         }
         .contextMenu {
+            Button {
+                onSetPinned(session.id, session.pinnedAt == nil)
+            } label: {
+                Label(session.pinnedAt == nil ? "Pin Session" : "Unpin Session", systemImage: session.pinnedAt == nil ? "pin" : "pin.slash")
+            }
+            Divider()
             Button(role: .destructive) {
                 onDelete(session.id)
             } label: {
@@ -4228,6 +4235,7 @@ struct CodingAgentExpandedPanel: View {
                     onEndRename: { renamingSessionID = nil },
                     onRename: { viewModel.renamePiAgentSession($0, title: $1) },
                     onDelete: { id in requestDeleteSessions(selectedSessionIDs.contains(id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [id]) },
+                    onSetPinned: { id, pinned in setSessionPinned(id, pinned: pinned) },
                     onToggleExpand: { projectID in
                         if viewModel.expandedProjects.contains(projectID) { viewModel.expandedProjects.remove(projectID) }
                         else { viewModel.expandedProjects.insert(projectID) }
@@ -4454,6 +4462,15 @@ struct CodingAgentExpandedPanel: View {
     private func freezeVisibleOrderDuringActiveWork(_ computed: [PiAgentSessionListSection]) -> [PiAgentSessionListSection]? {
         let anyWorking = computed.flatMap(\.items).contains { viewModel.piAgentSessionIsWorking($0) }
         guard anyWorking, hasBuiltVisibleSessions, !cachedSections.isEmpty else { return nil }
+        let cachedPins = Dictionary(uniqueKeysWithValues: cachedSections.flatMap(\.items).compactMap { session in
+            session.pinnedAt.map { (session.id, $0) }
+        })
+        let computedPins = Dictionary(uniqueKeysWithValues: computed.flatMap(\.items).compactMap { session in
+            session.pinnedAt.map { (session.id, $0) }
+        })
+        // Pinning is an explicit structural action. Let its promotion/reordering
+        // take effect immediately even while another session is streaming.
+        guard cachedPins == computedPins else { return nil }
         var frozeAny = false
         let frozen = computed.map { newSection -> PiAgentSessionListSection in
             guard let oldSection = cachedSections.first(where: { $0.id == newSection.id }),
@@ -4590,6 +4607,14 @@ struct CodingAgentExpandedPanel: View {
         guard !ids.isEmpty else { return }
         pendingDeleteSessionIDs = ids
         isDeleteSessionsAlertPresented = true
+    }
+
+    private func setSessionPinned(_ id: UUID, pinned: Bool) {
+        viewModel.setPiAgentSessionPinned(id, pinned: pinned)
+        Task { @MainActor in
+            await Task.yield()
+            sessionScrollRequest = id
+        }
     }
 
     private func syncVisibleSessionSelection() {
@@ -4753,6 +4778,7 @@ struct PiAgentScreen: View {
     @State private var isEarlierTranscriptSheetPresented = false
     @State private var cachedSections: [PiAgentSessionListSection] = []
     @State private var hasBuiltVisibleSessions = false
+    @State private var sessionScrollRequest: UUID?
     /// Per-session derived git activity (commit/push/merge timestamps), keyed by
     /// session.id. Rebuilt off the body hot path on transcript-revision or
     /// visible-set changes — never recomputed inline in row `body` to avoid
@@ -5195,6 +5221,8 @@ struct PiAgentScreen: View {
                             activityByID: visibleSessionActivityByID,
                             projectByPath: viewModel.projectByPath,
                             compactSessionIDs: [],
+                            scrollRequestID: sessionScrollRequest,
+                            scrollRequest: $sessionScrollRequest,
                             selection: $selectedSessionIDs,
                             onSelect: { session in
                                 renamingSessionID = nil
@@ -5212,6 +5240,13 @@ struct PiAgentScreen: View {
                                         ? selectedSessionIDs
                                         : [id]
                                 )
+                            },
+                            onSetPinned: { id, pinned in
+                                viewModel.setPiAgentSessionPinned(id, pinned: pinned)
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    sessionScrollRequest = id
+                                }
                             },
                             onToggleExpand: { projectID in
                                 if viewModel.expandedProjects.contains(projectID) { viewModel.expandedProjects.remove(projectID) }

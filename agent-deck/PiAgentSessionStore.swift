@@ -819,6 +819,16 @@ final class PiAgentSessionStore {
         }
     }
 
+    func setSessionPinned(_ id: UUID, pinned: Bool, at timestamp: Date = Date()) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard (sessions[index].pinnedAt != nil) != pinned else { return }
+        sessions[index].pinnedAt = pinned ? timestamp : nil
+        // Pinning changes expanded-list membership and ordering, but is not
+        // activity: keep updatedAt and the store's recency order untouched.
+        bumpSessionListRevision()
+        saveStructuralChange()
+    }
+
     func applyGeneratedTitle(_ id: UUID, title: String) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }

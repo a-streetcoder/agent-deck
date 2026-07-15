@@ -24,6 +24,33 @@ final class CodingAgentRecentRowTests: XCTestCase {
         XCTAssertNil(row.iconAssetName)
     }
 
+    func testPinStateInvalidatesCompactRowEquality() throws {
+        let unpinned = try PiTestSupport.makeParentSession()
+        var pinned = unpinned
+        pinned.pinnedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let unpinnedRow = CodingAgentRecentRow(
+            session: unpinned,
+            project: nil,
+            isSelected: false,
+            isRunning: false,
+            hasUIRequest: false,
+            hasActiveLoop: false,
+            onDelete: {}
+        )
+        let pinnedRow = CodingAgentRecentRow(
+            session: pinned,
+            project: nil,
+            isSelected: false,
+            isRunning: false,
+            hasUIRequest: false,
+            hasActiveLoop: false,
+            onDelete: {}
+        )
+
+        XCTAssertNotEqual(unpinnedRow, pinnedRow)
+    }
+
     func testProjectRecentRowKeepsProjectIconFallback() throws {
         let project = try PiTestSupport.makeProject()
         var session = try PiTestSupport.makeParentSession(projectURL: project.url)

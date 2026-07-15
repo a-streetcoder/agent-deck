@@ -79,6 +79,52 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertNil(agentFork.agentLaunchOverrides)
     }
 
+    func testPinMutationChangesOnlyPinStateAndSessionListRevision() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Pinned", project: try PiTestSupport.makeProject(), repository: nil)
+        let originalUpdatedAt = session.updatedAt
+        let pinnedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let initialRevision = store.sessionListRevision
+
+        store.setSessionPinned(session.id, pinned: true, at: pinnedAt)
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.pinnedAt, pinnedAt)
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.updatedAt, originalUpdatedAt)
+        XCTAssertEqual(store.sessionListRevision, initialRevision + 1)
+
+        store.setSessionPinned(session.id, pinned: true, at: pinnedAt.addingTimeInterval(60))
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.pinnedAt, pinnedAt)
+        XCTAssertEqual(store.sessionListRevision, initialRevision + 1)
+
+        store.setSessionPinned(session.id, pinned: false)
+        XCTAssertNil(store.sessions.first(where: { $0.id == session.id })?.pinnedAt)
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.updatedAt, originalUpdatedAt)
+        XCTAssertEqual(store.sessionListRevision, initialRevision + 2)
+    }
+
+    func testPinnedAtPersistsAcrossReload() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Pinned", project: try PiTestSupport.makeProject(), repository: nil)
+        let pinnedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        firstStore.setSessionPinned(session.id, pinned: true, at: pinnedAt)
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+        XCTAssertEqual(reloadedStore.sessions.first(where: { $0.id == session.id })?.pinnedAt, pinnedAt)
+    }
+
+    func testSessionRecordWithoutPinnedAtDecodesAsUnpinned() throws {
+        let session = try PiTestSupport.makeParentSession()
+        let encoded = try JSONEncoder().encode(session)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "pinnedAt")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(PiAgentSessionRecord.self, from: legacyData)
+        XCTAssertNil(decoded.pinnedAt)
+    }
+
     func testLaunchOverridesPersistAcrossReload() async throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)

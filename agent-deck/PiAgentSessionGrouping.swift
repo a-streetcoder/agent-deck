@@ -31,7 +31,7 @@ enum PiAgentSessionGrouping {
         from sessions: [PiAgentSessionRecord],
         matchesFocused: (PiAgentSessionRecord) -> Bool
     ) -> PiAgentSessionFocusPartition {
-        let focused = sessions.filter(matchesFocused)
+        let focused = sessions.filter { $0.pinnedAt != nil || matchesFocused($0) }
         let focusedIDs = Set(focused.map(\.id))
         let previous = sessions
             .filter { !focusedIDs.contains($0.id) }
@@ -86,11 +86,8 @@ enum PiAgentSessionGrouping {
         // in a hybrid freeze so a streaming `updatedAt` bump does not reshuffle
         // rows live; the comparator only decides the natural top-of-list winner
         // once the freeze releases.
-        let sorted: [PiAgentSessionRecord]
-        if exactSort {
-            sorted = sessions.sorted { PiAgentSessionRecord.sessionListPrecedesExact($0, $1) }
-        } else {
-            sorted = sessions.sorted { PiAgentSessionRecord.sessionListPrecedes($0, $1) }
+        let sorted = sessions.sorted { lhs, rhs in
+            sessionListPrecedes(lhs, rhs, exactSort: exactSort)
         }
 
         // Expanded view or uncapped modes show everything.
@@ -125,6 +122,27 @@ enum PiAgentSessionGrouping {
         let preview = sorted.filter { includedIDs.contains($0.id) }
         let hidden = sorted.filter { !includedIDs.contains($0.id) }
         return PiAgentSessionPreviewSplit(all: sorted, preview: preview, hidden: hidden)
+    }
+
+    /// Expanded grouping keeps pins ahead of normal recency without changing
+    /// the store or collapsed-sidebar comparators.
+    private static func sessionListPrecedes(
+        _ lhs: PiAgentSessionRecord,
+        _ rhs: PiAgentSessionRecord,
+        exactSort: Bool
+    ) -> Bool {
+        switch (lhs.pinnedAt, rhs.pinnedAt) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return exactSort
+                ? PiAgentSessionRecord.sessionListPrecedesExact(lhs, rhs)
+                : PiAgentSessionRecord.sessionListPrecedes(lhs, rhs)
+        }
     }
 
     /// Build the full grouped section list from the scoped+filtered sessions.

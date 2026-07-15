@@ -274,6 +274,70 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertEqual(partition.previous.map(\.title), ["previous"])
     }
 
+    func testPinnedInactiveSessionIsPromotedFromPrevious() throws {
+        var pinned = try makeSession(title: "pinned", updatedAt: now.addingTimeInterval(-7_200), status: .completed)
+        pinned.pinnedAt = now
+        let previous = try makeSession(title: "previous", updatedAt: now.addingTimeInterval(-3_600), status: .completed)
+
+        let partition = PiAgentSessionGrouping.focusPartition(from: [previous, pinned]) { _ in false }
+
+        XCTAssertEqual(partition.focused.map(\.id), [pinned.id])
+        XCTAssertEqual(partition.previous.map(\.id), [previous.id])
+
+        pinned.pinnedAt = nil
+        let unpinnedPartition = PiAgentSessionGrouping.focusPartition(from: [previous, pinned]) { _ in false }
+        XCTAssertTrue(unpinnedPartition.focused.isEmpty)
+        XCTAssertEqual(Set(unpinnedPartition.previous.map(\.id)), [previous.id, pinned.id])
+    }
+
+    func testPinnedSessionsLeadProjectGroupNewestPinFirst() throws {
+        let projectPath = "/tmp/agent-deck"
+        let project = try makeProject(path: projectPath, repo: "agent-deck", owner: "earendil-works")
+        var olderPin = try makeSession(title: "older-pin", updatedAt: now, projectPath: projectPath)
+        olderPin.pinnedAt = now.addingTimeInterval(-60)
+        var newerPin = try makeSession(title: "newer-pin", updatedAt: now.addingTimeInterval(-3_600), projectPath: projectPath)
+        newerPin.pinnedAt = now
+        let unpinned = try makeSession(title: "focused", updatedAt: now.addingTimeInterval(60), projectPath: projectPath)
+
+        let sections = PiAgentSessionGrouping.sections(
+            from: [unpinned, olderPin, newerPin],
+            projectByPath: [projectPath: project],
+            expandedProjectIDs: [],
+            collapsedProjectIDs: [],
+            capPreviews: false,
+            isWorking: { _ in false },
+            selectedSessionID: nil,
+            now: now,
+            exactSort: true
+        )
+
+        XCTAssertEqual(sections[0].items.map(\.title), ["newer-pin", "older-pin", "focused"])
+    }
+
+    func testPinsDoNotChangeProjectSectionOrdering() throws {
+        let alphaPath = "/tmp/alpha"
+        let zetaPath = "/tmp/zeta"
+        let alpha = try makeProject(path: alphaPath, repo: "alpha", owner: "owner")
+        let zeta = try makeProject(path: zetaPath, repo: "zeta", owner: "owner")
+        let alphaSession = try makeSession(title: "alpha", updatedAt: now, projectPath: alphaPath)
+        var zetaPinned = try makeSession(title: "zeta", updatedAt: now, projectPath: zetaPath)
+        zetaPinned.pinnedAt = now
+
+        let sections = PiAgentSessionGrouping.sections(
+            from: [zetaPinned, alphaSession],
+            projectByPath: [alphaPath: alpha, zetaPath: zeta],
+            expandedProjectIDs: [],
+            collapsedProjectIDs: [],
+            capPreviews: false,
+            isWorking: { _ in false },
+            selectedSessionID: nil,
+            now: now,
+            exactSort: true
+        )
+
+        XCTAssertEqual(sections.map(\.title), ["alpha", "zeta"])
+    }
+
     func testPreviousSectionStyleSurvivesItemRefresh() throws {
         let session = try makeSession(title: "previous", updatedAt: now)
         let section = PiAgentSessionListSection(
