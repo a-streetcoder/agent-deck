@@ -200,6 +200,101 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertTrue(split.hidden.isEmpty)
     }
 
+    // MARK: - focused / previous partition
+
+    func testFocusPartitionIsExhaustiveDisjointAndSortsPreviousExactly() throws {
+        let focusedNewest = try makeSession(title: "focused-new", updatedAt: now.addingTimeInterval(-10))
+        let previousOlder = try makeSession(title: "previous-old", updatedAt: now.addingTimeInterval(-300))
+        let focusedOlder = try makeSession(title: "focused-old", updatedAt: now.addingTimeInterval(-200))
+        let previousNewest = try makeSession(title: "previous-new", updatedAt: now.addingTimeInterval(-100))
+
+        let partition = PiAgentSessionGrouping.focusPartition(
+            from: [previousOlder, focusedOlder, previousNewest, focusedNewest],
+            matchesFocused: { $0.title.hasPrefix("focused") }
+        )
+
+        XCTAssertEqual(Set(partition.focused.map(\.id)), [focusedNewest.id, focusedOlder.id])
+        XCTAssertEqual(partition.previous.map(\.id), [previousNewest.id, previousOlder.id])
+        XCTAssertTrue(Set(partition.focused.map(\.id)).isDisjoint(with: partition.previous.map(\.id)))
+        XCTAssertEqual(Set((partition.focused + partition.previous).map(\.id)), [focusedNewest.id, focusedOlder.id, previousNewest.id, previousOlder.id])
+    }
+
+    func testFocusedPartitionGroupsAreUncappedWhenRequested() throws {
+        let projectPath = "/tmp/agent-deck"
+        let project = try makeProject(path: projectPath, repo: "agent-deck", owner: "earendil-works")
+        let sessions = try (0..<8).map { index in
+            try makeSession(
+                title: "focused-\(index)",
+                updatedAt: now.addingTimeInterval(-Double(index)),
+                projectPath: projectPath
+            )
+        }
+        let partition = PiAgentSessionGrouping.focusPartition(from: sessions) { _ in true }
+        let sections = PiAgentSessionGrouping.sections(
+            from: partition.focused,
+            projectByPath: [projectPath: project],
+            expandedProjectIDs: [],
+            collapsedProjectIDs: [],
+            capPreviews: false,
+            isWorking: { _ in false },
+            selectedSessionID: nil,
+            now: now,
+            exactSort: true
+        )
+
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].items.count, 8)
+        XCTAssertEqual(sections[0].hiddenCount, 0)
+        XCTAssertTrue(partition.previous.isEmpty)
+    }
+
+    func testActiveSessionsPredicateLeavesOnlyOldSettledSessionInPrevious() throws {
+        var draft = try makeSession(title: "draft", updatedAt: now.addingTimeInterval(-7_200), status: .draft)
+        draft.createdAt = draft.updatedAt
+        var running = try makeSession(title: "running", updatedAt: now.addingTimeInterval(-7_200), status: .running)
+        running.createdAt = running.updatedAt
+        var attention = try makeSession(title: "attention", updatedAt: now.addingTimeInterval(-7_200), status: .completed)
+        attention.createdAt = attention.updatedAt
+        attention.needsAttention = true
+        var recent = try makeSession(title: "recent", updatedAt: now.addingTimeInterval(-60), status: .completed)
+        recent.createdAt = recent.updatedAt
+        var previous = try makeSession(title: "previous", updatedAt: now.addingTimeInterval(-7_200), status: .completed)
+        previous.createdAt = previous.updatedAt
+
+        let partition = PiAgentSessionGrouping.focusPartition(from: [previous, attention, recent, running, draft]) {
+            $0.matchesActiveSessionsFilter(
+                referenceDate: now,
+                isWorking: false,
+                hasActiveLoop: false,
+                hasPendingUIRequest: false
+            )
+        }
+
+        XCTAssertEqual(Set(partition.focused.map(\.title)), ["draft", "running", "attention", "recent"])
+        XCTAssertEqual(partition.previous.map(\.title), ["previous"])
+    }
+
+    func testPreviousSectionStyleSurvivesItemRefresh() throws {
+        let session = try makeSession(title: "previous", updatedAt: now)
+        let section = PiAgentSessionListSection(
+            id: PiAgentSessionGrouping.previousSessionsSectionID,
+            title: "Previous Sessions",
+            subtitle: nil,
+            iconFileURL: nil,
+            fallbackSymbolName: "clock",
+            assetName: nil,
+            items: [session],
+            hiddenCount: 0,
+            isShowMoreActive: false,
+            isCollapsed: false,
+            totalCount: 1,
+            style: .previous,
+            isProjectGroup: false
+        )
+
+        XCTAssertEqual(section.withItems([session]).style, .previous)
+    }
+
     // MARK: - sections
 
     func testGroupsSortedAlphabeticallyByRepoName() throws {

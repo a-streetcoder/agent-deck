@@ -21,6 +21,24 @@ enum PiAgentSessionGrouping {
     /// `projectPath` no longer resolves to a discovered project.
     static let otherSectionID = "agent-deck.session-group.other"
 
+    /// Identity of the flat trailing list shown after focused project groups.
+    static let previousSessionsSectionID = "agent-deck.session-group.previous"
+
+    /// Splits the filtered global session set into the focused population and
+    /// its exact-recency-sorted remainder. The caller supplies the focus rule so
+    /// this Foundation-only grouping module does not depend on live runner state.
+    static func focusPartition(
+        from sessions: [PiAgentSessionRecord],
+        matchesFocused: (PiAgentSessionRecord) -> Bool
+    ) -> PiAgentSessionFocusPartition {
+        let focused = sessions.filter(matchesFocused)
+        let focusedIDs = Set(focused.map(\.id))
+        let previous = sessions
+            .filter { !focusedIDs.contains($0.id) }
+            .sorted { PiAgentSessionRecord.sessionListPrecedesExact($0, $1) }
+        return PiAgentSessionFocusPartition(focused: focused, previous: previous)
+    }
+
     /// Split one project's sessions into the preview set and the hidden set.
     ///
     /// - Parameters:
@@ -393,6 +411,16 @@ struct PiAgentSessionPreviewSplit: Equatable {
 /// "Other") plus the sessions to render for it. Plain `Equatable` data (no
 /// SwiftUI) so `SessionListContent`'s `.equatable()` gate can compare it
 /// cheaply and skip rebuilds on streaming pulses.
+struct PiAgentSessionFocusPartition: Equatable {
+    let focused: [PiAgentSessionRecord]
+    let previous: [PiAgentSessionRecord]
+}
+
+enum PiAgentSessionListSectionStyle: Equatable {
+    case project
+    case previous
+}
+
 struct PiAgentSessionListSection: Equatable, Identifiable {
     /// Stable identity: the project path, or `PiAgentSessionGrouping.otherSectionID`.
     let id: String
@@ -423,6 +451,9 @@ struct PiAgentSessionListSection: Equatable, Identifiable {
     let isCollapsed: Bool
     /// Total sessions belonging to this group (rendered + hidden).
     let totalCount: Int
+    /// Controls whether rows use the rich project presentation or the compact
+    /// Previous Sessions presentation.
+    var style: PiAgentSessionListSectionStyle = .project
     /// True for real discovered projects; false for no-project utility groups and the
     /// catch-all "Other" group.
     let isProjectGroup: Bool
@@ -449,6 +480,7 @@ struct PiAgentSessionListSection: Equatable, Identifiable {
             isShowMoreActive: isShowMoreActive,
             isCollapsed: isCollapsed,
             totalCount: totalCount,
+            style: style,
             isProjectGroup: isProjectGroup
         )
     }

@@ -347,7 +347,6 @@ final class AppViewModel: NSObject {
 
     var automationAvailableModels: [AvailableModel] { cachedAutomationAvailableModels }
     var showPiAgentAttentionOnly = false
-    var showPiAgentActiveOnly = false
     /// Per-project "Show more/less" state for the All-Projects grouped session
     /// list, keyed by section id (project path, or the catch-all "Other").
     /// Shared on the view model so all mounted session lists (sidebar panel,

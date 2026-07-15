@@ -3,24 +3,6 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PiAgentActiveSessionsFilterButton: View {
-    @Binding var isOn: Bool
-
-    var body: some View {
-        AppCircleIconButton(
-            style: isOn ? .soft : .neutral,
-            tint: isOn ? AppTheme.brandAccent : AppTheme.mutedText,
-            size: 30,
-            help: isOn ? "Showing focused sessions: active, recent, drafts, or needing attention; click to show all sessions" : "Show focused sessions: active, recent, drafts, or needing attention",
-            action: { isOn.toggle() }
-        ) {
-            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-        }
-        .accessibilityLabel("Focused sessions filter")
-        .accessibilityValue(isOn ? "On" : "Off")
-    }
-}
-
 struct PiAgentSessionSearchField: View {
     var placeholder = "Search all sessions"
     @Binding var text: String

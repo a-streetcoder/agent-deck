@@ -125,7 +125,6 @@ struct CodingAgentCollapsedPanel: View {
                 isExpanded: false,
                 onToggle: { viewModel.expandCodingAgentPanel() }
             ) {
-                PiAgentActiveSessionsFilterButton(isOn: activeFilterBinding)
                 CodingAgentNewSessionControls(viewModel: viewModel)
             }
             // 8 (card) + 6 here = a 14pt content inset, matching the account
@@ -171,7 +170,6 @@ struct CodingAgentCollapsedPanel: View {
         .onChange(of: store.sessionListRevision) { _, _ in rebuildRecents() }
         .onChange(of: sessionSearchText) { _, _ in rebuildRecents() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildRecents() }
-        .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildRecents() }
         .onChange(of: store.uiRequestsBySessionID) { _, _ in rebuildRecents() }
         .onChange(of: store.subagentRunsRevision) { _, _ in rebuildRecents() }
         .onChange(of: store.loopRunsRevision) { _, _ in rebuildRecents() }
@@ -238,30 +236,10 @@ struct CodingAgentCollapsedPanel: View {
         })
     }
 
-    private var activeFilterBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.showPiAgentActiveOnly },
-            set: { viewModel.showPiAgentActiveOnly = $0 }
-        )
-    }
-
     private func rebuildRecents() {
         var scoped = store.sessions
         if viewModel.showPiAgentAttentionOnly {
             scoped = scoped.filter(\.needsAttention)
-        }
-        if viewModel.showPiAgentActiveOnly {
-            let now = Date()
-            let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
-            let activeLoopSessionIDs = activeLoopSessionIDs(in: scoped)
-            scoped = scoped.filter {
-                $0.matchesActiveSessionsFilter(
-                    referenceDate: now,
-                    isWorking: viewModel.piAgentSessionIsWorking($0),
-                    hasActiveLoop: activeLoopSessionIDs.contains($0.id),
-                    hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
-                )
-            }
         }
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
