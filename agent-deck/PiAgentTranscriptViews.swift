@@ -3727,6 +3727,7 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var headerTitle: String {
+        if entry.isNativeAskResponse { return "Answer" }
         if entry.title == "Steering" { return "Steering" }
         switch entry.role {
         case .user: return "You"
@@ -3791,7 +3792,9 @@ struct PiAgentTranscriptCard: View {
 
     private var icon: String {
         switch entry.role {
-        case .user: return entry.title == "Steering" ? "arrowshape.turn.up.forward.circle" : "person.crop.circle"
+        case .user:
+            if entry.isNativeAskResponse { return "questionmark.bubble.fill" }
+            return entry.title == "Steering" ? "arrowshape.turn.up.forward.circle" : "person.crop.circle"
         case .assistant: return "pi"
         case .thinking: return "brain.head.profile"
         case .tool: return entry.title.localizedCaseInsensitiveContains("subagent") ? "person.2.wave.2" : "hammer"

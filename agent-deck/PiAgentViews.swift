@@ -6017,17 +6017,19 @@ struct PiAgentScreen: View {
         case .thinking:
             return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
         case .steering(let entry):
-            // Steering messages are user messages, so they render right-aligned
-            // like the initial user question. Chip-bearing ones use the native
-            // chip-question card; plain-text ones use the lighter bubble with
-            // user-message alignment and visual weight.
+            // Steering messages and structured Ask User answers remain
+            // right-aligned user-authored content, but have distinct labels.
+            let headerTitle = entry.isNativeAskResponse ? "Answer" : "Steering"
+            let headerIcon = entry.isNativeAskResponse
+                ? "questionmark.bubble.fill"
+                : "arrowshape.turn.up.forward.circle"
             let hasChips = PiAgentUserMessageContent.displayChipsNaturalWidth(
                 for: entry, skills: skills, commandSlashNames: commandSlashNames) > 0
             if hasChips {
                 var payload = NativeQuestionPayload.make(
                     entry: entry, skills: skills, commandSlashNames: commandSlashNames, fork: nil)
-                payload.headerTitle = "Steering"
-                payload.headerIcon = "arrowshape.turn.up.forward.circle"
+                payload.headerTitle = headerTitle
+                payload.headerIcon = headerIcon
                 return .native(.of(PiAgentNativeQuestionView.self) { view, width in
                     view.configure(payload: payload, width: width)
                 })
@@ -6036,8 +6038,8 @@ struct PiAgentScreen: View {
                 for: entry, skills: skills, commandSlashNames: commandSlashNames)
             return .bubble(NativeBubblePayload(
                 role: .user,
-                headerTitle: "Steering",
-                iconSymbol: "arrowshape.turn.up.forward.circle",
+                headerTitle: headerTitle,
+                iconSymbol: headerIcon,
                 markdownSource: text,
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: visibility.showImages,
