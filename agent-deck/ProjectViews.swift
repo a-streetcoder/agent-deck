@@ -557,8 +557,12 @@ struct ProjectsScreen: View {
             Button {
                 mcpRecapProject = project
             } label: {
-                Image(systemName: "powerplug")
+                Image(AppSymbols.mcp)
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
                     .foregroundStyle(hasMcpAssignments ? AppTheme.mutedText : AppTheme.mutedText.opacity(0.35))
+                    .frame(width: 16, height: 16)
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
@@ -1019,11 +1023,15 @@ private struct ProjectMcpServersRecapSheet: View {
                             serverRecapSection(title: "Project", servers: recap.projectServers, color: .green)
                         }
                     } else if hasLoadedProjectAssignments {
-                        ContentUnavailableView(
-                            "No MCP Servers",
-                            systemImage: "powerplug",
-                            description: Text("No MCP servers are assigned to this project. Assign them in Runtime → MCP.")
-                        )
+                        ContentUnavailableView {
+                            Label {
+                                Text("No MCP Servers")
+                            } icon: {
+                                Image(AppSymbols.mcp)
+                            }
+                        } description: {
+                            Text("No MCP servers are assigned to this project. Assign them in Runtime → MCP.")
+                        }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
                     } else {
@@ -1060,8 +1068,12 @@ private struct ProjectMcpServersRecapSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(servers) { server in
                     HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "powerplug")
+                        Image(AppSymbols.mcp)
+                            .resizable()
+                            .renderingMode(.template)
+                            .aspectRatio(contentMode: .fit)
                             .foregroundStyle(color)
+                            .frame(width: 16, height: 16)
                             .frame(width: 18)
 
                         VStack(alignment: .leading, spacing: 3) {

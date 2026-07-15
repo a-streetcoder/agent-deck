@@ -190,15 +190,34 @@ struct AppPopoverProjectRow: View {
 /// Toggle row (transcript display options). Leading glyph + title/subtitle + switch.
 struct AppPopoverToggleRow: View {
     let systemImage: String
+    let assetImage: String?
     let title: String
     let subtitle: String
     @Binding var isOn: Bool
 
+    init(systemImage: String, assetImage: String? = nil, title: String, subtitle: String, isOn: Binding<Bool>) {
+        self.systemImage = systemImage
+        self.assetImage = assetImage
+        self.title = title
+        self.subtitle = subtitle
+        self._isOn = isOn
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
-            Image(systemName: systemImage)
-                .foregroundStyle(AppTheme.mutedText)
-                .frame(width: 17)
+            Group {
+                if let assetImage {
+                    Image(assetImage)
+                        .resizable()
+                        .renderingMode(.template)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 15, height: 15)
+                } else {
+                    Image(systemName: systemImage)
+                }
+            }
+            .foregroundStyle(AppTheme.mutedText)
+            .frame(width: 17)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(AppTheme.Popover.itemTitleFont)

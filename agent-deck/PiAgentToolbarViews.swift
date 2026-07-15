@@ -263,6 +263,7 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
         let title: String
         let subtitle: String
         let systemImage: String
+        var assetImage: String? = nil
         let keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>
         var id: String { title }
     }
@@ -276,7 +277,7 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
         .init(title: "Diffs", subtitle: "Show compact file changes in chat", systemImage: "plusminus", keyPath: \.showDiffs),
         .init(title: "Images", subtitle: "Show inline image previews in transcripts", systemImage: "photo", keyPath: \.showImages),
         .init(title: "Memory", subtitle: "Show memory recall cards in the transcript", systemImage: "brain", keyPath: \.showMemoryCards),
-        .init(title: "MCP", subtitle: "Show MCP tool call cards in the transcript", systemImage: "powerplug", keyPath: \.showMCPCards),
+        .init(title: "MCP", subtitle: "Show MCP tool call cards in the transcript", systemImage: AppSymbols.mcp, assetImage: AppSymbols.mcp, keyPath: \.showMCPCards),
     ]
 
     var body: some View {
@@ -285,6 +286,7 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
                 ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
                     AppPopoverToggleRow(
                         systemImage: option.systemImage,
+                        assetImage: option.assetImage,
                         title: option.title,
                         subtitle: option.subtitle,
                         isOn: Binding(

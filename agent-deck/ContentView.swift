@@ -1257,7 +1257,11 @@ struct ContentView: View {
                     get: { viewModel.appSettings.mcpEnabled },
                     set: { viewModel.setMCPEnabled($0) }
                 )) {
-                    Label("Enable MCP", systemImage: SidebarItem.mcp.systemImage)
+                    Label {
+                        Text("Enable MCP")
+                    } icon: {
+                        Image(AppSymbols.mcp)
+                    }
                 }
                 .toggleStyle(.button)
                 .symbolRenderingMode(.monochrome)

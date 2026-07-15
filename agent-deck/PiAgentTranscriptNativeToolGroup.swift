@@ -660,10 +660,10 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
     /// A sub-card header glyph on the shared transcript header scale (16pt box,
     /// `headerIcon`), so "Web"/"Changes" titles read at the same size as the
     /// memory / status / bubble cards rather than a smaller competing scale.
-    private static func headerGlyph(_ name: String, tint: NSColor) -> NSImageView {
+    private static func headerGlyph(_ name: String, isAsset: Bool = false, tint: NSColor) -> NSImageView {
         let view = NSImageView()
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.image = NativeTranscriptFont.headerIcon(name)
+        view.image = isAsset ? NSImage(named: name) : NativeTranscriptFont.headerIcon(name)
         view.contentTintColor = tint
         view.imageScaling = .scaleProportionallyDown
         view.setContentHuggingPriority(.required, for: .horizontal)
@@ -693,13 +693,13 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         stack.alignment = .leading
         stack.spacing = 10
 
-        // Header: powerplug glyph + "MCP" only — no call count (the Changes card
+        // Header: MCP glyph + "MCP" only — no call count (the Changes card
         // carries no count either; the rows speak for themselves).
         let header = NSStackView()
         header.orientation = .horizontal
         header.spacing = 8
         header.alignment = .centerY
-        header.addArrangedSubview(Self.headerGlyph("powerplug", tint: mcp.hasErrors ? AppTheme.ns(AppTheme.roleError) : Self.muted))
+        header.addArrangedSubview(Self.headerGlyph(AppSymbols.mcp, isAsset: true, tint: mcp.hasErrors ? AppTheme.ns(AppTheme.roleError) : Self.muted))
         header.addArrangedSubview(Self.label("MCP", font: NativeTranscriptFont.header))
         stack.addArrangedSubview(header)
 

@@ -126,8 +126,12 @@ struct PiAgentStartupResourcesPopover: View {
         if !mcpRecap.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Image(systemName: "powerplug")
+                    Image(AppSymbols.mcp)
+                        .resizable()
+                        .renderingMode(.template)
+                        .aspectRatio(contentMode: .fit)
                         .foregroundStyle(AppTheme.brandAccent)
+                        .frame(width: 16, height: 16)
                         .frame(width: 18)
                     Text("MCP")
                         .font(.subheadline.weight(.semibold))

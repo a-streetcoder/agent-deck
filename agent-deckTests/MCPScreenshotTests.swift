@@ -58,7 +58,11 @@ final class MCPScreenshotTests: XCTestCase {
         // 4) The management-screen empty state (same ContentUnavailableView the screen uses).
         renderSwiftUI(
             ContentUnavailableView {
-                Label("No MCP servers", systemImage: SidebarItem.mcp.systemImage)
+                Label {
+                    Text("No MCP servers")
+                } icon: {
+                    Image(AppSymbols.mcp)
+                }
             } description: {
                 Text("Add a server from the toolbar — paste a config or fill the form. Servers are read from mcp.json in ~/.config/mcp, ~/.pi/agent, and the project's .mcp.json / .pi/mcp.json.")
             }
@@ -71,7 +75,7 @@ final class MCPScreenshotTests: XCTestCase {
         // 5) Visibility toggle popover row (the transcript-display option).
         renderSwiftUI(
             VStack(spacing: 0) {
-                AppPopoverToggleRow(systemImage: "powerplug", title: "MCP",
+                AppPopoverToggleRow(systemImage: AppSymbols.mcp, assetImage: AppSymbols.mcp, title: "MCP",
                                     subtitle: "Show MCP tool call cards in the transcript",
                                     isOn: .constant(true))
             }

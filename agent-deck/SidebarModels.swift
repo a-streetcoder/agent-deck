@@ -1,6 +1,7 @@
 import Foundation
 
 enum AppSymbols {
+    static let mcp = "mcp"
     static let promptTemplate = "rectangle.and.pencil.and.ellipsis"
 }
 
@@ -38,7 +39,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .models: return "cpu"
         case .environment: return "key"
         case .extensions: return "puzzlepiece.extension"
-        case .mcp: return "powerplug"
+        case .mcp: return AppSymbols.mcp
         case .doctor: return "stethoscope"
         }
     }
@@ -47,6 +48,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var assetImageName: String? {
         switch self {
         case .issues: return "github"
+        case .mcp: return AppSymbols.mcp
         default: return nil
         }
     }
