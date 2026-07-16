@@ -1128,9 +1128,15 @@ private struct PiAgentAdaptiveDelegationLayout: Layout {
     let spacing: CGFloat
     private let descriptionWidth: CGFloat = 260
     private let pickerWidth: CGFloat = 220
+    private let compactFallbackWidth: CGFloat = 320
     private var wideThreshold: CGFloat { descriptionWidth + spacing + pickerWidth }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    private func sanitizedWidth(_ width: CGFloat?) -> CGFloat {
+        guard let width, width.isFinite else { return compactFallbackWidth }
+        return max(0, width)
+    }
 
     private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
         if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
@@ -1144,7 +1150,7 @@ private struct PiAgentAdaptiveDelegationLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard subviews.count == 2 else { return .zero }
-        let width = proposal.width ?? 320
+        let width = sanitizedWidth(proposal.width)
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         return width >= wideThreshold
             ? .init(width: width, height: max(sizes[0].height, sizes[1].height))
@@ -1153,12 +1159,13 @@ private struct PiAgentAdaptiveDelegationLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 2 else { return }
-        let wide = bounds.width >= wideThreshold
-        let widths = wide ? [max(0, bounds.width - spacing - pickerWidth), pickerWidth] : [bounds.width, min(pickerWidth, bounds.width)]
-        let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
+        let width = sanitizedWidth(bounds.width)
+        let wide = width >= wideThreshold
+        let widths = wide ? [max(0, width - spacing - pickerWidth), pickerWidth] : [width, min(pickerWidth, width)]
+        let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
         let secondOrigin = wide
-            ? CGPoint(x: bounds.maxX - pickerWidth, y: bounds.minY)
+            ? CGPoint(x: bounds.minX + width - pickerWidth, y: bounds.minY)
             : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + spacing)
         subviews[1].place(at: secondOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
     }
@@ -1180,12 +1187,18 @@ private struct PiAgentAdaptiveRowLayout: Layout {
     private let mediumIdentityWidth: CGFloat = 220
     private let mediumControlsWidth: CGFloat = 338
     private let chatWidth: CGFloat = 76
+    private let compactFallbackWidth: CGFloat = 260
     // Preserve the July-era wide columns where they genuinely fit, but keep an
     // inline medium arrangement before falling back to a stacked row.
     private var wideThreshold: CGFloat { wideIdentityWidth + spacing + wideControlsWidth + 60 }
     private var mediumThreshold: CGFloat { mediumIdentityWidth + spacing + mediumControlsWidth + spacing + chatWidth }
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    private func sanitizedWidth(_ width: CGFloat?) -> CGFloat {
+        guard let width, width.isFinite else { return compactFallbackWidth }
+        return max(0, width)
+    }
 
     private func widths(for width: CGFloat) -> [CGFloat] {
         if width >= wideThreshold { return [wideIdentityWidth, wideControlsWidth, chatWidth] }
@@ -1204,7 +1217,7 @@ private struct PiAgentAdaptiveRowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard subviews.count == 3 else { return .zero }
-        let width = proposal.width ?? 260
+        let width = sanitizedWidth(proposal.width)
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         return width >= mediumThreshold
             ? .init(width: width, height: max(sizes[0].height, sizes[1].height, sizes[2].height))
@@ -1213,16 +1226,17 @@ private struct PiAgentAdaptiveRowLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 3 else { return }
-        let inline = bounds.width >= mediumThreshold
-        let widths = widths(for: bounds.width)
-        let sizes = measurements(width: bounds.width, height: proposal.height, subviews: subviews, cache: &cache)
+        let width = sanitizedWidth(bounds.width)
+        let inline = width >= mediumThreshold
+        let widths = widths(for: width)
+        let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
         if inline {
             subviews[1].place(at: .init(x: bounds.minX + widths[0] + spacing, y: bounds.minY), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
-            subviews[2].place(at: .init(x: bounds.maxX - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
+            subviews[2].place(at: .init(x: bounds.minX + width - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
         } else {
             // Chat is an overlay in compact mode: hover never changes measured geometry.
-            subviews[2].place(at: .init(x: bounds.maxX - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
+            subviews[2].place(at: .init(x: bounds.minX + width - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
             subviews[1].place(at: .init(x: bounds.minX, y: bounds.minY + sizes[0].height + 8), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
         }
     }

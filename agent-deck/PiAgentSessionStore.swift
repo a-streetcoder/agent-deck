@@ -215,7 +215,19 @@ final class PiAgentSessionStore {
 
     init(fileManager: FileManager = .default) {
         let directory: URL
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+#if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        let stressDirectory = environment["AGENTDECK_PICKER_STRESS"] == "1"
+            ? environment["AGENTDECK_PICKER_STRESS_SESSION_DIR"]
+            : nil
+#else
+        let stressDirectory: String? = nil
+#endif
+        if let stressDirectory,
+           !stressDirectory.isEmpty,
+           stressDirectory.hasPrefix("/") {
+            directory = URL(fileURLWithPath: stressDirectory).standardizedFileURL
+        } else if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
             // The XCTest host launches the real app entry point before loading the
             // test bundle. Keep that host store away from the user's production index.
             directory = fileManager.temporaryDirectory

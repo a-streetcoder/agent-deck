@@ -9,16 +9,43 @@ import XCTest
 private struct PickerCardStressLifecycleFixture: View {
     var viewModel: AppViewModel
     let session: PiAgentSessionRecord
-    @State private var isExpanded = false
+    let acknowledgements: PickerStressCardAcknowledgements
+    let runsLifecycle: Bool
+    @State private var isExpanded: Bool
+
+    init(
+        viewModel: AppViewModel,
+        session: PiAgentSessionRecord,
+        acknowledgements: PickerStressCardAcknowledgements,
+        runsLifecycle: Bool
+    ) {
+        self.viewModel = viewModel
+        self.session = session
+        self.acknowledgements = acknowledgements
+        self.runsLifecycle = runsLifecycle
+        _isExpanded = State(initialValue: !runsLifecycle)
+    }
 
     var body: some View {
         PiAgentSessionSubagentPickerCard(
             viewModel: viewModel,
             session: session,
-            stressExpansionRequest: isExpanded
+            stressExpansionRequest: isExpanded,
+            stressAcknowledgements: acknowledgements
         )
         .onAppear {
-            DispatchQueue.main.async { isExpanded = true }
+            guard runsLifecycle else { return }
+            // Leave the card collapsed long enough for its delayed layout snap,
+            // then re-expand for the production resize cycle.
+            DispatchQueue.main.async {
+                isExpanded = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                    isExpanded = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
+                        isExpanded = true
+                    }
+                }
+            }
         }
     }
 }
@@ -117,16 +144,45 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         let startedAt = Date()
         let viewModel = AppViewModel()
         let session = try! PiTestSupport.makeParentSession()
-        let host = NSHostingView(rootView: AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: 760)))
+        let acknowledgements = PickerStressCardAcknowledgements()
+        acknowledgements.reset(for: session.id)
+        let host = NSHostingView(rootView: AnyView(realPickerCardSplitFixture(
+            viewModel: viewModel,
+            session: session,
+            acknowledgements: acknowledgements,
+            runsLifecycle: true,
+            width: 760
+        )))
         let window = makeConstrainedWindow(host: host)
         Self.windows.append(window)
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        // Mount first so the fixture's lifecycle has started, then wait beyond
+        // the production collapse delay and verify a collapsed layout pass.
+        assertFinite(resizeAndMeasure(window: window, host: host, width: 760, height: 820))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.22))
+        let collapsedGeometry = resizeAndMeasure(window: window, host: host, width: 760, height: 820)
+        assertFinite(collapsedGeometry)
+        XCTAssertTrue(acknowledgements.mounted)
+        XCTAssertFalse(acknowledgements.expanded, "The card must complete its delayed collapsed layout before re-expanding.")
+        XCTAssertTrue(
+            // Allow the card's 0.12s delayed collapse snap plus the fixture's
+            // subsequent 0.36s re-expansion request to be delivered through
+            // the hosted AppKit display cycle under parallel suite load.
+            runMainLoop(until: { acknowledgements.expanded }, timeout: 0.6),
+            "The card must re-expand before the resize cycle begins."
+        )
+
         // 552pt is the smallest supported split geometry: 190pt sessions,
         // 360pt active session, plus the split divider.
         var firstPass: [CGFloat: CGSize] = [:]
         for width: CGFloat in [552, 620, 760, 980] {
-            host.rootView = AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: width))
+            host.rootView = AnyView(realPickerCardSplitFixture(
+                viewModel: viewModel,
+                session: session,
+                acknowledgements: acknowledgements,
+                runsLifecycle: false,
+                width: width
+            ))
             let geometry = resizeAndMeasure(window: window, host: host, width: width, height: 820)
             assertFinite(geometry)
             XCTAssertEqual(geometry.width, width, accuracy: 0.5)
@@ -138,7 +194,13 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
             firstPass[width] = geometry
         }
         for width: CGFloat in [760, 552, 980, 620, 552, 760] {
-            host.rootView = AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: width))
+            host.rootView = AnyView(realPickerCardSplitFixture(
+                viewModel: viewModel,
+                session: session,
+                acknowledgements: acknowledgements,
+                runsLifecycle: false,
+                width: width
+            ))
             let geometry = resizeAndMeasure(window: window, host: host, width: width, height: 820)
             let expected = try! XCTUnwrap(firstPass[width])
             XCTAssertEqual(geometry.width, expected.width, accuracy: 0.5)
@@ -204,13 +266,24 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
     /// same HSplitView/composer lifecycle as PiAgentScreen. This intentionally
     /// does not reconstruct picker rows, so it catches intrinsic-size feedback
     /// introduced by the card itself.
-    private func realPickerCardSplitFixture(viewModel: AppViewModel, session: PiAgentSessionRecord, width: CGFloat) -> some View {
+    private func realPickerCardSplitFixture(
+        viewModel: AppViewModel,
+        session: PiAgentSessionRecord,
+        acknowledgements: PickerStressCardAcknowledgements,
+        runsLifecycle: Bool,
+        width: CGFloat
+    ) -> some View {
         HSplitView {
             Color.clear
                 .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
             VStack(spacing: 12) {
                 Spacer(minLength: 0)
-                PickerCardStressLifecycleFixture(viewModel: viewModel, session: session)
+                PickerCardStressLifecycleFixture(
+                    viewModel: viewModel,
+                    session: session,
+                    acknowledgements: acknowledgements,
+                    runsLifecycle: runsLifecycle
+                )
                 Divider()
                 Text("Composer")
                     .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
@@ -271,6 +344,15 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         withExtendedLifetime(retiredContent) {}
         windows.removeAll()
+    }
+
+    private func runMainLoop(until condition: () -> Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.main.run(until: min(deadline, Date().addingTimeInterval(0.01)))
+        }
+        return condition()
     }
 
     private func assertFinite(_ size: CGSize, file: StaticString = #filePath, line: UInt = #line) {

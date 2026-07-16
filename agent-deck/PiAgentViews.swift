@@ -4917,12 +4917,10 @@ struct PiAgentScreen: View {
                     sessionsColumn
                         .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
 
-                    activeSessionColumn
-                        .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+                    activeSessionPaneBoundary
                 }
             } else {
-                activeSessionColumn
-                    .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+                activeSessionPaneBoundary
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -5417,45 +5415,59 @@ struct PiAgentScreen: View {
         // persisted session over the freshly created one.
         try? await Task.sleep(for: .milliseconds(500))
         // This journey is invalid without a real project-backed draft. Wait for
-        // initial discovery, then deterministically use the selected project or
-        // the first discovered project; never fall back to General Chat.
+        // normal discovery first; only when it is empty, resolve the harness
+        // path transiently without publishing a project preference or selection.
         for _ in 0..<20 where viewModel.discoveredProjects.isEmpty {
             try? await Task.sleep(for: .milliseconds(100))
         }
         guard let project = viewModel.selectedProjectPath.flatMap({ viewModel.projectByPath[$0] })
-                ?? viewModel.discoveredProjects.sorted(by: { $0.path < $1.path }).first else {
-            pickerStressLog("PICKER_STRESS FAIL no discovered project; cannot create project draft")
-            exit(EXIT_FAILURE)
-        }
-        viewModel.selectedProjectPath = project.path
-        let selected = store.selectedSession
-        let needsDraft = selected?.status != .draft
-            || selected?.isAgentBound == true
-            || selected?.projectPathForProjectFeatures != project.path
-            || selected.flatMap({ store.activeLoopRun(for: $0.id) }) != nil
-        if needsDraft {
-            pickerStressLog("PICKER_STRESS PREPARE creating project draft path=\(project.path) selected=\(selected?.id.uuidString ?? "none")")
-            viewModel.createPiAgentDraft(for: project)
-        } else {
-            pickerStressLog("PICKER_STRESS PREPARE reusing project draft path=\(project.path) session=\(selected?.id.uuidString ?? "none")")
+                ?? viewModel.discoveredProjects.sorted(by: { $0.path < $1.path }).first
+                ?? pickerStressProjectFromEnvironment() else {
+            pickerStressLog("PICKER_STRESS FAIL no discovered or harness project; cannot create project draft")
+            NSApp.terminate(nil)
+            return
         }
 
-        guard let draft = store.selectedSession,
-              draft.status == .draft,
-              draft.projectPathForProjectFeatures == project.path else {
-            pickerStressLog("PICKER_STRESS FAIL selected session is not a project-backed draft")
-            exit(EXIT_FAILURE)
+        let originalSelection = store.selectedSessionID
+        let originalNewSessionSubagentsEnabled = store.newSessionSubagentsEnabled
+        var harnessSessionID: UUID?
+        var didCleanupHarness = false
+        func cleanupHarness() {
+            guard !didCleanupHarness else { return }
+            didCleanupHarness = true
+            if let harnessSessionID {
+                store.deleteSession(harnessSessionID)
+            }
+            store.newSessionSubagentsEnabled = originalNewSessionSubagentsEnabled
+            if let originalSelection, store.sessions.contains(where: { $0.id == originalSelection }) {
+                store.select(originalSelection)
+            } else {
+                store.clearSelection()
+            }
+            store.flushPendingSave()
         }
+        defer { cleanupHarness() }
+        func failStress(_ message: String) {
+            pickerStressLog("PICKER_STRESS FAIL \(message)")
+            cleanupHarness()
+            NSApp.terminate(nil)
+        }
+
+        // The isolated stress store owns this draft exclusively. Never reuse a
+        // visible/user session, even when its project happens to match.
+        let draft = store.createSession(
+            kind: .project,
+            title: "Picker stress draft · \(project.name)",
+            project: project,
+            repository: project.gitHubRemote?.nameWithOwner
+        )
+        harnessSessionID = draft.id
+        viewModel.setSubagentsEnabled(true, forSessionID: draft.id)
         pickerStressAcknowledgements.reset(for: draft.id)
-
-        if store.selectedSession?.subagentsEnabled == false {
-            viewModel.setSubagentsEnabledForSelectedDraftAndNewSessions(true)
-            pickerStressLog("PICKER_STRESS PREPARE enabled subagents session=\(store.selectedSession?.id.uuidString ?? "none")")
-        }
+        pickerStressLog("PICKER_STRESS PREPARE created isolated draft path=\(project.path) session=\(draft.id.uuidString)")
 
         guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
-            pickerStressLog("PICKER_STRESS FAIL no visible app window")
-            NSApp.terminate(nil)
+            failStress("no visible app window")
             return
         }
 
@@ -5468,7 +5480,7 @@ struct PiAgentScreen: View {
         // make artificial 620pt requests a clipping test rather than a resize.
         let sizes: [NSSize] = [
             .init(width: 1_346, height: 915),
-            .init(width: 900, height: 640),
+            .init(width: 900, height: 720),
             .init(width: 1_000, height: 700),
             .init(width: 1_200, height: 800),
             .init(width: 1_600, height: 900),
@@ -5484,8 +5496,8 @@ struct PiAgentScreen: View {
         try? await Task.sleep(for: .milliseconds(500))
         pickerStressExpansionRequest = true
         guard await waitForPickerStressCard(sessionID: draft.id, expanded: true) else {
-            pickerStressLog("PICKER_STRESS FAIL production card did not mount and expand for project path=\(project.path)")
-            exit(EXIT_FAILURE)
+            failStress("production card did not mount and expand for project path=\(project.path)")
+            return
         }
         pickerStressLog("PICKER_STRESS CARD mounted rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize))")
         let initialHangCount = HangWatchdog.hangCount(forScene: stressScene)
@@ -5494,6 +5506,8 @@ struct PiAgentScreen: View {
         for index in 0..<rounds {
             guard !Task.isCancelled else {
                 pickerStressLog("PICKER_STRESS CANCELLED round=\(index)")
+                cleanupHarness()
+                NSApp.terminate(nil)
                 return
             }
             let size = sizes[index % sizes.count]
@@ -5503,16 +5517,16 @@ struct PiAgentScreen: View {
             try? await Task.sleep(for: .milliseconds(250))
             let actualSize = window.contentView?.bounds.size ?? window.contentLayoutRect.size
             guard abs(actualSize.width - size.width) <= 2, abs(actualSize.height - size.height) <= 2 else {
-                pickerStressLog("PICKER_STRESS FAIL window size requested=\(pickerStressSizeDescription(size)) actual=\(pickerStressSizeDescription(actualSize))")
-                exit(EXIT_FAILURE)
+                failStress("window size requested=\(pickerStressSizeDescription(size)) actual=\(pickerStressSizeDescription(actualSize))")
+                return
             }
             let expanded = index.isMultiple(of: 2)
             PerfScene.current = stressScene
             pickerStressExpansionRequest = expanded
             try? await Task.sleep(for: .milliseconds(180))
             guard await waitForPickerStressCard(sessionID: draft.id, expanded: expanded) else {
-                pickerStressLog("PICKER_STRESS FAIL card expansion acknowledgement missing round=\(index + 1)")
-                exit(EXIT_FAILURE)
+                failStress("card expansion acknowledgement missing round=\(index + 1)")
+                return
             }
             pickerStressLog("PICKER_STRESS ROUND=\(index + 1)/\(rounds) requested=\(pickerStressSizeDescription(size)) actual=\(pickerStressSizeDescription(actualSize)) expanded=\(expanded) rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize))")
         }
@@ -5530,8 +5544,23 @@ struct PiAgentScreen: View {
         // Sampling itself can extend a >150 ms Debug layout pulse, so treating
         // every watchdog sample as a failed crash regression creates a feedback
         // loop in the harness rather than testing liveness.
+        cleanupHarness()
         pickerStressLog("PICKER_STRESS COMPLETE rounds=\(rounds) pickerWatchdogHangs=\(hangs) resizeWatchdogHangs=\(resizeHangs)")
         NSApp.terminate(nil)
+    }
+
+    private func pickerStressProjectFromEnvironment() -> DiscoveredProject? {
+        guard let path = ProcessInfo.processInfo.environment["AGENTDECK_PICKER_STRESS_PROJECT_PATH"],
+              !path.isEmpty,
+              path.hasPrefix("/") else { return nil }
+        let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return ProjectDiscovery()
+            .discoverProjects(rootDirectoryURLs: [], additionalProjectPaths: [url.path])
+            .first(where: { $0.url.standardizedFileURL == url.standardizedFileURL })
     }
 
     private func waitForPickerStressCard(sessionID: UUID, expanded: Bool) async -> Bool {
@@ -5577,6 +5606,18 @@ struct PiAgentScreen: View {
         return Set(store.loopRunsBySessionID.compactMap { sessionID, runs in
             sessionIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
         })
+    }
+
+    // The active column's dynamic cards must not feed transient intrinsic minima
+    // back into the enclosing split-view child during a resize pass.
+    private var activeSessionPaneBoundary: some View {
+        Color.clear
+            .frame(minWidth: 360, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .overlay(alignment: .topLeading) {
+                activeSessionColumn
+            }
     }
 
     private var activeSessionColumn: some View {
