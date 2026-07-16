@@ -3857,6 +3857,8 @@ private struct SessionListContent: View, Equatable {
     let onDelete: (UUID) -> Void
     let onSetPinned: (UUID, Bool) -> Void
     let onShowMorePrevious: () -> Void
+    /// Deletes the complete scoped/filtered Previous partition, not just its paginated preview.
+    var onDeletePrevious: (() -> Void)? = nil
     /// Toggle a project group's "Show more/less" state.
     let onToggleExpand: (String) -> Void
     /// Toggle a project group's disclosure collapse (header-only / expanded).
@@ -3934,7 +3936,7 @@ private struct SessionListContent: View, Equatable {
             AppListSection(
                 id: section.id,
                 header: section.style == .previous
-                    ? AnyView(PiAgentPreviousSessionsHeader())
+                    ? AnyView(PiAgentPreviousSessionsHeader(onDelete: onDeletePrevious))
                     : (shouldShowHeader(for: section)
                         ? AnyView(PiAgentSessionGroupHeader(
                             section: section,
@@ -4119,6 +4121,11 @@ private struct PiAgentSessionGroupFooter: View {
 }
 
 private struct PiAgentPreviousSessionsHeader: View {
+    let onDelete: (() -> Void)?
+
+    @State private var isHovering = false
+    @FocusState private var isDeleteButtonFocused: Bool
+
     var body: some View {
         HStack(spacing: 6) {
             Text("Previous Sessions")
@@ -4126,10 +4133,30 @@ private struct PiAgentPreviousSessionsHeader: View {
                 .fontWidth(.expanded)
                 .foregroundStyle(.primary)
             Spacer(minLength: 0)
+
+            // Keep this slot present so revealing the destructive action never
+            // changes the title's layout or nudges the header's trailing edge.
+            Button(role: .destructive, action: { onDelete?() }) {
+                Image(systemName: "trash")
+                    .font(AppTheme.Font.footnote.weight(.semibold))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            // Keyboard focus reveals the same reserved slot as hover, without
+            // making the destructive control mouse-clickable while hidden.
+            .focusable()
+            .focused($isDeleteButtonFocused)
+            .foregroundStyle(.red)
+            .opacity((isHovering || isDeleteButtonFocused) && onDelete != nil ? 1 : 0)
+            .allowsHitTesting(isHovering && onDelete != nil)
+            .help("Delete all previous sessions")
+            .accessibilityLabel("Delete all previous sessions")
         }
         .padding(.horizontal, 8)
         .padding(.top, 14)
         .padding(.bottom, 6)
+        .onHover { isHovering = $0 }
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(AppTheme.contentStroke)
@@ -4191,6 +4218,8 @@ struct CodingAgentExpandedPanel: View {
     @State private var lastSelectedSessionID: UUID?
     @State private var renamingSessionID: UUID?
     @State private var pendingDeleteSessionIDs: Set<UUID> = []
+    @State private var pendingDeleteIsPreviousSessions = false
+    @State private var pendingDeletePreviousSearchQuery: String?
     @State private var isDeleteSessionsAlertPresented = false
     @State private var sessionActivityCache: [UUID: PiAgentSessionGitActivity] = [:]
     @State private var postExpandTask: Task<Void, Never>?
@@ -4262,6 +4291,7 @@ struct CodingAgentExpandedPanel: View {
                     onDelete: { id in requestDeleteSessions(selectedSessionIDs.contains(id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [id]) },
                     onSetPinned: { id, pinned in setSessionPinned(id, pinned: pinned) },
                     onShowMorePrevious: showMorePreviousSessions,
+                    onDeletePrevious: requestDeletePreviousSessions,
                     onToggleExpand: { projectID in
                         if viewModel.expandedProjects.contains(projectID) { viewModel.expandedProjects.remove(projectID) }
                         else { viewModel.expandedProjects.insert(projectID) }
@@ -4364,9 +4394,9 @@ struct CodingAgentExpandedPanel: View {
                     selectedID: store.selectedSession?.id
                 )
                 viewModel.deletePiAgentSessions(deleteIDs, fallbackSelectionID: nextID)
-                pendingDeleteSessionIDs = []
+                resetPendingSessionDelete()
             }
-            Button("Cancel", role: .cancel) { pendingDeleteSessionIDs = [] }
+            Button("Cancel", role: .cancel) { resetPendingSessionDelete() }
         } message: {
             Text(deleteSessionsAlertMessage)
         }
@@ -4539,20 +4569,7 @@ struct CodingAgentExpandedPanel: View {
 
     private func computedSections(from scoped: [PiAgentSessionRecord]? = nil) -> [PiAgentSessionListSection] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let scopedSource = scoped ?? scopedSessions
-        let attentionFiltered = viewModel.showPiAgentAttentionOnly ? scopedSource.filter(\.needsAttention) : scopedSource
-        let filtered = query.isEmpty ? attentionFiltered : attentionFiltered.filter { $0.matchesSessionSearch(query) }
-        let now = Date()
-        let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
-        let loopSessionIDs = activeLoopSessionIDs(in: filtered)
-        let partition = PiAgentSessionGrouping.focusPartition(from: filtered) {
-            $0.matchesActiveSessionsFilter(
-                referenceDate: now,
-                isWorking: viewModel.piAgentSessionIsWorking($0),
-                hasActiveLoop: loopSessionIDs.contains($0.id),
-                hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
-            )
-        }
+        let partition = sessionPartition(from: scoped)
 
         // This permanently represents the former focused-filter result, which
         // was intentionally uncapped: every focused session remains visible in
@@ -4598,6 +4615,37 @@ struct CodingAgentExpandedPanel: View {
         rebuildVisibleSessionsDeferredIfNeeded()
     }
 
+    /// Resolve the full Previous partition at activation time. This deliberately
+    /// precedes pagination, so a header delete includes rows behind "Show more"
+    /// while still respecting the current search and attention filters.
+    private func requestDeletePreviousSessions() {
+        let ids = Set(sessionPartition().previous.map(\.id))
+        guard !ids.isEmpty else { return }
+        let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingDeleteSessionIDs = ids
+        pendingDeleteIsPreviousSessions = true
+        pendingDeletePreviousSearchQuery = query.isEmpty ? nil : query
+        isDeleteSessionsAlertPresented = true
+    }
+
+    private func sessionPartition(from scoped: [PiAgentSessionRecord]? = nil) -> PiAgentSessionFocusPartition {
+        let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scopedSource = scoped ?? scopedSessions
+        let attentionFiltered = viewModel.showPiAgentAttentionOnly ? scopedSource.filter(\.needsAttention) : scopedSource
+        let filtered = query.isEmpty ? attentionFiltered : attentionFiltered.filter { $0.matchesSessionSearch(query) }
+        let now = Date()
+        let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
+        let loopSessionIDs = activeLoopSessionIDs(in: filtered)
+        return PiAgentSessionGrouping.focusPartition(from: filtered) {
+            $0.matchesActiveSessionsFilter(
+                referenceDate: now,
+                isWorking: viewModel.piAgentSessionIsWorking($0),
+                hasActiveLoop: loopSessionIDs.contains($0.id),
+                hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
+            )
+        }
+    }
+
     private var workingVisibleSessionIDs: Set<UUID> {
         Set(visibleSessions.filter { viewModel.piAgentSessionIsWorking($0) }.map(\.id))
     }
@@ -4633,11 +4681,25 @@ struct CodingAgentExpandedPanel: View {
     }
 
     private var deleteSessionsAlertTitle: String {
-        pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
+        if pendingDeleteIsPreviousSessions {
+            return pendingDeleteSessionIDs.count == 1
+                ? "Delete previous session?"
+                : "Delete \(pendingDeleteSessionIDs.count) previous sessions?"
+        }
+        return pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
     }
 
     private var deleteSessionsAlertMessage: String {
-        pendingDeleteSessionIDs.count == 1
+        if pendingDeleteIsPreviousSessions {
+            let scope: String
+            if let query = pendingDeletePreviousSearchQuery {
+                scope = "the \(pendingDeleteSessionIDs.count) previous sessions matching “\(query)”"
+            } else {
+                scope = "the \(pendingDeleteSessionIDs.count) previous sessions"
+            }
+            return "This removes \(scope) captured when you chose Delete All Previous Sessions, including any hidden by pagination, along with their local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+        }
+        return pendingDeleteSessionIDs.count == 1
             ? "This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
             : "This removes the selected sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
     }
@@ -4645,7 +4707,15 @@ struct CodingAgentExpandedPanel: View {
     private func requestDeleteSessions(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         pendingDeleteSessionIDs = ids
+        pendingDeleteIsPreviousSessions = false
+        pendingDeletePreviousSearchQuery = nil
         isDeleteSessionsAlertPresented = true
+    }
+
+    private func resetPendingSessionDelete() {
+        pendingDeleteSessionIDs = []
+        pendingDeleteIsPreviousSessions = false
+        pendingDeletePreviousSearchQuery = nil
     }
 
     private func setSessionPinned(_ id: UUID, pinned: Bool) {

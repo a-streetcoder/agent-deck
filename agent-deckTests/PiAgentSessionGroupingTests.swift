@@ -369,6 +369,30 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertTrue(third.hidden.isEmpty)
     }
 
+    func testPreviousPartitionRetainsFullDeletionTargetBeyondPaginatedPreview() throws {
+        var pinned = try makeSession(title: "pinned", updatedAt: now)
+        pinned.pinnedAt = now
+        let previous = try (0..<40).map { index in
+            try makeSession(title: "previous-\(index)", updatedAt: now.addingTimeInterval(-Double(index + 1)))
+        }
+
+        let partition = PiAgentSessionGrouping.focusPartition(from: [pinned] + previous) { _ in false }
+        let preview = PiAgentSessionGrouping.previousSessionsSplit(
+            sessions: partition.previous,
+            visibleLimit: PiAgentSessionGrouping.previousSessionsPageSize,
+            selectedSessionID: nil
+        )
+
+        // The header action must snapshot `partition.previous`, not `preview`:
+        // pagination only limits presentation, and pins remain protected in the
+        // focused partition.
+        XCTAssertEqual(preview.preview.count, 15)
+        XCTAssertEqual(preview.hidden.count, 25)
+        XCTAssertEqual(Set(preview.all.map(\.id)), Set(previous.map(\.id)))
+        XCTAssertEqual(Set(partition.focused.map(\.id)), [pinned.id])
+        XCTAssertFalse(Set(preview.all.map(\.id)).contains(pinned.id))
+    }
+
     func testPreviousSessionsKeepSelectedOlderRowVisibleWithoutDroppingNewest() throws {
         let sessions = try (0..<40).map { index in
             try makeSession(title: "previous-\(index)", updatedAt: now.addingTimeInterval(-Double(index)))
