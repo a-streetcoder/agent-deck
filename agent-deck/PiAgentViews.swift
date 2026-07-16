@@ -4160,13 +4160,14 @@ private struct PiAgentPreviousSessionsHeader: View {
             .focused($isDeleteButtonFocused)
             .foregroundStyle(.red)
             .opacity((isHovering || isDeleteButtonFocused) && onDelete != nil ? 1 : 0)
-            .allowsHitTesting(isHovering && onDelete != nil)
+            .allowsHitTesting((isHovering || isDeleteButtonFocused) && onDelete != nil)
             .help("Delete all previous sessions")
             .accessibilityLabel("Delete all previous sessions")
         }
         .padding(.horizontal, 8)
         .padding(.top, 14)
         .padding(.bottom, 6)
+        .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .overlay(alignment: .top) {
             Rectangle()
