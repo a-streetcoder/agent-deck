@@ -10,7 +10,7 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
     }
 
     @MainActor
-    func testOpenAIFastExtensionInjectsPriorityForConfiguredOAuthCodexModels() throws {
+    func testOpenAIFastExtensionInjectsPriorityForEnabledOAuthCodexModels() throws {
         let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.openAIFastExtensionURL(), encoding: .utf8)
 
         XCTAssertTrue(source.contains(#"before_provider_request"#))
@@ -20,8 +20,22 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains(#""openai-codex-responses""#))
         XCTAssertFalse(source.contains("SUPPORTED_MODELS"))
         XCTAssertTrue(source.contains("AGENT_DECK_OPENAI_FAST_CONFIG"))
+        XCTAssertTrue(source.contains("parsed?.enabled === true"))
+        XCTAssertFalse(source.contains("enabledModels"))
         XCTAssertTrue(source.contains("ctx.modelRegistry.isUsingOAuth(model)"))
+        XCTAssertTrue(source.contains("model.provider !== PROVIDER_ID"))
+        XCTAssertTrue(source.contains("model.api !== API_ID"))
+        XCTAssertTrue(source.contains("baseModelID(event.payload.model) !== baseModelID(ctx.model?.id)"))
         XCTAssertTrue(source.contains(#""service_tier" in event.payload"#))
+    }
+
+    func testOpenAIFastConfigEncodesBothGlobalStates() throws {
+        for isEnabled in [false, true] {
+            let data = try XCTUnwrap(PiNativeSubagentBridgeExtensions.openAIFastConfigData(isEnabled: isEnabled))
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(payload["enabled"] as? Bool, isEnabled)
+            XCTAssertEqual(payload.count, 1)
+        }
     }
 
     @MainActor

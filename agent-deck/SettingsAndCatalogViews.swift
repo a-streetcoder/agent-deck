@@ -598,6 +598,9 @@ struct ModelsScreen: View {
                     .font(.title3.weight(.bold))
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
+                if PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: group.provider) {
+                    openAIFastProviderButton
+                }
                 Spacer()
                 if group.provider != FoundationModelAutomationService.provider {
                     if viewModel.signedInProviders.contains(group.provider) {
@@ -765,9 +768,6 @@ struct ModelsScreen: View {
                     }
                     AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
                     AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
-                    if PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider) {
-                        fastModeTagButton(for: model, isModelEnabled: isEnabled)
-                    }
                 }
                 Text("ctx \(model.contextWindow) · out \(model.maxOutput ?? "—")")
                     .font(.footnote.monospaced())
@@ -817,27 +817,33 @@ struct ModelsScreen: View {
         isEnabled ? "Disable all \(provider) models without changing per-model preferences." : "Enable all \(provider) models and restore prior per-model preferences."
     }
 
-    private func fastModeTagButton(for model: AvailableModel, isModelEnabled: Bool) -> some View {
-        let isFastEnabled = viewModel.isOpenAIFastModeEnabled(model)
+    private var openAIFastProviderButton: some View {
+        let isFastEnabled = viewModel.isOpenAIFastEnabled
         return Button {
-            viewModel.setOpenAIFastMode(model, isEnabled: !isFastEnabled)
+            viewModel.setOpenAIFastEnabled(!isFastEnabled)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: isFastEnabled ? "checkmark.square.fill" : "square")
+                Image(systemName: isFastEnabled ? "bolt.fill" : "bolt")
                     .font(.caption.weight(.semibold))
-                    .contentTransition(.symbolEffect(.replace))
                 Text("Fast")
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
             }
             .foregroundStyle(isFastEnabled ? AppTheme.brandAccent : AppTheme.mutedText)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background((isFastEnabled ? AppTheme.brandAccent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                (isFastEnabled ? AppTheme.brandAccent : Color.secondary).opacity(0.12),
+                in: Capsule(style: .continuous)
+            )
         }
         .buttonStyle(.plain)
-        .disabled(!isModelEnabled)
-        .help("Use OpenAI priority service tier for this ChatGPT-auth Codex model in parent sessions and Deck agents.")
+        .accessibilityLabel("OpenAI Fast")
+        .accessibilityValue(isFastEnabled ? "On" : "Off")
+        .accessibilityHint(isFastEnabled
+            ? "Turns off priority service for eligible ChatGPT and Codex models."
+            : "Turns on priority service for eligible ChatGPT and Codex models.")
+        .help("Use OpenAI priority service tier for all eligible ChatGPT/Codex models.")
         .animation(.snappy(duration: 0.18), value: isFastEnabled)
     }
 

@@ -266,13 +266,15 @@ struct PiNativeSubagentBridgeExtensions {
             .appendingPathComponent("openai-fast-mode.json")
     }
 
-    nonisolated static func writeOpenAIFastConfig(enabledModelIdentifiers: Set<String>, fileManager: FileManager = .default) {
+    nonisolated static func openAIFastConfigData(isEnabled: Bool) -> Data? {
+        let payload: [String: Any] = ["enabled": isEnabled]
+        guard JSONSerialization.isValidJSONObject(payload) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted])
+    }
+
+    nonisolated static func writeOpenAIFastConfig(isEnabled: Bool, fileManager: FileManager = .default) {
         let url = openAIFastConfigURL(fileManager: fileManager)
-        let payload: [String: Any] = [
-            "enabledModels": Array(enabledModelIdentifiers).sorted()
-        ]
-        guard JSONSerialization.isValidJSONObject(payload),
-              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted]) else { return }
+        guard let data = openAIFastConfigData(isEnabled: isEnabled) else { return }
         try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if (try? Data(contentsOf: url)) != data {
             try? data.write(to: url, options: .atomic)
@@ -302,16 +304,15 @@ struct PiNativeSubagentBridgeExtensions {
             return value.split(":", 1)[0];
         }
 
-        function enabledModels(): Set<string> {
+        function isFastEnabled(): boolean {
             const path = process.env.AGENT_DECK_OPENAI_FAST_CONFIG;
-            if (!path || !existsSync(path)) return new Set();
+            if (!path || !existsSync(path)) return false;
             try {
                 const parsed = JSON.parse(readFileSync(path, "utf-8"));
-                if (!Array.isArray(parsed?.enabledModels)) return new Set();
-                return new Set(parsed.enabledModels.map((item: unknown) => String(item)));
+                return parsed?.enabled === true;
             } catch (error) {
                 console.error(`Warning: Could not read Agent Deck OpenAI Fast config: ${error}`);
-                return new Set();
+                return false;
             }
         }
 
@@ -322,7 +323,7 @@ struct PiNativeSubagentBridgeExtensions {
             if (!id) return false;
             if (model.provider !== PROVIDER_ID) return false;
             if (model.api !== API_ID) return false;
-            if (!enabledModels().has(`${PROVIDER_ID}/${id}`)) return false;
+            if (!isFastEnabled()) return false;
             return ctx.modelRegistry.isUsingOAuth(model);
         }
 

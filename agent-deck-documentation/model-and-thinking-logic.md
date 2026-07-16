@@ -94,6 +94,12 @@ Agent Deck stores this in `AppViewModel.availableModels`. The Models screen, Pi 
 
 Disabled models from app settings are filtered out.
 
+## OpenAI Fast mode
+
+For the `openai-codex` provider, the Models header has a provider-wide **Fast** control. When enabled, Agent Deck applies OpenAI's `priority` service tier to each eligible ChatGPT OAuth Codex request from parent chats and managed Deck agents. The setting is one global preference, remains effective for subsequent requests from already-running sessions, and does not affect one-shot automation/helper Pi calls.
+
+The runtime extension applies the tier only when the active request is an `openai-codex` / `openai-codex-responses` ChatGPT OAuth request, its request model matches the active model, and the request did not already provide `service_tier`.
+
 ## Thinking-level validation
 
 Before applying a thinking level, Agent Deck checks whether the selected model supports it.

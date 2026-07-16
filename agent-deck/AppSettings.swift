@@ -198,7 +198,8 @@ struct AppSettings: Codable, Hashable {
     var skillDescriptionModelIdentifier: String?
     var disabledProviders: Set<String> = []
     var disabledModelIdentifiers: Set<String> = []
-    var openAIFastModeModelIdentifiers: Set<String> = []
+    /// Enables OpenAI's priority service tier for all eligible ChatGPT/Codex models.
+    var openAIFastEnabled: Bool = false
     var disabledInjectedCommandIDs: Set<String> = []
     var enabledLibraryCommandIDs: Set<String> = []
     var defaultAgentNames: Set<String> = []
@@ -260,7 +261,7 @@ struct AppSettings: Codable, Hashable {
         case skillDescriptionModelIdentifier
         case disabledProviders
         case disabledModelIdentifiers
-        case openAIFastModeModelIdentifiers
+        case openAIFastEnabled
         case disabledInjectedCommandIDs
         case enabledLibraryCommandIDs
         case defaultAgentNames
@@ -281,6 +282,10 @@ struct AppSettings: Codable, Hashable {
         case piAgentMarkdownHighlightingEnabled
         case selectedAppIconName
         case didOpenLoopsFromSidebar
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey {
+        case openAIFastModeModelIdentifiers
     }
 
     init() {}
@@ -323,7 +328,9 @@ struct AppSettings: Codable, Hashable {
         skillDescriptionModelIdentifier = try container.decodeIfPresent(String.self, forKey: .skillDescriptionModelIdentifier)
         disabledProviders = try container.decodeIfPresent(Set<String>.self, forKey: .disabledProviders) ?? []
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
-        openAIFastModeModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .openAIFastModeModelIdentifiers) ?? []
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        let legacyOpenAIFastModels = try legacyContainer.decodeIfPresent(Set<String>.self, forKey: .openAIFastModeModelIdentifiers) ?? []
+        openAIFastEnabled = try container.decodeIfPresent(Bool.self, forKey: .openAIFastEnabled) ?? !legacyOpenAIFastModels.isEmpty
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
         enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []
         defaultAgentNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultAgentNames) ?? []

@@ -406,25 +406,21 @@ struct PiAgentComposerBox: View {
     }
 
     private func openAIFastStatus(for session: PiAgentSessionRecord) -> Bool? {
-        openAIFastModel(for: session).map { viewModel.appSettings.openAIFastModeModelIdentifiers.contains($0.identifier) }
+        guard supportsOpenAIFast(for: session) else { return nil }
+        return viewModel.isOpenAIFastEnabled
     }
 
     private func openAIFastToggleAction(for session: PiAgentSessionRecord) -> (() -> Void)? {
-        guard let model = openAIFastModel(for: session) else { return nil }
+        guard supportsOpenAIFast(for: session) else { return nil }
         return {
-            viewModel.setOpenAIFastMode(model, isEnabled: !viewModel.isOpenAIFastModeEnabled(model))
+            viewModel.setOpenAIFastEnabled(!viewModel.isOpenAIFastEnabled)
         }
     }
 
-    private func openAIFastModel(for session: PiAgentSessionRecord) -> AvailableModel? {
+    private func supportsOpenAIFast(for session: PiAgentSessionRecord) -> Bool {
         let fallback = viewModel.defaultPiAgentModel()
         let provider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
-        let modelID = session.modelOverrideID ?? session.model ?? fallback?.model
-        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: provider) else { return nil }
-        let baseModelID = modelID?.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
-        let identifier = "\(provider ?? "")/\(baseModelID)"
-        return viewModel.availableModels.first { $0.identifier == identifier }
-            ?? viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+        return PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: provider)
     }
 
     private func currentModel(for session: PiAgentSessionRecord) -> AvailableModel? {

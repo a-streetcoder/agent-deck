@@ -3327,13 +3327,12 @@ final class AppViewModel: NSObject {
         appSettings = appSettingsController.settings
     }
 
-    func isOpenAIFastModeEnabled(_ model: AvailableModel) -> Bool {
-        appSettings.openAIFastModeModelIdentifiers.contains(model.identifier)
+    var isOpenAIFastEnabled: Bool {
+        appSettings.openAIFastEnabled
     }
 
-    func setOpenAIFastMode(_ model: AvailableModel, isEnabled: Bool) {
-        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider) else { return }
-        guard appSettingsController.setOpenAIFastMode(identifier: model.identifier, isEnabled: isEnabled) else { return }
+    func setOpenAIFastEnabled(_ isEnabled: Bool) {
+        guard appSettingsController.setOpenAIFastEnabled(isEnabled) else { return }
         syncAppSettings()
     }
 
@@ -7053,12 +7052,11 @@ final class AppViewModel: NSObject {
     }
 
     private func writeOpenAIFastModeConfig() {
-        let identifiers = appSettings.openAIFastModeModelIdentifiers
-        Task.detached(priority: .utility) {
-            PiNativeSubagentBridgeExtensions.writeOpenAIFastConfig(
-                enabledModelIdentifiers: identifiers
-            )
-        }
+        // This view model is main-actor isolated. Writing this tiny config here,
+        // rather than from detached tasks, preserves the order of rapid toggles.
+        PiNativeSubagentBridgeExtensions.writeOpenAIFastConfig(
+            isEnabled: appSettings.openAIFastEnabled
+        )
     }
 
     private func configurePiAgentIdleParking() {

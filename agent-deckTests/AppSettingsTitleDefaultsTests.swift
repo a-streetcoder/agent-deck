@@ -33,4 +33,31 @@ final class AppSettingsTitleDefaultsTests: XCTestCase {
         XCTAssertFalse(settings.autoGeneratePiAgentSessionTitles)
         XCTAssertEqual(settings.piAgentTitleGenerationModelIdentifier, "some/model")
     }
+
+    func testOpenAIFastDefaultsOffAndMigratesAnyLegacyEnabledModel() throws {
+        XCTAssertFalse(AppSettings().openAIFastEnabled)
+
+        let migrated = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"openAIFastModeModelIdentifiers":["openai-codex/gpt-5"]}"#.utf8)
+        )
+        XCTAssertTrue(migrated.openAIFastEnabled)
+    }
+
+    func testStoredOpenAIFastValueWinsOverLegacyModelSetting() throws {
+        let settings = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"openAIFastEnabled":false,"openAIFastModeModelIdentifiers":["openai-codex/gpt-5"]}"#.utf8)
+        )
+        XCTAssertFalse(settings.openAIFastEnabled)
+    }
+
+    func testOpenAIFastEncodingUsesOnlyGlobalPreference() throws {
+        var settings = AppSettings()
+        settings.openAIFastEnabled = true
+
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        XCTAssertEqual(payload["openAIFastEnabled"] as? Bool, true)
+        XCTAssertNil(payload["openAIFastModeModelIdentifiers"])
+    }
 }
