@@ -113,6 +113,12 @@ if ! grep -q 'PICKER_STRESS COMPLETE' "$log_path"; then
   exit 1
 fi
 
+if ! grep -q 'PICKER_STRESS TRANSITION synthetic rows=12 ' "$log_path" \
+    || ! grep -q 'PICKER_STRESS TRANSITION resolved rows=4 ' "$log_path"; then
+  echo "PICKER_STRESS_RUNNER FAIL required catalog transition markers missing log=$log_path" >&2
+  exit 1
+fi
+
 if grep -Eqi 'Publishing changes from within view updates|Update Constraints|NSGenericException|PICKER_STRESS FAIL' "$log_path"; then
   echo "PICKER_STRESS_RUNNER FAIL diagnostic found log=$log_path" >&2
   exit 1

@@ -16,6 +16,12 @@ private struct SlashSuggestionRowsCacheKey: Equatable {
 }
 
 #if DEBUG
+/// DEBUG-only row source for the mounted production picker stress card.
+enum PickerStressRowSource: String {
+    case synthetic
+    case resolved
+}
+
 @MainActor
 final class PickerStressCardAcknowledgements {
     var sessionID: UUID?
@@ -25,6 +31,9 @@ final class PickerStressCardAcknowledgements {
     var isCompact = false
     var cardSize = CGSize.zero
     var catalogSize = CGSize.zero
+    var rowSource: PickerStressRowSource?
+    /// Advances only when the catalog reports a fresh measured geometry.
+    var catalogGeometryRevision = 0
 
     func reset(for sessionID: UUID) {
         self.sessionID = sessionID
@@ -34,6 +43,8 @@ final class PickerStressCardAcknowledgements {
         isCompact = false
         cardSize = .zero
         catalogSize = .zero
+        rowSource = nil
+        catalogGeometryRevision = 0
     }
 }
 #endif
@@ -4898,6 +4909,7 @@ struct PiAgentScreen: View {
 #if DEBUG
     @State private var didStartPickerStress = false
     @State private var pickerStressExpansionRequest = false
+    @State private var pickerStressRowSource: PickerStressRowSource = .synthetic
     @State private var pickerStressAcknowledgements = PickerStressCardAcknowledgements()
 #endif
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
@@ -5463,6 +5475,7 @@ struct PiAgentScreen: View {
         )
         harnessSessionID = draft.id
         viewModel.setSubagentsEnabled(true, forSessionID: draft.id)
+        pickerStressRowSource = .synthetic
         pickerStressAcknowledgements.reset(for: draft.id)
         pickerStressLog("PICKER_STRESS PREPARE created isolated draft path=\(project.path) session=\(draft.id.uuidString)")
 
@@ -5495,11 +5508,41 @@ struct PiAgentScreen: View {
         // the production card before measuring the real resize/toggle cycle.
         try? await Task.sleep(for: .milliseconds(500))
         pickerStressExpansionRequest = true
-        guard await waitForPickerStressCard(sessionID: draft.id, expanded: true) else {
-            failStress("production card did not mount and expand for project path=\(project.path)")
+        guard await waitForPickerStressCard(
+            sessionID: draft.id,
+            expanded: true,
+            rowSource: .synthetic,
+            afterCatalogGeometryRevision: 0
+        ) else {
+            failStress("synthetic production card did not mount and expand for project path=\(project.path)")
             return
         }
-        pickerStressLog("PICKER_STRESS CARD mounted rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize))")
+        guard pickerStressAcknowledgements.rowCount == 12,
+              pickerStressCatalogHeightIsApproximately(532) else {
+            failStress("synthetic transition evidence rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize)); expected rows=12 height≈532")
+            return
+        }
+        pickerStressLog("PICKER_STRESS TRANSITION synthetic rows=12 catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize)) revision=\(pickerStressAcknowledgements.catalogGeometryRevision)")
+
+        let syntheticCatalogRevision = pickerStressAcknowledgements.catalogGeometryRevision
+        // Keep the same mounted card expanded; only exchange its DEBUG row source.
+        pickerStressRowSource = .resolved
+        guard await waitForPickerStressCard(
+            sessionID: draft.id,
+            expanded: true,
+            rowSource: .resolved,
+            afterCatalogGeometryRevision: syntheticCatalogRevision
+        ) else {
+            failStress("resolved transition acknowledgement missing after syntheticRevision=\(syntheticCatalogRevision) rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize))")
+            return
+        }
+        guard pickerStressAcknowledgements.rowCount == 4,
+              pickerStressCatalogHeightIsApproximately(212) else {
+            failStress("resolved transition evidence rows=\(pickerStressAcknowledgements.rowCount) catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize)); expected rows=4 height≈212")
+            return
+        }
+        pickerStressLog("PICKER_STRESS TRANSITION resolved rows=4 catalogViewport=\(pickerStressSizeDescription(pickerStressAcknowledgements.catalogSize)) revision=\(pickerStressAcknowledgements.catalogGeometryRevision)")
+
         let initialHangCount = HangWatchdog.hangCount(forScene: stressScene)
         let initialResizeHangCount = HangWatchdog.hangCount(forScene: resizeScene)
 
@@ -5524,7 +5567,12 @@ struct PiAgentScreen: View {
             PerfScene.current = stressScene
             pickerStressExpansionRequest = expanded
             try? await Task.sleep(for: .milliseconds(180))
-            guard await waitForPickerStressCard(sessionID: draft.id, expanded: expanded) else {
+            guard await waitForPickerStressCard(
+                sessionID: draft.id,
+                expanded: expanded,
+                rowSource: .resolved,
+                afterCatalogGeometryRevision: 0
+            ) else {
                 failStress("card expansion acknowledgement missing round=\(index + 1)")
                 return
             }
@@ -5563,11 +5611,18 @@ struct PiAgentScreen: View {
             .first(where: { $0.url.standardizedFileURL == url.standardizedFileURL })
     }
 
-    private func waitForPickerStressCard(sessionID: UUID, expanded: Bool) async -> Bool {
+    private func waitForPickerStressCard(
+        sessionID: UUID,
+        expanded: Bool,
+        rowSource: PickerStressRowSource,
+        afterCatalogGeometryRevision: Int
+    ) async -> Bool {
         for _ in 0..<20 {
             let acknowledgements = pickerStressAcknowledgements
             if acknowledgements.sessionID == sessionID,
                acknowledgements.mounted,
+               acknowledgements.rowSource == rowSource,
+               acknowledgements.catalogGeometryRevision > afterCatalogGeometryRevision,
                acknowledgements.rowCount > 0,
                acknowledgements.expanded == expanded,
                acknowledgements.cardSize.width > 0,
@@ -5577,6 +5632,10 @@ struct PiAgentScreen: View {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return false
+    }
+
+    private func pickerStressCatalogHeightIsApproximately(_ expected: CGFloat) -> Bool {
+        abs(pickerStressAcknowledgements.catalogSize.height - expected) <= 2
     }
 
     private func pickerStressSizeDescription(_ size: CGSize) -> String {
@@ -5661,6 +5720,7 @@ struct PiAgentScreen: View {
                         viewModel: viewModel,
                         session: session,
                         stressExpansionRequest: isPickerStressRequested ? pickerStressExpansionRequest : nil,
+                        stressRowSource: isPickerStressRequested ? pickerStressRowSource : nil,
                         stressAcknowledgements: isPickerStressRequested ? pickerStressAcknowledgements : nil
                     )
                     .id(session.id)

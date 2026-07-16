@@ -493,6 +493,7 @@ struct PiAgentSessionSubagentPickerCard: View {
     @State private var isAddSheetPresented = false
 #if DEBUG
     var stressExpansionRequest: Bool? = nil
+    var stressRowSource: PickerStressRowSource? = nil
     var stressAcknowledgements: PickerStressCardAcknowledgements? = nil
 #endif
 
@@ -510,6 +511,10 @@ struct PiAgentSessionSubagentPickerCard: View {
         let addable: [EffectiveAgentRecord]
         let selection: Set<String>
         let hasExplicitSelection: Bool
+#if DEBUG
+        /// The source used to construct this exact render pass's rows.
+        let stressRowSource: PickerStressRowSource?
+#endif
 
         var selectedCount: Int {
             rows.filter { selection.contains($0.name) }.count
@@ -531,20 +536,34 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     private func resolve() -> Resolved {
+#if DEBUG
+        // The synthetic phase must bypass project discovery unconditionally so
+        // the transition always starts from the same 12-row production card.
+        if stressRowSource == .synthetic {
+            let rows = debugStressRows()
+            return Resolved(
+                rows: rows,
+                addedRows: [],
+                addable: [],
+                selection: Set(rows.map(\.name)),
+                hasExplicitSelection: false,
+                stressRowSource: .synthetic
+            )
+        }
+#endif
         guard let projectPath = session.projectPathForProjectFeatures else {
 #if DEBUG
-            if stressExpansionRequest != nil {
-                let rows = debugStressRows()
-                return Resolved(
-                    rows: rows,
-                    addedRows: [],
-                    addable: [],
-                    selection: Set(rows.map(\.name)),
-                    hasExplicitSelection: false
-                )
-            }
+            return Resolved(
+                rows: [], addedRows: [], addable: [], selection: [],
+                hasExplicitSelection: session.agentSelection != nil,
+                stressRowSource: stressRowSource
+            )
+#else
+            return Resolved(
+                rows: [], addedRows: [], addable: [], selection: [],
+                hasExplicitSelection: session.agentSelection != nil
+            )
 #endif
-            return Resolved(rows: [], addedRows: [], addable: [], selection: [], hasExplicitSelection: session.agentSelection != nil)
         }
         let universe = viewModel.selectableAgentUniverse(forProjectPath: projectPath)
             .filter { $0.resolved.disabled != true }
@@ -566,16 +585,6 @@ struct PiAgentSessionSubagentPickerCard: View {
         var rows = universe
             .filter { rowNames.contains($0.name) && seenRows.insert($0.name).inserted }
             .sorted(by: byName)
-#if DEBUG
-        // The actual-app stress journey must exercise the expanded catalog even
-        // on a developer machine with no project-assigned agents. These records
-        // exist only in memory for AGENTDECK_PICKER_STRESS; no resource is saved
-        // or injected into a normal launch.
-        if stressExpansionRequest != nil, rows.isEmpty {
-            rows = debugStressRows()
-            selection.formUnion(rows.map(\.name))
-        }
-#endif
         var seenAddedRows = Set<String>()
         let addedRows = universe
             .filter { selection.contains($0.name) && !rowNames.contains($0.name) && seenAddedRows.insert($0.name).inserted }
@@ -585,6 +594,16 @@ struct PiAgentSessionSubagentPickerCard: View {
             .filter { !rowNames.contains($0.name) && seenAddable.insert($0.name).inserted }
             .sorted(by: byName)
 
+#if DEBUG
+        return Resolved(
+            rows: rows,
+            addedRows: addedRows,
+            addable: addable,
+            selection: selection,
+            hasExplicitSelection: session.agentSelection != nil,
+            stressRowSource: stressRowSource
+        )
+#else
         return Resolved(
             rows: rows,
             addedRows: addedRows,
@@ -592,6 +611,7 @@ struct PiAgentSessionSubagentPickerCard: View {
             selection: selection,
             hasExplicitSelection: session.agentSelection != nil
         )
+#endif
     }
 
 #if DEBUG
@@ -937,6 +957,8 @@ struct PiAgentSessionSubagentPickerCard: View {
             acknowledgements.cardSize = size
             acknowledgements.rowCount = data.rows.count + data.addedRows.count
             acknowledgements.expanded = isExpanded
+            acknowledgements.rowSource = data.stressRowSource
+            acknowledgements.catalogGeometryRevision += 1
         }
 #endif
     }
