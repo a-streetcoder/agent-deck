@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-private final class ComputerUseLaunchCompletionGate: @unchecked Sendable {
+private nonisolated final class ComputerUseLaunchCompletionGate: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Bool, Never>?
 

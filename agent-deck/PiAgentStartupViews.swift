@@ -606,7 +606,7 @@ struct PiAgentSessionSubagentPickerCard: View {
             return EffectiveAgentRecord(
                 id: name,
                 name: name,
-                projectRoot: session.projectPath ?? "",
+                projectRoot: session.projectPath,
                 builtin: nil,
                 globalCustom: nil,
                 projectCustom: nil,

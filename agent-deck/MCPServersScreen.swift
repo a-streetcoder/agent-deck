@@ -523,7 +523,6 @@ struct MCPServersScreen: View {
     // MARK: - Off-main loading
 
     private func loadServers() async {
-        let root = viewModel.projectRootURL
         isLoading = true
         let loaded = await viewModel.mcpServerEntries()
         servers = loaded
