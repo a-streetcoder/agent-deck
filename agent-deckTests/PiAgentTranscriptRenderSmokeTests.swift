@@ -5,6 +5,15 @@ import XCTest
 
 @MainActor
 final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
+    func testNativeSubagentModelChipPreservesEmbeddedCanonicalThinkingSuffix() {
+        XCTAssertNil(NativeSubagentFactory.modelChipText(model: "  ", thinking: "medium"))
+        XCTAssertEqual(NativeSubagentFactory.modelChipText(model: "openai/gpt-5", thinking: nil), "openai/gpt-5")
+        XCTAssertEqual(NativeSubagentFactory.modelChipText(model: "openai/gpt-5", thinking: "medium"), "openai/gpt-5:medium")
+        XCTAssertEqual(NativeSubagentFactory.modelChipText(model: "openai/gpt-5:medium", thinking: "medium"), "openai/gpt-5:medium")
+        XCTAssertEqual(NativeSubagentFactory.modelChipText(model: "openai/gpt-5:low", thinking: "medium"), "openai/gpt-5:low")
+        XCTAssertEqual(NativeSubagentFactory.modelChipText(model: "openai/gpt-5:custom", thinking: "medium"), "openai/gpt-5:custom:medium")
+    }
+
     func testMarkdownHighlightingUsesThemeColorsAndToggleOnlyChangesAttributes() {
         let manager = ThemeManager.shared
         let previousTheme = manager.activeTheme

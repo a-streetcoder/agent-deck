@@ -757,6 +757,10 @@ enum NativeSubagentFactory {
     /// model alone when there is no thinking value, and to nil with no model.
     static func modelChipText(model: String?, thinking: String?) -> String? {
         guard let model = nonEmpty(model) else { return nil }
+        if let suffix = model.split(separator: ":").last,
+           PiThinkingLevelCatalog.ordered.contains(String(suffix)) {
+            return model
+        }
         guard let thinking = nonEmpty(thinking) else { return model }
         return "\(model):\(thinking)"
     }
