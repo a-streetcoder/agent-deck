@@ -1255,28 +1255,24 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
         [min(220, width), min(180, width)]
     }
 
-    private func configuration(for width: CGFloat, height: CGFloat?, hasFiniteWidth: Bool, subviews: Subviews) -> Configuration {
+    private func sanitizedWidth(_ width: CGFloat?) -> CGFloat? {
+        guard let width, width.isFinite else { return nil }
+        return max(0, width)
+    }
+
+    private func configuration(for width: CGFloat?) -> Configuration {
+        // Layout mode depends only on the sanitized container proposal; never
+        // ask children for an unspecified ideal size while configuring.
+        guard let width = sanitizedWidth(width) else {
+            return Configuration(widths: verticalWidths(for: 0), isHorizontal: false)
+        }
         if width >= wideThreshold {
             return Configuration(widths: [wideModelWidth, wideThinkingWidth], isHorizontal: true)
         }
         if width >= mediumThreshold {
             return Configuration(widths: [mediumModelWidth, mediumThinkingWidth], isHorizontal: true)
         }
-        guard hasFiniteWidth else {
-            return Configuration(widths: verticalWidths(for: width), isHorizontal: false)
-        }
-
-        // Below the fixed medium breakpoint, use each chip's compact ideal
-        // width rather than stacking merely because the allocation is <338pt.
-        let compactWidths = subviews.enumerated().map { index, subview in
-            let idealWidth = subview.sizeThatFits(.init(width: nil, height: height)).width
-            return min(index == 0 ? mediumModelWidth : mediumThinkingWidth, idealWidth)
-        }
-        let fitsHorizontally = compactWidths[0] + spacing + compactWidths[1] <= width
-        return Configuration(
-            widths: fitsHorizontally ? compactWidths : verticalWidths(for: width),
-            isHorizontal: fitsHorizontally
-        )
+        return Configuration(widths: verticalWidths(for: width), isHorizontal: false)
     }
 
     private func measurements(widths: [CGFloat], height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
@@ -1289,13 +1285,7 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard subviews.count == 2 else { return .zero }
-        let width = proposal.width ?? 220
-        let configuration = configuration(
-            for: width,
-            height: proposal.height,
-            hasFiniteWidth: proposal.width?.isFinite == true,
-            subviews: subviews
-        )
+        let configuration = configuration(for: proposal.width)
         let sizes = measurements(widths: configuration.widths, height: proposal.height, subviews: subviews, cache: &cache)
         if configuration.isHorizontal {
             return .init(width: configuration.widths.reduce(0, +) + spacing, height: max(sizes[0].height, sizes[1].height))
@@ -1305,7 +1295,7 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard subviews.count == 2 else { return }
-        let configuration = configuration(for: bounds.width, height: proposal.height, hasFiniteWidth: true, subviews: subviews)
+        let configuration = configuration(for: bounds.width)
         let sizes = measurements(widths: configuration.widths, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: configuration.widths[0], height: sizes[0].height))
         let secondOrigin = configuration.isHorizontal
@@ -1480,8 +1470,8 @@ struct PiAgentAdaptiveControlsLayoutFixture: View {
 /// opens a popover listing Pi's known models grouped by provider (plus "Pi
 /// default"); the thinking chip lists the levels supported by the current
 /// model (plus "Pi default"). `launchDetail` is the combined summary shown as
-/// the chips' help text. The controls stack vertically when the two chips no
-/// longer fit side by side.
+/// the chips' help text. The controls stack vertically below the fixed medium
+/// layout threshold.
 private struct PiAgentPickerLaunchControls: View {
     let launchDetail: String
     let availableModels: [AvailableModel]

@@ -32,25 +32,35 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         executionTimeAllowance = 12
     }
 
-    func testSubagentControlsUseCompactMeasuredWidthsAtExactFitBoundary() {
+    func testSubagentControlsUseDeterministic337And338BoundariesAcrossResizeCycles() {
         let host = NSHostingView(rootView: AnyView(PiAgentAdaptiveControlsLayoutFixture(
-            firstWidth: 140,
-            secondWidth: 100,
-            width: 248
+            firstWidth: 180,
+            secondWidth: 150,
+            width: 337
         )))
         let window = makeConstrainedWindow(host: host)
         Self.windows.append(window)
 
-        let exactFit = resizeAndMeasure(window: window, host: host, width: 248)
-        host.rootView = AnyView(PiAgentAdaptiveControlsLayoutFixture(
-            firstWidth: 140,
-            secondWidth: 100,
-            width: 247
-        ))
-        let insufficientWidth = resizeAndMeasure(window: window, host: host, width: 247)
+        func measureControls(at width: CGFloat) -> CGSize {
+            host.rootView = AnyView(PiAgentAdaptiveControlsLayoutFixture(
+                firstWidth: 180,
+                secondWidth: 150,
+                width: width
+            ))
+            return resizeAndMeasure(window: window, host: host, width: width)
+        }
 
-        XCTAssertEqual(exactFit.height, 20, accuracy: 0.5, "140 + 8 + 100 at 248pt must remain horizontal.")
-        XCTAssertEqual(insufficientWidth.height, 46, accuracy: 0.5, "247pt must use the vertical fallback.")
+        let compact = measureControls(at: 337)
+        let medium = measureControls(at: 338)
+        XCTAssertEqual(compact.height, 46, accuracy: 0.5, "337pt must use the vertical fallback.")
+        XCTAssertEqual(medium.height, 20, accuracy: 0.5, "338pt must use the medium horizontal layout.")
+
+        for width: CGFloat in [337, 338, 337, 338, 338, 337] {
+            let geometry = measureControls(at: width)
+            let expected = width == 337 ? compact : medium
+            XCTAssertEqual(geometry.width, expected.width, accuracy: 0.5)
+            XCTAssertEqual(geometry.height, expected.height, accuracy: 0.5)
+        }
     }
 
     func testSubagentPickerRowSurvivesRepeatedWidthCyclesAndReturnsToStableWideGeometry() {
@@ -75,6 +85,21 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         XCTAssertGreaterThan(narrow.height, medium.height + 10, "Only genuinely compact rows should stack their controls.")
 
         // The production layout receives host width minus 16pt row padding.
+        // Exercise the real picker row throughout the compact 300–360pt range.
+        var compactPass: [CGFloat: CGSize] = [:]
+        for width: CGFloat in [300, 320, 337, 338, 360] {
+            let geometry = measureRow(at: width)
+            assertFinite(geometry)
+            XCTAssertLessThanOrEqual(geometry.width, width + 0.5, "Picker content must not widen its host.")
+            compactPass[width] = geometry
+        }
+        for width: CGFloat in [360, 300, 338, 320, 337, 360] {
+            let geometry = measureRow(at: width)
+            let expected = try! XCTUnwrap(compactPass[width])
+            XCTAssertEqual(geometry.width, expected.width, accuracy: 0.5)
+            XCTAssertEqual(geometry.height, expected.height, accuracy: 0.5)
+        }
+
         // Exercise both the 654pt compact/inline and 938pt medium/wide thresholds.
         for width: CGFloat in [1_024, 420, 669, 670, 671, 953, 954, 955, 420, 800, 1_024] {
             let geometry = measureRow(at: width)
@@ -97,7 +122,10 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
         Self.windows.append(window)
 
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        for width: CGFloat in [760, 620, 980, 680, 1_120, 760, 620, 980] {
+        // 552pt is the smallest supported split geometry: 190pt sessions,
+        // 360pt active session, plus the split divider.
+        var firstPass: [CGFloat: CGSize] = [:]
+        for width: CGFloat in [552, 620, 760, 980] {
             host.rootView = AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: width))
             let geometry = resizeAndMeasure(window: window, host: host, width: width, height: 820)
             assertFinite(geometry)
@@ -107,6 +135,15 @@ final class ComposerAndLoopLayoutTests: XCTestCase {
                 820,
                 "The expanded catalog must remain scroll-bounded rather than becoming the active split view's intrinsic minimum height."
             )
+            firstPass[width] = geometry
+        }
+        for width: CGFloat in [760, 552, 980, 620, 552, 760] {
+            host.rootView = AnyView(realPickerCardSplitFixture(viewModel: viewModel, session: session, width: width))
+            let geometry = resizeAndMeasure(window: window, host: host, width: width, height: 820)
+            let expected = try! XCTUnwrap(firstPass[width])
+            XCTAssertEqual(geometry.width, expected.width, accuracy: 0.5)
+            XCTAssertEqual(geometry.height, expected.height, accuracy: 0.5)
+            XCTAssertLessThanOrEqual(host.fittingSize.height, 820)
         }
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 10)
     }
