@@ -3940,6 +3940,13 @@ private struct SessionListContent: View, Equatable {
         .bottomEdgeFade(height: 34)
     }
 
+    /// With no focused/current sessions, the previous list is the entire list,
+    /// so it belongs directly below the panel's Sessions heading.
+    private var rendersPreviousSessionsInline: Bool {
+        sections.contains(where: { $0.style == .previous })
+            && !sections.contains(where: { $0.style == .project })
+    }
+
     /// Map the value-type `PiAgentSessionListSection`s to `AppListSection`s,
     /// attaching a custom project-group header to any section that needs one.
     private var appSections: [AppListSection<PiAgentSessionRecord>] {
@@ -3947,7 +3954,9 @@ private struct SessionListContent: View, Equatable {
             AppListSection(
                 id: section.id,
                 header: section.style == .previous
-                    ? AnyView(PiAgentPreviousSessionsHeader(onDelete: onDeletePrevious))
+                    ? (rendersPreviousSessionsInline
+                        ? nil
+                        : AnyView(PiAgentPreviousSessionsHeader(onDelete: onDeletePrevious)))
                     : (shouldShowHeader(for: section)
                         ? AnyView(PiAgentSessionGroupHeader(
                             section: section,
@@ -4135,7 +4144,6 @@ private struct PiAgentPreviousSessionsHeader: View {
     let onDelete: (() -> Void)?
 
     @State private var isHovering = false
-    @FocusState private var isDeleteButtonFocused: Bool
 
     var body: some View {
         HStack(spacing: 6) {
@@ -4144,25 +4152,7 @@ private struct PiAgentPreviousSessionsHeader: View {
                 .fontWidth(.expanded)
                 .foregroundStyle(.primary)
             Spacer(minLength: 0)
-
-            // Keep this slot present so revealing the destructive action never
-            // changes the title's layout or nudges the header's trailing edge.
-            Button(role: .destructive, action: { onDelete?() }) {
-                Image(systemName: "trash")
-                    .font(AppTheme.Font.footnote.weight(.semibold))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            // Keyboard focus reveals the same reserved slot as hover, without
-            // making the destructive control mouse-clickable while hidden.
-            .focusable()
-            .focused($isDeleteButtonFocused)
-            .foregroundStyle(.red)
-            .opacity((isHovering || isDeleteButtonFocused) && onDelete != nil ? 1 : 0)
-            .allowsHitTesting((isHovering || isDeleteButtonFocused) && onDelete != nil)
-            .help("Delete all previous sessions")
-            .accessibilityLabel("Delete all previous sessions")
+            PiAgentPreviousSessionsDeleteButton(onDelete: onDelete, isHoveredExternally: isHovering)
         }
         .padding(.horizontal, 8)
         .padding(.top, 14)
@@ -4175,6 +4165,34 @@ private struct PiAgentPreviousSessionsHeader: View {
                 .frame(height: 1)
                 .padding(.horizontal, 2)
         }
+    }
+}
+
+private struct PiAgentPreviousSessionsDeleteButton: View {
+    let onDelete: (() -> Void)?
+    var isHoveredExternally = false
+
+    @State private var isHovering = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Button(role: .destructive, action: { onDelete?() }) {
+            Image(systemName: "trash")
+                .font(AppTheme.Font.footnote.weight(.semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        // Keyboard focus reveals the same reserved slot as hover, without
+        // making the destructive control mouse-clickable while hidden.
+        .focusable()
+        .focused($isFocused)
+        .foregroundStyle(.red)
+        .opacity((isHovering || isHoveredExternally || isFocused) && onDelete != nil ? 1 : 0)
+        .allowsHitTesting((isHovering || isHoveredExternally || isFocused) && onDelete != nil)
+        .help("Delete all previous sessions")
+        .accessibilityLabel("Delete all previous sessions")
+        .onHover { isHovering = $0 }
     }
 }
 
@@ -4256,11 +4274,13 @@ struct CodingAgentExpandedPanel: View {
                 .padding(.top, 12)
                 .padding(.bottom, 10)
 
-            Rectangle()
-                .fill(AppTheme.contentStroke)
-                .frame(height: 1)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 10)
+            if !rendersPreviousSessionsInline {
+                Rectangle()
+                    .fill(AppTheme.contentStroke)
+                    .frame(height: 1)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+            }
 
             if isActive && !hasBuiltVisibleSessions {
                 // Lightweight placeholder during the expand animation's first
@@ -4429,6 +4449,8 @@ struct CodingAgentExpandedPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("Delete selected sessions")
+            } else if rendersPreviousSessionsInline {
+                PiAgentPreviousSessionsDeleteButton(onDelete: requestDeletePreviousSessions)
             }
             CodingAgentNewSessionControls(viewModel: viewModel)
         }
@@ -4460,6 +4482,13 @@ struct CodingAgentExpandedPanel: View {
 
     private var previousVisibleSessionIDs: Set<UUID> {
         Set(visibleSections.filter { $0.style == .previous }.flatMap(\.items).map(\.id))
+    }
+
+    /// With no focused/current sessions, the previous list is the entire list,
+    /// so it belongs directly below the panel's Sessions heading.
+    private var rendersPreviousSessionsInline: Bool {
+        visibleSections.contains(where: { $0.style == .previous })
+            && !visibleSections.contains(where: { $0.style == .project })
     }
 
     private var richVisibleSessionIDs: [UUID] { richVisibleSessions.map(\.id) }
