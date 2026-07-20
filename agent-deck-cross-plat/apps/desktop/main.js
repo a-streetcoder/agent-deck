@@ -26,6 +26,8 @@ app.setName("Agent Deck");
 
 /** Background dark so there's no white flash before the UI paints. */
 const WINDOW_BG = "#0f1115";
+const TITLEBAR_BG = "#28282b";
+const TITLEBAR_SYMBOL = "#f5f5f7";
 
 let serverProcess = null;
 let serverPort = null;
@@ -150,7 +152,12 @@ function createWindow(port) {
     minWidth: 940,
     minHeight: 600,
     backgroundColor: WINDOW_BG,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    titleBarOverlay:
+      process.platform === "darwin"
+        ? undefined
+        : { color: TITLEBAR_BG, symbolColor: TITLEBAR_SYMBOL, height: 40 },
+    autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -198,6 +205,7 @@ function buildAppMenu() {
   const template = [
     ...(isMac ? [{ role: "appMenu" }] : []),
     {
+      id: "menu-file",
       label: "File",
       submenu: [
         { label: "New Chat", accelerator: "CmdOrCtrl+N", click: () => sendMenu("new-chat") },
@@ -210,11 +218,12 @@ function buildAppMenu() {
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },
-    { role: "editMenu" },
+    { id: "menu-edit", role: "editMenu" },
     // Dev keeps the full View menu (reload/devtools handy); a shipped build gets
     // only the user-facing zoom/fullscreen controls.
     app.isPackaged
       ? {
+          id: "menu-view",
           label: "View",
           submenu: [
             { role: "resetZoom" },
@@ -224,8 +233,27 @@ function buildAppMenu() {
             { role: "togglefullscreen" },
           ],
         }
-      : { role: "viewMenu" },
+      : { id: "menu-view", role: "viewMenu" },
     { role: "windowMenu" },
+    {
+      id: "menu-help",
+      label: "Help",
+      submenu: [
+        {
+          label: "Agent Deck on GitHub",
+          click: () => void shell.openExternal("https://github.com/a-streetcoder/agent-deck"),
+        },
+        {
+          label: "Documentation",
+          click: () =>
+            void shell.openExternal(
+              "https://github.com/a-streetcoder/agent-deck/tree/main/agent-deck-documentation",
+            ),
+        },
+        { type: "separator" },
+        { role: "about", label: "About Agent Deck" },
+      ],
+    },
   ];
   return Menu.buildFromTemplate(template);
 }
@@ -242,6 +270,24 @@ ipcMain.handle("dialog:openDirectory", async (_event, options = {}) => {
   });
   if (result.canceled) return [];
   return result.filePaths;
+});
+
+/** Open a renderer titlebar button's native menu directly below the top bar. */
+ipcMain.handle("app-menu:open", (_event, menuName, anchor) => {
+  const name = String(menuName ?? "").toLowerCase();
+  if (!new Set(["file", "edit", "view", "help"]).has(name)) {
+    throw new Error("Unknown application menu");
+  }
+  const item = Menu.getApplicationMenu()?.getMenuItemById(`menu-${name}`);
+  if (!item?.submenu) throw new Error("Application menu is unavailable");
+  if (!mainWindow || !anchor || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) {
+    throw new Error("Application menu anchor is invalid");
+  }
+  const [contentWidth, contentHeight] = mainWindow.getContentSize();
+  const x = Math.max(0, Math.min(contentWidth, Math.round(anchor.x)));
+  const y = Math.max(0, Math.min(contentHeight, Math.round(anchor.y)));
+  item.submenu.popup({ window: mainWindow, x, y });
+  return true;
 });
 
 async function bootstrap() {

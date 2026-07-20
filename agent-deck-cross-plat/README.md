@@ -34,6 +34,9 @@ hand-rolled. The pi launch contract is documented in
 
 ## Development
 
+Requires Node.js 22.19 or newer. This matches the minimum required by the pinned
+Electron toolchain.
+
 ```sh
 pnpm install
 pnpm typecheck && pnpm lint && pnpm test   # pure tests

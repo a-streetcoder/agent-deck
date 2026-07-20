@@ -5,7 +5,7 @@
   "description": "Cross-platform Agent Deck: Node/TypeScript core + web UI on top of the pi coding agent",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.19.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

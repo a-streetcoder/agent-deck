@@ -107,6 +107,109 @@ test("the desktop shell boots the server and mounts the UI", async () => {
   );
   expect(bridge).toBe(true);
 
+  // Windows/Linux use the CrunchyMurmur-style integrated title bar while the
+  // native window controls remain owned by Electron's titleBarOverlay.
+  const titlebar = window.getByTestId("desktop-titlebar");
+  await expect(titlebar).toBeVisible();
+  await expect(window.getByTestId("sidebar-brand")).toHaveText("AGENTDECK");
+  const sidebarToggle = window.getByTestId("desktop-sidebar-toggle");
+  await expect(sidebarToggle).toHaveAttribute("aria-label", "Hide sidebar");
+  await expect(window.getByTestId("desktop-menu-file")).toHaveText("File");
+  await expect(window.getByTestId("desktop-menu-edit")).toHaveText("Edit");
+  await expect(window.getByTestId("desktop-menu-view")).toHaveText("View");
+  await expect(window.getByTestId("desktop-menu-help")).toHaveText("Help");
+
+  const chrome = await window.evaluate(() => {
+    const browser = globalThis as unknown as {
+      document: { querySelector(selector: string): unknown };
+      getComputedStyle(
+        element: unknown,
+        pseudo?: string,
+      ): {
+        height: string;
+        borderTopLeftRadius: string;
+        borderTopRightRadius: string;
+        backgroundColor: string;
+        width: string;
+        marginLeft: string;
+      };
+      agentDeck?: { openAppMenu?: unknown };
+    };
+    const titlebar = browser.document.querySelector('[data-testid="desktop-titlebar"]');
+    const workspaceRow = browser.document.querySelector('[data-testid="workspace-row"]');
+    const workspace = browser.document.querySelector('[data-testid="workspace-shell"]');
+    const sidebar = browser.document.querySelector('[data-testid="sidebar"]');
+    const transcript = browser.document.querySelector('[data-testid="transcript"]');
+    return {
+      titlebarHeight: titlebar ? browser.getComputedStyle(titlebar).height : "",
+      workspaceTopLeftRadius: workspace
+        ? browser.getComputedStyle(workspace).borderTopLeftRadius
+        : "",
+      workspaceTopRightRadius: workspace
+        ? browser.getComputedStyle(workspace).borderTopRightRadius
+        : "",
+      workspaceInset: workspace ? browser.getComputedStyle(workspace).marginLeft : "",
+      cornerBackgroundMatchesSidebar:
+        workspaceRow && sidebar
+          ? browser.getComputedStyle(workspaceRow).backgroundColor ===
+            browser.getComputedStyle(sidebar).backgroundColor
+          : false,
+      scrollbarWidth: transcript
+        ? browser.getComputedStyle(transcript, "::-webkit-scrollbar").width
+        : "",
+      menuBridge: typeof browser.agentDeck?.openAppMenu === "function",
+    };
+  });
+  expect(chrome).toEqual({
+    titlebarHeight: "40px",
+    workspaceTopLeftRadius: "14px",
+    workspaceTopRightRadius: "0px",
+    workspaceInset: "0px",
+    cornerBackgroundMatchesSidebar: true,
+    scrollbarWidth: "8px",
+    menuBridge: true,
+  });
+
+  // Native menus open at the clicked item's left edge and the titlebar's
+  // bottom edge, matching Codex instead of Electron's cursor-position default.
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((item) => item.label === "File");
+    if (!file?.submenu) throw new Error("File menu unavailable");
+    const state = globalThis as typeof globalThis & {
+      agentDeckPopupAnchor?: { x: number; y: number };
+    };
+    file.submenu.popup = (options) => {
+      state.agentDeckPopupAnchor = { x: options?.x ?? -1, y: options?.y ?? -1 };
+    };
+  });
+  const fileButton = window.getByTestId("desktop-menu-file");
+  const fileBounds = await fileButton.boundingBox();
+  const titlebarBounds = await titlebar.boundingBox();
+  if (!fileBounds || !titlebarBounds) throw new Error("Titlebar bounds unavailable");
+  await fileButton.click();
+  await expect
+    .poll(() =>
+      app.evaluate(() => {
+        const state = globalThis as typeof globalThis & {
+          agentDeckPopupAnchor?: { x: number; y: number };
+        };
+        return state.agentDeckPopupAnchor;
+      }),
+    )
+    .toEqual({
+      x: Math.round(fileBounds.x),
+      y: Math.round(titlebarBounds.y + titlebarBounds.height),
+    });
+
+  // The titlebar icon hides and restores the native-style sidebar. With no
+  // sidebar junction, the workspace returns to a square top-left corner.
+  await sidebarToggle.click();
+  await expect(window.getByTestId("sidebar")).toHaveCount(0);
+  await expect(sidebarToggle).toHaveAttribute("aria-label", "Show sidebar");
+  await expect(window.getByTestId("workspace-shell")).toHaveCSS("border-top-left-radius", "0px");
+  await sidebarToggle.click();
+  await expect(window.getByTestId("sidebar")).toBeVisible();
+
   // The same-origin server the main process spawned answers health checks.
   const health = await window.evaluate(async () => {
     const res = await fetch("/health");
@@ -142,6 +245,12 @@ test("the native File menu exposes New Chat and it creates a session", async () 
     return file?.submenu?.items.map((i) => i.label) ?? [];
   });
   expect(fileItems).toContain("New Chat");
+  const helpItems = await app.evaluate(({ Menu }) => {
+    const help = Menu.getApplicationMenu()?.items.find((i) => i.label === "Help");
+    return help?.submenu?.items.map((i) => i.label) ?? [];
+  });
+  expect(helpItems).toContain("Agent Deck on GitHub");
+  expect(helpItems).toContain("About Agent Deck");
   expect(fileItems).toContain("Add Project…");
 
   const sessionCount = () =>

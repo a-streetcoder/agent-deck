@@ -16,6 +16,92 @@ body {
   font-family: var(--font-sans, ui-sans-serif), system-ui, sans-serif;
 }
 
+/* CrunchyMurmur-style integrated Windows/Linux title bar. Electron owns the
+   window buttons at the right; the renderer owns branding and native menus. */
+.desktop-titlebar {
+  height: 40px;
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 148px 0 12px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text-muted);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.desktop-sidebar-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.desktop-sidebar-toggle:hover,
+.desktop-sidebar-toggle:focus-visible {
+  background: var(--color-hover-fill);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.desktop-titlebar-menu {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 3px;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-titlebar-menu button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 4px 7px;
+  font-size: 11px;
+  cursor: default;
+}
+
+.desktop-titlebar-menu button:hover,
+.desktop-titlebar-menu button:focus-visible {
+  background: var(--color-hover-fill);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+/* Native-feeling overlay scrollbars: transparent track, inset rounded thumb. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--color-scrollbar);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-hover);
+}
+
 /* Native SidebarTransition spring for screens that mount on demand:
    slide up 10px + fade, motion and fade on the same settle curve. */
 @keyframes detail-enter {

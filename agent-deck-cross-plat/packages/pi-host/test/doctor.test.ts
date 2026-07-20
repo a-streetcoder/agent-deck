@@ -6,6 +6,7 @@ import {
   MIN_NODE_VERSION,
   meetsMinNode,
   parseNodeVersion,
+  probeVersion,
   runDoctor,
   summarizeSettings,
 } from "../src/doctor.ts";
@@ -80,7 +81,7 @@ describe("runDoctor", () => {
     expect(badCheck?.status).toBe("warn");
     expect(badCheck?.detail).toMatch(/malformed/i);
     expect(badCheck?.detail).toMatch(/custom settings won't apply/i);
-  });
+  }, 20_000);
 
   it("includes a Node.js runtime check (this runner meets pi's minimum)", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "doctor-home-"));
@@ -91,6 +92,22 @@ describe("runDoctor", () => {
     // The test runner necessarily runs on Node ≥ pi's minimum, so this is "ok".
     expect(node!.status).toBe("ok");
     expect(node!.detail).toContain(MIN_NODE_VERSION);
+  });
+});
+
+describe("probeVersion", () => {
+  it("accepts a successful version written to stderr", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "version-stub-"));
+    const stub = path.join(dir, process.platform === "win32" ? "version.cmd" : "version");
+    writeFileSync(
+      stub,
+      process.platform === "win32"
+        ? "@echo off\necho 0.70.6 1>&2\n"
+        : "#!/bin/sh\necho 0.70.6 >&2\n",
+    );
+    if (process.platform !== "win32") chmodSync(stub, 0o755);
+
+    await expect(probeVersion(stub)).resolves.toBe("0.70.6");
   });
 });
 

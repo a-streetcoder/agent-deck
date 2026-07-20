@@ -48,6 +48,13 @@ test("an ended session resumes with its transcript rebuilt from pi's history", a
   await expect(page.getByTestId("assistant-text").last()).toContainText("42", {
     timeout: 30_000,
   });
+  // The final assistant cell can render just before pi emits agent_end and
+  // flushes the completed turn to its canonical session file. Resume is only
+  // expected to preserve a completed turn, so wait for that idle boundary
+  // before simulating the process stop.
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle", {
+    timeout: 30_000,
+  });
 
   // Kill the pi subprocess server-side (as a crash/restart would).
   const sessionId = (await (await fetch(`${harness.baseUrl}/sessions`)).json()) as {

@@ -79,7 +79,11 @@ describe("discoverProjectsInRoot", () => {
     const outside = makeRoot();
     makeProject(outside, "external-repo", { ".git/HEAD": "x" });
     makeProject(root, "real", { ".git/HEAD": "x" });
-    symlinkSync(path.join(outside, "external-repo"), path.join(root, "linked"));
+    symlinkSync(
+      path.join(outside, "external-repo"),
+      path.join(root, "linked"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
 
     const names = discoverProjectsInRoot(root).map((c) => c.name);
     expect(names).toContain("real");

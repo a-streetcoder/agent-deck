@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Composer } from "./components/Composer.tsx";
+import { AppTitleBar } from "./components/AppTitleBar.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
@@ -21,7 +23,7 @@ import { ProvidersScreen } from "./screens/ProvidersScreen.tsx";
 import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { cn } from "@/lib/cn";
-import { isMacDesktop } from "@/lib/native";
+import { hasIntegratedDesktopChrome, isMacDesktop } from "@/lib/native";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "./state/store.ts";
 import { useKeyboardShortcuts } from "./state/useKeyboardShortcuts.ts";
@@ -73,6 +75,7 @@ function ChatColumn() {
 }
 
 export function App() {
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const connection = useAppStore((state) => state.connection);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const session = useAppStore((state) => state.session);
@@ -88,6 +91,7 @@ export function App() {
   // The frameless macOS window needs a drag region across the top bar so the
   // window can be moved by its header (the sidebar strip is already draggable).
   const macDesktop = isMacDesktop();
+  const integratedDesktopChrome = hasIntegratedDesktopChrome();
 
   const statusLabel =
     connection !== "open" ? connection : agentStatus === "running" ? "responding" : "idle";
@@ -99,111 +103,131 @@ export function App() {
         : "var(--color-success)";
 
   return (
-    <div className="flex h-full">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header
+    <div className="flex h-full flex-col">
+      <AppTitleBar
+        sidebarVisible={sidebarVisible}
+        onToggleSidebar={() => setSidebarVisible((visible) => !visible)}
+      />
+      <div
+        className={cn("flex min-h-0 flex-1", integratedDesktopChrome && "bg-surface-elevated")}
+        data-testid="workspace-row"
+      >
+        {sidebarVisible ? <Sidebar /> : null}
+        <div
           className={cn(
-            "flex items-center justify-between border-b border-border-subtle bg-surface-elevated px-6 py-2.5",
-            macDesktop && "[-webkit-app-region:drag]",
+            "flex min-w-0 flex-1 flex-col",
+            integratedDesktopChrome &&
+              sidebarVisible &&
+              "overflow-hidden rounded-tl-[14px] border-l border-t border-border-strong bg-surface shadow-card",
+            integratedDesktopChrome &&
+              !sidebarVisible &&
+              "overflow-hidden border-t border-border-strong bg-surface",
           )}
+          data-testid="workspace-shell"
         >
-          <div className="flex items-center gap-3">
-            <ProjectPicker />
-            <div className="h-4 w-px bg-border-subtle" />
-            <h1
-              className="text-sm font-semibold text-text-primary"
-              style={{ fontStretch: "expanded" }}
-              data-testid="app-view-title"
-            >
-              {isChat ? chatTitle : VIEW_TITLES[view]}
-            </h1>
-            {session && isChat ? (
-              <span
-                className="max-w-[40ch] truncate font-mono text-xs text-text-muted"
-                data-testid="session-cwd"
+          <header
+            className={cn(
+              "flex items-center justify-between border-b border-border-subtle bg-surface-elevated px-6 py-2.5",
+              macDesktop && "[-webkit-app-region:drag]",
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <ProjectPicker />
+              <div className="h-4 w-px bg-border-subtle" />
+              <h1
+                className="text-sm font-semibold text-text-primary"
+                style={{ fontStretch: "expanded" }}
+                data-testid="app-view-title"
               >
-                {session.cwd}
-              </span>
-            ) : null}
-          </div>
-          <div
-            className="flex items-center gap-2"
-            data-testid="status-indicator"
-            data-status={statusLabel}
-          >
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ background: statusColor }}
-            />
-            <span className="text-sm text-text-secondary">{statusLabel}</span>
-          </div>
-        </header>
-        <OnboardingOverlay />
-        {error ? (
-          <div
-            className="px-6 py-2 text-sm"
-            style={{ background: "rgba(229,116,108,0.15)", color: "var(--color-role-error)" }}
-            data-testid="error-banner"
-          >
-            {error}
-          </div>
-        ) : null}
-
-        <main className="relative min-h-0 flex-1">
-          {/* Chat layer: always mounted. */}
-          <div
-            className="absolute inset-0"
-            data-testid="chat-layer"
-            inert={!isChat}
-            aria-hidden={!isChat}
-            style={{
-              transition: `${DETAIL_MOVE}, ${DETAIL_FADE}`,
-              transform: isChat ? "none" : "scale(0.985)",
-              opacity: isChat ? 1 : 0,
-              pointerEvents: isChat ? "auto" : "none",
-            }}
-          >
-            <ChatColumn />
-          </div>
-
-          {/* Other screens: mount on demand, slide in on the same curve. */}
-          {!isChat ? (
-            <div className="detail-enter absolute inset-0 flex flex-col overflow-hidden">
-              {view === "agents" ? (
-                <AgentsScreen />
-              ) : view === "skills" ? (
-                <SkillsScreen />
-              ) : view === "projects" ? (
-                <ProjectsScreen />
-              ) : view === "instructions" ? (
-                <InstructionsScreen />
-              ) : view === "issues" ? (
-                <IssuesScreen />
-              ) : view === "git" ? (
-                <GitScreen />
-              ) : view === "loops" ? (
-                <LoopsScreen />
-              ) : view === "prompts" ? (
-                <PromptsScreen />
-              ) : view === "models" ? (
-                <ModelsScreen />
-              ) : view === "extensions" ? (
-                <ExtensionsScreen />
-              ) : view === "environment" ? (
-                <EnvironmentScreen />
-              ) : view === "providers" ? (
-                <ProvidersScreen />
-              ) : view === "memory" ? (
-                <MemoryScreen />
-              ) : view === "mcp" ? (
-                <McpScreen />
-              ) : (
-                <DoctorScreen />
-              )}
+                {isChat ? chatTitle : VIEW_TITLES[view]}
+              </h1>
+              {session && isChat ? (
+                <span
+                  className="max-w-[40ch] truncate font-mono text-xs text-text-muted"
+                  data-testid="session-cwd"
+                >
+                  {session.cwd}
+                </span>
+              ) : null}
+            </div>
+            <div
+              className="flex items-center gap-2"
+              data-testid="status-indicator"
+              data-status={statusLabel}
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ background: statusColor }}
+              />
+              <span className="text-sm text-text-secondary">{statusLabel}</span>
+            </div>
+          </header>
+          <OnboardingOverlay />
+          {error ? (
+            <div
+              className="px-6 py-2 text-sm"
+              style={{ background: "rgba(229,116,108,0.15)", color: "var(--color-role-error)" }}
+              data-testid="error-banner"
+            >
+              {error}
             </div>
           ) : null}
-        </main>
+
+          <main className="relative min-h-0 flex-1">
+            {/* Chat layer: always mounted. */}
+            <div
+              className="absolute inset-0"
+              data-testid="chat-layer"
+              inert={!isChat}
+              aria-hidden={!isChat}
+              style={{
+                transition: `${DETAIL_MOVE}, ${DETAIL_FADE}`,
+                transform: isChat ? "none" : "scale(0.985)",
+                opacity: isChat ? 1 : 0,
+                pointerEvents: isChat ? "auto" : "none",
+              }}
+            >
+              <ChatColumn />
+            </div>
+
+            {/* Other screens: mount on demand, slide in on the same curve. */}
+            {!isChat ? (
+              <div className="detail-enter absolute inset-0 flex flex-col overflow-hidden">
+                {view === "agents" ? (
+                  <AgentsScreen />
+                ) : view === "skills" ? (
+                  <SkillsScreen />
+                ) : view === "projects" ? (
+                  <ProjectsScreen />
+                ) : view === "instructions" ? (
+                  <InstructionsScreen />
+                ) : view === "issues" ? (
+                  <IssuesScreen />
+                ) : view === "git" ? (
+                  <GitScreen />
+                ) : view === "loops" ? (
+                  <LoopsScreen />
+                ) : view === "prompts" ? (
+                  <PromptsScreen />
+                ) : view === "models" ? (
+                  <ModelsScreen />
+                ) : view === "extensions" ? (
+                  <ExtensionsScreen />
+                ) : view === "environment" ? (
+                  <EnvironmentScreen />
+                ) : view === "providers" ? (
+                  <ProvidersScreen />
+                ) : view === "memory" ? (
+                  <MemoryScreen />
+                ) : view === "mcp" ? (
+                  <McpScreen />
+                ) : (
+                  <DoctorScreen />
+                )}
+              </div>
+            ) : null}
+          </main>
+        </div>
       </div>
       <Toaster />
     </div>

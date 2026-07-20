@@ -89,16 +89,17 @@ export function meetsMinNode(version: [number, number, number]): boolean {
  * .cmd/.bat via execFile without shell:true (CVE-2024-27980 mitigation → EINVAL);
  * cross-spawn rewrites the invocation — the same mechanism PiProcess relies on.
  */
-function probeVersion(cmd: string, args: string[] = ["--version"]): Promise<string | null> {
+export function probeVersion(cmd: string, args: string[] = ["--version"]): Promise<string | null> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"] });
+      child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
     } catch {
       resolve(null);
       return;
     }
     let stdout = "";
+    let stderr = "";
     let settled = false;
     const settle = (value: string | null): void => {
       if (settled) return;
@@ -115,9 +116,14 @@ function probeVersion(cmd: string, args: string[] = ["--version"]): Promise<stri
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
     child.on("error", () => settle(null));
     child.on("close", (code) => {
-      const first = stdout.trim().split("\n")[0];
+      // Most CLIs print versions to stdout, but some releases of the Windows
+      // pi npm shim print a successful `--version` result to stderr.
+      const first = (stdout.trim() || stderr.trim()).split("\n")[0];
       settle(code === 0 && first ? first : null);
     });
   });

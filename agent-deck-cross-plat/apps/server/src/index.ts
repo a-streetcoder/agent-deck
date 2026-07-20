@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isMainModule } from "./mainModule.ts";
 import { startServer } from "./server.ts";
 
 export { startServer, type AgentDeckServer, type StartServerOptions } from "./server.ts";
@@ -11,7 +12,7 @@ export { ReceiptBus, type ReceiptName } from "./receipts.ts";
 export { SessionIndex, defaultDataDir } from "./persistence.ts";
 
 // CLI entry: `pnpm --filter @agent-deck/server dev`
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
+if (isMainModule(import.meta.url, process.argv[1])) {
   const port = Number(process.env.PORT ?? 4200);
 
   // Serve the built web app at / by default (apps/web/dist).

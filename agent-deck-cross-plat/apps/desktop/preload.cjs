@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("agentDeck", {
    * @returns {Promise<string[]>}
    */
   chooseDirectory: (options) => ipcRenderer.invoke("dialog:openDirectory", options),
+  /** Open a native menu at a renderer-provided titlebar anchor. */
+  openAppMenu: (name, anchor) => ipcRenderer.invoke("app-menu:open", name, anchor),
   /**
    * Subscribe to native-menu commands ("new-chat", "add-project"). Returns an
    * unsubscribe function.
@@ -22,6 +24,10 @@ contextBridge.exposeInMainWorld("agentDeck", {
    * @returns {() => void}
    */
   onMenu: (handler) => {
+    // The preload context can survive a renderer reload. Clear any listener
+    // owned by the previous React tree so one native menu click stays one
+    // action after reloads (including development hot reloads).
+    ipcRenderer.removeAllListeners("menu");
     const listener = (_event, action) => handler(action);
     ipcRenderer.on("menu", listener);
     return () => ipcRenderer.removeListener("menu", listener);

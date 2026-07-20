@@ -12,6 +12,10 @@ export interface AgentDeckBridge {
     buttonLabel?: string;
     multiple?: boolean;
   }): Promise<string[]>;
+  openAppMenu?(
+    name: "file" | "edit" | "view" | "help",
+    anchor: { x: number; y: number },
+  ): Promise<boolean>;
   /** Subscribe to native-menu commands; returns an unsubscribe function. */
   onMenu?(handler: (action: string) => void): () => void;
 }
@@ -38,6 +42,23 @@ export function isElectron(): boolean {
  */
 export function isMacDesktop(): boolean {
   return isElectron() && nativeBridge()?.platform === "darwin";
+}
+
+/** True for Electron's custom Windows/Linux title bar. */
+export function hasIntegratedDesktopChrome(): boolean {
+  return isElectron() && !isMacDesktop();
+}
+
+/** Open one of the native menus from the integrated desktop title bar. */
+export async function openAppMenu(
+  name: "file" | "edit" | "view" | "help",
+  anchor: { x: number; y: number },
+): Promise<boolean> {
+  try {
+    return (await nativeBridge()?.openAppMenu?.(name, anchor)) === true;
+  } catch {
+    return false;
+  }
 }
 
 /**

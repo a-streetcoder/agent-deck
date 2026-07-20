@@ -77,6 +77,8 @@
   --color-selection-fill: rgba(100, 210, 255, 0.22);
   --color-selection-stroke: rgba(100, 210, 255, 0.32);
   --color-glass-tint: rgba(100, 210, 255, 0.55);
+  --color-scrollbar: rgba(142, 142, 147, 0.52);
+  --color-scrollbar-hover: rgba(196, 196, 200, 0.72);
 
   /* Typography */
   --font-pixel: "Kemco Pixel Bold", "Press Start 2P", monospace;
@@ -128,6 +130,8 @@
   --color-hover-fill: rgba(0, 0, 0, 0.04);
   --color-code-block-fill: #f0f0f0;
   --color-quote-bar-fill: #b4b4b8;
+  --color-scrollbar: rgba(106, 106, 112, 0.48);
+  --color-scrollbar-hover: rgba(58, 58, 64, 0.68);
 
   /*
    * On the light theme the accent stays bright cyan, so we need a
