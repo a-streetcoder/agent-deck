@@ -86,10 +86,6 @@ Agent Deck tracks one essential, privacy-minimized `app_opened` event per produc
 
 The integration is disabled in Debug builds, XCTest, SwiftUI previews, AutoPerf, and benchmarks. It does not create person profiles or app-authored identities, and it disables automatic lifecycle capture, screen views, swizzling, error tracking, and feature-flag preloading.
 
-### Release token setup
-
-The dedicated Agent Deck PostHog project token is a public client token configured in the `agent-deck` target's **Build Settings** as `POSTHOG_PROJECT_TOKEN` for the **Release** configuration in [`agent-deck.xcodeproj/project.pbxproj`](agent-deck.xcodeproj/project.pbxproj). The build phase writes that value to the built app's `AgentDeckPostHogProjectToken` Info.plist key; [`scripts/package-dmg.sh`](scripts/package-dmg.sh) preserves it during packaging, so no packaging environment variable is required.
-
 ## Build from source
 
 ```bash
