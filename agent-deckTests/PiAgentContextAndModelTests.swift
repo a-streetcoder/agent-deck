@@ -29,6 +29,125 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeAggregateReconstructsCompletedUsageAndHidesIncompleteChildCost() {
+        var session = makeSession(
+            inputTokens: 10,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            contextTokens: nil,
+            contextWindow: nil,
+            contextPercent: nil
+        )
+        session.cost = 1
+        let now = Date()
+        let completed = makeChild(
+            runID: UUID(),
+            agentName: "completed worker",
+            status: .completed,
+            inputTokens: 7,
+            outputTokens: 3,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            totalTokens: 10,
+            now: now
+        )
+        let incomplete = makeChild(
+            runID: UUID(),
+            agentName: "active worker",
+            status: .running,
+            inputTokens: 100,
+            outputTokens: nil,
+            cacheReadTokens: nil,
+            cacheWriteTokens: nil,
+            totalTokens: nil,
+            now: now
+        )
+        let runs = [makeRun(parentSessionID: session.id, child: completed), makeRun(parentSessionID: session.id, child: incomplete)]
+
+        let aggregate = PiAgentRuntimeCostAggregate.build(session: session, runs: runs)
+
+        XCTAssertTrue(aggregate.isAuthoritativelyReportable)
+        XCTAssertEqual(aggregate.totalTokens, 20)
+        XCTAssertEqual(aggregate.inputTokens, 17)
+        XCTAssertEqual(aggregate.outputTokens, 3)
+        XCTAssertEqual(aggregate.cacheTokens, 0, "Explicit zero remains known.")
+        XCTAssertEqual(aggregate.sources.map(\.label), ["main chat", "completed worker"])
+        XCTAssertTrue(aggregate.hasSubagents)
+        XCTAssertNil(aggregate.totalCost, "A missing completed-child cost must not fall back to the parent's cost.")
+    }
+
+    @MainActor
+    func testRuntimeAggregateRetainsConfirmedFailedAndStoppedChildUsage() {
+        let session = makeSession(
+            inputTokens: 10,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            contextTokens: nil,
+            contextWindow: nil,
+            contextPercent: nil
+        )
+        let now = Date()
+        let failed = makeChild(
+            runID: UUID(), agentName: "failed worker", status: .failed,
+            inputTokens: 4, outputTokens: 1, cacheReadTokens: 0,
+            cacheWriteTokens: 0, totalTokens: 5, now: now
+        )
+        let stopped = makeChild(
+            runID: UUID(), agentName: "stopped worker", status: .stopped,
+            inputTokens: 3, outputTokens: 2, cacheReadTokens: 0,
+            cacheWriteTokens: 0, totalTokens: 5, now: now
+        )
+
+        let aggregate = PiAgentRuntimeCostAggregate.build(
+            session: session,
+            runs: [makeRun(parentSessionID: session.id, child: failed), makeRun(parentSessionID: session.id, child: stopped)]
+        )
+
+        XCTAssertTrue(aggregate.isAuthoritativelyReportable)
+        XCTAssertEqual(aggregate.totalTokens, 20)
+        XCTAssertEqual(aggregate.inputTokens, 17)
+        XCTAssertEqual(aggregate.outputTokens, 3)
+        XCTAssertEqual(aggregate.sources.map(\.label), ["main chat", "failed worker", "stopped worker"])
+    }
+
+    private func makeChild(
+        runID: UUID,
+        agentName: String,
+        status: PiSubagentRunStatus,
+        inputTokens: Int?,
+        outputTokens: Int?,
+        cacheReadTokens: Int?,
+        cacheWriteTokens: Int?,
+        totalTokens: Int?,
+        now: Date
+    ) -> PiSubagentChildRecord {
+        PiSubagentChildRecord(
+            id: UUID(), runID: runID, index: 0, agentName: agentName, task: "Work",
+            status: status, model: nil, thinking: nil, expectedOutcome: nil,
+            requestedOutputPath: nil, allowOverwrite: nil, readFirstPaths: nil,
+            currentTool: nil, inputTokens: inputTokens, outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens, cacheWriteTokens: cacheWriteTokens,
+            totalTokens: totalTokens, toolCount: nil, durationMs: nil,
+            artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil,
+            launchCommand: nil, executionRunID: nil, summary: nil, error: nil,
+            dependencies: nil, injectedMemoryIDs: nil, injectedMemoryTitles: nil,
+            completedAt: status == .completed ? now : nil, createdAt: now, updatedAt: now
+        )
+    }
+
+    @MainActor
+    private func makeRun(parentSessionID: UUID, child: PiSubagentChildRecord) -> PiSubagentRunRecord {
+        var run = PiSubagentRunRecord.failedPlaceholder(
+            parentSessionID: parentSessionID, agentName: child.agentName, task: "Work", error: "unused"
+        )
+        run.id = child.runID
+        run.child = child
+        return run
+    }
+
+    @MainActor
     func testEstimatedRowsDoNotReserveModelMaxOutputFromFreeSpace() {
         let session = makeSession(
             model: "gpt-test",

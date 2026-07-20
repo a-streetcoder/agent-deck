@@ -88,10 +88,11 @@ struct PiAgentComposerBox: View {
     // Non-worktree sessions don't carry `branchName`; resolve the project's
     // current branch off the body hot path via `.task(id:)`.
     @State private var resolvedBranch: String?
-    // Aggregate token/cost (orchestration + subagents) shown in the footer.
-    // Recomputed off the body hot path in `.onChange`, never in `body` (summing
-    // a few ints/doubles, but the subagent-run read must stay off the render path).
+    // Last fully confirmed aggregate (orchestration + persisted completed
+    // children) shown in the footer. Recomputed off the body hot path in
+    // `.onChange`; the same aggregate can be reconstructed after view recreation.
     @State private var costAggregate: PiAgentRuntimeCostAggregate?
+    @State private var costAggregateSessionID: UUID?
 
     private var displayedBranch: String? {
         if let direct = metricsSession?.branchName, !direct.isEmpty { return direct }
@@ -124,9 +125,23 @@ struct PiAgentComposerBox: View {
     }
 
     private func recomputeCostAggregate() {
-        guard let session = metricsSession else { costAggregate = nil; return }
+        guard let session = metricsSession else {
+            costAggregate = nil
+            costAggregateSessionID = nil
+            return
+        }
+        if costAggregateSessionID != session.id {
+            costAggregate = nil
+            costAggregateSessionID = session.id
+        }
         let runs = viewModel.piAgentSessionStore.subagentRuns(for: session.id)
-        costAggregate = PiAgentRuntimeCostAggregate.build(session: session, runs: runs)
+        let candidate = PiAgentRuntimeCostAggregate.build(session: session, runs: runs)
+        // `build` reconstructs from the parent plus completed children with
+        // confirmed totals, so a newly incomplete child neither produces a
+        // subtotal nor drops already-completed children after view recreation.
+        if candidate.isAuthoritativelyReportable {
+            costAggregate = candidate
+        }
     }
 
     private var branchRevealURL: URL? {
@@ -1619,9 +1634,9 @@ struct PiAgentShortcutChip: View {
 }
 
 /// Aggregate token/cost across the orchestration session and its subagents.
-/// Tokens always sum (counts exist for every source); cost sums only the known
-/// values — a subagent whose runtime never reported cost contributes nothing and
-/// shows as `—` in the breakdown rather than skewing the total. Built off the
+/// Display sources are the parent plus persisted terminal children with an
+/// authoritative total. Active or incomplete children are excluded until their
+/// totals are confirmed, so reconstruction never emits a subtotal. Built off the
 /// body hot path in `PiAgentComposerBox` (see `recomputeCostAggregate`).
 struct PiAgentRuntimeCostAggregate: Equatable {
     struct Source: Equatable, Identifiable {
@@ -1660,18 +1675,6 @@ struct PiAgentRuntimeCostAggregate: Equatable {
 
     static func build(session: PiAgentSessionRecord, runs: [PiSubagentRunRecord]) -> PiAgentRuntimeCostAggregate {
         var sources: [Source] = []
-        var inputCost: Double?
-        var outputCost: Double?
-        var cacheCost: Double?
-        var totalCost: Double?
-        func addKnown(_ value: Double?, to total: inout Double?) { if let value { total = (total ?? 0) + value } }
-        func addCosts(_ breakdown: PiAgentUsageCostBreakdown?, total: Double?) {
-            addKnown(breakdown?.input, to: &inputCost)
-            addKnown(breakdown?.output, to: &outputCost)
-            addKnown(breakdown?.cache, to: &cacheCost)
-            addKnown(total ?? breakdown?.resolvedTotal, to: &totalCost)
-        }
-
         let parentCacheTokens = Self.cacheTokenTotal(read: session.cacheReadTokens, write: session.cacheWriteTokens)
         let parentCostBreakdown = Self.displayableCostBreakdown(session.costBreakdown, total: session.cost)
         let parentSource = Source(
@@ -1689,7 +1692,6 @@ struct PiAgentRuntimeCostAggregate: Equatable {
             isOrchestration: true
         )
         sources.append(parentSource)
-        addCosts(parentCostBreakdown, total: session.cost)
 
         var subagentCount = 0
         for run in runs {
@@ -1711,21 +1713,26 @@ struct PiAgentRuntimeCostAggregate: Equatable {
                     cost: child.cost ?? childCostBreakdown?.resolvedTotal,
                     isOrchestration: false
                 )
+                // Any terminal child is eligible once Pi persisted its
+                // authoritative session total. This preserves usage for failed
+                // or stopped children while excluding active/incomplete work.
+                guard !child.status.isActive, child.totalTokens != nil else { continue }
                 sources.append(childSource)
-                addCosts(childCostBreakdown, total: child.cost)
                 subagentCount += 1
             }
         }
         let aggregateComponents = Self.aggregateComponentsIfComplete(sources)
+        // Cost is likewise exact only when every included source reports it;
+        // a missing child cost must remain hidden rather than become a subtotal.
         return .init(
             totalTokens: Self.aggregateTotalIfComplete(sources),
             inputTokens: aggregateComponents?.input,
             outputTokens: aggregateComponents?.output,
             cacheTokens: aggregateComponents?.cache,
-            inputCost: inputCost,
-            outputCost: outputCost,
-            cacheCost: cacheCost,
-            totalCost: totalCost,
+            inputCost: Self.sumIfComplete(sources.map(\.inputCost)),
+            outputCost: Self.sumIfComplete(sources.map(\.outputCost)),
+            cacheCost: Self.sumIfComplete(sources.map(\.cacheCost)),
+            totalCost: Self.sumIfComplete(sources.map(\.cost)),
             sources: sources,
             hasSubagents: subagentCount > 0
         )
@@ -1745,14 +1752,23 @@ struct PiAgentRuntimeCostAggregate: Equatable {
     }
 
     private static func cacheTokenTotal(read: Int?, write: Int?) -> Int? {
-        guard read != nil || write != nil else { return nil }
-        return (read ?? 0) + (write ?? 0)
+        guard let read, let write else { return nil }
+        return read + write
     }
 
     private static func totalTokens(reported: Int?, input: Int?, output: Int?, cache: Int?) -> Int? {
         if let reported { return reported }
-        guard let input, let output else { return nil }
-        return input + output + (cache ?? 0)
+        guard let input, let output, let cache else { return nil }
+        return input + output + cache
+    }
+
+    var isAuthoritativelyReportable: Bool {
+        totalTokens != nil && sources.allSatisfy { $0.totalTokens != nil }
+    }
+
+    private static func sumIfComplete(_ values: [Double?]) -> Double? {
+        guard !values.isEmpty, values.allSatisfy({ $0 != nil }) else { return nil }
+        return values.reduce(0) { $0 + ($1 ?? 0) }
     }
 
     private static func aggregateTotalIfComplete(_ sources: [Source]) -> Int? {
@@ -1812,7 +1828,11 @@ struct PiAgentRuntimeFooter: View {
     private var aggregateChips: some View {
         let display = footerTokenDisplay
         let hasDisplayedTokens = display.input != nil || display.output != nil || display.cache != nil || display.total != nil
-        let cost = aggregate?.totalCost ?? session.cost ?? session.costBreakdown?.resolvedTotal
+        // An aggregate containing subagents must never fall back to the
+        // parent's cost when any included child has not reported cost.
+        let cost = aggregate.flatMap { aggregate in
+            aggregate.totalCost ?? (aggregate.hasSubagents ? nil : (session.cost ?? session.costBreakdown?.resolvedTotal))
+        } ?? (aggregate == nil ? (session.cost ?? session.costBreakdown?.resolvedTotal) : nil)
         let tappable = aggregate != nil && (hasDisplayedTokens || cost != nil)
         let chips = HStack(spacing: 7) {
             if let inputTokens = display.input {
@@ -1887,8 +1907,8 @@ struct PiAgentRuntimeFooter: View {
     }
 
     private static func cacheTokenTotal(read: Int?, write: Int?) -> Int? {
-        guard read != nil || write != nil else { return nil }
-        return (read ?? 0) + (write ?? 0)
+        guard let read, let write else { return nil }
+        return read + write
     }
 
     private func compact(_ value: Int) -> String {
@@ -2018,15 +2038,13 @@ struct PiAgentCostBreakdownPopover: View {
     }
 
     private func sumKnown(_ values: [Int?]) -> Int? {
-        let known = values.compactMap { $0 }
-        guard !known.isEmpty else { return nil }
-        return known.reduce(0, +)
+        guard !values.isEmpty, values.allSatisfy({ $0 != nil }) else { return nil }
+        return values.reduce(0) { $0 + ($1 ?? 0) }
     }
 
     private func sumKnown(_ values: [Double?]) -> Double? {
-        let known = values.compactMap { $0 }
-        guard !known.isEmpty else { return nil }
-        return known.reduce(0, +)
+        guard !values.isEmpty, values.allSatisfy({ $0 != nil }) else { return nil }
+        return values.reduce(0) { $0 + ($1 ?? 0) }
     }
 
     private func row(for source: DisplaySource) -> some View {
