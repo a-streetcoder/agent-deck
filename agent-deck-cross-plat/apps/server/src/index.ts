@@ -8,6 +8,12 @@ import { startServer } from "./server.ts";
 export { startServer, type AgentDeckServer, type StartServerOptions } from "./server.ts";
 export { SessionManager, ManagedSession, type CreateSessionOptions } from "./SessionManager.ts";
 export { SessionPushBus, type StampedEvent } from "./pushBus.ts";
+export {
+  SessionPushBuses,
+  SessionPushBusesLive,
+  type SessionPushBusHandle,
+} from "./services/pushBus.ts";
+export { makeServerRuntime, serverLayers, type ServerRuntime } from "./runtime.ts";
 export { ReceiptBus, type ReceiptName } from "./receipts.ts";
 export { SessionIndex, defaultDataDir } from "./persistence.ts";
 
@@ -31,8 +37,20 @@ if (isMainModule(import.meta.url, process.argv[1])) {
     dataDir: process.env.AGENT_DECK_DATA_DIR || undefined,
   });
   console.log(`agent-deck listening on http://127.0.0.1:${server.port}`);
+  // Latched + rejection-safe: a second signal must not start a second close()
+  // against half-torn-down state, and a failed close still exits (nonzero)
+  // instead of leaving an unhandled rejection and a zombie process.
+  let closing = false;
   const shutdown = (): void => {
-    void server.close().then(() => process.exit(0));
+    if (closing) return;
+    closing = true;
+    server.close().then(
+      () => process.exit(0),
+      (error: unknown) => {
+        console.error("shutdown failed:", error);
+        process.exit(1);
+      },
+    );
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

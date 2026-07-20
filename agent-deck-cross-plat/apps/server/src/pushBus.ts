@@ -1,39 +1,56 @@
 import type { DomainEvent } from "@agent-deck/domain";
+import { Cause, Effect, Runtime } from "effect";
+import {
+  DEFAULT_PUSH_BUS_CAPACITY,
+  makeSessionPushBusHandle,
+  type SessionPushBusHandle,
+  type StampedEvent,
+} from "./services/pushBus.ts";
 
-export interface StampedEvent {
-  seq: number;
-  event: DomainEvent;
-}
-
-const DEFAULT_CAPACITY = 5_000;
+export type { StampedEvent };
 
 /**
- * Ordered per-session event log (t3code's ServerPushBus pattern): every domain
- * event gets a monotonic seq before fan-out, and a ring buffer lets reconnecting
- * clients replay from their last seen seq instead of re-snapshotting.
+ * `Effect.runSync`, but a defect thrown by user code inside the effect (a
+ * subscriber throwing during dispatch) re-surfaces as the ORIGINAL error
+ * instance, not Effect's FiberFailure wrapper — the legacy class propagated
+ * subscriber exceptions unchanged through append(), and callsites stringify /
+ * instanceof-check what they catch.
+ */
+function runSyncUnwrapped<A>(effect: Effect.Effect<A>): A {
+  try {
+    return Effect.runSync(effect);
+  } catch (error) {
+    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
+    throw error;
+  }
+}
+
+/**
+ * Thin synchronous adapter over the Effect push-bus service (Slice 3): same
+ * class API as before the migration, so SessionManager/wsHandler callsites
+ * don't churn until they become Effect-native (Slice 5 / Slice 7).
+ *
+ * All methods delegate to a `SessionPushBusHandle` — the exact implementation
+ * `SessionPushBuses` (services/pushBus.ts) serves through the ManagedRuntime.
+ * The handle is deliberately context-free and fully synchronous inside, so
+ * `Effect.runSync` here is total: subscribers are still dispatched
+ * synchronously during `append()`, in seq order (see the sync-vs-async note in
+ * services/pushBus.ts). Subscriber exceptions keep their legacy identity via
+ * `runSyncUnwrapped`.
  */
 export class SessionPushBus {
-  private seq = 0;
-  private ring: StampedEvent[] = [];
-  private readonly subscribers = new Set<(stamped: StampedEvent) => void>();
+  private readonly handle: SessionPushBusHandle;
 
-  constructor(private readonly capacity: number = DEFAULT_CAPACITY) {}
+  constructor(capacity: number = DEFAULT_PUSH_BUS_CAPACITY) {
+    this.handle = Effect.runSync(makeSessionPushBusHandle(capacity));
+  }
 
   get lastSeq(): number {
-    return this.seq;
+    return Effect.runSync(this.handle.lastSeq);
   }
 
   append(event: DomainEvent): StampedEvent {
-    this.seq += 1;
-    const stamped: StampedEvent = { seq: this.seq, event };
-    this.ring.push(stamped);
-    if (this.ring.length > this.capacity) {
-      this.ring.splice(0, this.ring.length - this.capacity);
-    }
-    for (const subscriber of this.subscribers) {
-      subscriber(stamped);
-    }
-    return stamped;
+    return runSyncUnwrapped(this.handle.append(event));
   }
 
   /**
@@ -41,14 +58,11 @@ export class SessionPushBus {
    * the ring (caller must fall back to a snapshot).
    */
   replayFrom(lastSeq: number): StampedEvent[] | null {
-    const first = this.ring[0];
-    if (lastSeq >= this.seq) return [];
-    if (!first || lastSeq < first.seq - 1) return null;
-    return this.ring.filter((stamped) => stamped.seq > lastSeq);
+    return Effect.runSync(this.handle.replayFrom(lastSeq));
   }
 
   subscribe(subscriber: (stamped: StampedEvent) => void): () => void {
-    this.subscribers.add(subscriber);
-    return () => this.subscribers.delete(subscriber);
+    const unsubscribe = Effect.runSync(this.handle.subscribe(subscriber));
+    return () => Effect.runSync(unsubscribe);
   }
 }
