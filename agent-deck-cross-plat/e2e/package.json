@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:pi": "playwright test"
+    "test:pi": "playwright test",
+    "test:visual": "playwright test tests/visual.spec.ts",
+    "test:visual:update": "playwright test tests/visual.spec.ts --update-snapshots=all"
   },
   "devDependencies": {
     "@agent-deck/domain": "workspace:*",

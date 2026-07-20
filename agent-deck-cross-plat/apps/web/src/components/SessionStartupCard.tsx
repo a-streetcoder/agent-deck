@@ -52,7 +52,12 @@ export function SessionStartupCard() {
                 {projectName}
               </div>
               {session?.cwd ? (
-                <div className="truncate font-mono text-[11px] text-text-muted">{session.cwd}</div>
+                <div
+                  className="truncate font-mono text-[11px] text-text-muted"
+                  data-testid="startup-cwd"
+                >
+                  {session.cwd}
+                </div>
               ) : null}
             </dd>
           </div>
