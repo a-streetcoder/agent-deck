@@ -357,7 +357,11 @@ export function registerSessionRoutes(ctx: ServerContext): void {
       const target = nodePath.join(worktreesRoot, suffix);
       try {
         mkdirSync(worktreesRoot, { recursive: true }); // git worktree add won't create missing parents
-        worktree = await createSessionWorktree(project.path, target, `agent-deck/session-${suffix}`);
+        worktree = await createSessionWorktree(
+          project.path,
+          target,
+          `agent-deck/session-${suffix}`,
+        );
         cwd = target;
       } catch {
         // NEVER let a worktree failure (detached HEAD, not a branch, git error)

@@ -56,7 +56,7 @@ features get slices.
 
 ### Slice 2 — Split `apps/server/src/server.ts` (3,896 lines)
 
-- Extract along the *future service boundaries* (this mapping is the whole point):
+- Extract along the _future service boundaries_ (this mapping is the whole point):
   - `routes/sessions.ts`, `routes/projects.ts`, `routes/resources.ts`,
     `routes/settings.ts`, `routes/git.ts` (REST)
   - `wsHandler.ts` (socket accept, subscribe/replay, message dispatch)
@@ -258,7 +258,7 @@ Donor paths below are relative to the t3code clone.
 
 ## Phase 9 — Agent Deck differentiators on the new substrate
 
-Existing functionality survives the migration; these slices *deepen* it using the new
+Existing functionality survives the migration; these slices _deepen_ it using the new
 machinery — this is where "their chrome, our core" pays off.
 
 ### Slice 19 — Skills/agents/prompts management re-skin
@@ -345,19 +345,19 @@ S2 split ─────┘                                                     
 
 ## Rough effort (agent-assisted, one slice landed before the next starts)
 
-| Phase | Slices | Order of magnitude |
-|---|---|---|
-| 0–1 contracts + split | S1–S2 | ~1 week combined |
-| 2 Effect services | S3–S6 | ~2–3 weeks (S4/S5 dominate) |
-| 3 transport | S7 | ~1 week |
-| 4 terminal tracer | S8 | ~3–5 days |
-| 5 change review | S9–S12 | ~2–3 weeks |
-| 6 files & navigation | S13–S14 | ~1 week |
-| 7 preview browser | S15–S16 | ~1.5–2 weeks |
-| 8 session UX parity | S17–S18 | ~2–3 weeks (S18 dominates; design doc first) |
-| 9 differentiators | S19–S20 | ~1 week |
-| 10 remote (option a) | S21 | days |
-| 11 desktop polish | S22 | ~3–5 days |
+| Phase                 | Slices  | Order of magnitude                           |
+| --------------------- | ------- | -------------------------------------------- |
+| 0–1 contracts + split | S1–S2   | ~1 week combined                             |
+| 2 Effect services     | S3–S6   | ~2–3 weeks (S4/S5 dominate)                  |
+| 3 transport           | S7      | ~1 week                                      |
+| 4 terminal tracer     | S8      | ~3–5 days                                    |
+| 5 change review       | S9–S12  | ~2–3 weeks                                   |
+| 6 files & navigation  | S13–S14 | ~1 week                                      |
+| 7 preview browser     | S15–S16 | ~1.5–2 weeks                                 |
+| 8 session UX parity   | S17–S18 | ~2–3 weeks (S18 dominates; design doc first) |
+| 9 differentiators     | S19–S20 | ~1 week                                      |
+| 10 remote (option a)  | S21     | days                                         |
+| 11 desktop polish     | S22     | ~3–5 days                                    |
 
 Substrate + terminal: ~5–6 weeks. Full roadmap through Phase 11: roughly 3–4 months of
 sequential slices — parallelizable after S7 where the graph allows (e.g. S13/S14/S22

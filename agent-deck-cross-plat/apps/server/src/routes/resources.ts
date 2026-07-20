@@ -482,8 +482,7 @@ export function registerResourceRoutes(ctx: ServerContext): void {
     const record = settings.get().importedSkillRepositories.find((r) => r.id === id);
     if (!record) return reply.status(404).send({ error: "unknown skill repository" });
     const roots = rootsForRepoRecord(record);
-    if (!roots)
-      return reply.status(400).send({ error: "That project is no longer registered." });
+    if (!roots) return reply.status(400).send({ error: "That project is no longer registered." });
     const { name, resolution } = parsed.data;
     const skillHashes = { ...(record.skillHashes ?? {}) };
     let skillNames = record.skillNames;
