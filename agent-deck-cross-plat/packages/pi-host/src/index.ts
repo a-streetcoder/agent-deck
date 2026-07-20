@@ -13,6 +13,14 @@ export {
   type PiSessionOptions,
   type PiUiResponse,
 } from "./PiSession.ts";
+export {
+  classifyPiLine,
+  COMPACT_TIMEOUT_MS,
+  createRequestIdSource,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  type PiAddressedResponse,
+  type PiClassifiedLine,
+} from "./rpcProtocol.ts";
 export { runDoctor, type CheckStatus, type DoctorReport, type HealthCheck } from "./doctor.ts";
 export {
   writeBridgeExtension,

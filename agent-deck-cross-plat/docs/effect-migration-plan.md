@@ -109,10 +109,20 @@ throughout this phase — handlers call into a `ManagedRuntime`; dropping Fastif
   swallow, cross-platform process-tree kill, drain-gated exit (buffered stdout flushes
   before ProcessExit), stop() bounded by a 10s last-resort deadline so a wedged child
   can't hang shutdown. 13 fake-subprocess unit tests + a real-pi service test (spawn →
-  streamed turn → clean close, orphan check via kill(pid,0)). Deferred to Slice 5 scope
-  (its consumer): enforce the events-queue single-consumer contract / consumer-detach
-  policy, dedupe the JSONL line-classification into a shared pi-host helper, add
-  SIGTERM-ignoring + grandchild fixtures for kill-escalation coverage.
+  streamed turn → clean close, orphan check via kill(pid,0)). The three items deferred
+  to Slice 5 scope all LANDED 2026-07-20 (pre-Slice-5 hardening):
+  (1) events queue single-consumer contract ENFORCED — `events` is one-shot
+  (second run fails typed `PiEventsAlreadyConsumed`) and scope-tied: consumer
+  detach shuts the queue down, later lines are dropped (counted in the
+  `droppedEvents` diagnostic) instead of accumulating unboundedly; no re-attach
+  by design (RPC correlation + awaitExit survive detach).
+  (2) JSONL line-classification deduped into `packages/pi-host/src/rpcProtocol.ts`
+  (classifyPiLine, req-N id source, shared timeout constants), consumed by both
+  PiSession and the Effect service; existing tests on both sides untouched.
+  (3) kill-escalation coverage: SIGTERM-ignoring fixture → SIGKILL-after-grace
+  (POSIX-only, skipIf win32) and a SIGTERM-ignoring grandchild reaped by the
+  tree kill on scope close (runs on BOTH platforms — Windows exercises the
+  taskkill /T path).
 
 ### Slice 5 — SessionManager service
 

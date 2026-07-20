@@ -1,12 +1,16 @@
 import {
+  classifyPiLine,
+  COMPACT_TIMEOUT_MS,
+  createRequestIdSource,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   PiProcess,
   serializeJsonLine,
+  type PiAddressedResponse,
   type PiCommand,
   type PiCommandData,
   type PiCommandType,
   type PiInboundEvent,
   type PiProcessExit,
-  type PiRpcResponse,
   type PiUiResponse,
 } from "@agent-deck/pi-host";
 import {
@@ -79,10 +83,26 @@ import {
  * terminating `ProcessExit` — a crashing pi's final events are never dropped
  * by the takeUntil. The backing queue is created at acquire
  * time, so events emitted before the consumer starts pulling are buffered,
- * not lost. SINGLE-CONSUMER by design: the queue is consumed competitively
- * and `Stream.fromQueue` pulls in chunks, so run `events` exactly once per
- * handle (fan-out belongs to the push bus, Slice 5’s job). No null sentinels
- * anywhere: absence is `Option` (`exit`, `pid`), errors are tagged.
+ * not lost. No null sentinels anywhere: absence is `Option` (`exit`, `pid`),
+ * errors are tagged.
+ *
+ * ## Single-consumer contract (ENFORCED) + detach policy
+ *
+ * The queue is consumed competitively and `Stream.fromQueue` pulls in chunks,
+ * so the feed only makes sense for exactly ONE consumer — Slice 5's
+ * long-lived per-session ingestion fiber (fan-out belongs to the push bus).
+ * Running `events` CLAIMS the feed for the handle's lifetime; any later run
+ * fails with `PiEventsAlreadyConsumed` instead of silently splitting items
+ * between competing pullers. Consumption is scope-tied: when the one
+ * consumer detaches (its stream scope closes — fiber death/interruption,
+ * early `takeUntil`, or normal end-of-stream), a finalizer shuts the queue
+ * down, so a died/detached ingestion fiber can never leave stdout lines
+ * accumulating unboundedly while the process lives. DROP POLICY after
+ * detach: later items are discarded at offer time (counted in
+ * `droppedEvents` for diagnostics); there is deliberately no re-attach — a
+ * detached consumer means the session is on its way down, and RPC
+ * correlation, `awaitExit`, and the scope-close kill all keep working
+ * independently of the queue.
  *
  * ## Abort / interrupt semantics
  *
@@ -103,10 +123,9 @@ import {
  * makes SessionManager consume this service; the tests are the consumer.
  */
 
-export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
-
-/** Manual compaction blocks on an LLM call — generous timeout, like PiSession. */
-const COMPACT_TIMEOUT_MS = 120_000;
+// Timeout constants are shared wire-protocol facts (packages/pi-host
+// rpcProtocol.ts, same values PiSession uses); re-exported for callers.
+export { DEFAULT_REQUEST_TIMEOUT_MS } from "@agent-deck/pi-host";
 
 export interface PiSpawnOptions {
   binPath: string;
@@ -154,6 +173,18 @@ export class PiExited extends Data.TaggedError("PiExited")<{
 
 export type PiRequestError = PiRpcFailure | PiRpcTimeout | PiExited;
 
+/**
+ * `events` was already run once for this handle. The feed is single-consumer
+ * (see module doc); a second run would silently steal items from the first.
+ */
+export class PiEventsAlreadyConsumed extends Data.TaggedError("PiEventsAlreadyConsumed")<{
+  readonly since: "consumer-attached" | "consumer-detached"; // still attached vs already gone
+}> {
+  override get message(): string {
+    return `the pi events stream is single-consumer and was already claimed (${this.since})`;
+  }
+}
+
 /** One element of the JSONL stdout feed. `ProcessExit` is always the last. */
 export type PiStreamItem =
   | { readonly _tag: "PiEvent"; readonly event: PiInboundEvent }
@@ -177,9 +208,16 @@ export interface PiHostHandle {
   ) => Effect.Effect<PiCommandData<T>, PiRequestError>;
   /**
    * The ordered stdout feed; ends with a `ProcessExit` item when pi exits.
-   * Single-consumer — run exactly once per handle (see module doc).
+   * Single-consumer, ENFORCED: the first run claims it for the handle's
+   * lifetime, any later run fails with `PiEventsAlreadyConsumed`. Consumer
+   * detach shuts the feed down (later items dropped — see module doc).
    */
-  readonly events: Stream.Stream<PiStreamItem>;
+  readonly events: Stream.Stream<PiStreamItem, PiEventsAlreadyConsumed>;
+  /**
+   * Diagnostics: items discarded after the events consumer detached (or,
+   * post-exit, after the stream completed). 0 while the feed is live.
+   */
+  readonly droppedEvents: Effect.Effect<number>;
   /** Answer an extension_ui_request (fire-and-forget write, like PiSession). */
   readonly respondToUiRequest: (response: PiUiResponse) => Effect.Effect<void, PiExited>;
   readonly isRunning: Effect.Effect<boolean>;
@@ -250,11 +288,17 @@ export const spawnPiProcess = (
         // Closure-scoped mutable state, only ever touched inside single sync
         // ops or the (synchronous) PiProcess callbacks — see the module doc.
         const pending = new Map<string, PendingRpc>();
-        let nextRequestId = 0;
+        const nextRequestId = createRequestIdSource();
         let exitState: Option.Option<PiProcessExit> = Option.none();
+        let eventsClaimed = false;
+        let droppedEvents = 0;
 
-        const handleResponse = (response: PiRpcResponse): void => {
-          if (!response.id) return;
+        // Post-detach the queue is shut down and unsafeOffer reports the drop.
+        const offerStreamItem = (item: PiStreamItem): void => {
+          if (!Queue.unsafeOffer(queue, item)) droppedEvents += 1;
+        };
+
+        const handleResponse = (response: PiAddressedResponse): void => {
           const rpc = pending.get(response.id);
           if (!rpc) return;
           pending.delete(response.id);
@@ -278,23 +322,21 @@ export const spawnPiProcess = (
         };
 
         proc.on("line", (line) => {
-          if (line.trim().length === 0) return;
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(line);
-          } catch {
-            Queue.unsafeOffer(queue, { _tag: "MalformedLine", line });
-            return;
+          // Shared wire-protocol classification (packages/pi-host
+          // rpcProtocol.ts) — the same decision tree PiSession runs.
+          const classified = classifyPiLine(line);
+          switch (classified.kind) {
+            case "ignored":
+              return;
+            case "malformed":
+              offerStreamItem({ _tag: "MalformedLine", line: classified.line });
+              return;
+            case "response":
+              handleResponse(classified.response);
+              return;
+            case "event":
+              offerStreamItem({ _tag: "PiEvent", event: classified.event });
           }
-          if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
-            Queue.unsafeOffer(queue, { _tag: "MalformedLine", line });
-            return;
-          }
-          if ((parsed as { type: string }).type === "response") {
-            handleResponse(parsed as PiRpcResponse);
-            return;
-          }
-          Queue.unsafeOffer(queue, { _tag: "PiEvent", event: parsed as PiInboundEvent });
         });
 
         proc.on("exit", (exit) => {
@@ -309,7 +351,7 @@ export const spawnPiProcess = (
           pending.clear();
           Deferred.unsafeDone(exitDeferred, Effect.succeed(exit));
           // The terminating stream element (takeUntil keeps it as the last one).
-          Queue.unsafeOffer(queue, { _tag: "ProcessExit", exit });
+          offerStreamItem({ _tag: "ProcessExit", exit });
         });
 
         yield* Effect.sync(() => proc.start());
@@ -323,7 +365,7 @@ export const spawnPiProcess = (
               return yield* new PiExited({ exit: exitState, stderr: proc.stderr });
             }
             const deferred = yield* Deferred.make<unknown, PiRequestError>();
-            const id = `req-${nextRequestId++}`;
+            const id = nextRequestId();
             pending.set(id, { command: command.type, deferred });
             yield* Effect.try({
               try: () => proc.writeLine(serializeJsonLine({ ...command, id })),
@@ -357,9 +399,25 @@ export const spawnPiProcess = (
           // unify two independently-declared generics over the distributive
           // `Extract<RpcCommand, { type: T }>` + `{ type: T }` intersection.
           request: request as PiHostHandle["request"],
-          events: Stream.fromQueue(queue).pipe(
-            Stream.takeUntil((item) => item._tag === "ProcessExit"),
+          // One-shot, scope-tied consumption (see module doc): the first run
+          // claims the feed; its stream scope owns a finalizer that shuts the
+          // queue down on detach, flipping the line callbacks into drop mode.
+          events: Stream.unwrapScoped(
+            Effect.gen(function* () {
+              if (eventsClaimed) {
+                const detached = yield* Queue.isShutdown(queue);
+                return yield* new PiEventsAlreadyConsumed({
+                  since: detached ? "consumer-detached" : "consumer-attached",
+                });
+              }
+              eventsClaimed = true;
+              yield* Effect.addFinalizer(() => Queue.shutdown(queue));
+              return Stream.fromQueue(queue).pipe(
+                Stream.takeUntil((item) => item._tag === "ProcessExit"),
+              );
+            }),
           ),
+          droppedEvents: Effect.sync(() => droppedEvents),
           respondToUiRequest: (response) =>
             Effect.try({
               try: () => proc.writeLine(serializeJsonLine(response)),

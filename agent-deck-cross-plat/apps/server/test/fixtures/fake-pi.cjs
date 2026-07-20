@@ -65,6 +65,26 @@ rl.on("line", (line) => {
           payload += `${JSON.stringify({ type: "burst", n: i })}\n`;
         }
         process.stdout.write(payload, () => process.exit(7));
+      } else if (cmd.name === "ignore-sigterm") {
+        // Refuse the graceful shutdown signal so PiProcess.stop() must
+        // escalate to SIGKILL after its grace period. POSIX-only semantics:
+        // on Windows there is no graceful path to refuse (taskkill /F is an
+        // unconditional TerminateProcess), so the handler is a harmless no-op.
+        process.on("SIGTERM", () => {});
+        send({ id: cmd.id, type: "response", command: "set_session_name", success: true });
+      } else if (cmd.name === "spawn-stubborn-child") {
+        // Kill-escalation + tree-kill combined: this process AND a spawned
+        // grandchild both ignore SIGTERM, so only the escalated kill (POSIX:
+        // SIGKILL to the process group; Windows: taskkill /T /F) reaps them.
+        process.on("SIGTERM", () => {});
+        const { spawn } = require("node:child_process");
+        const stubborn = spawn(
+          process.execPath,
+          ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+          { stdio: "ignore" },
+        );
+        send({ type: "child_pid", pid: stubborn.pid });
+        send({ id: cmd.id, type: "response", command: "set_session_name", success: true });
       } else if (cmd.name === "spawn-child") {
         // Spawn a long-lived grandchild (a stand-in for pi's stdio MCP
         // servers / subagents) and report its pid as an event — the tree

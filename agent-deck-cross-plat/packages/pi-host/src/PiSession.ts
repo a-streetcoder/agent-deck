@@ -2,19 +2,23 @@ import { EventEmitter } from "node:events";
 import type {
   RpcCommand,
   RpcResponse,
-  RpcEventListener,
-  RpcExtensionUIRequest,
   RpcExtensionUIResponse,
   RpcSessionState,
 } from "@earendil-works/pi-coding-agent";
 import { serializeJsonLine } from "./jsonl.ts";
 import { PiProcess, type PiProcessExit } from "./PiProcess.ts";
+import {
+  classifyPiLine,
+  COMPACT_TIMEOUT_MS,
+  createRequestIdSource,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  type PiAddressedResponse,
+  type PiInboundEvent,
+} from "./rpcProtocol.ts";
 
-/** pi's streaming event union, derived from the exported listener type. */
-export type PiAgentEvent = Parameters<RpcEventListener>[0];
-
-/** Everything pi pushes that is not a command response. */
-export type PiInboundEvent = PiAgentEvent | RpcExtensionUIRequest;
+// Wire-protocol pieces shared with the server's Effect service live in
+// rpcProtocol.ts; re-exported here so existing import sites keep working.
+export type { PiAgentEvent, PiInboundEvent } from "./rpcProtocol.ts";
 
 type CommandType = RpcCommand["type"];
 type CommandOf<T extends CommandType> = Extract<RpcCommand, { type: T }>;
@@ -78,12 +82,12 @@ export interface PiSessionEvents {
 export class PiSession extends EventEmitter<PiSessionEvents> {
   private readonly process: PiProcess;
   private readonly pending = new Map<string, PendingRequest>();
-  private nextRequestId = 0;
+  private readonly nextRequestId = createRequestIdSource();
   private readonly requestTimeoutMs: number;
 
   constructor(options: PiSessionOptions) {
     super();
-    this.requestTimeoutMs = options.requestTimeoutMs ?? 20_000;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.process = new PiProcess({
       binPath: options.binPath,
       args: options.args,
@@ -127,7 +131,7 @@ export class PiSession extends EventEmitter<PiSessionEvents> {
     command: Omit<CommandOf<T>, "id"> & { type: T },
     timeoutMs: number = this.requestTimeoutMs,
   ): Promise<DataOf<T>> {
-    const id = `req-${this.nextRequestId++}`;
+    const id = this.nextRequestId();
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer =
         timeoutMs > 0
@@ -179,7 +183,7 @@ export class PiSession extends EventEmitter<PiSessionEvents> {
    * ack path of prompt/steer.
    */
   async compact(): Promise<void> {
-    await this.request({ type: "compact" }, 120_000);
+    await this.request({ type: "compact" }, COMPACT_TIMEOUT_MS);
   }
 
   async getState(): Promise<RpcSessionState> {
@@ -226,28 +230,22 @@ export class PiSession extends EventEmitter<PiSessionEvents> {
   }
 
   private handleLine(line: string): void {
-    if (line.trim().length === 0) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      this.emit("malformed-line", line);
-      return;
+    const classified = classifyPiLine(line);
+    switch (classified.kind) {
+      case "ignored":
+        return;
+      case "malformed":
+        this.emit("malformed-line", classified.line);
+        return;
+      case "response":
+        this.handleResponse(classified.response);
+        return;
+      case "event":
+        this.emit("event", classified.event);
     }
-    if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
-      this.emit("malformed-line", line);
-      return;
-    }
-    const record = parsed as { type: string; id?: string };
-    if (record.type === "response") {
-      this.handleResponse(record as RpcResponse);
-      return;
-    }
-    this.emit("event", parsed as PiInboundEvent);
   }
 
-  private handleResponse(response: RpcResponse): void {
-    if (!response.id) return;
+  private handleResponse(response: PiAddressedResponse): void {
     const pending = this.pending.get(response.id);
     if (!pending) return;
     this.pending.delete(response.id);

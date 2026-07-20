@@ -346,6 +346,131 @@ describe("PiHost scoped subprocess service", () => {
     15_000,
   );
 
+  it("enforces one-shot events consumption: a second run fails typed", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const handle = yield* spawnPiProcess(opts());
+          const first = yield* Effect.fork(Stream.runDrain(handle.events));
+          yield* Effect.sleep("50 millis"); // the first run has claimed the feed
+          const second = yield* Effect.flip(Stream.runCollect(handle.events));
+          expect(second._tag).toBe("PiEventsAlreadyConsumed");
+          expect(second.since).toBe("consumer-attached");
+
+          // The claim is for the handle's LIFETIME: detaching the first
+          // consumer does not reopen the feed (no re-attach by design).
+          yield* Fiber.interrupt(first);
+          const third = yield* Effect.flip(Stream.runDrain(handle.events));
+          expect(third._tag).toBe("PiEventsAlreadyConsumed");
+          expect(third.since).toBe("consumer-detached");
+        }),
+      ),
+    );
+  }, 15_000);
+
+  it(
+    "consumer detach shuts the bridge down: later lines drop instead of accumulating",
+    async () => {
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* spawnPiProcess(opts());
+            // The Slice-5 shape: a long-lived ingestion fiber... that dies.
+            const ingestion = yield* Effect.fork(Stream.runDrain(handle.events));
+            yield* Effect.sleep("50 millis");
+            yield* Fiber.interrupt(ingestion);
+            expect(yield* handle.droppedEvents).toBe(0);
+
+            // pi keeps talking after the detach: this prompt emits 4 events
+            // plus 1 malformed line. All 5 must be DROPPED (counted), not
+            // buffered unboundedly — and RPC correlation must be unaffected.
+            yield* handle.prompt("hi");
+            const dropped = yield* Effect.gen(function* () {
+              const deadline = Date.now() + 5_000;
+              let count = yield* handle.droppedEvents;
+              while (count < 5 && Date.now() < deadline) {
+                yield* Effect.sleep("25 millis");
+                count = yield* handle.droppedEvents;
+              }
+              return count;
+            });
+            expect(dropped).toBe(5);
+            const state = yield* handle.getState;
+            expect(state.sessionId).toBe("fake-session");
+          }),
+        ),
+      );
+    },
+    15_000,
+  );
+
+  // POSIX-only: Windows has no graceful signal to refuse — killTree goes
+  // straight to `taskkill /T /F` (that path is covered by the tests below
+  // and the plain spawn-child test, which do run on Windows).
+  it.skipIf(process.platform === "win32")(
+    "escalates to SIGKILL on scope close when the child ignores SIGTERM",
+    async () => {
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const scope = yield* Scope.make();
+          const handle = yield* Scope.extend(spawnPiProcess(opts()), scope);
+          const pid = Option.getOrThrow(yield* handle.pid);
+          yield* handle.setSessionName("ignore-sigterm");
+
+          const startedAt = Date.now();
+          yield* Scope.close(scope, Exit.void);
+          return { pid, elapsedMs: Date.now() - startedAt, exit: yield* handle.exit };
+        }),
+      );
+      // SIGTERM was refused, so release had to ride out the grace period
+      // (3s in PiProcess) before SIGKILL — a compliant child dies in ms.
+      expect(result.elapsedMs).toBeGreaterThanOrEqual(2_500);
+      expect(Option.isSome(result.exit)).toBe(true);
+      if (Option.isSome(result.exit)) {
+        expect(result.exit.value.signal).toBe("SIGKILL");
+      }
+      await expectProcessGone(result.pid);
+    },
+    20_000,
+  );
+
+  it(
+    "kill escalation reaps a SIGTERM-ignoring grandchild too on scope close",
+    async () => {
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const scope = yield* Scope.make();
+          const handle = yield* Scope.extend(spawnPiProcess(opts()), scope);
+          const pid = Option.getOrThrow(yield* handle.pid);
+          // Child AND grandchild both refuse SIGTERM; only the escalated
+          // tree kill (POSIX: process-group SIGKILL after the grace;
+          // Windows: taskkill /T /F) can reap the pair.
+          const childPidFiber = yield* Effect.fork(
+            handle.events.pipe(
+              Stream.filter(
+                (item): item is Extract<PiStreamItem, { _tag: "PiEvent" }> =>
+                  item._tag === "PiEvent" &&
+                  (item.event as { type?: string }).type === "child_pid",
+              ),
+              Stream.runHead,
+            ),
+          );
+          yield* handle.setSessionName("spawn-stubborn-child");
+          const childItem = Option.getOrThrow(yield* Fiber.join(childPidFiber));
+          const childPid = (childItem.event as unknown as { pid: number }).pid;
+          expect(processAlive(pid)).toBe(true);
+          expect(processAlive(childPid)).toBe(true);
+
+          yield* Scope.close(scope, Exit.void);
+          return { pid, childPid };
+        }),
+      );
+      await expectProcessGone(result.pid);
+      await expectProcessGone(result.childPid);
+    },
+    20_000,
+  );
+
   it(
     "a request write racing OS-level death fails typed instead of crashing",
     async () => {
