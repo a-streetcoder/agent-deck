@@ -21,7 +21,16 @@ final class MCPRealServerIntegrationTests: XCTestCase {
         ] } });
       } else if (msg.method === 'tools/call') {
         const args = (msg.params && msg.params.arguments) || {};
-        send({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'echo: ' + (args.message || '') }], isError: false } });
+        const text = args.inspectEnvironment
+          ? JSON.stringify({
+              authExists: !!process.env.AUTH_TOKEN,
+              authMatches: process.env.AUTH_TOKEN === 'TEST_TOKEN',
+              overrideWins: process.env.HOME === '/configured-home',
+              pathInherited: !!process.env.PATH,
+              argumentLiteral: process.argv[2] === '${AUTH_TOKEN}'
+            })
+          : 'echo: ' + (args.message || '');
+        send({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text }], isError: false } });
       }
     });
     """
@@ -63,6 +72,43 @@ final class MCPRealServerIntegrationTests: XCTestCase {
         let result = try await connection.callTool(name: "echo", arguments: .object(["message": .string("hello-mcp")]))
         XCTAssertEqual(result.isError, false)
         XCTAssertEqual(result.combinedText, "echo: hello-mcp")
+    }
+
+    func testConfiguredEnvironmentIsMergedAndArgumentsStayLiteral() async throws {
+        var config = try fixtureConfig()
+        config.args?.append("${AUTH_TOKEN}")
+        config.env = ["AUTH_TOKEN": "TEST_TOKEN", "HOME": "/configured-home"]
+        let connection = MCPConnection(name: "fixture", config: config, requestTimeout: .seconds(20))
+        defer { Task { await connection.close() } }
+
+        let result = try await connection.callTool(name: "echo", arguments: .object(["inspectEnvironment": .bool(true)]))
+        let data = try XCTUnwrap(result.combinedText.data(using: .utf8))
+        let flags = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Bool])
+        XCTAssertEqual(flags["authExists"], true)
+        XCTAssertEqual(flags["authMatches"], true)
+        XCTAssertEqual(flags["overrideWins"], true)
+        XCTAssertEqual(flags["pathInherited"], true)
+        XCTAssertEqual(flags["argumentLiteral"], true)
+    }
+
+    func testEarlyExitSurfacesSanitizedStderr() async throws {
+        guard let node = resolveNode() else { throw XCTSkip("node not found; skipping real-transport integration test.") }
+        let exitScript = scriptURL.deletingLastPathComponent().appendingPathComponent("exit.js")
+        try "console.error('useful diagnostic ' + process.env.AUTH_TOKEN); process.exit(7);"
+            .write(to: exitScript, atomically: true, encoding: .utf8)
+        let config = MCPServerConfig(command: node, args: [exitScript.path], env: ["AUTH_TOKEN": "TEST_TOKEN"])
+        let connection = MCPConnection(name: "fixture", config: config, requestTimeout: .seconds(5))
+
+        do {
+            _ = try await connection.listTools()
+            XCTFail("Expected the fixture to exit")
+        } catch {
+            let message = (error as? MCPError)?.errorDescription ?? error.localizedDescription
+            XCTAssertTrue(message.contains("server exited with code 7"), message)
+            XCTAssertTrue(message.contains("useful diagnostic"), message)
+            XCTAssertFalse(message.contains("TEST_TOKEN"), message)
+            XCTAssertTrue(message.contains("<redacted>"), message)
+        }
     }
 
     func testManagerCatalogAndCallOverRealStdioTransport() async throws {

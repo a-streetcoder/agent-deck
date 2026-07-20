@@ -72,7 +72,9 @@ Project-specific availability is controlled by Agent Deck assignment state. Agen
 | Agent Deck auto-accept Computer Use broker variant | `~/Library/Application Support/Agent Deck/Computer Use Broker/Variants/0.2.0-agent-deck-auto-accept.2/` |
 | Computer Use variant state and bounded metadata-only audit log (5 MiB current + one 5 MiB backup) | `~/Library/Application Support/Agent Deck/Computer Use Broker/State/auto-accept.1/` |
 
-Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet. For remote MCP servers that require a pre-registered OAuth client, the optional client ID, client secret, and scopes entered in the Add/Edit sheet are stored in `mcp-auth.json`, not `mcp.json`.
+Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet. Remote servers may use configured HTTP headers or OAuth; a non-empty static `Authorization` header takes precedence, while OAuth remains available when static authorization is absent. For remote servers that require a pre-registered OAuth client, the optional client ID, client secret, and scopes entered in the Add/Edit sheet are stored in `mcp-auth.json`, not `mcp.json`.
+
+Stdio MCP servers inherit Agent Deck's process environment, with the server's configured `env` values applied as overrides. Argument strings are passed literally so the child (for example, `mcp-remote`) can expand placeholders itself. Transport diagnostics include bounded stderr when useful and redact configured authorization and secret-like environment values.
 
 ## Extensions and packages
 

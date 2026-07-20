@@ -2,6 +2,11 @@ import XCTest
 @testable import agent_deck
 
 final class MCPHTTPTransportTests: XCTestCase {
+    private actor CallCounter {
+        private(set) var value = 0
+        func increment() { value += 1 }
+    }
+
     // MARK: - SSE parsing (unit)
 
     func testParseSSEExtractsDataPayloads() {
@@ -51,6 +56,8 @@ final class MCPHTTPTransportTests: XCTestCase {
     const http = require('http');
     let counter = 0;
     const server = http.createServer((req, res) => {
+      if (req.headers.authorization !== 'Bearer TEST_TOKEN') { res.writeHead(401); res.end(); return; }
+      if (req.headers['x-test-header'] !== 'forwarded') { res.writeHead(400); res.end(); return; }
       if (req.method === 'DELETE') { res.writeHead(200); res.end(); return; }
       if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
       let body = '';
@@ -67,7 +74,11 @@ final class MCPHTTPTransportTests: XCTestCase {
           json({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'echo', description: 'Echo', inputSchema: { type: 'object' } }] } });
         } else if (msg.method === 'tools/call') {
           const a = (msg.params && msg.params.arguments) || {};
-          json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'http: ' + (a.message || '') }], isError: false } });
+          if (a.failWithCredential) {
+            json({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'rejected ' + req.headers.authorization } });
+          } else {
+            json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'http: ' + (a.message || '') }], isError: false } });
+          }
         } else { json({ jsonrpc: '2.0', id: msg.id, result: {} }); }
       });
     });
@@ -117,6 +128,7 @@ final class MCPHTTPTransportTests: XCTestCase {
         var config = MCPServerConfig()
         config.url = "http://127.0.0.1:\(fixture.port)/mcp"
         config.transport = .http
+        config.headers = ["Authorization": "Bearer TEST_TOKEN", "X-Test-Header": "forwarded"]
         // Default factory routes http config to the real MCPHTTPTransport.
         let connection = MCPConnection(name: "remote", config: config, requestTimeout: .seconds(15))
         defer { Task { await connection.close() } }
@@ -127,5 +139,71 @@ final class MCPHTTPTransportTests: XCTestCase {
         let result = try await connection.callTool(name: "echo", arguments: .object(["message": .string("over-http")]))
         XCTAssertEqual(result.isError, false)
         XCTAssertEqual(result.combinedText, "http: over-http")
+    }
+
+    func testStaticAuthorizationReachesAllRequestsAndSkipsOAuthProvider() async throws {
+        let fixture = try startFixture()
+        defer { fixture.process.terminate() }
+
+        var config = MCPServerConfig()
+        config.url = "http://127.0.0.1:\(fixture.port)/mcp"
+        config.transport = .http
+        config.headers = ["authorization": "Bearer TEST_TOKEN", "X-Test-Header": "forwarded"]
+        let counter = CallCounter()
+        let manager = MCPConnectionManager(requestTimeout: .seconds(15))
+        await manager.setAuthTokenProvider { _ in
+            await counter.increment()
+            return "WRONG_OAUTH_TOKEN"
+        }
+        await manager.configure(servers: [.init(name: "remote", config: config, sourcePath: "/test/mcp.json")])
+
+        let catalog = await manager.discoverCatalog(serverNames: ["remote"])
+        XCTAssertEqual(catalog.map(\.qualifiedName), ["remote/echo"])
+        let result = try await manager.call(
+            server: "remote",
+            tool: "echo",
+            arguments: .object(["message": .string("static-auth")]),
+            context: .init(sessionID: UUID(), projectID: nil, server: "remote", tool: "echo")
+        )
+        XCTAssertEqual(result.combinedText, "http: static-auth")
+        do {
+            _ = try await manager.call(
+                server: "remote",
+                tool: "echo",
+                arguments: .object(["failWithCredential": .bool(true)]),
+                context: .init(sessionID: UUID(), projectID: nil, server: "remote", tool: "echo")
+            )
+            XCTFail("Expected mock RPC failure")
+        } catch {
+            let message = (error as? MCPError)?.errorDescription ?? error.localizedDescription
+            XCTAssertFalse(message.contains("TEST_TOKEN"), message)
+            XCTAssertTrue(message.contains("<redacted>"), message)
+        }
+        let staticProviderCalls = await counter.value
+        XCTAssertEqual(staticProviderCalls, 0)
+        await manager.shutdown()
+    }
+
+    func testOAuthProviderStillWorksWithoutStaticAuthorization() async throws {
+        let fixture = try startFixture()
+        defer { fixture.process.terminate() }
+
+        var config = MCPServerConfig()
+        config.url = "http://127.0.0.1:\(fixture.port)/mcp"
+        config.transport = .http
+        config.headers = ["X-Test-Header": "forwarded"]
+        let counter = CallCounter()
+        let manager = MCPConnectionManager(requestTimeout: .seconds(15))
+        await manager.setAuthTokenProvider { _ in
+            await counter.increment()
+            return "TEST_TOKEN"
+        }
+        await manager.configure(servers: [.init(name: "remote", config: config, sourcePath: "/test/mcp.json")])
+
+        let catalog = await manager.discoverCatalog(serverNames: ["remote"])
+        XCTAssertEqual(catalog.map(\.qualifiedName), ["remote/echo"])
+        let oauthProviderCalls = await counter.value
+        XCTAssertGreaterThan(oauthProviderCalls, 0)
+        await manager.shutdown()
     }
 }

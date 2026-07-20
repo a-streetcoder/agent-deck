@@ -284,10 +284,10 @@ struct MCPServersScreen: View {
                 HStack(spacing: 8) {
                     detailStatusTag(entry)
                     Spacer(minLength: 8)
-                    if entry.config.resolvedTransport == .stdio {
-                        // Local servers connect directly; once connected the same button
-                        // re-lists tools over the live connection.
-                        probeButton(entry)
+                    if entry.config.resolvedTransport == .stdio || entry.config.hasStaticAuthorization {
+                        // Local servers and remote servers with static credentials connect
+                        // directly; once connected the same button re-lists their tools.
+                        probeButton(entry, disconnectedTitle: entry.config.resolvedTransport == .stdio ? "Connect" : "Load tools")
                     } else if connectingServers.contains(entry.name) {
                         AppSpinner().controlSize(.small)
                     } else if connectedByServer[entry.name] ?? false {
@@ -890,7 +890,7 @@ private struct MCPServerEditorSheet: View {
                     }
                 }
             }
-            Text("After saving, use Connect on the server to authorize with OAuth. If the provider supports Dynamic Client Registration, leave the OAuth client fields empty.")
+            Text("After saving, use Connect to authorize with OAuth when no static Authorization header is configured. If the provider supports Dynamic Client Registration, leave the OAuth client fields empty.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)

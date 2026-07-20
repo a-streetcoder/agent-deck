@@ -127,7 +127,7 @@ actor MCPConnectionManager {
             case .stdio:
                 return try injected(serverConfig)
             case .http, .sse:
-                let tokenProvider: (@Sendable () async -> String?)? = provider.map { resolve in
+                let tokenProvider: (@Sendable () async -> String?)? = serverConfig.hasStaticAuthorization ? nil : provider.map { resolve in
                     let bound: @Sendable () async -> String? = { await resolve(name) }
                     return bound
                 }
@@ -247,7 +247,7 @@ actor MCPConnectionManager {
             case .stdio:
                 return try injected(serverConfig)
             case .http, .sse:
-                let tokenProvider: (@Sendable () async -> String?)? = provider.map { resolve in
+                let tokenProvider: (@Sendable () async -> String?)? = serverConfig.hasStaticAuthorization ? nil : provider.map { resolve in
                     let bound: @Sendable () async -> String? = { await resolve(serverName) }
                     return bound
                 }

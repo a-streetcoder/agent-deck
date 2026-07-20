@@ -34,7 +34,10 @@ actor MCPConnection {
     func ensureConnected() async throws {
         if isConnected { return }; if let connectTask { try await connectTask.value; return }
         let task = Task { try await self.performConnect() }; connectTask = task
-        do { try await task.value } catch { connectTask = nil; throw error }; connectTask = nil
+        do { try await task.value }
+        catch let error as MCPError { connectTask = nil; throw sanitized(error) }
+        catch { connectTask = nil; throw MCPError.transportFailed(config.sanitizedDiagnostic(error.localizedDescription)) }
+        connectTask = nil
     }
     private func performConnect() async throws {
         let transport = try transportFactory(config)
@@ -139,8 +142,8 @@ actor MCPConnection {
         entry.sendStarted = true
         pending[id] = entry
         do { try await transport.send(line) }
-        catch let error as MCPError { failPending(id: id, error: error, reason: "transport failed") }
-        catch { failPending(id: id, error: MCPError.transportFailed(error.localizedDescription), reason: "transport failed") }
+        catch let error as MCPError { failPending(id: id, error: sanitized(error), reason: "transport failed") }
+        catch { failPending(id: id, error: MCPError.transportFailed(config.sanitizedDiagnostic(error.localizedDescription)), reason: "transport failed") }
     }
     private func resolvePending(id: Int, response: JSONRPCResponse) { timeoutTasks.removeValue(forKey: id)?.cancel(); serverRequestTasks.removeValue(forKey: id)?.cancel(); pending.removeValue(forKey: id)?.continuation.resume(returning: response) }
     private func failPending(id: Int, error: Error, reason: String) {
@@ -151,5 +154,17 @@ actor MCPConnection {
         entry.continuation.resume(throwing: error)
     }
     private func failAllPending(_ error: Error, reason: String) { let ids = Array(pending.keys); for id in ids { failPending(id: id, error: error, reason: reason) } }
-    private func decodeResult<T: Decodable>(_ response: JSONRPCResponse, as type: T.Type) throws -> T { if let error = response.error { throw MCPError.rpc(code: error.code, message: error.message) }; guard let result = response.result else { throw MCPError.decoding("missing result for \(T.self)") }; do { return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(result)) } catch { throw MCPError.decoding(error.localizedDescription) } }
+    private func decodeResult<T: Decodable>(_ response: JSONRPCResponse, as type: T.Type) throws -> T { if let error = response.error { throw MCPError.rpc(code: error.code, message: config.sanitizedDiagnostic(error.message)) }; guard let result = response.result else { throw MCPError.decoding("missing result for \(T.self)") }; do { return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(result)) } catch { throw MCPError.decoding(config.sanitizedDiagnostic(error.localizedDescription)) } }
+
+    private func sanitized(_ error: MCPError) -> MCPError {
+        switch error {
+        case let .transportFailed(detail): return .transportFailed(config.sanitizedDiagnostic(detail))
+        case let .rpc(code, message): return .rpc(code: code, message: config.sanitizedDiagnostic(message))
+        case let .decoding(detail): return .decoding(config.sanitizedDiagnostic(detail))
+        case let .invalidArguments(detail): return .invalidArguments(config.sanitizedDiagnostic(detail))
+        case let .policyDenied(detail): return .policyDenied(config.sanitizedDiagnostic(detail))
+        case let .runtimeAuthorization(detail): return .runtimeAuthorization(config.sanitizedDiagnostic(detail))
+        default: return error
+        }
+    }
 }

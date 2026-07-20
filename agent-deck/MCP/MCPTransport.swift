@@ -19,6 +19,26 @@ extension MCPTransport {
     var supportsDuplexServerRequests: Bool { false }
 }
 
+/// Thread-safe stderr capture shared by process callbacks. Diagnostics stay bounded;
+/// configured credentials are removed before they are surfaced.
+private nonisolated final class MCPStderrBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+
+    func append(_ newLines: [String]) {
+        lock.lock()
+        lines.append(contentsOf: newLines)
+        if lines.count > 40 { lines.removeFirst(lines.count - 40) }
+        lock.unlock()
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines
+    }
+}
+
 /// stdio transport: launches the server via `/usr/bin/env <command> <args>` (so `PATH`
 /// resolution works for `npx`-style commands) and streams newline-delimited JSON over
 /// its stdio, reusing `PiAgentProcess`'s pipe plumbing.
@@ -43,8 +63,10 @@ actor MCPStdioTransport: MCPTransport {
         }
         let baseEnv = ProcessInfo.processInfo.environment
         let command = MCPConfigLoader.interpolate(rawCommand, environment: baseEnv, homeDirectory: homeDirectory)
-        let args = (config.args ?? []).map { MCPConfigLoader.interpolate($0, environment: baseEnv, homeDirectory: homeDirectory) }
-        let extraEnv = (config.env ?? [:]).mapValues { MCPConfigLoader.interpolate($0, environment: baseEnv, homeDirectory: homeDirectory) }
+        // Arguments are an argv array, not shell input. In particular, mcp-remote
+        // expands placeholders such as ${AUTH_TOKEN} from the child environment.
+        let args = config.args ?? []
+        let childEnvironment = config.effectiveEnvironment(inherited: baseEnv, homeDirectory: homeDirectory)
         let cwd: URL = {
             if let raw = config.cwd, !raw.isEmpty {
                 return URL(fileURLWithPath: MCPConfigLoader.interpolate(raw, environment: baseEnv, homeDirectory: homeDirectory))
@@ -55,19 +77,26 @@ actor MCPStdioTransport: MCPTransport {
         let configuration = PiAgentProcess.Configuration(
             arguments: [command] + args,
             currentDirectoryURL: cwd,
-            environment: extraEnv,
+            environment: childEnvironment,
             executableURL: URL(fileURLWithPath: "/usr/bin/env")
         )
+        let stderr = MCPStderrBuffer()
+        let sanitizer = MCPDiagnosticSanitizer(config: config)
         do {
             let process = try PiAgentProcess(
                 configuration: configuration,
                 onStdoutLines: { lines in for line in lines { onLine(line) } },
-                onStderrLines: { _ in },
-                onTermination: { code in onClose(code == 0 ? nil : .transportFailed("server exited with code \(code)")) }
+                onStderrLines: { lines in stderr.append(lines) },
+                onTermination: { code in
+                    guard code != 0 else { onClose(nil); return }
+                    let detail = sanitizer.boundedStderr(stderr.snapshot())
+                    let suffix = detail.isEmpty ? "" : ": \(detail)"
+                    onClose(.transportFailed("server exited with code \(code)\(suffix)"))
+                }
             )
             self.process = process
         } catch {
-            throw MCPError.transportFailed(error.localizedDescription)
+            throw MCPError.transportFailed(sanitizer.sanitize(error.localizedDescription))
         }
     }
 

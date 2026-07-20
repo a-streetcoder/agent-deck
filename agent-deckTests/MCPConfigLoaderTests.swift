@@ -72,6 +72,38 @@ final class MCPConfigLoaderTests: XCTestCase {
         XCTAssertEqual(explicit.resolvedTransport, .sse)
     }
 
+    func testStaticAuthorizationDetectionIsCaseInsensitiveAndNonEmpty() {
+        XCTAssertTrue(MCPServerConfig(headers: ["authorization": "Bearer TEST_TOKEN"]).hasStaticAuthorization)
+        XCTAssertFalse(MCPServerConfig(headers: ["Authorization": "  "]).hasStaticAuthorization)
+        XCTAssertFalse(MCPServerConfig(headers: ["X-Tenant": "example"]).hasStaticAuthorization)
+        XCTAssertEqual(
+            MCPServerConfig(headers: ["Authorization": "Bearer CANONICAL", "authorization": "Bearer DUPLICATE"]).staticAuthorizationValue,
+            "Bearer CANONICAL"
+        )
+    }
+
+    func testEffectiveEnvironmentInheritsAndConfiguredValuesWin() {
+        let config = MCPServerConfig(env: ["AUTH_TOKEN": "TEST_TOKEN", "HOME": "/configured-home"])
+        let environment = config.effectiveEnvironment(inherited: ["HOME": "/inherited-home", "PATH": "/usr/bin"])
+        XCTAssertEqual(environment["AUTH_TOKEN"], "TEST_TOKEN")
+        XCTAssertEqual(environment["HOME"], "/configured-home")
+        XCTAssertEqual(environment["PATH"], "/usr/bin")
+    }
+
+    func testDiagnosticsRedactSecretLikeConfiguredValues() {
+        let config = MCPServerConfig(
+            env: ["TOKEN": "token-value", "SECRET": "secret-value", "PASSWORD": "password-value", "API_KEY": "key-value"],
+            headers: ["Authorization": "Bearer TEST_TOKEN"]
+        )
+        let diagnostic = config.sanitizedDiagnostic("Bearer TEST_TOKEN token-value secret-value password-value key-value")
+        XCTAssertFalse(diagnostic.contains("TEST_TOKEN"))
+        XCTAssertFalse(diagnostic.contains("token-value"))
+        XCTAssertFalse(diagnostic.contains("secret-value"))
+        XCTAssertFalse(diagnostic.contains("password-value"))
+        XCTAssertFalse(diagnostic.contains("key-value"))
+        XCTAssertTrue(diagnostic.contains("<redacted>"))
+    }
+
     func testMissingFilesYieldEmpty() {
         let loader = MCPConfigLoader(homeDirectory: tempRoot.appendingPathComponent("nope", isDirectory: true))
         XCTAssertTrue(loader.load(projectRoot: nil).servers.isEmpty)

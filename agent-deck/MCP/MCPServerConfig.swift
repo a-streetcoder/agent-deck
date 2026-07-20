@@ -64,6 +64,82 @@ nonisolated struct MCPServerConfig: Codable, Hashable, Sendable {
     }
 
     var resolvedLifecycle: MCPLifecycle { lifecycle ?? .lazy }
+
+    /// HTTP header names are case-insensitive. Prefer the canonical spelling when a
+    /// malformed config contains duplicates, then fall back to a stable key order.
+    var staticAuthorizationValue: String? {
+        let candidates = (headers ?? [:]).filter {
+            $0.key.caseInsensitiveCompare("Authorization") == .orderedSame
+                && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return candidates.first(where: { $0.key == "Authorization" })?.value
+            ?? candidates.sorted { $0.key < $1.key }.first?.value
+    }
+
+    /// A non-empty static Authorization value takes precedence over OAuth without
+    /// deleting any stored OAuth state.
+    var hasStaticAuthorization: Bool { staticAuthorizationValue != nil }
+
+    /// Stdio children inherit the app environment, with server-specific values
+    /// overlaid last. Values may refer to inherited variables; arguments stay literal.
+    func effectiveEnvironment(
+        inherited: [String: String],
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [String: String] {
+        let configured = (env ?? [:]).mapValues {
+            MCPConfigLoader.interpolate($0, environment: inherited, homeDirectory: homeDirectory)
+        }
+        return inherited.merging(configured) { _, configuredValue in configuredValue }
+    }
+
+    func sanitizedDiagnostic(_ text: String) -> String {
+        MCPDiagnosticSanitizer(config: self).sanitize(text)
+    }
+}
+
+/// Redacts configured credentials from transport diagnostics without changing
+/// requests, process environments, persisted configuration, or successful results.
+nonisolated struct MCPDiagnosticSanitizer: Sendable {
+    private let secrets: [String]
+
+    init(config: MCPServerConfig) {
+        var values: [String] = []
+        for (name, value) in config.headers ?? [:]
+        where Self.isSecretName(name) && !value.isEmpty {
+            values.append(value)
+        }
+        for (name, value) in config.env ?? [:]
+        where Self.isSecretName(name) && !value.isEmpty {
+            values.append(value)
+        }
+        secrets = Array(Set(values)).sorted { $0.count > $1.count }
+    }
+
+    func sanitize(_ text: String) -> String {
+        var result = text
+        for secret in secrets {
+            result = result.replacingOccurrences(of: secret, with: "<redacted>")
+        }
+        return result
+    }
+
+    func boundedStderr(_ lines: [String], maximumCharacters: Int = 4_000) -> String {
+        let joined = sanitize(lines.suffix(40).joined(separator: "\n"))
+        guard joined.count > maximumCharacters else { return joined }
+        return "…" + joined.suffix(maximumCharacters)
+    }
+
+    static func isSecretName(_ name: String) -> Bool {
+        let normalized = name.uppercased().replacingOccurrences(of: "-", with: "_")
+        return normalized == "AUTHORIZATION"
+            || normalized.contains("TOKEN")
+            || normalized.contains("SECRET")
+            || normalized.contains("PASSWORD")
+            || normalized.contains("PASSWD")
+            || normalized.contains("API_KEY")
+            || normalized.contains("PRIVATE_KEY")
+            || normalized.contains("CREDENTIAL")
+    }
 }
 
 /// Global `settings` block of an `mcp.json` file. Only the fields Agent Deck reads.

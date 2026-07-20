@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 nonisolated final class PiAgentProcess: @unchecked Sendable {
@@ -62,7 +63,7 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         stderrReader.start()
 
         process.terminationHandler = { [weak self] process in
-            self?.cleanupIO()
+            self?.finishIOAfterProcessExit()
             onTermination(process.terminationStatus)
         }
 
@@ -127,6 +128,19 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         stderrReader.stop()
     }
 
+    /// Once the process has exited, drain bytes left in its pipes before reporting
+    /// termination so short-lived helpers cannot lose their final diagnostic line.
+    private func finishIOAfterProcessExit() {
+        lock.lock()
+        let shouldCleanup = !didCleanupIO
+        didCleanupIO = true
+        lock.unlock()
+        guard shouldCleanup else { return }
+
+        stdoutReader.finishAfterProcessExit()
+        stderrReader.finishAfterProcessExit()
+    }
+
     private static func resolvePiExecutable() throws -> URL {
         guard let url = PiExecutableResolver().resolve() else {
             throw ProcessError.executableNotFound
@@ -160,9 +174,11 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
 nonisolated final class LineStreamReader: @unchecked Sendable {
     private let handle: FileHandle
     private let callback: @Sendable ([String]) -> Void
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var buffer = Data()
     private var isStopped = false
+    private var isFinishing = false
+    private var activeReads = 0
 
     init(handle: FileHandle, callback: @escaping @Sendable ([String]) -> Void) {
         self.handle = handle
@@ -175,8 +191,44 @@ nonisolated final class LineStreamReader: @unchecked Sendable {
 
     func start() {
         handle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData)
+            self?.consumeAvailableData(from: handle)
         }
+    }
+
+    private func consumeAvailableData(from handle: FileHandle) {
+        lock.lock()
+        guard !isStopped, !isFinishing else { lock.unlock(); return }
+        activeReads += 1
+        lock.unlock()
+
+        let data = handle.availableData
+        append(data)
+
+        lock.lock()
+        activeReads -= 1
+        lock.broadcast()
+        lock.unlock()
+    }
+
+    func finishAfterProcessExit() {
+        lock.lock()
+        guard !isStopped else { lock.unlock(); return }
+        isFinishing = true
+        handle.readabilityHandler = nil
+        while activeReads > 0 { lock.wait() }
+        lock.unlock()
+
+        // Drain only bytes already available. `readToEnd()` can hang when a
+        // descendant inherited the pipe after the direct child exited.
+        var availableBytes: Int32 = 0
+        let bytesAvailableRequest = UInt(0x4004_667F) // Darwin FIONREAD
+        if ioctl(handle.fileDescriptor, bytesAvailableRequest, &availableBytes) == 0,
+           availableBytes > 0,
+           let remaining = try? handle.read(upToCount: Int(availableBytes)),
+           !remaining.isEmpty {
+            append(remaining)
+        }
+        stop()
     }
 
     func stop() {
