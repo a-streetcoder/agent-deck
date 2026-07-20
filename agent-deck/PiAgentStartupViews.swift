@@ -1201,18 +1201,14 @@ private struct PiAgentAdaptiveRowLayout: Layout {
         var sizes: [CGSize] = []
     }
 
-    let isHovered: Bool
     private let spacing: CGFloat = 10
-    private let wideIdentityWidth: CGFloat = 340
     private let wideControlsWidth: CGFloat = 528
-    private let mediumIdentityWidth: CGFloat = 220
     private let mediumControlsWidth: CGFloat = 338
-    private let chatWidth: CGFloat = 76
     private let compactFallbackWidth: CGFloat = 260
-    // Preserve the July-era wide columns where they genuinely fit, but keep an
-    // inline medium arrangement before falling back to a stacked row.
-    private var wideThreshold: CGFloat { wideIdentityWidth + spacing + wideControlsWidth + 60 }
-    private var mediumThreshold: CGFloat { mediumIdentityWidth + spacing + mediumControlsWidth + spacing + chatWidth }
+    // Keep the established inline breakpoints while letting the agent identity
+    // use all room not reserved for the trailing launch controls.
+    private let wideThreshold: CGFloat = 938
+    private let mediumThreshold: CGFloat = 654
 
     func makeCache(subviews: Subviews) -> Cache { Cache() }
 
@@ -1222,13 +1218,17 @@ private struct PiAgentAdaptiveRowLayout: Layout {
     }
 
     private func widths(for width: CGFloat) -> [CGFloat] {
-        if width >= wideThreshold { return [wideIdentityWidth, wideControlsWidth, chatWidth] }
-        if width >= mediumThreshold { return [mediumIdentityWidth, mediumControlsWidth, chatWidth] }
-        return [width, min(wideControlsWidth, width), chatWidth]
+        if width >= wideThreshold {
+            return [max(0, width - spacing - wideControlsWidth), wideControlsWidth]
+        }
+        if width >= mediumThreshold {
+            return [max(0, width - spacing - mediumControlsWidth), mediumControlsWidth]
+        }
+        return [width, min(wideControlsWidth, width)]
     }
 
     private func measurements(width: CGFloat, height: CGFloat?, subviews: Subviews, cache: inout Cache) -> [CGSize] {
-        if cache.width == width, cache.height == height, cache.sizes.count == 3 { return cache.sizes }
+        if cache.width == width, cache.height == height, cache.sizes.count == 2 { return cache.sizes }
         let widths = widths(for: width)
         cache.width = width
         cache.height = height
@@ -1237,29 +1237,25 @@ private struct PiAgentAdaptiveRowLayout: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
-        guard subviews.count == 3 else { return .zero }
+        guard subviews.count == 2 else { return .zero }
         let width = sanitizedWidth(proposal.width)
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         return width >= mediumThreshold
-            ? .init(width: width, height: max(sizes[0].height, sizes[1].height, sizes[2].height))
+            ? .init(width: width, height: max(sizes[0].height, sizes[1].height))
             : .init(width: min(width, max(sizes[0].width, sizes[1].width)), height: sizes[0].height + 8 + sizes[1].height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
-        guard subviews.count == 3 else { return }
+        guard subviews.count == 2 else { return }
         let width = sanitizedWidth(bounds.width)
         let inline = width >= mediumThreshold
         let widths = widths(for: width)
         let sizes = measurements(width: width, height: proposal.height, subviews: subviews, cache: &cache)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: widths[0], height: sizes[0].height))
-        if inline {
-            subviews[1].place(at: .init(x: bounds.minX + widths[0] + spacing, y: bounds.minY), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
-            subviews[2].place(at: .init(x: bounds.minX + width - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
-        } else {
-            // Chat is an overlay in compact mode: hover never changes measured geometry.
-            subviews[2].place(at: .init(x: bounds.minX + width - chatWidth, y: bounds.minY), anchor: .topLeading, proposal: .init(width: chatWidth, height: sizes[2].height))
-            subviews[1].place(at: .init(x: bounds.minX, y: bounds.minY + sizes[0].height + 8), anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
-        }
+        let controlsOrigin = inline
+            ? CGPoint(x: bounds.maxX - widths[1], y: bounds.minY)
+            : CGPoint(x: bounds.minX, y: bounds.minY + sizes[0].height + 8)
+        subviews[1].place(at: controlsOrigin, anchor: .topLeading, proposal: .init(width: widths[1], height: sizes[1].height))
     }
 }
 
@@ -1341,12 +1337,10 @@ private struct PiAgentAdaptiveControlsLayout: Layout {
 }
 
 /// One agent in the picker card: check + avatar + name + inline launch
-/// (model + thinking) chips, with a soft hover fill. The 1:1 action is a small
-/// glass capsule revealed on row hover only — same treatment as the session
-/// rows' hover delete — labeled so it doesn't rely on the paperplane glyph
-/// alone. Unchecked rows render desaturated and dimmed, matching the session
-/// list's "seen" treatment. The row adapts from its dense inline arrangement
-/// to stacked identity/action and launch-control rows as space narrows.
+/// (model + thinking) chips, with a soft hover fill. Unchecked rows render
+/// desaturated and dimmed, matching the session list's "seen" treatment. The
+/// row adapts from its inline identity and launch-control arrangement to
+/// stacked rows as space narrows.
 private struct PiAgentSubagentPickerRow: View {
     let agent: EffectiveAgentRecord
     let checked: Bool
@@ -1370,12 +1364,9 @@ private struct PiAgentSubagentPickerRow: View {
     private static let accent = PiAgentSessionSubagentPickerCard.accent
 
     var body: some View {
-        PiAgentAdaptiveRowLayout(isHovered: isHovered) {
+        PiAgentAdaptiveRowLayout {
             identityToggle
             launchControls
-            chatButton
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -1428,6 +1419,7 @@ private struct PiAgentSubagentPickerRow: View {
         )
     }
 
+    // Retained while the per-row 1:1 entry point is intentionally paused.
     private var chatButton: some View {
         Button(action: onStartDirectChat) {
             HStack(spacing: 5) {
