@@ -941,6 +941,7 @@ struct PiAgentSessionSubagentPickerCard: View {
             .padding(.bottom, 18)
         }
         .scrollIndicators(.hidden)
+        .hideNativeScrollers()
         .frame(
             minHeight: min(560, CGFloat(data.rows.count + data.addedRows.count) * 40 + 52),
             maxHeight: 560
