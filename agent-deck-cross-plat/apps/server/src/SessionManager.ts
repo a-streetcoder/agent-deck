@@ -12,9 +12,10 @@ import {
   type ModelSelection,
   type PiProcessExit,
 } from "@agent-deck/pi-host";
-import { Cause, Effect, Exit, Runtime, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
+import { runPromiseUnwrapped, runSyncUnwrapped } from "./effectRun.ts";
 import type { ReceiptBus } from "./receipts.ts";
-import type { ServerRuntime, ServerServices } from "./runtime.ts";
+import type { ServerRuntime } from "./runtime.ts";
 import type { PiSpawnOptions } from "./services/piHost.ts";
 import type { StampedEvent } from "./services/pushBus.ts";
 import {
@@ -51,34 +52,6 @@ export interface CreateSessionOptions {
   /** Set when this session runs in an isolated git worktree (cwd IS the worktree)
    *  so the fields persist WITH the initial meta — no orphan window. */
   worktree?: { path: string; branch: string; sourceBranch: string };
-}
-
-/**
- * `Effect.runSync`, unwrapping a FiberFailure to the ORIGINAL error instance so
- * callsites that `String(error)` / `instanceof`-check see the legacy identity
- * (the class implementation threw plain Errors, not Effect wrappers). Same
- * technique as pushBus.ts's adapter.
- */
-function runSyncUnwrapped<A, E>(effect: Effect.Effect<A, E>): A {
-  try {
-    return Effect.runSync(effect);
-  } catch (error) {
-    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
-    throw error;
-  }
-}
-
-/** {@link runSyncUnwrapped} for a promise-returning effect, run on `runtime`. */
-async function runPromiseUnwrapped<A, E>(
-  runtime: ServerRuntime,
-  effect: Effect.Effect<A, E, ServerServices>,
-): Promise<A> {
-  try {
-    return await runtime.runPromise(effect);
-  } catch (error) {
-    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
-    throw error;
-  }
 }
 
 /** A synchronous view of one session's push bus, for the (still class-based)
@@ -351,6 +324,11 @@ export class SessionManager {
   ): Promise<ManagedSession> {
     const inFlight = this.resuming.get(meta.id);
     if (inFlight) return await inFlight;
+    // Already live and running → hand it back. launch() would otherwise
+    // overwrite the map entry and orphan the old session's still-running pi
+    // (the routes guard this too, but the manager must not rely on callers).
+    const live = this.sessions.get(meta.id);
+    if (live?.isRunning) return live;
 
     const original = (meta.launchPlan as LaunchPlan | undefined) ?? fallbackPlan;
     let plan: LaunchPlan;
@@ -438,11 +416,25 @@ export class SessionManager {
       }
       // The session now owns tempDirs cleanup (via its exit handling).
       owned = true;
-      const session = new ManagedSession(rt, this.runtime, scope);
-      this.sessions.set(meta.id, session);
-      this.receipts.emit("session_created", meta.id);
-      this.onMetaChange(meta);
-      return session;
+      try {
+        const session = new ManagedSession(rt, this.runtime, scope);
+        this.sessions.set(meta.id, session);
+        this.receipts.emit("session_created", meta.id);
+        this.onMetaChange(meta);
+        return session;
+      } catch (error) {
+        // A throw AFTER a successful spawn (ManagedSession ctor, receipts, the
+        // injected onMetaChange) must not orphan the live pi: drop any
+        // half-registered entry and fork scope-close (kills pi, awaits exit)
+        // followed by the one-shot exit handling (endedAt, temp dirs,
+        // listeners) — ingestion was never forked on this path, so nothing
+        // else would ever run it.
+        this.sessions.delete(meta.id);
+        this.runtime.runFork(
+          Scope.close(scope, Exit.void).pipe(Effect.andThen(rt.ensureExitHandled)),
+        );
+        throw error;
+      }
     } catch (error) {
       if (!owned) {
         for (const dir of tempDirs) {
@@ -619,5 +611,8 @@ export class SessionManager {
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.sessions.values()].map((session) => session.stop()));
+    // Symmetric with destroy(): a stopped session must not linger in the map
+    // (stopAll is shutdown-only today, but the asymmetry invited misuse).
+    this.sessions.clear();
   }
 }

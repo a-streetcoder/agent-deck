@@ -127,6 +127,14 @@ export const makeSessionPushBusHandle = (
       const overflow = Chunk.size(ring) - capacity;
       if (overflow > 0) ring = Chunk.drop(ring, overflow);
       state = { seq, ring };
+      // INVARIANT: subscribers must NOT (transitively) call back into this
+      // bus. A re-entrant append would run to completion mid-loop — delivering
+      // seq N+1 to every subscriber before the remaining subscribers here have
+      // seen seq N — breaking monotonic delivery. No production subscriber
+      // does this (wsHandler pushes to a socket; sessionManager's synthetic
+      // emitters run on separate call stacks); keep it that way. A throwing
+      // subscriber also starves the ones after it in the Set (legacy parity —
+      // pinned by the thrower-first test in pushBus.test.ts).
       for (const subscriber of subscribers) subscriber(stamped);
       return stamped;
     };

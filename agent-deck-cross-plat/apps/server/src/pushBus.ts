@@ -1,5 +1,6 @@
 import type { DomainEvent } from "@agent-deck/domain";
-import { Cause, Effect, Runtime } from "effect";
+import { Effect } from "effect";
+import { runSyncUnwrapped } from "./effectRun.ts";
 import {
   DEFAULT_PUSH_BUS_CAPACITY,
   makeSessionPushBusHandle,
@@ -8,22 +9,6 @@ import {
 } from "./services/pushBus.ts";
 
 export type { StampedEvent };
-
-/**
- * `Effect.runSync`, but a defect thrown by user code inside the effect (a
- * subscriber throwing during dispatch) re-surfaces as the ORIGINAL error
- * instance, not Effect's FiberFailure wrapper — the legacy class propagated
- * subscriber exceptions unchanged through append(), and callsites stringify /
- * instanceof-check what they catch.
- */
-function runSyncUnwrapped<A>(effect: Effect.Effect<A>): A {
-  try {
-    return Effect.runSync(effect);
-  } catch (error) {
-    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
-    throw error;
-  }
-}
 
 /**
  * Thin synchronous adapter over the Effect push-bus service (Slice 3): same

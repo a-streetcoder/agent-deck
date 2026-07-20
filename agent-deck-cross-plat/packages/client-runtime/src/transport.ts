@@ -125,6 +125,14 @@ export class RpcTransport {
   /** Open the connection (idempotent while already live). */
   connect(): void {
     if (this.state === "connecting" || this.state === "connected") return;
+    // A caller-driven connect during backoff supersedes the pending retry:
+    // left armed, the stale timer would fire after this openSocket() and open
+    // a SECOND socket — bumping the generation so the first stays live but
+    // orphaned, streaming a duplicate server-side subscription.
+    if (this.reconnectTimer !== null) {
+      this.clearTimer(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.closedByUser = false;
     this.openSocket();
   }

@@ -7,7 +7,7 @@ import type { DomainEvent, SessionMeta } from "@agent-deck/domain";
 import { Effect, Exit, Layer, ManagedRuntime, Option, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { SessionManager } from "../src/SessionManager.ts";
-import { ReceiptBus } from "../src/receipts.ts";
+import { ReceiptBus, type ReceiptName } from "../src/receipts.ts";
 import type { ServerRuntime } from "../src/runtime.ts";
 import { PiHostLive, spawnPiProcess, type PiHostShape } from "../src/services/piHost.ts";
 import {
@@ -189,6 +189,44 @@ describe("SessionManager Effect service (services/sessionManager.ts)", () => {
     expect(out.endedAt).toBeDefined();
     expect(exitCount).toBe(1); // runExitHandling is guarded — fires exactly once
     expect(existsSync(tempDir)).toBe(false); // temp dirs cleaned on exit
+  }, 15_000);
+
+  it("receipt cardinality: first_delta once EVER, assistant_final/idle once PER TURN", async () => {
+    const { piHost } = makeFakePiHost();
+    const emitted: string[] = [];
+    class RecordingReceipts extends ReceiptBus {
+      override emit(name: ReceiptName, sessionId: string): void {
+        emitted.push(name);
+        super.emit(name, sessionId);
+      }
+    }
+    const count = (name: string): number => emitted.filter((n) => n === name).length;
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const rt = yield* makeManagedSessionRuntime(
+            piHost,
+            buses,
+            makeParams({ receipts: new RecordingReceipts(true) }),
+          );
+          yield* Effect.forkDaemon(rt.ingest);
+          yield* rt.prompt("say-hello");
+          yield* waitUntil(() => count("idle") >= 1);
+          // Turn 1: exactly one of each.
+          expect(count("first_delta")).toBe(1);
+          expect(count("assistant_final")).toBe(1);
+          expect(count("idle")).toBe(1);
+          yield* rt.prompt("say-hello");
+          yield* waitUntil(() => count("idle") >= 2);
+          // Turn 2: per-turn receipts fire again; first_delta stays one-shot,
+          // and no title receipt (autoTitle() => false in makeParams).
+          expect(count("first_delta")).toBe(1);
+          expect(count("assistant_final")).toBe(2);
+          expect(count("idle")).toBe(2);
+          expect(count("title")).toBe(0);
+        }),
+      ),
+    );
   }, 15_000);
 
   it("a throwing bus subscriber cannot kill the ingestion fiber (per-item defect swallow)", async () => {

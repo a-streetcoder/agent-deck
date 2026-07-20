@@ -238,6 +238,30 @@ describe("RpcTransport state machine", () => {
     expect(h.clock.delays.at(-1)).toBe(500);
   });
 
+  it("connect() during backoff supersedes the pending retry (no duplicate socket)", () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+    // Unexpected drop → reconnecting, retry timer armed.
+    h.sockets[0]!.drop();
+    expect(h.transport.getState()).toBe("reconnecting");
+    expect(h.clock.pending).toBe(1);
+
+    // Caller-driven reconnect during the backoff window must CLEAR the armed
+    // timer: without that, the stale timer fires after this connect() and
+    // opens a second socket — orphaning ours live with a duplicate
+    // server-side subscription.
+    h.transport.connect();
+    expect(h.sockets).toHaveLength(2);
+    expect(h.clock.pending).toBe(0);
+
+    // Even flushing the clock opens nothing further.
+    h.clock.flush();
+    expect(h.sockets).toHaveLength(2);
+    h.sockets[1]!.open();
+    expect(h.transport.getState()).toBe("connected");
+  });
+
   it("close() stops reconnect and rejects pending", async () => {
     const h = makeHarness();
     h.transport.connect();

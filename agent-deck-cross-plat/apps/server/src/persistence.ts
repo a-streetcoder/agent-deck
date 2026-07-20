@@ -1,5 +1,6 @@
 import type { ProjectMeta, SessionMeta } from "@agent-deck/contracts";
-import { Cause, Effect, Option, Runtime } from "effect";
+import { Effect, Option } from "effect";
+import { runSyncUnwrapped } from "./effectRun.ts";
 import {
   defaultDataDir,
   makeJsonArrayStoreHandle,
@@ -31,24 +32,6 @@ import {
 
 export { defaultDataDir };
 export type { AppSettings, ImportedSkillRepository } from "./services/persistence.ts";
-
-/**
- * `Effect.runSync`, but a defect thrown by user code inside the effect (here the
- * fs error from a `mkdirSync`/`writeFileSync`/`renameSync` on a failing flush or
- * store construction) re-surfaces as the ORIGINAL error instance, not Effect's
- * FiberFailure wrapper — the legacy classes propagated the raw fs Error straight
- * out of the constructor / upsert / update, and callsites stringify /
- * instanceof-check / `err.code`-branch on what they catch (mirrors
- * `runSyncUnwrapped` in the sibling pushBus.ts facade).
- */
-function runSyncUnwrapped<A>(effect: Effect.Effect<A>): A {
-  try {
-    return Effect.runSync(effect);
-  } catch (error) {
-    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
-    throw error;
-  }
-}
 
 /** Thin synchronous facade over a {@link JsonArrayStoreHandle}. */
 class JsonArrayStore<T extends { id: string }> {
