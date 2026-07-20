@@ -65,6 +65,7 @@ final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
         Task.detached(priority: .background) {
             await PiAgentAutoUpdater.shared.runIfEnabled()
         }
+        Analytics.trackAppOpened()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

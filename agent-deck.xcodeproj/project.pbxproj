@@ -10,6 +10,7 @@
 		24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */ = {isa = PBXBuildFile; productRef = 24B3A7709E2E4A2A89175011 /* TourKit */; };
 		5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A92B5029E2E4A2A89175011 /* Sparkle */; };
 		7C4E10039E2E4A2A89175011 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7C4E10029E2E4A2A89175011 /* Lottie */; };
+		D2A5E8012FB0000000000001 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = D2A5E8032FB0000000000001 /* PostHog */; };
 		8F5A2A6925B14789B7C0D431 /* bundled-agents in Resources */ = {isa = PBXBuildFile; fileRef = 4E1F0B28C6D84725B47F2D75 /* bundled-agents */; };
 		9D1B4A5C7E8F901234567890 /* bundled-skills in Resources */ = {isa = PBXBuildFile; fileRef = 9D1B4A5C7E8F901234567891 /* bundled-skills */; };
 		9D1B4A5C7E8F901234567A01 /* bundled-prompts in Resources */ = {isa = PBXBuildFile; fileRef = 9D1B4A5C7E8F901234567A02 /* bundled-prompts */; };
@@ -77,6 +78,7 @@
 				24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */,
 				5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */,
 				7C4E10039E2E4A2A89175011 /* Lottie in Frameworks */,
+				D2A5E8012FB0000000000001 /* PostHog in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +137,7 @@
 				24B3A7709E2E4A2A89175011 /* TourKit */,
 				5A92B5029E2E4A2A89175011 /* Sparkle */,
 				7C4E10029E2E4A2A89175011 /* Lottie */,
+				D2A5E8032FB0000000000001 /* PostHog */,
 			);
 			productName = "agent-deck";
 			productReference = 6572B16B2FA2391500596CE4 /* Agent Deck.app */;
@@ -195,6 +198,7 @@
 				24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */,
 				5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				7C4E10019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "lottie-spm" */,
+				D2A5E8022FB0000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6572B16C2FA2391500596CE4 /* Products */;
@@ -236,8 +240,9 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/scripts/inject-sparkle-info.sh",
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
-			name = "Inject Sparkle Info.plist keys";
+			name = "Inject app Info.plist keys";
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -400,6 +405,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APP_PRODUCT_NAME = "Agent Deck";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				POSTHOG_PROJECT_TOKEN = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -447,6 +454,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APP_PRODUCT_NAME = "Agent Deck";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				POSTHOG_PROJECT_TOKEN = "phc_rQKMPA8UAGKsMDAKuRaAADJuxnUha4qy68J4UhaomQnU";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -599,6 +608,14 @@
 				minimumVersion = 4.5.0;
 			};
 		};
+		D2A5E8022FB0000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.66.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -616,6 +633,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7C4E10019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "lottie-spm" */;
 			productName = Lottie;
+		};
+		D2A5E8032FB0000000000001 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D2A5E8022FB0000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
