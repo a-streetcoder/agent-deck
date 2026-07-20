@@ -5,12 +5,12 @@ name: agent-cross-plat CI
 # then the Playwright e2e (UI streaming + the Electron shell) under xvfb.
 on:
   push:
-    branches: [agent-cross-plat]
+    branches: [agent-cross-plat, effect-migration]
     paths:
       - "agent-deck-cross-plat/**"
       - ".github/workflows/agent-cross-plat-ci.yml"
   pull_request:
-    branches: [agent-cross-plat]
+    branches: [agent-cross-plat, effect-migration]
     paths:
       - "agent-deck-cross-plat/**"
       - ".github/workflows/agent-cross-plat-ci.yml"
