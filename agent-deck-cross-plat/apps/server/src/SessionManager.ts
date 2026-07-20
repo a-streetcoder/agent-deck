@@ -286,6 +286,12 @@ export class SessionManager {
     private readonly resolveAgent?: SpawnSessionParams["resolveAgent"],
     /** Live-read autoTitle preference (native autoTitle). */
     private readonly autoTitle: () => boolean = () => true,
+    /**
+     * Turn-boundary hook (Slice 9): called after each turn reaches idle, with
+     * the session's live meta. server.ts wires the diff engine's changed-file
+     * refresh (+ push/receipt) here. Best-effort — failures are swallowed.
+     */
+    private readonly onTurnIdle?: (meta: SessionMeta) => Promise<void>,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -519,6 +525,19 @@ export class SessionManager {
       childBridgeFactory: this.childBridgeFactory,
       resolveAgent: this.resolveAgent,
       autoTitle: this.autoTitle,
+      // The turn-boundary hook as a never-failing Effect (it is forked
+      // fire-and-forget into the session Scope at each idle).
+      ...(this.onTurnIdle !== undefined
+        ? {
+            onIdle: Effect.promise(async () => {
+              try {
+                await this.onTurnIdle?.(meta);
+              } catch {
+                // Best-effort: a diff-refresh failure must never surface.
+              }
+            }),
+          }
+        : {}),
     };
   }
 

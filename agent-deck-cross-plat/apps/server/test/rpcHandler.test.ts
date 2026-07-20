@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { RpcServerFrame } from "@agent-deck/contracts";
 import type { RpcServerFrame as Frame } from "@agent-deck/contracts";
+import type { DiffGateway } from "../src/diffGateway.ts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
 import type { StampedEvent } from "../src/services/pushBus.ts";
@@ -168,15 +169,44 @@ function makeManager(sessions: Record<string, ManagedSession>, list: unknown[] =
   } as unknown as SessionManager;
 }
 
+// --- Fake diff gateway (Slice 9): scripted changed-file sets, no git ---
+
+function makeDiffGateway() {
+  const calls: Array<{ op: string; sessionId: string; cwd: string; path?: string }> = [];
+  const set = {
+    repo: true,
+    files: [{ path: "src/a.ts", status: "M" as const, insertions: 3, deletions: 1, binary: false }],
+    truncated: false,
+  };
+  const gateway: DiffGateway = {
+    listFiles: async (sessionId, cwd) => {
+      calls.push({ op: "listFiles", sessionId, cwd });
+      return set;
+    },
+    refresh: async (sessionId, cwd) => {
+      calls.push({ op: "refresh", sessionId, cwd });
+      return { set, changed: true };
+    },
+    fileDiff: async (sessionId, cwd, path) => {
+      calls.push({ op: "fileDiff", sessionId, cwd, path });
+      return { path, diff: `diff --git a/${path} b/${path}\n`, truncated: false, binary: false };
+    },
+    drop: () => {},
+  };
+  return { gateway, calls, set };
+}
+
 function harness(
   manager: SessionManager,
   terminals?: TerminalGateway,
   bufferedAmount?: () => number,
+  diffs?: DiffGateway,
 ) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
     sessions: manager,
     terminals: terminals ?? makeTerminalGateway().gateway,
+    diffs: diffs ?? makeDiffGateway().gateway,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
@@ -578,5 +608,75 @@ describe("createRpcConnection terminal ops (Slice 8a)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("createRpcConnection diff ops (Slice 9)", () => {
+  it("diff_files answers diff_files_ok with the session's changed-file set", async () => {
+    const { session } = makeSession("s1");
+    const diffs = makeDiffGateway();
+    const { conn, frames } = harness(
+      makeManager({ s1: session }),
+      undefined,
+      undefined,
+      diffs.gateway,
+    );
+    await conn.handleMessage(frame(1, { type: "diff_files", sessionId: "s1" }));
+    expect(frames).toEqual([
+      { kind: "diff_files_ok", id: 1, repo: true, files: diffs.set.files, truncated: false },
+    ]);
+    // The cwd is resolved server-side from the session's meta, never the wire.
+    expect(diffs.calls).toEqual([{ op: "listFiles", sessionId: "s1", cwd: "/tmp" }]);
+  });
+
+  it("diff_file answers diff_file_ok with the bounded unified diff", async () => {
+    const { session } = makeSession("s1");
+    const diffs = makeDiffGateway();
+    const { conn, frames } = harness(
+      makeManager({ s1: session }),
+      undefined,
+      undefined,
+      diffs.gateway,
+    );
+    await conn.handleMessage(frame(2, { type: "diff_file", sessionId: "s1", path: "src/a.ts" }));
+    expect(frames).toEqual([
+      {
+        kind: "diff_file_ok",
+        id: 2,
+        path: "src/a.ts",
+        diff: "diff --git a/src/a.ts b/src/a.ts\n",
+        truncated: false,
+        binary: false,
+      },
+    ]);
+    expect(diffs.calls).toEqual([
+      { op: "fileDiff", sessionId: "s1", cwd: "/tmp", path: "src/a.ts" },
+    ]);
+  });
+
+  it("diff ops on an unknown session reply with an error (ownership gate)", async () => {
+    const diffs = makeDiffGateway();
+    const { conn, frames } = harness(makeManager({}), undefined, undefined, diffs.gateway);
+    await conn.handleMessage(frame(3, { type: "diff_files", sessionId: "nope" }));
+    await conn.handleMessage(frame(4, { type: "diff_file", sessionId: "nope", path: "a" }));
+    expect(frames).toEqual([
+      { kind: "reply", id: 3, ok: false, error: "unknown session" },
+      { kind: "reply", id: 4, ok: false, error: "unknown session" },
+    ]);
+    expect(diffs.calls).toEqual([]);
+  });
+
+  it("a throwing diff gateway surfaces as a typed failure reply, not a crash", async () => {
+    const { session } = makeSession("s1");
+    const diffs = makeDiffGateway();
+    const throwing: DiffGateway = {
+      ...diffs.gateway,
+      listFiles: async () => {
+        throw new Error("git exploded");
+      },
+    };
+    const { conn, frames } = harness(makeManager({ s1: session }), undefined, undefined, throwing);
+    await conn.handleMessage(frame(5, { type: "diff_files", sessionId: "s1" }));
+    expect(frames).toEqual([{ kind: "reply", id: 5, ok: false, error: "Error: git exploded" }]);
   });
 });

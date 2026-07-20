@@ -1,4 +1,11 @@
 import { Schema } from "effect";
+import {
+  DIFF_MAX_PATCH_CHARS,
+  DiffClientRequest,
+  DiffFileEntry,
+  DiffPath,
+  DiffPush,
+} from "./diff.ts";
 import { ClientMessage, ServerMessage, SessionMeta } from "./protocol.ts";
 import {
   TERMINAL_MAX_SCROLLBACK_CHARS,
@@ -52,13 +59,14 @@ const RequestId = Schema.Number.pipe(
 
 /**
  * client → server: a request frame carrying one legacy client command or —
- * since Slice 8a — one terminal request (terminal.ts). `ClientMessage` itself
- * is untouched: it stays parity-pinned against the legacy zod envelope, so the
- * terminal surface widens the FRAME, not the legacy message union.
+ * since Slice 8a — one terminal request (terminal.ts), or — since Slice 9 —
+ * one diff request (diff.ts). `ClientMessage` itself is untouched: it stays
+ * parity-pinned against the legacy zod envelope, so the terminal and diff
+ * surfaces widen the FRAME, not the legacy message union.
  */
 export const RpcClientFrame = Schema.Struct({
   id: RequestId,
-  request: Schema.Union(ClientMessage, TerminalClientRequest),
+  request: Schema.Union(ClientMessage, TerminalClientRequest, DiffClientRequest),
 });
 export type RpcClientFrame = typeof RpcClientFrame.Type;
 
@@ -120,6 +128,50 @@ export const RpcTerminalPushFrame = Schema.Struct({
 });
 export type RpcTerminalPushFrame = typeof RpcTerminalPushFrame.Type;
 
+/**
+ * server → client: the reply to a `diff_files` request (Slice 9) — the
+ * session's changed-file set. `repo: false` (with an empty set) is the clean
+ * non-git-session answer; it is never an error.
+ */
+export const RpcDiffFilesOkFrame = Schema.Struct({
+  kind: Schema.Literal("diff_files_ok"),
+  id: RequestId,
+  repo: Schema.Boolean,
+  files: Schema.Array(DiffFileEntry),
+  /** True when the set was capped (see diff.ts DIFF_MAX_FILES). */
+  truncated: Schema.Boolean,
+});
+export type RpcDiffFilesOkFrame = typeof RpcDiffFilesOkFrame.Type;
+
+/**
+ * server → client: the reply to a `diff_file` request (Slice 9) — one file's
+ * unified diff, capped with an explicit truncation flag. A path that is not in
+ * the session's changed-file set (or a binary file) answers with an empty
+ * diff, never an error.
+ */
+export const RpcDiffFileOkFrame = Schema.Struct({
+  kind: Schema.Literal("diff_file_ok"),
+  id: RequestId,
+  path: DiffPath,
+  diff: Schema.String.pipe(Schema.maxLength(DIFF_MAX_PATCH_CHARS)),
+  truncated: Schema.Boolean,
+  binary: Schema.Boolean,
+});
+export type RpcDiffFileOkFrame = typeof RpcDiffFileOkFrame.Type;
+
+/**
+ * server → client: an unsolicited diff push (Slice 9) — a session's
+ * changed-file set was refreshed at a turn boundary and differs from the
+ * previous set. A separate frame kind from `push` so `ServerMessage`
+ * (parity-pinned against the legacy envelope) stays untouched, exactly like
+ * `terminal_push`.
+ */
+export const RpcDiffPushFrame = Schema.Struct({
+  kind: Schema.Literal("diff_push"),
+  message: DiffPush,
+});
+export type RpcDiffPushFrame = typeof RpcDiffPushFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
 export const RpcServerFrame = Schema.Union(
   RpcReplyFrame,
@@ -127,6 +179,9 @@ export const RpcServerFrame = Schema.Union(
   RpcPushFrame,
   RpcTerminalOpenOkFrame,
   RpcTerminalPushFrame,
+  RpcDiffFilesOkFrame,
+  RpcDiffFileOkFrame,
+  RpcDiffPushFrame,
 );
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 

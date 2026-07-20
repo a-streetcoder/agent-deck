@@ -257,6 +257,45 @@ describe("SessionManager Effect service (services/sessionManager.ts)", () => {
     expect(seen.filter((e) => e.type === "cell_delta").length).toBeGreaterThanOrEqual(1);
   }, 15_000);
 
+  it("forks the onIdle hook at each turn boundary without disturbing receipt timing (Slice 9)", async () => {
+    const { piHost } = makeFakePiHost();
+    const emitted: string[] = [];
+    class RecordingReceipts extends ReceiptBus {
+      override emit(name: ReceiptName, sessionId: string): void {
+        emitted.push(name);
+        super.emit(name, sessionId);
+      }
+    }
+    let idleRuns = 0;
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const rt = yield* makeManagedSessionRuntime(
+            piHost,
+            buses,
+            makeParams({
+              receipts: new RecordingReceipts(true),
+              onIdle: Effect.sync(() => {
+                idleRuns += 1;
+              }),
+            }),
+          );
+          yield* Effect.forkDaemon(rt.ingest);
+          yield* rt.prompt("say-hello");
+          yield* waitUntil(() => idleRuns >= 1);
+          // The idle receipt still fired, and BEFORE the forked hook ran (the
+          // hook is fire-and-forget — it must never delay receipt emission).
+          expect(emitted.filter((n) => n === "idle")).toHaveLength(1);
+          yield* rt.prompt("say-hello");
+          yield* waitUntil(() => idleRuns >= 2);
+          // One hook run per turn boundary.
+          expect(idleRuns).toBe(2);
+          expect(emitted.filter((n) => n === "idle")).toHaveLength(2);
+        }),
+      ),
+    );
+  }, 15_000);
+
   it("forks the title fiber into the session Scope: scope close reaps an in-flight title helper pi", async () => {
     const { piHost, pids } = makeFakePiHost();
     const out = await Effect.runPromise(

@@ -1,4 +1,5 @@
 import { Layer, ManagedRuntime } from "effect";
+import { SessionDiffLive, type SessionDiff } from "./services/diff.ts";
 import { PersistenceLive, type Persistence } from "./services/persistence.ts";
 import { PiHostLive, type PiHost } from "./services/piHost.ts";
 import { SessionPushBusesLive, type SessionPushBuses } from "./services/pushBus.ts";
@@ -64,6 +65,8 @@ const leafLayers = Layer.mergeAll(
   PersistenceLive,
   // Slice 8a — terminal PTY factory, a PiHost sibling (scoped process handles).
   TerminalHostLive,
+  // Slice 9 — per-session changed-file tracking + diff computation.
+  SessionDiffLive,
 );
 
 export const serverLayers = SessionManagerServiceLive.pipe(Layer.provideMerge(leafLayers));
@@ -74,7 +77,8 @@ export type ServerServices =
   | PiHost
   | SessionManagerService
   | Persistence
-  | TerminalHost;
+  | TerminalHost
+  | SessionDiff;
 
 export type ServerRuntime = ManagedRuntime.ManagedRuntime<ServerServices, never>;
 

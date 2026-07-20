@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
-import type { ServerMessage, SessionMeta } from "@agent-deck/contracts";
+import type { DiffPush, ServerMessage, SessionMeta } from "@agent-deck/contracts";
 import { extensionBridgeConflict } from "@agent-deck/domain";
 import {
   appendSystemPromptPath,
@@ -40,6 +40,7 @@ import {
   type ServerContext,
 } from "./context.ts";
 import { registerDeckBridgeTools } from "./bridgeTools.ts";
+import { createDiffGateway } from "./diffGateway.ts";
 import { LoopEngine } from "./loopEngine.ts";
 import {
   McpManager,
@@ -264,9 +265,16 @@ async function initServer(
   let broadcast: (message: ServerMessage) => void = () => {
     throw new Error("broadcast called before the WebSocket layer was set up");
   };
+  let broadcastDiff: (message: DiffPush) => void = () => {
+    throw new Error("broadcastDiff called before the WebSocket layer was set up");
+  };
   let cancelChildSupervisorRequests: (childSessionId: string) => void = () => {
     throw new Error("cancelChildSupervisorRequests called before the bridge routes registered");
   };
+
+  // Slice 9: per-session changed-file tracking + on-demand diffs, resolved
+  // through the runtime's SessionDiff service (see services/diff.ts).
+  const diffs = createDiffGateway(effectRuntime);
 
   const sessions = new SessionManager(
     effectRuntime,
@@ -278,6 +286,9 @@ async function initServer(
       // (resume clears endedAt, so it re-floats correctly).
       if (!meta.endedAt) meta.updatedAt = new Date().toISOString();
       index.upsert(meta);
+      // An ended session's changed-file cache is stale by definition — drop it
+      // (a resume recomputes at the next turn boundary).
+      if (meta.endedAt) diffs.drop(meta.id);
       // `broadcast` is initialized during startServer, before any meta changes.
       broadcast({ type: "session_meta", session: meta });
     },
@@ -377,6 +388,21 @@ async function initServer(
     // Live autoTitle preference (native OnboardingPreferencesView). `settings` is
     // declared below; this closure only runs at title time, long after startup.
     () => settings.get().autoTitle,
+    // Slice 9 turn-boundary hook: refresh the session's changed-file set when a
+    // turn reaches idle; when the set CHANGED vs the previous one, push it to
+    // clients and emit the diff_refreshed receipt (tests synchronize on it).
+    async (meta) => {
+      const { changed, set } = await diffs.refresh(meta.id, meta.cwd);
+      if (!changed) return;
+      broadcastDiff({
+        type: "diff_changed",
+        sessionId: meta.id,
+        repo: set.repo,
+        files: [...set.files],
+        truncated: set.truncated,
+      });
+      receipts.emit("diff_refreshed", meta.id);
+    },
   );
   // Loop run engine (native single-agent loop). Each run's agent executor is
   // built per-run, bound to a parent session in the project cwd.
@@ -547,12 +573,18 @@ async function initServer(
   // Held here (not just inside the WS layer) so close() can run the awaited
   // closeAll() sweep — terminal scopes are detached roots dispose() can't reap.
   const terminals = createTerminalGateway(effectRuntime);
-  const { close: closeWebSockets, broadcast: wsBroadcast } = setupWebSocket({
+  const {
+    close: closeWebSockets,
+    broadcast: wsBroadcast,
+    broadcastDiff: wsBroadcastDiff,
+  } = setupWebSocket({
     fastify,
     sessions,
     terminals,
+    diffs,
   });
   broadcast = wsBroadcast;
+  broadcastDiff = wsBroadcastDiff;
 
   // One coarse watcher: global catalogs at boot, project dirs added as
   // projects register. Any change → resources_changed → clients re-fetch.

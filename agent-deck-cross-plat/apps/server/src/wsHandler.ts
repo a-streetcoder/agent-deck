@@ -1,7 +1,8 @@
 import type { IncomingMessage } from "node:http";
 import { RPC_WS_PATH } from "@agent-deck/contracts";
-import type { ServerMessage } from "@agent-deck/contracts";
+import type { DiffPush, ServerMessage } from "@agent-deck/contracts";
 import type { FastifyInstance } from "fastify";
+import type { DiffGateway } from "./diffGateway.ts";
 import { setupRpcEndpoint } from "./rpcHandler.ts";
 import type { SessionManager } from "./SessionManager.ts";
 import type { TerminalGateway } from "./terminalGateway.ts";
@@ -9,6 +10,8 @@ import type { TerminalGateway } from "./terminalGateway.ts";
 export interface WebSocketLayer {
   /** Push a server message to every connected RPC client (wrapped as a frame). */
   broadcast: (message: ServerMessage) => void;
+  /** Push a diff notification to every connected RPC client (Slice 9). */
+  broadcastDiff: (message: DiffPush) => void;
   /** Close the `/rpc` socket server. */
   close: () => void;
 }
@@ -23,12 +26,13 @@ export function setupWebSocket(deps: {
   fastify: FastifyInstance;
   sessions: SessionManager;
   terminals: TerminalGateway;
+  diffs: DiffGateway;
 }): WebSocketLayer {
-  const { fastify, sessions, terminals } = deps;
+  const { fastify, sessions, terminals, diffs } = deps;
 
   // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
   // subscribe/replay, and broadcast — all sharing the SessionManager facade.
-  const rpc = setupRpcEndpoint({ sessions, terminals });
+  const rpc = setupRpcEndpoint({ sessions, terminals, diffs });
 
   // Browsers may open cross-origin WebSockets to localhost services; only
   // accept upgrades from local origins (or non-browser clients, which send
@@ -58,6 +62,7 @@ export function setupWebSocket(deps: {
 
   return {
     broadcast: rpc.broadcast,
+    broadcastDiff: rpc.broadcastDiff,
     close: () => {
       // `wss.close()` with `noServer: true` does NOT destroy accepted client
       // sockets — it only waits for them to leave. Terminate them so every

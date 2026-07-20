@@ -275,6 +275,38 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - Donor: `apps/server/src/{vcs,sourceControl,review}/` shapes; extend our `git.ts`
   (worktree logic already exists) toward per-turn changed-file tracking and diff
   computation. Receipts for "diff finalized" per our existing receipts pattern.
+- **Status: LANDED (2026-07-20).** Server half only (web panel is Slice 10).
+  Contracts (`contracts/src/diff.ts`): `diff_files` / `diff_file` requests ride
+  `RpcClientFrame` (terminal-op pattern); replies get their own frame kinds
+  (`diff_files_ok` — status letter/rename oldPath/insertions/deletions/binary
+  per entry, capped at `DIFF_MAX_FILES` with a truncated flag; `diff_file_ok` —
+  unified patch capped at `DIFF_MAX_PATCH_CHARS` + truncated/binary flags) and
+  an unsolicited `diff_push` (`diff_changed` carries the full new set).
+  Diff-base semantics follow the donor's review preview: working tree vs HEAD
+  for the SESSION's checkout (worktree-aware `meta.cwd`), staged+unstaged,
+  `-M` rename detection, untracked included (status `?`) with `/dev/null`
+  no-index synthesis (verified on Windows git), empty-tree base in a
+  no-commit repo. `services/diff.ts` (`SessionDiff`, template anatomy) caches
+  per session with a fingerprint compare (VcsStatusBroadcaster pattern —
+  missing cache compares as an empty set, so a clean first refresh is quiet);
+  git plumbing added to git.ts as pure exec helpers (name-status/numstat `-z`
+  parsers, bounded-capture runner that returns partial output + truncated on
+  maxBuffer overflow). Turn-boundary hook: `SpawnSessionParams.onIdle` forked
+  into the session Scope at agent-idle exactly like captureSessionFile /
+  generateTitle (receipt timing untouched — pinned by test); server.ts wires
+  refresh → on change: `diff_push` broadcast + `diff_refreshed` receipt (new
+  ReceiptName). rpcHandler ops validate session ownership like terminal ops;
+  cwd never rides the wire. Non-git sessions answer `repo:false` + empty set,
+  never an error; the only repo probe is one rev-parse per turn-boundary/on-
+  demand refresh (nothing per keystroke), and fileDiff only accepts paths git
+  itself listed (doubles as the traversal guard). Tests: 10 service tests on
+  real scratch repos (modify/staged-add/delete/pure-rename/binary/untracked/
+  fresh-repo, patch + set truncation, fingerprint change detection, cache/
+  drop), 4 rpcHandler op tests (fake gateway), an idle-fork sessionManager
+  test, and `diff-refresh.pi.test.ts` — real pi + real repo: turn boundary
+  after a working-tree write → receipt + push + both ops over `/rpc`. Client
+  transport ignores the new frame kinds until Slice 10 (decode-safe, no web
+  code this slice; visual baselines untouched).
 
 ### Slice 10 — Diff panel + changed-files tree (web)
 

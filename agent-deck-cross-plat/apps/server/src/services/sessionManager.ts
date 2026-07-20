@@ -147,6 +147,13 @@ export interface SpawnSessionParams {
   readonly resolveAgent?: AgentResolver;
   /** Live-read autoTitle preference (native autoTitle). */
   readonly autoTitle: () => boolean;
+  /**
+   * Turn-boundary hook (Slice 9): forked into the session Scope at each
+   * agent-idle, the same fire-and-forget shape as captureSessionFile /
+   * generateTitle — it must never fail or die (the facade wraps it in a
+   * catch). Used for the diff engine's changed-file refresh.
+   */
+  readonly onIdle?: Effect.Effect<void>;
 }
 
 /** Inputs for a one-shot pi helper launch (native commit-message / release notes). */
@@ -438,6 +445,10 @@ export const makeManagedSessionRuntime = (
           // finalizer when it completes, so repeated idles don't accumulate.
           Effect.runFork(Effect.forkIn(captureSessionFile, sessionScope));
           if (autoTitle()) Effect.runFork(Effect.forkIn(generateTitle, sessionScope));
+          // Slice 9: refresh the session's changed-file set at the turn
+          // boundary — forked like the title fiber, so it never perturbs the
+          // receipt timing above and dies with the session Scope.
+          if (params.onIdle) Effect.runFork(Effect.forkIn(params.onIdle, sessionScope));
         }
       }
     };

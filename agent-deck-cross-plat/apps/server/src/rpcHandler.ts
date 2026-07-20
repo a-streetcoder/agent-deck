@@ -1,6 +1,12 @@
-import { RpcClientFrame, type RpcServerFrame, type ServerMessage } from "@agent-deck/contracts";
+import {
+  RpcClientFrame,
+  type DiffPush,
+  type RpcServerFrame,
+  type ServerMessage,
+} from "@agent-deck/contracts";
 import { Either, Schema } from "effect";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { DiffGateway } from "./diffGateway.ts";
 import type { ManagedSession, SessionManager } from "./SessionManager.ts";
 import type { TerminalEvent } from "./services/terminal.ts";
 import type { OpenedTerminal, TerminalGateway } from "./terminalGateway.ts";
@@ -53,11 +59,12 @@ export interface RpcConnection {
 export function createRpcConnection(deps: {
   sessions: SessionManager;
   terminals: TerminalGateway;
+  diffs: DiffGateway;
   send: (frame: RpcServerFrame) => void;
   /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
   bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, terminals, send } = deps;
+  const { sessions, terminals, diffs, send } = deps;
   const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
@@ -341,6 +348,40 @@ export function createRpcConnection(deps: {
       }
       return;
     }
+    // Diff ops (Slice 9) — session-ownership validated like the terminal ops
+    // (the cwd is resolved server-side from the session's meta, never the wire).
+    if (request.type === "diff_files" || request.type === "diff_file") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      try {
+        if (request.type === "diff_files") {
+          const set = await diffs.listFiles(session.meta.id, session.meta.cwd);
+          send({
+            kind: "diff_files_ok",
+            id,
+            repo: set.repo,
+            files: set.files,
+            truncated: set.truncated,
+          });
+        } else {
+          const result = await diffs.fileDiff(session.meta.id, session.meta.cwd, request.path);
+          send({
+            kind: "diff_file_ok",
+            id,
+            path: request.path,
+            diff: result.diff,
+            truncated: result.truncated,
+            binary: result.binary,
+          });
+        }
+      } catch (error) {
+        replyError(String(error));
+      }
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -418,13 +459,16 @@ export interface RpcEndpoint {
   wss: WebSocketServer;
   /** Push a server message to every connected RPC client (wrapped as a frame). */
   broadcast: (message: ServerMessage) => void;
+  /** Push a diff notification to every connected RPC client (Slice 9). */
+  broadcastDiff: (message: DiffPush) => void;
 }
 
 export function setupRpcEndpoint(deps: {
   sessions: SessionManager;
   terminals: TerminalGateway;
+  diffs: DiffGateway;
 }): RpcEndpoint {
-  const { sessions, terminals } = deps;
+  const { sessions, terminals, diffs } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -435,12 +479,16 @@ export function setupRpcEndpoint(deps: {
   const broadcast = (message: ServerMessage): void => {
     for (const client of clients) sendTo(client, { kind: "push", message });
   };
+  const broadcastDiff = (message: DiffPush): void => {
+    for (const client of clients) sendTo(client, { kind: "diff_push", message });
+  };
 
   wss.on("connection", (socket: WebSocket) => {
     clients.add(socket);
     const connection = createRpcConnection({
       sessions,
       terminals,
+      diffs,
       send: (frame) => sendTo(socket, frame),
       // Terminal push backpressure reads the real socket send-buffer depth.
       bufferedAmount: () => socket.bufferedAmount,
@@ -454,5 +502,5 @@ export function setupRpcEndpoint(deps: {
     });
   });
 
-  return { wss, broadcast };
+  return { wss, broadcast, broadcastDiff };
 }
