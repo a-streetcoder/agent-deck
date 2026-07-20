@@ -260,13 +260,13 @@ the drawer keeps the PTY; reopening reattaches and replays scrollback; ids
 die with the connection). Gate: `e2e/tests/terminal.spec.ts`against the real
 stack (echo round-trip via a shell variable, session-cwd match, scrollback
 replay on reopen, shortcut toggle) + a 4th visual baseline (drawer open,
-deterministic prompt via the`AGENT_DECK_TERMINAL_SHELL`+`PROMPT` seam).
+deterministic prompt via the`AGENT_DECK_TERMINAL_SHELL`+`PROMPT`seam).
 Review: 4 blocker/major findings fixed in-workflow; minors resolved on
 landing — orphan-observability log when kill escalation is exhausted,
-surrogate-safe chunk/scrollback cuts, `connectionClosed` guard on the awaited
-terminal_open spawn, client-side in-flight open dedup (pendingOpens join).
-Deferred (latent until a light theme exists): donor's dual ANSI palette +
-live retheming — pick up with the theming slice (S19).
+surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
+  terminal_open spawn, client-side in-flight open dedup (pendingOpens join).
+  Deferred (latent until a light theme exists): donor's dual ANSI palette +
+  live retheming — pick up with the theming slice (S19).
 
 ## Phase 5 — Change review core
 
