@@ -1,6 +1,28 @@
 import Foundation
 
 nonisolated enum PiAgentLaunchResolver {
+    /// Builds a project-shaped snapshot from the global catalog for the window
+    /// before that project's filesystem scan has completed. In particular, do
+    /// not borrow `effectiveAgents` from whichever project the UI is displaying.
+    static func projectFallbackSnapshot(from globalSnapshot: ScanSnapshot, projectRoot: String) -> ScanSnapshot {
+        ScanSnapshot(
+            projectRoot: projectRoot,
+            builtinAgents: globalSnapshot.builtinAgents,
+            globalAgents: globalSnapshot.globalAgents,
+            projectAgents: [],
+            legacyProjectAgents: [],
+            effectiveAgents: [],
+            libraryAgents: globalSnapshot.libraryAgents,
+            skills: globalSnapshot.skills,
+            librarySkills: globalSnapshot.librarySkills,
+            promptTemplates: globalSnapshot.promptTemplates,
+            libraryPromptTemplates: globalSnapshot.libraryPromptTemplates,
+            settings: globalSnapshot.settings,
+            envKeys: globalSnapshot.envKeys,
+            warnings: globalSnapshot.warnings
+        )
+    }
+
     static func effectiveAgents(
         defaultAgentNames: Set<String>,
         projectAgentNames: Set<String>,

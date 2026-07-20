@@ -184,6 +184,7 @@ enum PiAgentSessionGrouping {
     static func sections(
         from sessions: [PiAgentSessionRecord],
         projectByPath: [String: DiscoveredProject],
+        projectDiscoveryComplete: Bool = true,
         expandedProjectIDs: Set<String>,
         collapsedProjectIDs: Set<String>,
         capPreviews: Bool,
@@ -195,6 +196,7 @@ enum PiAgentSessionGrouping {
         touchedThisRunSessionIDs: Set<UUID> = []
     ) -> [PiAgentSessionListSection] {
         var byPath: [String: [PiAgentSessionRecord]] = [:]
+        var pendingDiscoveryByPath: [String: [PiAgentSessionRecord]] = [:]
         var noProjectSessions: [PiAgentSessionRecord] = []
         var agentDeckBuilderSessions: [PiAgentSessionRecord] = []
         var orphans: [PiAgentSessionRecord] = []
@@ -205,13 +207,20 @@ enum PiAgentSessionGrouping {
                 noProjectSessions.append(session)
             } else if projectByPath[session.projectPath] != nil {
                 byPath[session.projectPath, default: []].append(session)
+            } else if !projectDiscoveryComplete,
+                      !session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // The session index loads independently of project discovery. During
+                // that cold-start window a non-empty persisted project path is not an
+                // orphan; keep it in a stable project-shaped section until discovery
+                // can authoritatively resolve (or reject) the path.
+                pendingDiscoveryByPath[session.projectPath, default: []].append(session)
             } else {
                 orphans.append(session)
             }
         }
 
         var projectSections: [PiAgentSessionListSection] = []
-        projectSections.reserveCapacity(byPath.count + (noProjectSessions.isEmpty ? 0 : 1) + (agentDeckBuilderSessions.isEmpty ? 0 : 1) + (orphans.isEmpty ? 0 : 1))
+        projectSections.reserveCapacity(byPath.count + pendingDiscoveryByPath.count + (noProjectSessions.isEmpty ? 0 : 1) + (agentDeckBuilderSessions.isEmpty ? 0 : 1) + (orphans.isEmpty ? 0 : 1))
 
         for (path, projectSessions) in byPath {
             let project = projectByPath[path]!
@@ -222,6 +231,34 @@ enum PiAgentSessionGrouping {
                 iconFileURL: project.iconFileURL,
                 fallbackSymbolName: project.fallbackSymbolName,
                 assetName: project.projectType.assetName,
+                sessions: projectSessions,
+                isProjectGroup: true,
+                isShowMoreRequested: expandedProjectIDs.contains(path),
+                isCollapsed: collapsedProjectIDs.contains(path),
+                capPreviews: capPreviews,
+                isWorking: isWorking,
+                selectedSessionID: selectedSessionID,
+                now: now,
+                options: options,
+                exactSort: exactSort,
+                touchedThisRunSessionIDs: touchedThisRunSessionIDs
+            ))
+        }
+
+        for (path, projectSessions) in pendingDiscoveryByPath {
+            let representative = projectSessions[0]
+            let repositoryParts = representative.repository?.split(separator: "/", maxSplits: 1).map(String.init) ?? []
+            let title = repositoryParts.last
+                ?? representative.projectName.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+                ?? URL(fileURLWithPath: path).lastPathComponent
+            let subtitle = repositoryParts.count == 2 ? repositoryParts[0] : nil
+            projectSections.append(makeSection(
+                id: path,
+                title: title,
+                subtitle: subtitle,
+                iconFileURL: nil,
+                fallbackSymbolName: "folder",
+                assetName: nil,
                 sessions: projectSessions,
                 isProjectGroup: true,
                 isShowMoreRequested: expandedProjectIDs.contains(path),

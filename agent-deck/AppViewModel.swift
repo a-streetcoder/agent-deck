@@ -169,6 +169,10 @@ final class AppViewModel: NSObject {
     /// (e.g. `PiAgentSessionRow`'s project lookup) instead of `.first(where:)`,
     /// which would walk the array per row per render.
     private(set) var projectByPath: [String: DiscoveredProject] = [:]
+    /// Becomes true after the first discovery result is applied. Persisted sessions
+    /// can load before then; grouping must not classify their project paths as
+    /// orphaned during that cold-start window.
+    private(set) var hasCompletedInitialProjectDiscovery = false
     private func rebuildProjectByPath() {
         projectByPath = Dictionary(uniqueKeysWithValues: discoveredProjects.map { ($0.path, $0) })
     }
@@ -811,6 +815,7 @@ final class AppViewModel: NSObject {
         if discoveredProjects != result.discoveredProjects {
             discoveredProjects = result.discoveredProjects
         }
+        hasCompletedInitialProjectDiscovery = true
 
         if !appSettings.didMigrateAgentAssignmentsFromDiscoveredFiles {
             guard result.includesAllProjectSnapshots else {
@@ -3189,6 +3194,7 @@ final class AppViewModel: NSObject {
         PiAgentSessionGrouping.sections(
             from: scopedPiAgentSessionsInOrder(),
             projectByPath: projectByPath,
+            projectDiscoveryComplete: hasCompletedInitialProjectDiscovery,
             expandedProjectIDs: [],
             collapsedProjectIDs: [],
             capPreviews: false,
@@ -3200,7 +3206,7 @@ final class AppViewModel: NSObject {
     private func sessionGroupID(for session: PiAgentSessionRecord) -> String {
         if session.isAgentDeckBuilderSession { return PiAgentSessionGrouping.agentDeckBuilderSectionID }
         if session.isNoProject { return PiAgentSessionGrouping.noProjectSectionID }
-        return projectByPath[session.projectPath] != nil
+        return projectByPath[session.projectPath] != nil || !hasCompletedInitialProjectDiscovery
             ? session.projectPath
             : PiAgentSessionGrouping.otherSectionID
     }
@@ -7984,8 +7990,24 @@ final class AppViewModel: NSObject {
     func startupSnapshot(forProjectPath path: String) -> ScanSnapshot {
         let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return globalSnapshot }
-        guard let projectSnapshot = allProjectSnapshots[path] else { return snapshot }
-        return scopedStartupSnapshot(projectSnapshot: projectSnapshot)
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        if let projectSnapshot = allProjectSnapshots[standardizedPath] {
+            return scopedStartupSnapshot(projectSnapshot: projectSnapshot)
+        }
+
+        // A draft can target a project before its scan lands. Resolve that
+        // project's assignments from the global catalog instead of leaking the
+        // currently displayed (possibly unrelated) project's effective agents.
+        let fallback = PiAgentLaunchResolver.projectFallbackSnapshot(
+            from: globalSnapshot,
+            projectRoot: standardizedPath
+        )
+        return scopedAgentSnapshot(
+            fallback,
+            projectPath: standardizedPath,
+            globalCatalogSnapshot: globalSnapshot,
+            catalogProjectSnapshots: Array(allProjectSnapshots.values)
+        )
     }
 
     private func scopedStartupSnapshot(projectSnapshot: ScanSnapshot) -> ScanSnapshot {

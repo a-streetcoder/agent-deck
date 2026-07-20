@@ -14,10 +14,14 @@ This page lists the important paths Agent Deck scans or writes.
 | Pi global env | `~/.pi/agent/.env` |
 | Pi project env | `PROJECT/.pi/.env` (not managed, scanned, watched, or injected by Agent Deck) |
 | Agent Deck app data | `~/Library/Application Support/Agent Deck/` |
+| Agent Deck session index | `~/Library/Application Support/Agent Deck/agent-sessions.json` |
+| Last-known-good session index | `~/Library/Application Support/Agent Deck/agent-sessions.backup.json` |
 | Pi parent session history | `~/.pi/agent/sessions/**/<session>.jsonl` |
 | Agent Deck transcript records | `~/Library/Application Support/Agent Deck/agent-session-transcripts/parent-<session-id>.json` |
 | Session-owned transcript and MCP images | `~/Library/Application Support/Agent Deck/agent-session-transcripts/<parent-session-id>/images/` |
 | Native subagent artifacts and child Pi sessions | `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/` |
+
+The session index and transcript files are app-managed. Agent Deck writes the index atomically, preserves the previously decoded generation as the last-known-good backup, and automatically uses that backup when the primary index is missing or cannot be decoded. During launch, existing project-backed sessions retain their project grouping while project discovery finishes.
 
 ## Agents
 

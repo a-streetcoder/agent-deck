@@ -181,6 +181,7 @@ final class PiAgentSessionStore {
     // amortize one write per ~10 streaming flushes.
     private let transcriptPersistDebounceNanoseconds: UInt64 = 750_000_000
     private let fileURL: URL
+    private let backupFileURL: URL
     private let transcriptsDirectoryURL: URL
     private let transcriptImagesDirectoryURL: URL
     private let transcriptManifestURL: URL
@@ -239,16 +240,22 @@ final class PiAgentSessionStore {
         }
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("agent-sessions.json")
+        backupFileURL = directory.appendingPathComponent("agent-sessions.backup.json")
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
         transcriptImagesDirectoryURL = transcriptsDirectoryURL
         transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
         try? fileManager.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: transcriptImagesDirectoryURL, withIntermediateDirectories: true)
-        scheduleLoad()
+        if fileManager.fileExists(atPath: fileURL.path) || fileManager.fileExists(atPath: backupFileURL.path) {
+            scheduleLoad()
+        } else {
+            hasAppliedInitialLoad = true
+        }
     }
 
     init(fileURL: URL) {
         self.fileURL = fileURL
+        backupFileURL = fileURL.deletingPathExtension().appendingPathExtension("backup.json")
         let directory = fileURL.deletingLastPathComponent()
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
         transcriptImagesDirectoryURL = transcriptsDirectoryURL
@@ -256,26 +263,39 @@ final class PiAgentSessionStore {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: transcriptImagesDirectoryURL, withIntermediateDirectories: true)
-        scheduleLoad()
+        if FileManager.default.fileExists(atPath: fileURL.path) || FileManager.default.fileExists(atPath: backupFileURL.path) {
+            scheduleLoad()
+        } else {
+            hasAppliedInitialLoad = true
+        }
     }
 
     /// Tracks the in-flight init load so tests can deterministically wait for
     /// it via `waitForLoadForTesting()`. Cleared once the load applies.
     private var loadTask: Task<Void, Never>?
+    private var hasAppliedInitialLoad = false
+    private var saveRequestedBeforeInitialLoad = false
 
     /// Kick off the on-disk load asynchronously so `init` (and therefore
     /// `AppViewModel.init`) returns immediately. Views render with `sessions == []`
     /// for a frame, then animate in once `applyLoadedPersistedState` fires.
     private func scheduleLoad() {
         let fileURL = self.fileURL
+        let backupFileURL = self.backupFileURL
         let transcriptManifestURL = self.transcriptManifestURL
         loadTask = Task { @MainActor [weak self] in
             let loaded = await Self.readPersisted(
                 fileURL: fileURL,
+                backupFileURL: backupFileURL,
                 transcriptManifestURL: transcriptManifestURL
             )
             self?.applyLoadedPersistedState(loaded)
+            self?.hasAppliedInitialLoad = true
             self?.loadTask = nil
+            if self?.saveRequestedBeforeInitialLoad == true {
+                self?.saveRequestedBeforeInitialLoad = false
+                self?.saveNowAsync()
+            }
             self?.onLoadApplied?()
         }
     }
@@ -290,17 +310,38 @@ final class PiAgentSessionStore {
     /// avoid any cross-actor mutation; the caller applies it on `@MainActor`.
     nonisolated private static func readPersisted(
         fileURL: URL,
+        backupFileURL: URL,
         transcriptManifestURL: URL
     ) async -> LoadedPersistedState {
         await Task.detached(priority: .userInitiated) { () -> LoadedPersistedState in
-            guard FileManager.default.fileExists(atPath: fileURL.path) else { return .missing }
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                guard FileManager.default.fileExists(atPath: backupFileURL.path) else { return .missing }
+                do {
+                    let backupData = try Data(contentsOf: backupFileURL)
+                    if let persisted = try? JSONDecoder.piAgent.decode(PersistedState.self, from: backupData) {
+                        return .full(persisted, recoveryMessage: "Recovered Pi Agent sessions from the last-known-good backup because the primary index was missing.")
+                    }
+                    let persisted = try JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: backupData)
+                    return .lazy(
+                        persisted,
+                        reconciledTranscriptManifest(
+                            for: persisted,
+                            suppliedManifest: nil,
+                            transcriptsDirectoryURL: transcriptManifestURL.deletingLastPathComponent()
+                        ),
+                        recoveryMessage: "Recovered Pi Agent sessions from the last-known-good backup because the primary index was missing."
+                    )
+                } catch {
+                    return .error("Primary index is missing. Backup: \(error.localizedDescription)")
+                }
+            }
             do {
                 let data = try Data(contentsOf: fileURL)
                 // Decode the legacy embedded form first. Its fields are a superset of
                 // the index, so decoding the index first would silently discard its
                 // embedded transcripts during migration.
                 if let persisted = try? JSONDecoder.piAgent.decode(PersistedState.self, from: data) {
-                    return .full(persisted)
+                    return .full(persisted, recoveryMessage: nil)
                 }
                 let persisted = try JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: data)
                 let suppliedManifest: TranscriptManifest?
@@ -315,10 +356,32 @@ final class PiAgentSessionStore {
                         for: persisted,
                         suppliedManifest: suppliedManifest,
                         transcriptsDirectoryURL: transcriptManifestURL.deletingLastPathComponent()
-                    )
+                    ),
+                    recoveryMessage: nil
                 )
             } catch {
-                return .error(error.localizedDescription)
+                let primaryError = error.localizedDescription
+                do {
+                    let backupData = try Data(contentsOf: backupFileURL)
+                    if let persisted = try? JSONDecoder.piAgent.decode(PersistedState.self, from: backupData) {
+                        return .full(
+                            persisted,
+                            recoveryMessage: "Recovered Pi Agent sessions from the last-known-good backup after the primary index could not be read: \(primaryError)"
+                        )
+                    }
+                    let persisted = try JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: backupData)
+                    return .lazy(
+                        persisted,
+                        reconciledTranscriptManifest(
+                            for: persisted,
+                            suppliedManifest: nil,
+                            transcriptsDirectoryURL: transcriptManifestURL.deletingLastPathComponent()
+                        ),
+                        recoveryMessage: "Recovered Pi Agent sessions from the last-known-good backup after the primary index could not be read: \(primaryError)"
+                    )
+                } catch {
+                    return .error("Primary index: \(primaryError). Backup: \(error.localizedDescription)")
+                }
             }
         }.value
     }
@@ -1084,6 +1147,13 @@ final class PiAgentSessionStore {
     func flushPendingSave() {
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
+        guard hasAppliedInitialLoad else {
+            // App termination can arrive while the detached initial read is still
+            // in flight. Never replace a valid index with the store's first-frame
+            // empty placeholder.
+            saveRequestedBeforeInitialLoad = true
+            return
+        }
         // Drain any debounced transcript writes before the index/manifest save, so all
         // on-disk pieces reflect the same in-memory state at quit time.
         flushPendingPersistTranscripts(synchronous: true)
@@ -2961,11 +3031,13 @@ final class PiAgentSessionStore {
             transcriptsBySessionID = [:]
             selectedSessionID = nil
             return
-        case .lazy(let persisted, let manifest):
+        case .lazy(let persisted, let manifest, let recoveryMessage):
             applyPersistedIndex(persisted, manifest: manifest)
+            if let recoveryMessage { lastError = recoveryMessage }
             return
-        case .full(let persisted):
+        case .full(let persisted, let recoveryMessage):
             applyFullPersistedState(persisted)
+            if let recoveryMessage { lastError = recoveryMessage }
         }
     }
 
@@ -4027,6 +4099,10 @@ final class PiAgentSessionStore {
     }
 
     private func scheduleSave(after nanoseconds: UInt64) {
+        guard hasAppliedInitialLoad else {
+            saveRequestedBeforeInitialLoad = true
+            return
+        }
         pendingSaveTask?.cancel()
         pendingSaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: nanoseconds)
@@ -4056,12 +4132,17 @@ final class PiAgentSessionStore {
     }
 
     private func saveNowAsync() {
+        guard hasAppliedInitialLoad else {
+            saveRequestedBeforeInitialLoad = true
+            return
+        }
         let fileURL = fileURL
+        let backupFileURL = backupFileURL
         let transcriptManifestURL = transcriptManifestURL
         let snapshot = makePersistenceSnapshot()
-        saveQueue.async { [weak self, fileURL, transcriptManifestURL, snapshot] in
+        saveQueue.async { [weak self, fileURL, backupFileURL, transcriptManifestURL, snapshot] in
             do {
-                try Self.write(snapshot, to: fileURL, transcriptManifestURL: transcriptManifestURL)
+                try Self.write(snapshot, to: fileURL, backupFileURL: backupFileURL, transcriptManifestURL: transcriptManifestURL)
             } catch {
                 let message = "Could not save Pi Agent sessions: \(error.localizedDescription)"
                 Task { @MainActor [weak self] in
@@ -4073,29 +4154,48 @@ final class PiAgentSessionStore {
     }
 
     private func saveNow() {
+        guard hasAppliedInitialLoad else {
+            saveRequestedBeforeInitialLoad = true
+            return
+        }
         let fileURL = fileURL
+        let backupFileURL = backupFileURL
         let transcriptManifestURL = transcriptManifestURL
         let snapshot = makePersistenceSnapshot()
         do {
             try saveQueue.sync {
-                try Self.write(snapshot, to: fileURL, transcriptManifestURL: transcriptManifestURL)
+                try Self.write(snapshot, to: fileURL, backupFileURL: backupFileURL, transcriptManifestURL: transcriptManifestURL)
             }
         } catch {
             lastError = "Could not save Pi Agent sessions: \(error.localizedDescription)"
         }
     }
 
-    private nonisolated static func write(_ snapshot: PersistenceSnapshot, to fileURL: URL, transcriptManifestURL: URL) throws {
+    private nonisolated static func write(_ snapshot: PersistenceSnapshot, to fileURL: URL, backupFileURL: URL, transcriptManifestURL: URL) throws {
         let manifest = TranscriptManifest(
             parentSessionIDs: Array(snapshot.persistedTranscriptSessionIDs),
             subagentRunIDs: Array(snapshot.persistedSubagentTranscriptRunIDs)
         )
         try writeTranscriptManifest(manifest, to: transcriptManifestURL)
+        try preserveLastKnownGoodIndex(at: fileURL, backupFileURL: backupFileURL)
         if snapshot.usesStateIndex {
             try write(PersistedStateIndex(snapshot: snapshot), to: fileURL)
         } else {
             try write(PersistedState(snapshot: snapshot), to: fileURL)
         }
+    }
+
+    /// Keep one fully decoded prior generation beside the primary index. Atomic
+    /// replacement protects against partial bytes; this also protects against an
+    /// unintended but syntactically valid replacement and gives launch recovery
+    /// an independent source.
+    private nonisolated static func preserveLastKnownGoodIndex(at fileURL: URL, backupFileURL: URL) throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        let data = try Data(contentsOf: fileURL)
+        let isValid = (try? JSONDecoder.piAgent.decode(PersistedState.self, from: data)) != nil
+            || (try? JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: data)) != nil
+        guard isValid else { return }
+        try data.write(to: backupFileURL, options: .atomic)
     }
 
     private nonisolated static func write(_ persisted: PersistedState, to fileURL: URL) throws {
@@ -4255,8 +4355,8 @@ private nonisolated struct TranscriptManifest: Codable, Sendable {
 }
 
 private enum LoadedPersistedState: Sendable {
-    case lazy(PersistedStateIndex, TranscriptManifest)
-    case full(PersistedState)
+    case lazy(PersistedStateIndex, TranscriptManifest, recoveryMessage: String?)
+    case full(PersistedState, recoveryMessage: String?)
     case missing
     case error(String)
 }

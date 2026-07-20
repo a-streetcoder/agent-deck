@@ -114,6 +114,41 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.sessions.first(where: { $0.id == session.id })?.pinnedAt, pinnedAt)
     }
 
+    func testImmediateQuitDuringInitialLoadCannotOverwritePersistedSessionsWithEmptyPlaceholder() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Survives", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.flushForTesting()
+
+        let reopeningStore = PiAgentSessionStore(fileURL: fileURL)
+        reopeningStore.flushForTesting()
+        await reopeningStore.waitForLoadForTesting()
+        reopeningStore.flushForTesting()
+
+        let verifiedStore = PiAgentSessionStore(fileURL: fileURL)
+        await verifiedStore.waitForLoadForTesting()
+        XCTAssertEqual(verifiedStore.sessions.map(\.id), [session.id])
+    }
+
+    func testCorruptPrimaryIndexRecoversLastKnownGoodBackup() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Recoverable", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.flushForTesting()
+        firstStore.updateSession(session.id) { $0.needsAttention = true }
+        firstStore.flushForTesting()
+
+        let backupURL = fileURL.deletingPathExtension().appendingPathExtension("backup.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path))
+        try Data("interrupted write".utf8).write(to: fileURL, options: .atomic)
+
+        let recoveredStore = PiAgentSessionStore(fileURL: fileURL)
+        await recoveredStore.waitForLoadForTesting()
+
+        XCTAssertEqual(recoveredStore.sessions.map(\.id), [session.id])
+        XCTAssertTrue(recoveredStore.lastError?.contains("last-known-good backup") == true)
+    }
+
     func testSessionRecordWithoutPinnedAtDecodesAsUnpinned() throws {
         let session = try PiTestSupport.makeParentSession()
         let encoded = try JSONEncoder().encode(session)

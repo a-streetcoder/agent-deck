@@ -4625,6 +4625,7 @@ struct CodingAgentExpandedPanel: View {
         var sections = PiAgentSessionGrouping.sections(
             from: partition.focused,
             projectByPath: viewModel.projectByPath,
+            projectDiscoveryComplete: viewModel.hasCompletedInitialProjectDiscovery,
             expandedProjectIDs: viewModel.expandedProjects,
             collapsedProjectIDs: viewModel.collapsedProjects,
             capPreviews: false,
@@ -5205,6 +5206,7 @@ struct PiAgentScreen: View {
         return PiAgentSessionGrouping.sections(
             from: filtered,
             projectByPath: viewModel.projectByPath,
+            projectDiscoveryComplete: viewModel.hasCompletedInitialProjectDiscovery,
             expandedProjectIDs: viewModel.expandedProjects,
             collapsedProjectIDs: viewModel.collapsedProjects,
             capPreviews: capPreviews,

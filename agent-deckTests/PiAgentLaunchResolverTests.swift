@@ -51,6 +51,44 @@ final class PiAgentLaunchResolverTests: XCTestCase {
         XCTAssertEqual(coder?.resolutionKind, .globalCustom)
     }
 
+    func testProjectFallbackResolvesRequestedProjectAssignmentsWithoutLeakingDisplayedAgents() {
+        let builtins = [
+            agentRecord(name: "explorer", kind: .builtin, path: "/app/explorer.md"),
+            agentRecord(name: "planner", kind: .builtin, path: "/app/planner.md"),
+            agentRecord(name: "reviewer", kind: .builtin, path: "/app/reviewer.md")
+        ]
+        let appleDesigner = agentRecord(name: "apple-designer-expert", kind: .global, path: "/global/apple-designer-expert.md")
+        let ponytail = agentRecord(name: "ponytail", kind: .global, path: "/global/ponytail.md")
+        let displayedAgents = PiAgentLaunchResolver.effectiveAgents(
+            defaultAgentNames: ["apple-designer-expert"],
+            projectAgentNames: [],
+            snapshot: .empty.replacing(projectRoot: "/projects/displayed", builtinAgents: builtins),
+            catalog: [appleDesigner, ponytail]
+        )
+        let globalSnapshot = ScanSnapshot.empty.replacing(
+            builtinAgents: builtins,
+            globalAgents: [appleDesigner, ponytail],
+            effectiveAgents: displayedAgents
+        )
+
+        let fallback = PiAgentLaunchResolver.projectFallbackSnapshot(
+            from: globalSnapshot,
+            projectRoot: "/projects/requested"
+        )
+        let resolved = PiAgentLaunchResolver.effectiveAgents(
+            defaultAgentNames: [],
+            projectAgentNames: ["ponytail"],
+            snapshot: fallback,
+            catalog: fallback.globalAgents + fallback.libraryAgents
+        )
+
+        XCTAssertEqual(fallback.projectRoot, "/projects/requested")
+        XCTAssertTrue(fallback.effectiveAgents.isEmpty)
+        XCTAssertEqual(Set(resolved.map(\.name)), ["explorer", "planner", "ponytail", "reviewer"])
+        XCTAssertFalse(resolved.contains { $0.name == "apple-designer-expert" })
+        XCTAssertTrue(resolved.allSatisfy { $0.projectRoot == "/projects/requested" })
+    }
+
     func testProjectAssignmentUsesGlobalCatalogAgentByName() {
         let global = agentRecord(name: "reviewer", kind: .global, path: "/tmp/global-reviewer.md")
         let project = agentRecord(name: "reviewer", kind: .project, path: "/tmp/project/.pi/agents/reviewer.md")
@@ -157,15 +195,17 @@ private extension ScanSnapshot {
     func replacing(
         projectRoot: String? = nil,
         builtinAgents: [AgentRecord]? = nil,
+        globalAgents: [AgentRecord]? = nil,
+        effectiveAgents: [EffectiveAgentRecord]? = nil,
         settings: [SettingsSummary]? = nil
     ) -> ScanSnapshot {
         ScanSnapshot(
             projectRoot: projectRoot ?? self.projectRoot,
             builtinAgents: builtinAgents ?? self.builtinAgents,
-            globalAgents: globalAgents,
+            globalAgents: globalAgents ?? self.globalAgents,
             projectAgents: projectAgents,
             legacyProjectAgents: legacyProjectAgents,
-            effectiveAgents: effectiveAgents,
+            effectiveAgents: effectiveAgents ?? self.effectiveAgents,
             libraryAgents: libraryAgents,
             skills: skills,
             librarySkills: librarySkills,

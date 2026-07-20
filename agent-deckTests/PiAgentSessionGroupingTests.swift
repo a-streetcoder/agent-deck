@@ -248,6 +248,42 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertTrue(partition.previous.isEmpty)
     }
 
+    func testPendingProjectDiscoveryDoesNotMisclassifyPersistedSessionsAsOther() throws {
+        let projectPath = "/Users/test/Documents/GitHub/agent-deck"
+        var session = try makeSession(title: "Recovered", updatedAt: now, projectPath: projectPath)
+        session.repository = "a-streetcoder/agent-deck"
+
+        let pending = PiAgentSessionGrouping.sections(
+            from: [session],
+            projectByPath: [:],
+            projectDiscoveryComplete: false,
+            expandedProjectIDs: [],
+            collapsedProjectIDs: [],
+            capPreviews: false,
+            isWorking: { _ in false },
+            selectedSessionID: session.id,
+            now: now
+        )
+
+        XCTAssertEqual(pending.map(\.id), [projectPath])
+        XCTAssertEqual(pending.map(\.title), ["agent-deck"])
+        XCTAssertEqual(pending.map(\.subtitle), ["a-streetcoder"])
+        XCTAssertTrue(pending[0].isProjectGroup)
+
+        let completed = PiAgentSessionGrouping.sections(
+            from: [session],
+            projectByPath: [:],
+            projectDiscoveryComplete: true,
+            expandedProjectIDs: [],
+            collapsedProjectIDs: [],
+            capPreviews: false,
+            isWorking: { _ in false },
+            selectedSessionID: session.id,
+            now: now
+        )
+        XCTAssertEqual(completed.map(\.id), [PiAgentSessionGrouping.otherSectionID])
+    }
+
     func testActiveSessionsPredicateLeavesOnlyOldSettledSessionInPrevious() throws {
         var draft = try makeSession(title: "draft", updatedAt: now.addingTimeInterval(-7_200), status: .draft)
         draft.createdAt = draft.updatedAt
