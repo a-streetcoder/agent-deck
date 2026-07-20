@@ -4251,6 +4251,7 @@ struct CodingAgentExpandedPanel: View {
     @State private var pendingDeleteIsPreviousSessions = false
     @State private var pendingDeletePreviousSearchQuery: String?
     @State private var isDeleteSessionsAlertPresented = false
+    @State private var isHoveringPreviousSessionsDeleteButton = false
     @State private var sessionActivityCache: [UUID: PiAgentSessionGitActivity] = [:]
     @State private var postExpandTask: Task<Void, Never>?
     /// Per-session memo of the last activity parse, keyed by the store's
@@ -4450,7 +4451,13 @@ struct CodingAgentExpandedPanel: View {
                 .buttonStyle(.plain)
                 .help("Delete selected sessions")
             } else if rendersPreviousSessionsInline {
-                PiAgentPreviousSessionsDeleteButton(onDelete: requestDeletePreviousSessions)
+                PiAgentPreviousSessionsDeleteButton(
+                    onDelete: requestDeletePreviousSessions,
+                    isHoveredExternally: isHoveringPreviousSessionsDeleteButton
+                )
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+                .onHover { isHoveringPreviousSessionsDeleteButton = $0 }
             }
             CodingAgentNewSessionControls(viewModel: viewModel)
         }
