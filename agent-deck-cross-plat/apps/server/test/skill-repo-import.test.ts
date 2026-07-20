@@ -2,8 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { startServer, type AgentDeckServer } from "../src/index.ts";
+
+// Real git clones + a live server compete with the rest of the suite for the
+// machine: the 5s default trips under full-suite load, and a timeout mid-flow
+// leaves the shared fixture half-updated, cascading into the sibling tests
+// (observed as a bogus Take-Remote overwrite). Doctor/diff-test precedent.
+vi.setConfig({ testTimeout: 20_000 });
 
 /**
  * Git-imported skill repositories keep a PERSISTENT clone + a provenance record
