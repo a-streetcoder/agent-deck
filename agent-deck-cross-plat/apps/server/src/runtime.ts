@@ -1,4 +1,5 @@
 import { Layer, ManagedRuntime } from "effect";
+import { PersistenceLive, type Persistence } from "./services/persistence.ts";
 import { PiHostLive, type PiHost } from "./services/piHost.ts";
 import { SessionPushBusesLive, type SessionPushBuses } from "./services/pushBus.ts";
 import {
@@ -16,14 +17,21 @@ import {
  *
  *   SessionManagerServiceLive          // Slice 5 — consumes push bus + pi-host
  *     ├── SessionPushBusesLive         // Slice 3
- *     └── PiHostLive                   // Slice 4 — scoped subprocess lifecycle
+ *     ├── PiHostLive                   // Slice 4 — scoped subprocess lifecycle
+ *     └── PersistenceLive              // Slice 6 — JSON-file app-data stores
  *
  * `provideMerge` feeds the leaf layers INTO the coordinator AND re-exports them,
- * so PiHost / SessionPushBuses stay directly resolvable through the runtime
- * (the one-shot helper launch resolves PiHost that way, and the leaf-service
- * unit + real-pi tests exercise them). Dependencies between services are always
- * wired at THIS composition site, never by services importing each other's Live
- * layers directly.
+ * so PiHost / SessionPushBuses / Persistence stay directly resolvable through the
+ * runtime (the one-shot helper launch resolves PiHost that way, and the
+ * leaf-service unit + real-pi tests exercise them). Dependencies between services
+ * are always wired at THIS composition site, never by services importing each
+ * other's Live layers directly.
+ *
+ * `Persistence` is a Slice-6 leaf on the SAME footing the push bus held at Slice
+ * 3: joined here so a future Effect-native consumer (Slice 7 routes) resolves it
+ * through the runtime, while today the synchronous class facade in
+ * persistence.ts still reads it via a total `Effect.runSync(make*)` — no runtime
+ * needed, so production writes don't yet flow through this tag.
  *
  * Lifecycle: `startServer()` (server.ts) builds one ManagedRuntime per server
  * and disposes it in `close()`, so scoped services get their finalizers run on
@@ -49,12 +57,12 @@ import {
  * narrow gap; a future slice may re-root session scopes under a runtime-held
  * parent so `dispose()` reclaims leaks.
  */
-const leafLayers = Layer.mergeAll(SessionPushBusesLive, PiHostLive);
+const leafLayers = Layer.mergeAll(SessionPushBusesLive, PiHostLive, PersistenceLive);
 
 export const serverLayers = SessionManagerServiceLive.pipe(Layer.provideMerge(leafLayers));
 
 /** Union of every service the runtime can provide (grows with the merge). */
-export type ServerServices = SessionPushBuses | PiHost | SessionManagerService;
+export type ServerServices = SessionPushBuses | PiHost | SessionManagerService | Persistence;
 
 export type ServerRuntime = ManagedRuntime.ManagedRuntime<ServerServices, never>;
 

@@ -170,8 +170,21 @@ throughout this phase — handlers call into a `ManagedRuntime`; dropping Fastif
 - `persistence.ts` behind a service interface; on-disk format unchanged.
 - Optional follow-up (not this slice): SQLite via `@effect/sql-sqlite` per t3code —
   revisit when checkpointing (Slice 16) needs transactional turn snapshots.
+- **Status: LANDED (2026-07-20).** `services/persistence.ts` (Persistence service:
+  JsonArrayStore + SettingsStore handles) joined into serverLayers; on-disk JSON format
+  byte-identical (atomic tmp+rename, defaults, back-compat coercion, defaultDataDir all
+  preserved) — proven by a round-trip fixture test against real on-disk files. Class
+  facade (persistence.ts) is a thin adapter using `runSyncUnwrapped` so fs errors keep
+  their raw identity + `err.code` (parity test). Review minors: error-identity finding
+  fixed (runSyncUnwrapped); the E=never-on-fallible-I/O finding is documented as a
+  deliberate caveat and DEFERRED to Slice 7 (below) — the tagged `PersistenceWriteError`
+  is designed with its first Effect-native consumer, not speculatively.
 
 - Exit gate for each Phase-2 slice: full suite + `test:pi` + streaming test.
+
+**PHASE 2 COMPLETE (2026-07-20):** the entire server substrate runs on Effect
+(runtime + push bus + pi-host + session manager + persistence), all behind synchronous
+class facades so routes/wsHandler/bridgeTools are unchanged until Slice 7.
 
 ## Phase 3 — Transport swap (the one breaking seam)
 
@@ -186,6 +199,15 @@ throughout this phase — handlers call into a `ManagedRuntime`; dropping Fastif
   to snapshot) pass on the new transport.
 - This is the only slice where client and server move together. Everything before it is
   server-internal; everything after it builds on it.
+- **Also fold in here** (deferred from earlier slices, now that routes go Effect-native):
+  - Slice 1's `domain/protocol.ts` re-export shim → migrate server/web imports to
+    `@agent-deck/contracts`, and add the Effect Record plain-object refinement (reject
+    Date/Map that zod rejected) now that the Effect schema becomes the runtime validator.
+  - Slice 6's persistence error channel: move `flush`/`mkdir` to `Effect.try` with a
+    `PersistenceWriteError` tagged error, mapped by the new Effect-native routes to HTTP
+    5xx (the E=never write paths documented as a caveat in services/persistence.ts).
+  - pushBus's `subscribeScoped` + `replayFrom` Option surfaces for the now-Effect-native
+    wsHandler consumer (documented in services/pushBus.ts Template caveats).
 
 ---
 

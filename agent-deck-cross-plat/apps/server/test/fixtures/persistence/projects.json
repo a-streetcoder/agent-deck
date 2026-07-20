@@ -1,0 +1,14 @@
+[
+  {
+    "id": "proj-aaaa",
+    "name": "project-a",
+    "path": "/home/dev/project-a",
+    "createdAt": "2026-06-30T08:00:00.000Z"
+  },
+  {
+    "id": "proj-bbbb",
+    "name": "project-b",
+    "path": "/home/dev/project-b",
+    "createdAt": "2026-06-30T08:05:00.000Z"
+  }
+]

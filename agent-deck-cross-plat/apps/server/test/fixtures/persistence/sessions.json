@@ -1,0 +1,32 @@
+[
+  {
+    "id": "sess-11111111",
+    "title": "Wire up the persistence service",
+    "cwd": "/home/dev/project-a",
+    "projectId": "proj-aaaa",
+    "createdAt": "2026-07-01T10:00:00.000Z",
+    "updatedAt": "2026-07-01T11:30:00.000Z",
+    "piSessionFile": "/home/dev/.pi/sessions/abc.jsonl",
+    "plan": [
+      {
+        "id": "p1",
+        "text": "study persistence.ts",
+        "status": "done"
+      },
+      {
+        "id": "p2",
+        "text": "add the service",
+        "status": "in_progress"
+      }
+    ]
+  },
+  {
+    "id": "sess-22222222",
+    "title": "Second session",
+    "cwd": "/home/dev/project-b",
+    "projectId": "proj-bbbb",
+    "createdAt": "2026-07-02T09:00:00.000Z",
+    "updatedAt": "2026-07-02T09:15:00.000Z",
+    "endedAt": "2026-07-02T09:45:00.000Z"
+  }
+]

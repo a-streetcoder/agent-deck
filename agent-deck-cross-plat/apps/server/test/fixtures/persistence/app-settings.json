@@ -1,0 +1,53 @@
+{
+  "defaultSkills": [
+    "diagnose",
+    "tdd"
+  ],
+  "defaultPromptTemplates": [
+    "review",
+    "ship"
+  ],
+  "disabledSkills": [
+    "legacy-skill"
+  ],
+  "projectRoots": [
+    "/home/dev",
+    "/work/repos"
+  ],
+  "extensions": [
+    "/home/dev/.pi/ext/a.js",
+    "/home/dev/.pi/ext/b.js"
+  ],
+  "disabledExtensions": [
+    "/home/dev/.pi/ext/b.js"
+  ],
+  "disabledModels": [
+    "anthropic:claude-legacy"
+  ],
+  "autoTitle": false,
+  "worktreeIsolation": true,
+  "gitAutomation": false,
+  "defaultModel": "anthropic:claude-opus",
+  "defaultThinking": "high",
+  "extensionLoadingMode": "agentDeckManaged",
+  "importedSkillRepositories": [
+    {
+      "id": "repo-1",
+      "remoteUrl": "https://github.com/acme/skills.git",
+      "ref": "main",
+      "subdir": "packs/core",
+      "scope": "global",
+      "clonePath": "/home/dev/.agent-deck/skill-repos/repo-1",
+      "skillNames": [
+        "alpha",
+        "beta"
+      ],
+      "skillHashes": {
+        "alpha": "deadbeef",
+        "beta": "cafef00d"
+      },
+      "lastSyncedCommit": "0123456789abcdef",
+      "importedAt": "2026-06-29T12:00:00.000Z"
+    }
+  ]
+}

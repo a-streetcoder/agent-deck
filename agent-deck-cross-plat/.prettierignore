@@ -4,3 +4,7 @@ pnpm-lock.yaml
 **/*.svg
 **/coverage/
 apps/web/public/fonts/
+# Byte-exact on-disk data-dir fixtures: these mirror what the app writes via
+# JSON.stringify(x, null, 2) (no trailing newline), so the persistence
+# round-trip test can assert format identity. Prettier must not reflow them.
+apps/server/test/fixtures/persistence/
