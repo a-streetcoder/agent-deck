@@ -208,6 +208,20 @@ class facades so routes/wsHandler/bridgeTools are unchanged until Slice 7.
     5xx (the E=never write paths documented as a caveat in services/persistence.ts).
   - pushBus's `subscribeScoped` + `replayFrom` Option surfaces for the now-Effect-native
     wsHandler consumer (documented in services/pushBus.ts Template caveats).
+- **Status: LANDED (2026-07-20). PHASE 3 COMPLETE.** Built in three staged parts, all
+  green: S7a — Effect-RPC endpoint on `/rpc` (packages/contracts/src/rpc.ts framing)
+  mounted alongside the legacy envelope; contracts became the runtime validator
+  (+ Record plain-object refinement); domain→contracts shim migration done; new
+  `packages/client-runtime` (transport state machine, reconnect/backoff, typed push
+  decode, 9 unit tests). S7b — web cut over behind a flag; reconnect/replay/eviction
+  parity proven (e2e transport-parity.spec.ts: replay tail, evicted-lastSeq snapshot
+  fallback, reconnect-mid-turn no gap-or-dup); streaming non-negotiable green on the
+  new transport; visual baselines UNCHANGED. S7c — legacy `/ws` envelope deleted,
+  `/rpc` sole path, contracts Effect Schema sole socket validator; pushBusLegacy.ts +
+  equivalence oracle retired as planned. Review: zero blocker/major. Deferred minors
+  → follow-up commit (client-runtime reconnect-timer clear) and 7-polish backlog
+  (rpcHandler push backpressure cap; persistence PersistenceWriteError; pushBus
+  subscribeScoped/Option surfaces — still open by scope discipline).
 
 ---
 

@@ -1,9 +1,5 @@
-import {
-  emptyTranscript,
-  type ProjectMeta,
-  type SessionMeta,
-  type TranscriptState,
-} from "@agent-deck/domain";
+import type { ProjectMeta, SessionMeta } from "@agent-deck/contracts";
+import { emptyTranscript, type TranscriptState } from "@agent-deck/domain";
 import { create } from "zustand";
 
 export type ConnectionStatus = "connecting" | "open" | "closed";

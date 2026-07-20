@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SessionMeta } from "@agent-deck/contracts";
 import {
   createIngestState,
   emptyTranscript,
@@ -9,7 +10,6 @@ import {
   reduceTranscript,
   type DomainEvent,
   type IngestState,
-  type SessionMeta,
   type SessionPlanItem,
   type SessionPlanUpdate,
   type TranscriptState,
@@ -271,6 +271,19 @@ const isPiEvent = (item: PiStreamItem): item is PiStreamItem & { _tag: "PiEvent"
 
 const eventType = (event: PiInboundEvent): string => (event as { type?: string }).type ?? "";
 
+/**
+ * The per-session push-bus ring capacity. Defaults to the service default
+ * (5,000); `AGENT_DECK_PUSH_BUS_CAPACITY` overrides it so tests can force ring
+ * eviction (→ snapshot fallback on resubscribe) without emitting 5,000 events.
+ * A non-positive / unparseable value falls back to the default.
+ */
+const pushBusCapacity = (): number | undefined => {
+  const raw = process.env.AGENT_DECK_PUSH_BUS_CAPACITY;
+  if (raw === undefined) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
 // ---------------------------------------------------------------------------
 // 2. The scoped per-session build
 // ---------------------------------------------------------------------------
@@ -293,7 +306,7 @@ export const makeManagedSessionRuntime = (
     // session-file fibers below are forked into it too, so session close ==
     // scope close settles ALL of them (no fiber or helper pi escapes).
     const sessionScope = yield* Effect.scope;
-    const bus = yield* buses.make();
+    const bus = yield* buses.make(pushBusCapacity());
     const handle = yield* piHost.spawn(params.spawn);
 
     // Closure-scoped mutable state, only ever mutated inside synchronous units

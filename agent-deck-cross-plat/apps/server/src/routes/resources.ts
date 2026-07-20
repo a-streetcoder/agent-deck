@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import nodePath from "node:path";
-import type { ProjectMeta, SkillInfo } from "@agent-deck/domain";
+import type { ProjectMeta } from "@agent-deck/contracts";
+import type { SkillInfo } from "@agent-deck/domain";
 import {
   BUILTIN_AGENTS_DIR,
   computeBuiltinOverride,

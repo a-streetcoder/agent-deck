@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { EyeOff, Github, Plus, RefreshCw, Search, Send, WandSparkles, X } from "lucide-react";
-import type { DiscoveredProject, ProjectMeta } from "@agent-deck/domain";
+import type { DiscoveredProject, ProjectMeta } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
 import { chooseDirectory, isElectron } from "@/lib/native";
 import { ProjectTypeIcon } from "../components/ProjectTypeIcon.tsx";

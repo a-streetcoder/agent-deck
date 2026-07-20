@@ -1,10 +1,6 @@
-import {
-  reduceTranscript,
-  type ClientMessage,
-  type ProjectMeta,
-  type ServerMessage,
-  type SessionMeta,
-} from "@agent-deck/domain";
+import type { ClientMessage, ProjectMeta, ServerMessage, SessionMeta } from "@agent-deck/contracts";
+import { reduceTranscript } from "@agent-deck/domain";
+import { RpcClientTransport, type ClientTransport, type TransportHost } from "./clientTransport.ts";
 import { useAppStore } from "./store.ts";
 
 /**
@@ -14,22 +10,33 @@ import { useAppStore } from "./store.ts";
  *
  * One socket, one subscribed session at a time: switching project closes the
  * socket and reconnects subscribed to that project's session.
+ *
+ * The socket mechanism itself lives behind a {@link ClientTransport} (see
+ * clientTransport.ts): the Effect-RPC `/rpc` transport (the legacy `/ws` envelope
+ * was retired in Slice 7c). This module owns the shared reducer/host; the
+ * transport owns framing + reconnect.
  */
 
-let socket: WebSocket | null = null;
-let reconnectDelayMs = 500;
 let currentSessionId: string | null = null;
-let generation = 0; // bumped on every deliberate switch to invalidate reconnects
 
-function wsUrl(): string {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/ws`;
+const transportHost: TransportHost = {
+  onServerMessage: (message) => handleMessage(message),
+  setConnection: (status) => useAppStore.getState().setConnection(status),
+  getLastSeq: () => useAppStore.getState().lastSeq,
+};
+
+const transport: ClientTransport = new RpcClientTransport(transportHost);
+
+/** (Re)connect subscribed to `sessionId` — the single entry point that keeps
+ * `currentSessionId` (which gates handleMessage's per-session filtering) in sync
+ * with the transport's subscription. */
+function connect(sessionId: string): void {
+  currentSessionId = sessionId;
+  transport.connect(sessionId);
 }
 
 function send(message: ClientMessage): void {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
-  }
+  transport.send(message);
 }
 
 function handleMessage(message: ServerMessage): void {
@@ -70,37 +77,6 @@ function handleMessage(message: ServerMessage): void {
     case "hello_ok":
       break;
   }
-}
-
-function connect(sessionId: string): void {
-  const myGeneration = ++generation;
-  currentSessionId = sessionId;
-  socket?.close();
-  useAppStore.getState().setConnection("connecting");
-  socket = new WebSocket(wsUrl());
-  socket.onopen = () => {
-    if (myGeneration !== generation) return;
-    reconnectDelayMs = 500;
-    useAppStore.getState().setConnection("open");
-    const { lastSeq } = useAppStore.getState();
-    send({
-      type: "subscribe_session",
-      sessionId,
-      lastSeq: lastSeq > 0 ? lastSeq : undefined,
-    });
-  };
-  socket.onmessage = (event) => {
-    if (myGeneration !== generation) return;
-    handleMessage(JSON.parse(event.data as string) as ServerMessage);
-  };
-  socket.onclose = () => {
-    if (myGeneration !== generation) return;
-    useAppStore.getState().setConnection("closed");
-    setTimeout(() => {
-      if (myGeneration === generation) connect(sessionId);
-    }, reconnectDelayMs);
-    reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10_000);
-  };
 }
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {

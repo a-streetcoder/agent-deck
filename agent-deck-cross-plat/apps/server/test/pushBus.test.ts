@@ -87,6 +87,58 @@ describe("SessionPushBus (Effect-backed adapter)", () => {
     const replay = bus.replayFrom(0) as StampedEvent[];
     expect(replay[0]?.event).toBe(e);
   });
+
+  // Dispatch-time semantics formerly pinned by the Slice-3 legacy-vs-Effect
+  // equivalence oracle (retired in Slice 7c): a subscriber THROWING mid-dispatch,
+  // and Set mutation DURING a dispatch. These are exact-behavior guarantees of
+  // the synchronous single-op dispatch documented in services/pushBus.ts.
+  it("a throwing subscriber: same error identity, committed state, later subscribers skipped", () => {
+    const bus = new SessionPushBus(4);
+    const boom = new Error("subscriber exploded");
+    const after: number[] = [];
+    bus.subscribe(() => {
+      throw boom;
+    });
+    bus.subscribe(({ seq }) => after.push(seq));
+
+    let caught: unknown;
+    try {
+      bus.append(event(1));
+    } catch (error) {
+      caught = error;
+    }
+    // The ORIGINAL error instance, not a wrapper (dispatch identity contract).
+    expect(caught).toBe(boom);
+    // State committed before dispatch: seq advanced, event replayable.
+    expect(bus.lastSeq).toBe(1);
+    expect(bus.replayFrom(0)).toEqual([{ seq: 1, event: event(1) }]);
+    // Subscribers registered after the thrower were skipped this dispatch.
+    expect(after).toEqual([]);
+  });
+
+  it("Set mutation during dispatch: mid-dispatch unsubscribe skips, mid-dispatch subscribe is visited", () => {
+    const bus = new SessionPushBus(4);
+    const log: string[] = [];
+    // First subscriber: on the first delivery, unsubscribes the SECOND
+    // subscriber (added later → not yet visited this dispatch) and registers a
+    // THIRD one (which JS Set iteration visits in the same dispatch).
+    const second: { unsub?: () => void } = {};
+    let mutated = false;
+    bus.subscribe(({ seq }) => {
+      log.push(`first:${seq}`);
+      if (!mutated) {
+        mutated = true;
+        second.unsub?.();
+        bus.subscribe(({ seq: s }) => log.push(`third:${s}`));
+      }
+    });
+    second.unsub = bus.subscribe(({ seq }) => log.push(`second:${seq}`));
+    bus.append(event(1));
+    bus.append(event(2));
+    // second skipped in dispatch 1 (unsubscribed before visited); third visited
+    // in the same dispatch it was added.
+    expect(log).toEqual(["first:1", "third:1", "first:2", "third:2"]);
+  });
 });
 
 describe("SessionPushBuses service through the ManagedRuntime", () => {

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-deck/domain",
+  "name": "@agent-deck/client-runtime",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -11,10 +11,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "zod": "3.25.67"
+    "@agent-deck/contracts": "workspace:*",
+    "effect": "3.22.0"
   },
   "devDependencies": {
-    "@agent-deck/contracts": "workspace:*",
-    "@earendil-works/pi-coding-agent": "0.80.3"
+    "@agent-deck/domain": "workspace:*"
   }
 }

@@ -1,19 +1,22 @@
 import type { IncomingMessage } from "node:http";
-import { clientMessageSchema, type ServerMessage } from "@agent-deck/domain";
+import { RPC_WS_PATH } from "@agent-deck/contracts";
+import type { ServerMessage } from "@agent-deck/contracts";
 import type { FastifyInstance } from "fastify";
-import { WebSocketServer, type WebSocket } from "ws";
-import type { ManagedSession, SessionManager } from "./SessionManager.ts";
+import { setupRpcEndpoint } from "./rpcHandler.ts";
+import type { SessionManager } from "./SessionManager.ts";
 
 export interface WebSocketLayer {
-  wss: WebSocketServer;
-  /** Push a server message to every connected client. */
+  /** Push a server message to every connected RPC client (wrapped as a frame). */
   broadcast: (message: ServerMessage) => void;
+  /** Close the `/rpc` socket server. */
+  close: () => void;
 }
 
 /**
- * The WebSocket layer: socket accept (with the local-origin guard),
- * per-session subscribe/replay, and client-message dispatch. Moved verbatim
- * from server.ts (Slice 2 decomposition).
+ * The WebSocket layer: socket-upgrade accept (with the local-origin guard) routed
+ * to the Effect-RPC endpoint on `/rpc` (rpcHandler.ts). The legacy bare-envelope
+ * `/ws` path was retired in Slice 7c — `/rpc` is now the only transport, and the
+ * contracts Effect Schema is the sole runtime validator at the socket boundary.
  */
 export function setupWebSocket(deps: {
   fastify: FastifyInstance;
@@ -21,141 +24,9 @@ export function setupWebSocket(deps: {
 }): WebSocketLayer {
   const { fastify, sessions } = deps;
 
-  // WebSocket: live domain-event push + session commands.
-  const wss = new WebSocketServer({ noServer: true });
-  const clients = new Set<WebSocket>();
-
-  const send = (socket: WebSocket, message: ServerMessage): void => {
-    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
-  };
-
-  const broadcast = (message: ServerMessage): void => {
-    for (const client of clients) send(client, message);
-  };
-
-  // Per-socket subscription bookkeeping: re-subscribing to the same session
-  // replaces the old subscription (no duplicate events), and every listener —
-  // bus subscriber AND session exit listener — is released on socket close.
-  const socketCleanups = new Map<WebSocket, Map<string, () => void>>();
-
-  const subscribe = (socket: WebSocket, session: ManagedSession, lastSeq?: number): void => {
-    const cleanups = socketCleanups.get(socket) ?? new Map<string, () => void>();
-    socketCleanups.set(socket, cleanups);
-    cleanups.get(session.meta.id)?.();
-
-    const unsubscribeBus = session.bus.subscribe(({ seq, event }) => {
-      send(socket, { type: "event", sessionId: session.meta.id, seq, event });
-    });
-    const unsubscribeExit = session.onExit((exit) =>
-      send(socket, {
-        type: "session_exit",
-        sessionId: session.meta.id,
-        code: exit.code,
-        signal: exit.signal,
-      }),
-    );
-    cleanups.set(session.meta.id, () => {
-      unsubscribeBus();
-      unsubscribeExit();
-    });
-
-    if (lastSeq !== undefined) {
-      const replay = session.bus.replayFrom(lastSeq);
-      if (replay) {
-        for (const { seq, event } of replay) {
-          send(socket, { type: "event", sessionId: session.meta.id, seq, event });
-        }
-        return;
-      }
-    }
-    const { seq, state } = session.snapshot();
-    send(socket, { type: "snapshot", sessionId: session.meta.id, seq, state });
-  };
-
-  wss.on("connection", (socket: WebSocket) => {
-    clients.add(socket);
-    socket.on("close", () => {
-      clients.delete(socket);
-      const cleanups = socketCleanups.get(socket);
-      socketCleanups.delete(socket);
-      if (cleanups) for (const cleanup of cleanups.values()) cleanup();
-    });
-    socket.on("message", (raw: Buffer) => {
-      void (async () => {
-        let message;
-        try {
-          message = clientMessageSchema.parse(JSON.parse(raw.toString("utf8")));
-        } catch (error) {
-          send(socket, { type: "error", message: `invalid message: ${String(error)}` });
-          return;
-        }
-        if (message.type === "hello") {
-          send(socket, { type: "hello_ok", sessions: sessions.list() });
-          return;
-        }
-        const session = sessions.get(message.sessionId);
-        if (!session) {
-          send(socket, {
-            type: "error",
-            message: "unknown session",
-            sessionId: message.sessionId,
-          });
-          return;
-        }
-        try {
-          switch (message.type) {
-            case "subscribe_session":
-              subscribe(socket, session, message.lastSeq);
-              break;
-            case "prompt":
-              await session.prompt(message.message, message.images);
-              break;
-            case "steer":
-              await session.steer(message.message);
-              break;
-            case "follow_up":
-              await session.followUp(message.message);
-              break;
-            case "abort":
-              await session.abort();
-              break;
-            case "compact":
-              await session.compact();
-              break;
-            case "set_model": {
-              // Only switch to models pi actually offers.
-              const available = await session.getAvailableModels();
-              const known = available.some(
-                (m) => m.provider === message.provider && m.id === message.modelId,
-              );
-              if (!known) {
-                send(socket, {
-                  type: "error",
-                  message: `unknown model: ${message.provider}/${message.modelId}`,
-                  sessionId: message.sessionId,
-                });
-                break;
-              }
-              await session.setModel(message.provider, message.modelId);
-              break;
-            }
-            case "set_thinking":
-              await session.setThinkingLevel(message.level);
-              break;
-            case "ui_response":
-              session.respondToUiRequest(message.response);
-              break;
-          }
-        } catch (error) {
-          send(socket, {
-            type: "error",
-            message: String(error),
-            sessionId: message.sessionId,
-          });
-        }
-      })();
-    });
-  });
+  // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
+  // subscribe/replay, and broadcast — all sharing the SessionManager facade.
+  const rpc = setupRpcEndpoint({ sessions });
 
   // Browsers may open cross-origin WebSockets to localhost services; only
   // accept upgrades from local origins (or non-browser clients, which send
@@ -171,12 +42,20 @@ export function setupWebSocket(deps: {
   };
 
   fastify.server.on("upgrade", (request: IncomingMessage, socket, head) => {
-    if (request.url !== "/ws" || !isTrustedOrigin(request.headers.origin)) {
+    if (!isTrustedOrigin(request.headers.origin)) {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
+    // Only `/rpc` (the Effect-RPC frames) is accepted; anything else is rejected.
+    if (request.url === RPC_WS_PATH) {
+      rpc.wss.handleUpgrade(request, socket, head, (ws) => rpc.wss.emit("connection", ws, request));
+    } else {
+      socket.destroy();
+    }
   });
 
-  return { wss, broadcast };
+  return {
+    broadcast: rpc.broadcast,
+    close: () => rpc.wss.close(),
+  };
 }

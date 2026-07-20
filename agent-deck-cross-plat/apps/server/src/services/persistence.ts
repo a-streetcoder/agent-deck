@@ -1,12 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import envPaths from "env-paths";
-import {
-  THINKING_LEVELS,
-  type ProjectMeta,
-  type SessionMeta,
-  type ThinkingLevel,
-} from "@agent-deck/domain";
+import type { ProjectMeta, SessionMeta } from "@agent-deck/contracts";
+import { THINKING_LEVELS, type ThinkingLevel } from "@agent-deck/domain";
 import { Context, Effect, Layer, Option } from "effect";
 
 /**

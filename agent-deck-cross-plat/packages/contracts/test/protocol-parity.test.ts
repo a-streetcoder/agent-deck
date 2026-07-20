@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { Either, Schema } from "effect";
-import { clientMessageSchema } from "@agent-deck/domain";
 import { ClientMessage } from "../src/index.ts";
 
 /**
- * Golden-fixture parity corpus: every fixture is run through BOTH the legacy
- * zod validator (@agent-deck/domain clientMessageSchema, the current runtime
- * source of truth at the socket boundary) and the new Effect Schema port. The
- * two must accept/reject identically — this test IS the Slice-1 seam.
+ * Golden-fixture validation corpus for `ClientMessage`, the contracts Effect
+ * Schema that is the SOLE runtime validator at the `/rpc` socket boundary. Every
+ * fixture must accept/reject exactly as recorded.
+ *
+ * This corpus began (Slice 1) as a zod⇄Effect PARITY test proving the Effect
+ * port matched the legacy `@agent-deck/domain` zod validator; that zod validator
+ * was retired with the `/ws` envelope in Slice 7c, so the corpus now pins the
+ * contracts schema directly. The accept/reject verdicts (including the boundary
+ * cases named "…parity…") are the original zod semantics, preserved on purpose.
  */
 
 interface Fixture {
@@ -303,11 +307,23 @@ const fixtures: Fixture[] = [
     message: { type: "ui_response", sessionId: "s1", response: null },
     expected: "reject",
   },
+  {
+    // The Slice-1 "Effect Record accepts exotics" nuance, now closed: the
+    // PlainJsonRecord refinement rejects a Date exactly as zod's record does.
+    name: "ui_response with Date payload (exotic object — both reject)",
+    message: { type: "ui_response", sessionId: "s1", response: new Date() },
+    expected: "reject",
+  },
+  {
+    name: "ui_response with Map payload (exotic object — both reject)",
+    message: { type: "ui_response", sessionId: "s1", response: new Map() },
+    expected: "reject",
+  },
 ];
 
 const decodeEffect = Schema.decodeUnknownEither(ClientMessage);
 
-describe("ClientMessage zod ⇄ Effect Schema parity", () => {
+describe("ClientMessage Effect Schema validation", () => {
   it("covers at least 25 fixtures with both accept and reject cases", () => {
     expect(fixtures.length).toBeGreaterThanOrEqual(25);
     expect(fixtures.some((f) => f.expected === "accept")).toBe(true);
@@ -315,12 +331,7 @@ describe("ClientMessage zod ⇄ Effect Schema parity", () => {
   });
 
   it.each(fixtures)("$name", ({ message, expected }) => {
-    const zodAccepts = clientMessageSchema.safeParse(message).success;
     const effectAccepts = Either.isRight(decodeEffect(message));
-
-    // Both validators must agree with the recorded expectation…
-    expect(zodAccepts, "zod verdict").toBe(expected === "accept");
-    // …and therefore with each other (kept explicit: parity is the contract).
-    expect(effectAccepts, "effect verdict must match zod").toBe(zodAccepts);
+    expect(effectAccepts, "effect verdict").toBe(expected === "accept");
   });
 });

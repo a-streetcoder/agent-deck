@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Send, Trash2 } from "lucide-react";
-import type { SessionMeta } from "@agent-deck/domain";
+import type { SessionMeta } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "../state/store.ts";

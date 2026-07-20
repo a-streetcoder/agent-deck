@@ -1,4 +1,4 @@
-import type { ProjectMeta, SessionMeta } from "@agent-deck/domain";
+import type { ProjectMeta, SessionMeta } from "@agent-deck/contracts";
 import { Cause, Effect, Option, Runtime } from "effect";
 import {
   defaultDataDir,

@@ -11,7 +11,7 @@ import {
 import { homedir } from "node:os";
 import nodePath from "node:path";
 import { promisify } from "node:util";
-import type { ProjectMeta } from "@agent-deck/domain";
+import type { ProjectMeta } from "@agent-deck/contracts";
 import { detectProjectType, discoverProjects } from "@agent-deck/resources";
 import { z } from "zod";
 import type { ServerContext } from "../context.ts";

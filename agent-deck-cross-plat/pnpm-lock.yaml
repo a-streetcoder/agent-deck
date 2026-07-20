@@ -38,6 +38,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@agent-deck/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@agent-deck/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -87,6 +90,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@agent-deck/client-runtime':
+        specifier: workspace:*
+        version: link:../../packages/client-runtime
+      '@agent-deck/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@agent-deck/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -164,6 +173,19 @@ importers:
         specifier: 22.15.29
         version: 22.15.29
 
+  packages/client-runtime:
+    dependencies:
+      '@agent-deck/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      effect:
+        specifier: 3.22.0
+        version: 3.22.0
+    devDependencies:
+      '@agent-deck/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/contracts:
     dependencies:
       effect:
@@ -180,6 +202,9 @@ importers:
         specifier: 3.25.67
         version: 3.25.67
     devDependencies:
+      '@agent-deck/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@earendil-works/pi-coding-agent':
         specifier: 0.80.3
         version: 0.80.3(ws@8.21.0)(zod@3.25.67)

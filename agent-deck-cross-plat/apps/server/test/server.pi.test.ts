@@ -17,6 +17,13 @@ import { startServer, type AgentDeckServer } from "../src/index.ts";
  * Full-stack slice-4 gate: REST creates a session backed by a REAL pi binary,
  * a WS client subscribes and prompts, and streaming arrives over the socket as
  * ordered, seq-stamped domain events. A second client replays from mid-stream.
+ *
+ * The socket speaks the Effect-RPC `/rpc` framing (the legacy `/ws` envelope was
+ * retired in Slice 7c): the {@link WsClient} helper wraps each command as a
+ * request frame and unwraps server frames back into bare `ServerMessage`s —
+ * `push` frames carry the domain-event/snapshot stream verbatim, and a failed
+ * `reply` becomes a synthetic `{ type: "error" }` message, exactly as the web
+ * `RpcClientTransport` surfaces server errors.
  */
 
 process.env.AGENT_DECK_TEST = "1";
@@ -39,10 +46,28 @@ class WsClient {
     resolve: (m: ServerMessage) => void;
   }> = [];
 
+  private nextId = 1;
+
   constructor(port: number) {
-    this.socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    this.socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`);
     this.socket.on("message", (raw: Buffer) => {
-      const message = JSON.parse(raw.toString("utf8")) as ServerMessage;
+      const frame = JSON.parse(raw.toString("utf8")) as {
+        kind: "push" | "reply" | "hello_ok";
+        message?: ServerMessage;
+        ok?: boolean;
+        error?: string;
+      };
+      // Unwrap RPC server frames into the bare ServerMessage surface the test
+      // asserts on: a `push` carries the event/snapshot stream verbatim; a
+      // failed `reply` becomes a synthetic error message (as the web transport
+      // does); acks (`reply` ok:true) and `hello_ok` are not exercised here.
+      let message: ServerMessage | null = null;
+      if (frame.kind === "push" && frame.message) {
+        message = frame.message;
+      } else if (frame.kind === "reply" && frame.ok === false) {
+        message = { type: "error", message: frame.error ?? "rpc error" };
+      }
+      if (!message) return;
       this.messages.push(message);
       for (let i = this.waiters.length - 1; i >= 0; i -= 1) {
         if (this.waiters[i]!.predicate(message)) {
@@ -57,8 +82,9 @@ class WsClient {
     await new Promise<void>((resolve) => this.socket.once("open", resolve));
   }
 
-  send(message: unknown): void {
-    this.socket.send(JSON.stringify(message));
+  /** Send one client command, wrapped as an id-correlated RPC request frame. */
+  send(request: unknown): void {
+    this.socket.send(JSON.stringify({ id: this.nextId++, request }));
   }
 
   async waitFor(

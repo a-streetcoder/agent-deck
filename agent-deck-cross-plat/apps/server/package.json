@@ -13,6 +13,7 @@
     "test:pi": "vitest run --config vitest.pi.config.ts"
   },
   "dependencies": {
+    "@agent-deck/contracts": "workspace:*",
     "@agent-deck/domain": "workspace:*",
     "@agent-deck/mcp": "workspace:*",
     "@agent-deck/memory": "workspace:*",

@@ -1,5 +1,5 @@
 import { AppWindow, Braces, Folder, GitBranch, type LucideIcon } from "lucide-react";
-import type { ProjectType } from "@agent-deck/domain";
+import type { ProjectType } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
 import { PROJECT_TYPE_ICONS } from "../assets/projectIcons.ts";
 

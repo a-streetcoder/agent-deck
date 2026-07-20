@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
-import { extensionBridgeConflict, type ServerMessage, type SessionMeta } from "@agent-deck/domain";
+import type { ServerMessage, SessionMeta } from "@agent-deck/contracts";
+import { extensionBridgeConflict } from "@agent-deck/domain";
 import {
   appendSystemPromptPath,
   defaultRoots,
@@ -541,7 +542,7 @@ async function initServer(
   // WebSocket layer (wsHandler.ts): socket accept, subscribe/replay,
   // client-message dispatch. Set up before the route modules register so
   // `broadcast` is live when they capture it.
-  const { wss, broadcast: wsBroadcast } = setupWebSocket({ fastify, sessions });
+  const { close: closeWebSockets, broadcast: wsBroadcast } = setupWebSocket({ fastify, sessions });
   broadcast = wsBroadcast;
 
   // One coarse watcher: global catalogs at boot, project dirs added as
@@ -634,7 +635,7 @@ async function initServer(
         await step(() => resourceWatcher.close());
         await step(() => sessions.stopAll());
         await step(() => mcp.close());
-        await step(() => wss.close());
+        await step(() => closeWebSockets());
         await step(() => fastify.close());
       } finally {
         // Dispose LAST, after the HTTP/WS surface is gone (see startServer).

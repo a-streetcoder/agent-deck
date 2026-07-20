@@ -2,12 +2,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type {
-  SessionMeta,
-  SessionPlanItem,
-  SessionPlanUpdate,
-  TranscriptState,
-} from "@agent-deck/domain";
+import type { SessionMeta } from "@agent-deck/contracts";
+import type { SessionPlanItem, SessionPlanUpdate, TranscriptState } from "@agent-deck/domain";
 import {
   buildLaunchArgs,
   resolvePiBinary,

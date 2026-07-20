@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import nodePath from "node:path";
-import type { ProjectMeta, PromptInfo } from "@agent-deck/domain";
+import type { ProjectMeta } from "@agent-deck/contracts";
+import type { PromptInfo } from "@agent-deck/domain";
 import { listProjectFiles, scanPrompts, scanSkills } from "@agent-deck/resources";
 import { z } from "zod";
 import {

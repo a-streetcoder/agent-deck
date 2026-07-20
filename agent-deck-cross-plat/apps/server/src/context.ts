@@ -1,5 +1,5 @@
 import nodePath from "node:path";
-import type { ServerMessage } from "@agent-deck/domain";
+import type { ServerMessage } from "@agent-deck/contracts";
 import type { MemorySearchHit, MemoryStore } from "@agent-deck/memory";
 import type { ProviderLoginManager, ResourceRoots } from "@agent-deck/resources";
 import type { FastifyInstance } from "fastify";

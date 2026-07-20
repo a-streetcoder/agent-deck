@@ -1,4 +1,4 @@
-import type { ProjectMeta } from "@agent-deck/domain";
+import type { ProjectMeta } from "@agent-deck/contracts";
 
 /**
  * A session's shown title: pi's generated title once it exists, otherwise a
