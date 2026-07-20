@@ -307,6 +307,13 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
   after a working-tree write → receipt + push + both ops over `/rpc`. Client
   transport ignores the new frame kinds until Slice 10 (decode-safe, no web
   code this slice; visual baselines untouched).
+  Review majors fixed on landing: `--literal-pathspecs` on gitDiffFilePatch
+  (glob names like `app/[id]/page.tsx` were expanding to sibling files'
+  diffs — reproduced) and the turn-boundary spawn storm replaced by a cheap
+  scan (3 git spawns + fs.stat untracked identity) gating the per-file
+  numstat pass, with a 2s racily-clean guard on the fs.stat fingerprint.
+  Also: darwin CI skip for the real node-pty smoke test (spawn-helper exec
+  permission on mac runners; linux+windows ship targets green through e2e).
 
 ### Slice 10 — Diff panel + changed-files tree (web)
 
