@@ -383,12 +383,11 @@ struct PiAgentStartupResourcesPopover: View {
 
     private var envItems: [PiStartupResourceItem] {
         startupSnapshot.envKeys.map { env in
-            let scope = env.source.kind.rawValue.lowercased()
             let title: String
             if let value = env.value, !value.isEmpty {
-                title = "\(env.key) = \(masked(value)) · \(scope)"
+                title = "\(env.key) = \(masked(value))"
             } else {
-                title = "\(env.key) · \(scope)"
+                title = env.key
             }
             return .init(title: title, detail: env.source.path, kind: .environment)
         }

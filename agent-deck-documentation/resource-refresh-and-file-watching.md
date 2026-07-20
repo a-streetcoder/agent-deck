@@ -23,7 +23,7 @@ The watched roots are derived from the same paths used by the scanner, including
 
 - `~/.pi/agent` resource folders
 - global compatibility `~/.agents` paths
-- selected project `.pi/settings.json` and `.pi/.env` metadata
+- selected project `.pi/settings.json` metadata
 - imported external skill and prompt paths
 - directories containing currently discovered agent, skill, and prompt files
 

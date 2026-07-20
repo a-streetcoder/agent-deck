@@ -2,27 +2,21 @@ import AppKit
 import SwiftUI
 
 /// One editable key/value pair in `EnvEditorSheet`. The `id` keeps SwiftUI's
-/// `ForEach` stable while rows are added and removed; `isGlobal` routes a new
-/// key to the global `.env` file instead of the project one.
+/// `ForEach` stable while rows are added and removed.
 private struct EnvKeyEntry: Identifiable, Equatable {
     let id = UUID()
     var key: String = ""
     var value: String = ""
-    var isGlobal: Bool = false
 }
 
-/// Editor for environment keys. Creates one or more keys — each routed to the
-/// project or global `.env` file with its own toggle — or edits a single
-/// existing key. Follows the shared modal-sheet chrome (compact `.headline`
+/// Editor for global environment keys. Creates one or more keys in
+/// `~/.pi/agent/.env`, or edits a single existing key. Follows the shared modal-sheet chrome (compact `.headline`
 /// header, dividers, Cancel/Save footer) and surfaces problems as an inline
 /// footer error instead of only beeping.
 struct EnvEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let draft: EnvEditorDraft
-    /// Root of the active project, or `nil` when none is selected. With no
-    /// project open every new key is global and the per-row toggle is hidden.
-    let projectRoot: String?
     let onCancel: () -> Void
     /// Persists every draft the sheet produces — several when creating keys, a
     /// single one when editing. Throwing surfaces as an inline footer error.
@@ -33,35 +27,22 @@ struct EnvEditorSheet: View {
 
     init(
         draft: EnvEditorDraft,
-        projectRoot: String?,
         onCancel: @escaping () -> Void,
         onSave: @escaping ([EnvEditorDraft]) throws -> Void
     ) {
         self.draft = draft
-        self.projectRoot = projectRoot
         self.onCancel = onCancel
         self.onSave = onSave
         _entries = State(initialValue: [
-            EnvKeyEntry(key: draft.key, value: draft.value, isGlobal: draft.scope == .global)
+            EnvKeyEntry(key: draft.key, value: draft.value)
         ])
     }
 
     private var isNew: Bool { draft.originalKey == nil }
     private let keyColumnWidth: CGFloat = 200
-    private let scopeColumnWidth: CGFloat = 56
     private let removeColumnWidth: CGFloat = 22
 
-    /// The per-row Global toggle is only meaningful when creating keys with a
-    /// project open — otherwise every key is global and the column is hidden.
-    private var showsScopeColumn: Bool { isNew && projectRoot != nil }
-
-    private var globalEnvPath: String {
-        EnvPersistence.envFilePath(scope: .global, projectRoot: projectRoot)
-    }
-
-    private var projectEnvPath: String {
-        EnvPersistence.envFilePath(scope: .project, projectRoot: projectRoot)
-    }
+    private var globalEnvPath: String { EnvPersistence.envFilePath }
 
     private var canSave: Bool {
         entries.contains { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -117,7 +98,7 @@ struct EnvEditorSheet: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
 
-                scopeLegend
+                targetPath
             }
         }
         .padding(18)
@@ -130,10 +111,6 @@ struct EnvEditorSheet: View {
                 .frame(width: keyColumnWidth, alignment: .leading)
             Text("Value")
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if showsScopeColumn {
-                Text("Global")
-                    .frame(width: scopeColumnWidth)
-            }
             if isNew {
                 Color.clear.frame(width: removeColumnWidth, height: 1)
             }
@@ -149,13 +126,6 @@ struct EnvEditorSheet: View {
                 .frame(width: keyColumnWidth)
             AppTextField(text: entry.value, placeholder: "")
                 .frame(maxWidth: .infinity)
-            if showsScopeColumn {
-                Toggle("", isOn: entry.isGlobal)
-                    .appCheckbox()
-                    .labelsHidden()
-                    .frame(width: scopeColumnWidth)
-                    .help("Store this key in the global ~/.pi/agent/.env file instead of the project's .pi/.env")
-            }
             if isNew {
                 Button {
                     entries.removeAll { $0.id == entry.wrappedValue.id }
@@ -172,17 +142,8 @@ struct EnvEditorSheet: View {
         }
     }
 
-    /// Maps the per-row Global toggle to concrete files so it's clear where
-    /// checked and unchecked keys are written.
-    private var scopeLegend: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if showsScopeColumn {
-                legendRow("Project", projectEnvPath)
-                legendRow("Global", globalEnvPath)
-            } else {
-                legendRow("Global", globalEnvPath)
-            }
-        }
+    private var targetPath: some View {
+        legendRow("Writes to", globalEnvPath)
     }
 
     private func legendRow(_ label: String, _ path: String) -> some View {
@@ -251,8 +212,7 @@ struct EnvEditorSheet: View {
         let cleaned = entries.map {
             (
                 key: $0.key.trimmingCharacters(in: .whitespacesAndNewlines),
-                value: $0.value,
-                isGlobal: $0.isGlobal
+                value: $0.value
             )
         }
         // When creating, an untouched blank row is simply ignored; an edit keeps
@@ -263,9 +223,7 @@ struct EnvEditorSheet: View {
             throw ValidationError("Enter a key name before saving.")
         }
 
-        // A duplicate key is only a conflict within the same file — the same
-        // name in the project and global files is allowed.
-        var seenPerFile: [String: Set<String>] = [:]
+        var seenKeys: Set<String> = []
         return try rows.map { row in
             guard !row.key.isEmpty else {
                 throw ValidationError("Every key needs a name.")
@@ -274,27 +232,15 @@ struct EnvEditorSheet: View {
                 throw ValidationError("“\(row.key)” isn’t a valid key name — use letters, numbers, and underscores, and don’t start with a number.")
             }
 
-            // An edit stays in the file its key already lives in; a new key
-            // follows its own Global toggle (always global with no project).
-            let scope: ResourceScopeKind
-            let path: String
-            if isNew {
-                scope = (row.isGlobal || projectRoot == nil) ? .global : .project
-                path = EnvPersistence.envFilePath(scope: scope, projectRoot: projectRoot)
-            } else {
-                scope = draft.scope
-                path = draft.path
-            }
-
-            guard seenPerFile[path, default: []].insert(row.key).inserted else {
+            guard seenKeys.insert(row.key).inserted else {
                 throw ValidationError("“\(row.key)” is listed more than once.")
             }
             return EnvEditorDraft(
                 originalKey: draft.originalKey,
                 key: row.key,
                 value: row.value,
-                path: path,
-                scope: scope
+                path: globalEnvPath,
+                scope: .global
             )
         }
     }

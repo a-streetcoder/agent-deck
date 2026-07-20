@@ -622,7 +622,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertFalse(stdin.contains("set_model"))
     }
 
-    func testEnvRuntimeEnvironmentMergesBaseGlobalProjectAndRuntimePrecedence() throws {
+    func testEnvRuntimeEnvironmentMergesBaseGlobalAndRuntimePrecedence() throws {
         let directory = try PiTestSupport.temporaryProjectURL()
         let globalEnv = directory.appendingPathComponent("global.env")
         let projectEnv = directory.appendingPathComponent(".pi/.env")
@@ -642,7 +642,6 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
 
         let environment = EnvRuntimeEnvironment().environment(
             globalEnv: globalEnv,
-            projectEnv: projectEnv,
             base: [
                 "SHARED": "base",
                 "BASE_ONLY": "base-value"
@@ -652,14 +651,14 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
 
         XCTAssertEqual(environment["BASE_ONLY"], "base-value")
         XCTAssertEqual(environment["GLOBAL_ONLY"], "global-value")
-        XCTAssertEqual(environment["PROJECT_ONLY"], "project-value")
+        XCTAssertNil(environment["PROJECT_ONLY"])
         XCTAssertEqual(environment["QUOTED"], "hello world")
-        XCTAssertEqual(environment["SHARED"], "project")
+        XCTAssertEqual(environment["SHARED"], "global")
         XCTAssertEqual(environment["AGENT_DECK_PARENT_SESSION_ID"], "runtime-good")
         XCTAssertNil(environment["INVALID-NAME"])
     }
 
-    func testParentSessionInjectsProjectEnvIntoPiProcess() throws {
+    func testParentSessionDoesNotInjectProjectEnvIntoPiProcess() throws {
         let harness = try PiTestSupport.makeEnvCaptureHarness(keys: [
             "AGENT_DECK_ENV_SMOKE",
             "AGENT_DECK_ENV_COLLIDE",
@@ -690,8 +689,8 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
 
         XCTAssertTrue(PiTestSupport.waitUntil { FileManager.default.fileExists(atPath: harness.envLog.path) })
         let captured = PiTestSupport.capturedEnvironment(in: harness.envLog)
-        XCTAssertEqual(captured["AGENT_DECK_ENV_SMOKE"], "project-value")
-        XCTAssertEqual(captured["AGENT_DECK_ENV_COLLIDE"], "project-wins")
+        XCTAssertEqual(captured["AGENT_DECK_ENV_SMOKE"], "")
+        XCTAssertEqual(captured["AGENT_DECK_ENV_COLLIDE"], "base")
         XCTAssertEqual(captured["AGENT_DECK_PARENT_SESSION_ID"], session.id.uuidString)
         XCTAssertEqual(captured["AGENT_DECK_OPENAI_FAST_CONFIG"], PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path)
     }

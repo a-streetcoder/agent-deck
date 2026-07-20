@@ -30,7 +30,7 @@ filesystem/settings/packages/projects
 
 ## Scan pipeline
 
-`AppViewModel.refresh()` calls `AppRefreshService.loadSnapshot`, which discovers projects, scans global/project resources with `PiScanner`, and computes file-watch fingerprints. `PiScanner` parses agents, skills, prompts, settings, env keys, runtime commands, packages, and warnings into `ScanSnapshot`.
+`AppViewModel.refresh()` calls `AppRefreshService.loadSnapshot`, which discovers projects, scans global/project resources with `PiScanner`, and computes file-watch fingerprints. `PiScanner` parses agents, skills, prompts, settings, global env keys, runtime commands, packages, and warnings into `ScanSnapshot`.
 
 Resource refresh is event-driven while the app is active: `FileWatchEventMonitor` listens for macOS FSEvents on the current watched roots, debounces change bursts, then runs the existing fingerprint check before refreshing. A slow fallback fingerprint check remains as a safety net. See `agent-deck-documentation/resource-refresh-and-file-watching.md`.
 

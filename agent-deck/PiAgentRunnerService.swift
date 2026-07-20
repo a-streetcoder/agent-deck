@@ -790,7 +790,6 @@ final class PiAgentRunnerService {
             let sessionID = session.id
             let clientRunID = UUID()
             let environment = EnvRuntimeEnvironment().environment(
-                projectRoot: projectURL,
                 extra: [
                     "AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString,
                     "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path

@@ -28,7 +28,6 @@ nonisolated struct PiScanner: @unchecked Sendable {
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
 
         let projectSettings = projectRoot?.appendingPathComponent(".pi/settings.json")
-        let projectEnv = projectRoot?.appendingPathComponent(".pi/.env")
 
         let builtinAgents = scanAgents(at: bundledAgentsDirectory(), scope: .builtin)
         let bundledSkills = scanSkills(at: bundledSkillsDirectory(), scope: .builtin)
@@ -60,9 +59,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
         )
         let librarySkills = deduplicatedByCanonicalPath(scanExternalSkills(paths: externalSkillPaths))
 
-        let envKeys =
-            scanEnv(at: globalEnv, scope: .global) +
-            scanEnv(at: projectEnv, scope: .project)
+        let envKeys = scanEnv(at: globalEnv, scope: .global)
 
         let globalSettingsSummary = settings.first(where: { $0.path == globalSettings.path })
         let promptScan = scanPromptTemplates(

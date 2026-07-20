@@ -8,35 +8,25 @@ struct EnvPersistence {
             originalKey: record.key,
             key: record.key,
             value: record.value ?? "",
-            path: record.source.path,
-            scope: record.source.kind
+            path: Self.envFilePath,
+            scope: .global
         )
     }
 
-    func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?, prefilledKey: String? = nil) -> EnvEditorDraft {
-        let scopeKind: ResourceScopeKind = scope == .project ? .project : .global
-        return EnvEditorDraft(
+    func makeNewDraft(prefilledKey: String? = nil) -> EnvEditorDraft {
+        EnvEditorDraft(
             originalKey: nil,
             key: prefilledKey ?? "",
             value: "",
-            path: Self.envFilePath(scope: scopeKind, projectRoot: projectRoot),
-            scope: scopeKind
+            path: Self.envFilePath,
+            scope: .global
         )
     }
 
-    /// Absolute path of the `.env` file backing a given scope. `project` resolves
-    /// to `<projectRoot>/.pi/.env`; every other scope resolves to the shared
-    /// `~/.pi/agent/.env`. Exposed statically so the editor sheet can retarget a
-    /// new key live when the user flips the scope picker.
-    static func envFilePath(scope: ResourceScopeKind, projectRoot: String?) -> String {
-        switch scope {
-        case .project:
-            return URL(fileURLWithPath: projectRoot ?? "")
-                .appendingPathComponent(".pi/.env").path
-        default:
-            return FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".pi/agent/.env").path
-        }
+    /// Canonical global `.env` path managed by Agent Deck.
+    static var envFilePath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/.env").path
     }
 
     func save(_ draft: EnvEditorDraft) throws {
@@ -121,9 +111,7 @@ struct EnvPersistence {
     }
 
     private func isWritableEnvPath(_ path: String) -> Bool {
-        let home = fileManager.homeDirectoryForCurrentUser.path
-        if path == URL(fileURLWithPath: home).appendingPathComponent(".pi/agent/.env").path { return true }
-        return path.contains("/.pi/.env")
+        path == Self.envFilePath
     }
 }
 
@@ -139,27 +127,24 @@ struct EnvRuntimeEnvironment {
         self.fileManager = fileManager
     }
 
-    func environment(projectRoot: URL?, base: [String: String] = ProcessInfo.processInfo.environment, extra: [String: String] = [:]) -> [String: String] {
+    func environment(base: [String: String] = ProcessInfo.processInfo.environment, extra: [String: String] = [:]) -> [String: String] {
         let globalEnv = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env")
-        let projectEnv = projectRoot?.appendingPathComponent(".pi/.env")
-        return environment(globalEnv: globalEnv, projectEnv: projectEnv, base: base, extra: extra)
+        return environment(globalEnv: globalEnv, base: base, extra: extra)
     }
 
-    func environment(globalEnv: URL?, projectEnv: URL?, base: [String: String] = ProcessInfo.processInfo.environment, extra: [String: String] = [:]) -> [String: String] {
+    func environment(globalEnv: URL?, base: [String: String] = ProcessInfo.processInfo.environment, extra: [String: String] = [:]) -> [String: String] {
         var merged = base
-        for file in parsedFiles(globalEnv: globalEnv, projectEnv: projectEnv) {
+        if let file = parsedFile(at: globalEnv) {
             merged.merge(file.values) { _, new in new }
         }
         merged.merge(extra) { _, new in new }
         return merged
     }
 
-    func parsedFiles(globalEnv: URL?, projectEnv: URL?) -> [ParsedFile] {
-        [globalEnv, projectEnv].compactMap { url in
-            guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-            let values = parse(text)
-            return values.isEmpty ? nil : ParsedFile(path: url.path, values: values)
-        }
+    private func parsedFile(at url: URL?) -> ParsedFile? {
+        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let values = parse(text)
+        return values.isEmpty ? nil : ParsedFile(path: url.path, values: values)
     }
 
     private func parse(_ text: String) -> [String: String] {

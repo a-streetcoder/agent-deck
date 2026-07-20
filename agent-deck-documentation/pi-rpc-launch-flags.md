@@ -137,7 +137,7 @@ Runtime context/resources:
 
 - Working directory is the session project/worktree path.
 - Before spawning Pi, Agent Deck resolves launch-time resources such as the scoped MCP catalog and memory append prompts. A 45-second watchdog fails this preparation with an actionable transcript error if a provider does not return; Pi is not spawned and an existing session file is not changed.
-- Environment is produced by `EnvRuntimeEnvironment().environment(projectRoot:extra:)` and includes merged global/project `.env` values plus `AGENT_DECK_PARENT_SESSION_ID=<uuid>`.
+- Environment is produced by `EnvRuntimeEnvironment().environment(extra:)` and includes global `~/.pi/agent/.env` values plus `AGENT_DECK_PARENT_SESSION_ID=<uuid>`.
 - Ambient extension discovery is disabled.
 - Explicit Agent Deck extensions are loaded:
   - system-prompt audit extension, which captures the final Pi prompt back into Agent Deck;
@@ -209,7 +209,7 @@ Runtime context/resources:
 - Continuations write per-turn artifacts under `<artifact-dir>/turns/<turn-id>/`, resume the prior child Pi session, and update the same parent chat card.
 - Child session files for fresh runs are stored under `<artifact-dir>/sessions`.
 - The user prompt sent over RPC includes the concrete task, expected outcome, artifact directory, and optional read-first path hints. Continuation prompts say the prior child session is available but the new task is authoritative.
-- Environment includes merged `.env` values plus:
+- Environment includes global `~/.pi/agent/.env` values plus:
   - `AGENT_DECK_NATIVE_SUBAGENT=1`
   - `AGENT_DECK_SUBAGENT_RUN_ID=<uuid>`
   - `AGENT_DECK_SUBAGENT_AGENT=<agent name>`

@@ -961,7 +961,7 @@ struct PiNativeSubagentBridgeExtensions {
 
         async function exa(path: "search" | "contents", body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
             const key = apiKey();
-            if (!key) throw new Error("Missing EXA_API_KEY. Add it in Agent Deck Environment settings or your .pi/.env file.");
+            if (!key) throw new Error("Missing EXA_API_KEY. Add it in Agent Deck Environment settings or ~/.pi/agent/.env.");
             const response = await fetch(`https://api.exa.ai/${path}`, {
                 method: "POST",
                 headers: {

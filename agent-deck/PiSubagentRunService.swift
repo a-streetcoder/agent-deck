@@ -95,7 +95,6 @@ final class PiSubagentRunService {
             : nil
         let childProjectURL = worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentProjectPath)
         let environment = EnvRuntimeEnvironment().environment(
-            projectRoot: childProjectURL,
             extra: [
                 "AGENT_DECK_NATIVE_SUBAGENT": "1",
                 "AGENT_DECK_SUBAGENT_RUN_ID": runID.uuidString,

@@ -38,7 +38,7 @@ Pi is the coding agent. Agent Deck is the native macOS workspace around it — n
 - Organize agents, skills, reusable prompts, and slash commands for a project or across projects.
 - Delegate research, planning, implementation, or review to app-managed subagents and track their results.
 - Start from a GitHub issue, work in an isolated branch and worktree, then review, commit, push, or merge the result.
-- Browse available models and providers, set session or agent preferences, and manage scoped environment files with secret masking.
+- Browse available models and providers, set session or agent preferences, and manage global environment keys with secret masking.
 - Keep project-specific Markdown memory for decisions and runbooks, with secret scanning on memory writes.
 - Use Doctor and onboarding to find, install, and update Pi.
 

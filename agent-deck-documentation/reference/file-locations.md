@@ -12,7 +12,7 @@ This page lists the important paths Agent Deck scans or writes.
 | Pi global settings | `~/.pi/agent/settings.json` |
 | Pi project settings | `PROJECT/.pi/settings.json` |
 | Pi global env | `~/.pi/agent/.env` |
-| Pi project env | `PROJECT/.pi/.env` |
+| Pi project env | `PROJECT/.pi/.env` (not managed, scanned, watched, or injected by Agent Deck) |
 | Agent Deck app data | `~/Library/Application Support/Agent Deck/` |
 | Pi parent session history | `~/.pi/agent/sessions/**/<session>.jsonl` |
 | Agent Deck transcript records | `~/Library/Application Support/Agent Deck/agent-session-transcripts/parent-<session-id>.json` |

@@ -5218,7 +5218,7 @@ final class AppViewModel: NSObject {
             throw ReleaseNotesGenerationService.GenerationError.rpc("No project is selected.")
         }
         let commits = try await gitRepositoryService.commitSubjects(sinceTag: sinceTag, in: projectURL)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        let environment = EnvRuntimeEnvironment().environment()
         return try await releaseNotesGenerator.generate(
             version: version,
             commitSubjects: commits,
@@ -5365,7 +5365,7 @@ final class AppViewModel: NSObject {
 
         let sessionID = session.id
         let projectURL = URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        let environment = EnvRuntimeEnvironment().environment()
         piAgentGitAutomationAction = pushAfterCommit ? .commitAndPush : .commit
 
         Task { [weak self] in
@@ -5420,7 +5420,7 @@ final class AppViewModel: NSObject {
         let sessionID = session.id
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
         let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: worktreeURL)
+        let environment = EnvRuntimeEnvironment().environment()
         let keepWorktreeAfterMerge = appSettings.piAgentSessionsKeepWorktreeAfterMerge
         piAgentGitAutomationAction = .merge
 
@@ -5742,7 +5742,7 @@ final class AppViewModel: NSObject {
         piAgentTitleGeneratingSessionIDs.insert(sessionID)
         let projectURL = session.launchWorkingDirectory
         try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        let environment = EnvRuntimeEnvironment().environment()
         piSessionTitleGenerator.updateTitle(
             currentTitle: session.title,
             latestUserMessage: latestUserMessage,
@@ -5779,7 +5779,7 @@ final class AppViewModel: NSObject {
         piAgentTitleGeneratingSessionIDs.insert(session.id)
         let projectURL = session.launchWorkingDirectory
         try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        let environment = EnvRuntimeEnvironment().environment()
         piSessionTitleGenerator.generateTitle(
             for: trimmedMessage,
             model: model,
@@ -7001,7 +7001,7 @@ final class AppViewModel: NSObject {
         }
         let projectPath = agent.projectRoot ?? selectedProjectPath ?? primaryProjectsRootPath
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        let environment = EnvRuntimeEnvironment().environment()
         return try await agentAvatarPromptService.generatePrompt(for: agent, model: model, projectURL: projectURL, environment: environment)
     }
 
@@ -7034,7 +7034,7 @@ final class AppViewModel: NSObject {
         }
         let projectPath = selectedProjectPath ?? primaryProjectsRootPath
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        let environment = EnvRuntimeEnvironment().environment()
         let summary = try await skillDescriptionService.generate(
             skillContent: skillContent,
             model: model,
@@ -8057,8 +8057,7 @@ final class AppViewModel: NSObject {
     }
 
     private func isExaConfigured(for target: AgentEditingTarget) -> Bool {
-        let projectRoot = scopeSnapshot(for: target).projectRoot.map { URL(fileURLWithPath: $0) }
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectRoot)
+        let environment = EnvRuntimeEnvironment().environment()
         return PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
     }
 
@@ -10551,14 +10550,13 @@ final class AppViewModel: NSObject {
         envPersistence.makeDraft(for: record)
     }
 
-    func makeNewEnvDraft(scope: AgentEditingTarget.CustomAgentScope, prefilledKey: String? = nil) -> EnvEditorDraft {
-        envPersistence.makeNewDraft(scope: scope, projectRoot: selectedProjectPath, prefilledKey: prefilledKey)
+    func makeNewEnvDraft(prefilledKey: String? = nil) -> EnvEditorDraft {
+        envPersistence.makeNewDraft(prefilledKey: prefilledKey)
     }
 
     func saveEnvDrafts(_ drafts: [EnvEditorDraft]) throws {
         guard !drafts.isEmpty else { return }
-        // A batch may target both the project and the global file, so refresh
-        // every distinct destination once. Recording inside the loop and
+        // A batch targets the global file. Recording inside the loop and
         // refreshing in `defer` keeps refreshes running for files already
         // written even if a later save throws.
         var written: [(scope: ResourceScopeKind, path: String)] = []

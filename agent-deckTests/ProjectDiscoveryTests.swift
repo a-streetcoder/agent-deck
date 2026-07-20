@@ -2,6 +2,26 @@ import XCTest
 @testable import agent_deck
 
 final class ProjectDiscoveryTests: XCTestCase {
+    func testFileWatchIgnoresProjectEnvButKeepsProjectSettingsAndImportedDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-deck-watch-targets-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let piRoot = root.appendingPathComponent(".pi", isDirectory: true)
+        let settings = piRoot.appendingPathComponent("settings.json")
+        let environment = piRoot.appendingPathComponent(".env")
+        let importedSkill = root.appendingPathComponent("Imported/Skill", isDirectory: true)
+        try FileManager.default.createDirectory(at: importedSkill, withIntermediateDirectories: true)
+        let targets = FileWatchEventMonitor.eventTargets(for: [settings, importedSkill])
+
+        XCTAssertTrue(FileWatchEventMonitor.shouldRefresh(eventPaths: [settings.path], targets: targets))
+        XCTAssertFalse(FileWatchEventMonitor.shouldRefresh(eventPaths: [environment.path], targets: targets))
+        XCTAssertTrue(FileWatchEventMonitor.shouldRefresh(
+            eventPaths: [importedSkill.appendingPathComponent("SKILL.md").path],
+            targets: targets
+        ))
+    }
+
     func testRootLevelDependencyDirectoriesAreNotProjects() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("project-discovery-\(UUID().uuidString)", isDirectory: true)

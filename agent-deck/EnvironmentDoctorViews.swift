@@ -10,9 +10,8 @@ struct EnvironmentInfoPopover: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 infoRow("1. App launch environment", "Variables already present when Agent Deck launches are available first.")
-                infoRow("2. Global", "Agent Deck reads global keys from `~/.pi/agent/.env`.")
-                infoRow("3. Project", "When a project is selected, `.pi/.env` overrides matching global keys.")
-                infoRow("4. Runtime", "Agent Deck appends its own runtime variables last when starting new Pi sessions.")
+                infoRow("2. Global", "Agent Deck reads keys from `~/.pi/agent/.env`.")
+                infoRow("3. Runtime", "Agent Deck appends its own runtime variables last when starting new Pi sessions.")
             }
 
             Text("Existing sessions keep the environment they started with. Start a new session to use saved changes.")
@@ -45,29 +44,20 @@ struct EnvironmentScreen: View {
     @State private var pendingDelete: EnvKeyRecord?
 
     var body: some View {
-        AppPage("Environment", subtitle: "Manage the keys Agent Deck injects into new Pi sessions") {
+        AppPage("Environment", subtitle: "Manage the global keys Agent Deck injects into new Pi sessions") {
             AppCard(title: "Environment Keys") {
                 VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(snapshot.projectRoot == nil
-                             ? "Showing discovered global keys. Select a project to see project overrides."
-                             : "Showing the effective environment for the selected project. Project keys override global keys.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
+                    Text("Agent Deck reads and writes global keys in `~/.pi/agent/.env`. Values stay hidden until revealed; new Pi sessions pick up saved changes automatically.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                        Text("Values stay hidden until revealed. Editing a key writes back to its source `.env` file; new Pi sessions pick up changes automatically.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    if effectiveEnvRows.isEmpty {
+                    if snapshot.envKeys.isEmpty {
                         emptyEnvironmentState
                     } else {
                         VStack(spacing: 10) {
-                            ForEach(effectiveEnvRows, id: \.key) { row in
-                                environmentKeyRow(row)
+                            ForEach(snapshot.envKeys.sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }) { record in
+                                environmentKeyRow(record)
                             }
                         }
                     }
@@ -98,7 +88,7 @@ struct EnvironmentScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("No environment keys yet", systemImage: "key")
                 .font(.body.weight(.semibold))
-            Text("Use the toolbar’s New Key button to add credentials like EXA_API_KEY. Agent Deck stores them in the same `.env` files it reads at runtime.")
+            Text("Use the toolbar’s New Key button to add credentials like EXA_API_KEY. Agent Deck stores them in `~/.pi/agent/.env`.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -107,7 +97,7 @@ struct EnvironmentScreen: View {
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentSubtleFill))
     }
 
-    private func environmentKeyRow(_ row: EffectiveEnvRow) -> some View {
+    private func environmentKeyRow(_ record: EnvKeyRecord) -> some View {
         AppRowCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
@@ -116,15 +106,10 @@ struct EnvironmentScreen: View {
                         .frame(width: 22)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text(row.key)
-                                .font(.body.monospaced().weight(.semibold))
-                                .textSelection(.enabled)
-                            if !row.overriddenRecords.isEmpty {
-                                AppLabelTag(text: "Overrides \(row.overriddenRecords.count)", color: .red)
-                            }
-                        }
-                        Text(row.winningSource.path)
+                        Text(record.key)
+                            .font(.body.monospaced().weight(.semibold))
+                            .textSelection(.enabled)
+                        Text(record.source.path)
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
                             .lineLimit(1)
@@ -133,13 +118,12 @@ struct EnvironmentScreen: View {
                     }
 
                     Spacer(minLength: 12)
-                    AppLabelTag(text: row.winningSource.kind.rawValue, color: row.winningSource.kind == .project ? .green : .orange)
                 }
 
                 HStack(spacing: 8) {
-                    Text(revealedKeys.contains(row.key) ? (row.winningRecord.value ?? "") : maskedValue(row.winningRecord.value))
+                    Text(revealedKeys.contains(record.key) ? (record.value ?? "") : maskedValue(record.value))
                         .font(.footnote.monospaced())
-                        .foregroundStyle(revealedKeys.contains(row.key) ? .primary : AppTheme.mutedText)
+                        .foregroundStyle(revealedKeys.contains(record.key) ? .primary : AppTheme.mutedText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
@@ -149,66 +133,19 @@ struct EnvironmentScreen: View {
                         .appGlassCapsule()
 
                     Button {
-                        toggleReveal(for: row.key)
+                        toggleReveal(for: record.key)
                     } label: {
-                        Label(revealedKeys.contains(row.key) ? "Hide" : "Reveal", systemImage: revealedKeys.contains(row.key) ? "eye.slash" : "eye")
+                        Label(revealedKeys.contains(record.key) ? "Hide" : "Reveal", systemImage: revealedKeys.contains(record.key) ? "eye.slash" : "eye")
                     }
                     .labelStyle(.iconOnly)
-                    .help(revealedKeys.contains(row.key) ? "Hide value" : "Reveal value")
+                    .help(revealedKeys.contains(record.key) ? "Hide value" : "Reveal value")
 
-                    Button("Edit") { onEditKey(row.winningRecord) }
+                    Button("Edit") { onEditKey(record) }
                     Button("Delete", role: .destructive) {
-                        pendingDelete = row.winningRecord
+                        pendingDelete = record
                     }
                 }
-
-                if !row.overriddenRecords.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(row.overriddenRecords, id: \.id) { record in
-                            Text("Overrides \(record.source.path)")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.mutedText)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    .padding(.leading, 34)
-                }
             }
-        }
-    }
-
-
-    private var effectiveEnvRows: [EffectiveEnvRow] {
-        var grouped: [String: [EnvKeyRecord]] = [:]
-        for record in snapshot.envKeys {
-            grouped[record.key, default: []].append(record)
-        }
-
-        return grouped.keys.sorted().compactMap { key in
-            guard let records = grouped[key], let winning = records.sorted(by: envPrecedence).first else { return nil }
-            let overridden = records.filter { $0.id != winning.id }
-            let summary: String
-            if overridden.isEmpty {
-                summary = winning.source.path
-            } else {
-                summary = "Using \(winning.source.path) over \(overridden.map { $0.source.path }.joined(separator: ", "))"
-            }
-            return EffectiveEnvRow(key: key, winningRecord: winning, winningSource: winning.source, overriddenRecords: overridden, summary: summary)
-        }
-    }
-
-
-    private func envPrecedence(_ lhs: EnvKeyRecord, _ rhs: EnvKeyRecord) -> Bool {
-        envRank(lhs.source.kind) > envRank(rhs.source.kind)
-    }
-
-    private func envRank(_ kind: ResourceScopeKind) -> Int {
-        switch kind {
-        case .project, .legacyProject:
-            return 2
-        default:
-            return 1
         }
     }
 
@@ -224,15 +161,6 @@ struct EnvironmentScreen: View {
             revealedKeys.insert(key)
         }
     }
-
-}
-
-struct EffectiveEnvRow {
-    let key: String
-    let winningRecord: EnvKeyRecord
-    let winningSource: ScopeID
-    let overriddenRecords: [EnvKeyRecord]
-    let summary: String
 }
 
 struct DoctorScreen: View {
@@ -335,7 +263,6 @@ struct DoctorScreen: View {
         .sheet(item: $envDraft) { draft in
             EnvEditorSheet(
                 draft: draft,
-                projectRoot: viewModel.selectedProjectPath,
                 onCancel: { envDraft = nil },
                 onSave: { drafts in
                     try viewModel.saveEnvDrafts(drafts)
@@ -979,7 +906,7 @@ struct DoctorScreen: View {
 
                 if title == "Exa Search", !hasExaAPIKey {
                     Button("Add EXA_API_KEY…") {
-                        envDraft = viewModel.makeNewEnvDraft(scope: .global, prefilledKey: "EXA_API_KEY")
+                        envDraft = viewModel.makeNewEnvDraft(prefilledKey: "EXA_API_KEY")
                     }
                     .appPrimaryButton()
                 }

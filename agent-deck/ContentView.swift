@@ -846,7 +846,6 @@ struct ContentView: View {
         .sheet(item: $envDraft) { draft in
             EnvEditorSheet(
                 draft: draft,
-                projectRoot: viewModel.selectedProjectPath,
                 onCancel: { envDraft = nil },
                 onSave: { drafts in
                     try viewModel.saveEnvDrafts(drafts)
@@ -1413,11 +1412,7 @@ struct ContentView: View {
                 .toolbarNeutralChrome()
 
                 Button {
-                    // The sheet itself carries the scope picker now — open it
-                    // defaulting to Project when one is selected, else Global.
-                    let scope: AgentEditingTarget.CustomAgentScope =
-                        viewModel.selectedProjectPath == nil ? .global : .project
-                    envDraft = viewModel.makeNewEnvDraft(scope: scope)
+                    envDraft = viewModel.makeNewEnvDraft()
                 } label: {
                     Label("New Key", systemImage: "plus")
                 }

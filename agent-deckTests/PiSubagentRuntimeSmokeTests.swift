@@ -121,7 +121,7 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
 
 @MainActor
 final class PiSubagentRunServiceSmokeTests: XCTestCase {
-    func testRunSingleInjectsProjectEnvIntoChildPiProcess() async throws {
+    func testRunSingleDoesNotInjectProjectEnvIntoChildPiProcess() async throws {
         let harness = try PiTestSupport.makeEnvCaptureHarness(keys: [
             "AGENT_DECK_ENV_CHILD_SMOKE",
             "AGENT_DECK_NATIVE_SUBAGENT",
@@ -149,7 +149,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
 
         XCTAssertTrue(PiTestSupport.waitUntil { FileManager.default.fileExists(atPath: harness.envLog.path) })
         let captured = PiTestSupport.capturedEnvironment(in: harness.envLog)
-        XCTAssertEqual(captured["AGENT_DECK_ENV_CHILD_SMOKE"], "child-project-value")
+        XCTAssertEqual(captured["AGENT_DECK_ENV_CHILD_SMOKE"], "")
         XCTAssertEqual(captured["AGENT_DECK_NATIVE_SUBAGENT"], "1")
         XCTAssertEqual(captured["AGENT_DECK_SUBAGENT_AGENT"], "explorer")
         XCTAssertEqual(captured["AGENT_DECK_OPENAI_FAST_CONFIG"], PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path)

@@ -160,7 +160,6 @@ nonisolated struct AppRefreshService: Sendable {
         for project in projects {
             let piRoot = project.url.appendingPathComponent(".pi", isDirectory: true)
             urls.append(piRoot.appendingPathComponent("settings.json"))
-            urls.append(piRoot.appendingPathComponent(".env"))
         }
 
         urls += snapshot.effectiveAgents.compactMap(\.sourcePath).map { URL(fileURLWithPath: $0) }
@@ -260,6 +259,7 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
     private let pathQueue = DispatchQueue(label: "app.agent-deck.file-watch-paths", qos: .utility)
     private let stateQueue = DispatchQueue(label: "app.agent-deck.file-watch-state", qos: .utility)
     private let generationLock = NSLock()
+    private let eventTargetsLock = NSLock()
     private let latency: CFTimeInterval
     private let onChange: () -> Void
 
@@ -267,6 +267,7 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
     private var isStopped = true
     private var stream: FSEventStreamRef?
     private var watchedPaths: [String] = []
+    private var eventTargets = EventTargets(exactPaths: [], directoryPaths: [])
 
     init(latency: CFTimeInterval = 0.75, onChange: @escaping () -> Void) {
         self.latency = latency
@@ -285,10 +286,13 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
         let updateGeneration = nextGeneration(isStopped: false)
         pathQueue.async { [self, urls, updateGeneration] in
             let paths = Self.watchPaths(for: urls)
-            stateQueue.async { [self, paths, updateGeneration] in
-                guard isCurrentGeneration(updateGeneration), paths != watchedPaths else { return }
+            let targets = Self.eventTargets(for: urls)
+            stateQueue.async { [self, paths, targets, updateGeneration] in
+                guard isCurrentGeneration(updateGeneration),
+                      paths != watchedPaths || targets != currentEventTargets() else { return }
                 stopOnStateQueue()
                 watchedPaths = paths
+                setEventTargets(targets)
                 startOnStateQueue(paths: paths)
             }
         }
@@ -300,6 +304,7 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
             guard self.isCurrentGeneration(stopGeneration) else { return }
             self.stopOnStateQueue()
             self.watchedPaths = []
+            self.setEventTargets(EventTargets(exactPaths: [], directoryPaths: []))
         }
         if DispatchQueue.getSpecific(key: Self.stateQueueKey) == true {
             stopStreams()
@@ -314,6 +319,7 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
             guard self.isCurrentGeneration(stopGeneration) else { return }
             self.stopOnStateQueue()
             self.watchedPaths = []
+            self.setEventTargets(EventTargets(exactPaths: [], directoryPaths: []))
         }
         if DispatchQueue.getSpecific(key: Self.stateQueueKey) == true {
             stopStreams()
@@ -361,10 +367,11 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
             copyDescription: nil
         )
 
-        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+        let callback: FSEventStreamCallback = { _, info, _, eventPaths, _, _ in
             guard let info else { return }
             let monitor = Unmanaged<FileWatchEventMonitor>.fromOpaque(info).takeUnretainedValue()
-            guard monitor.shouldDeliverEvents() else { return }
+            let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
+            guard monitor.shouldDeliverEvents(), monitor.hasRelevantEvent(in: paths) else { return }
             monitor.onChange()
         }
 
@@ -375,7 +382,7 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
             paths as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             latency,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagUseCFTypes)
         ) else {
             return
         }
@@ -383,6 +390,51 @@ nonisolated final class FileWatchEventMonitor: @unchecked Sendable {
         FSEventStreamSetDispatchQueue(stream, queue)
         FSEventStreamStart(stream)
         self.stream = stream
+    }
+
+    private func hasRelevantEvent(in paths: [String]) -> Bool {
+        Self.shouldRefresh(eventPaths: paths, targets: currentEventTargets())
+    }
+
+    private func currentEventTargets() -> EventTargets {
+        eventTargetsLock.lock()
+        defer { eventTargetsLock.unlock() }
+        return eventTargets
+    }
+
+    private func setEventTargets(_ targets: EventTargets) {
+        eventTargetsLock.lock()
+        eventTargets = targets
+        eventTargetsLock.unlock()
+    }
+
+    struct EventTargets: Equatable, Sendable {
+        let exactPaths: Set<String>
+        let directoryPaths: [String]
+    }
+
+    static func eventTargets(for urls: [URL]) -> EventTargets {
+        let fileManager = FileManager.default
+        var exactPaths: Set<String> = []
+        var directoryPaths: [String] = []
+        for url in urls {
+            let path = url.standardizedFileURL.path
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+                directoryPaths.append(path)
+            } else {
+                exactPaths.insert(path)
+            }
+        }
+        return EventTargets(exactPaths: exactPaths, directoryPaths: directoryPaths)
+    }
+
+    static func shouldRefresh(eventPaths: [String], targets: EventTargets) -> Bool {
+        eventPaths.contains { eventPath in
+            let path = URL(fileURLWithPath: eventPath).standardizedFileURL.path
+            return targets.exactPaths.contains(path)
+                || targets.directoryPaths.contains { path == $0 || path.hasPrefix($0 + "/") }
+        }
     }
 
     private static func watchPaths(for urls: [URL]) -> [String] {
