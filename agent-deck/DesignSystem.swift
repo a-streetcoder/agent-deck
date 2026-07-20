@@ -973,8 +973,7 @@ extension View {
     func appListStyle() -> some View {
         listStyle(.inset)
             .alternatingRowBackgrounds()
-            .scrollIndicators(.hidden)
-            .hideNativeScrollers()
+            .scrollIndicators(.never, axes: .vertical)
             .tint(AppTheme.brandAccent)
     }
 
@@ -1107,8 +1106,7 @@ struct AppPage<Content: View>: View {
                     )
                     .padding(AppTheme.pagePadding)
                 }
-                .scrollIndicators(.never)
-                .hideNativeScrollers()
+                .scrollIndicators(.never, axes: .vertical)
             }
         } else if lazy {
             GeometryReader { proxy in
@@ -1134,8 +1132,7 @@ struct AppPage<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .contentMargins(.horizontal, 0, for: .scrollContent)
-            .scrollIndicators(.never)
-            .hideNativeScrollers()
+            .scrollIndicators(.never, axes: .vertical)
         }
     }
 }

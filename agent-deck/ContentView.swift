@@ -107,47 +107,8 @@ extension View {
         }
     }
 
-    /// Hides the native macOS scroller for the nearest enclosing `NSScrollView`.
-    /// `.scrollIndicators(.hidden)` is unreliable for `List` — especially when the
-    /// system "Show scroll bars" preference is set to "Always" — so we reach down
-    /// to AppKit to guarantee no scrollers anywhere in the app.
-    func hideNativeScrollers() -> some View {
-        background(ScrollerHidingConfigurator())
-    }
 }
 
-private struct ScrollerHidingConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> ScrollerHidingProbe {
-        ScrollerHidingProbe()
-    }
-
-    func updateNSView(_ nsView: ScrollerHidingProbe, context: Context) {
-        nsView.suppressScrollers()
-    }
-}
-
-/// A scroller that occupies zero width and never draws. Installed onto a
-/// `List`'s `NSScrollView`, it makes the scroll indicator permanently invisible
-/// without fighting SwiftUI: `List` re-toggles `hasVerticalScroller` on every
-/// layout pass, but the scroller it toggles is this one — nothing to show.
-private final class HiddenScroller: NSScroller {
-    override class func scrollerWidth(
-        for controlSize: NSControl.ControlSize,
-        scrollerStyle: NSScroller.Style
-    ) -> CGFloat {
-        0
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        // Intentionally empty — the scroller renders nothing.
-    }
-}
-
-/// A zero-cost probe inserted via `.background(...)`. It locates the sibling
-/// `NSScrollView` it is layered behind — by matching frames window-wide, since
-/// SwiftUI does not make the scroll view a reachable ancestor — and swaps in
-/// `HiddenScroller`s. Once swapped, the scrollers stay hidden permanently
-/// regardless of how `List` re-renders, so there is no visible "fighting".
 /// Sets the host `NSWindow`'s background color so the theme's canvas shows through
 /// the app's transparent surfaces (the native transcript and the detail scroll
 /// views draw no background of their own). SwiftUI's `.background(Color)` only fills
@@ -407,94 +368,6 @@ struct AppInitialLoadWindowCover: NSViewRepresentable {
                 }
             }
         }
-    }
-}
-
-final class ScrollerHidingProbe: NSView {
-    /// The scroll view suppression last landed on. Once set and still alive in
-    /// this window with its `HiddenScroller`s in place, `suppressScrollers()`
-    /// is a no-op — without this, every SwiftUI update of an `AppList` (body
-    /// re-eval, hover churn, resize animation frames) re-queued the retry
-    /// ladder below, each pass walking the entire window view hierarchy.
-    private weak var suppressedScrollView: NSScrollView?
-    /// True while the retry ladder is in flight, so overlapping triggers
-    /// (viewDidMoveToWindow + updateNSView on the same pass) coalesce.
-    private var isRetryLadderScheduled = false
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        suppressScrollers()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        suppressScrollers()
-    }
-
-    func suppressScrollers() {
-        // Already pinned to a live scroll view in this window — nothing to do.
-        if let scrollView = suppressedScrollView,
-           scrollView.window === window,
-           scrollView.verticalScroller is HiddenScroller {
-            return
-        }
-        // Pin is stale (target deallocated, moved windows, or lost its hidden
-        // scroller) — drop it so the ladder below re-targets.
-        suppressedScrollView = nil
-        guard !isRetryLadderScheduled else { return }
-        isRetryLadderScheduled = true
-        // The target scroll view may not be laid out yet on the first pass, so
-        // retry across the next few runloop turns until it turns up.
-        let delays: [TimeInterval] = [0.0, 0.1, 0.3, 0.6, 1.0]
-        for (index, delay) in delays.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else { return }
-                if self.suppressedScrollView == nil { self.applySuppression() }
-                if index == delays.count - 1 { self.isRetryLadderScheduled = false }
-            }
-        }
-    }
-
-    private func applySuppression() {
-        guard let scrollView = targetScrollView() else { return }
-        suppressedScrollView = scrollView
-        scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        scrollView.scrollerStyle = .overlay
-        scrollView.autohidesScrollers = true
-        if !(scrollView.verticalScroller is HiddenScroller) {
-            scrollView.verticalScroller = HiddenScroller()
-        }
-        if !(scrollView.horizontalScroller is HiddenScroller) {
-            scrollView.horizontalScroller = HiddenScroller()
-        }
-    }
-
-    /// Among every scroll view in the window, pick the smallest one that covers
-    /// most of this probe — that is the list/scroll view we are layered behind.
-    private func targetScrollView() -> NSScrollView? {
-        guard let contentView = window?.contentView else { return nil }
-        let probe = convert(bounds, to: nil)
-        let probeArea = probe.width * probe.height
-        guard probeArea > 1 else { return nil }
-
-        var best: NSScrollView?
-        var bestArea = CGFloat.greatestFiniteMagnitude
-        var stack: [NSView] = [contentView]
-        while let view = stack.popLast() {
-            stack.append(contentsOf: view.subviews)
-            guard let scrollView = view as? NSScrollView else { continue }
-            let frame = scrollView.convert(scrollView.bounds, to: nil)
-            let overlap = frame.intersection(probe)
-            guard overlap.width * overlap.height >= probeArea * 0.6 else { continue }
-            let area = frame.width * frame.height
-            if area < bestArea {
-                bestArea = area
-                best = scrollView
-            }
-        }
-        return best
     }
 }
 

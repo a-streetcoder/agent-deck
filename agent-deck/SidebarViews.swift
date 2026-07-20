@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct SidebarNavigationRow: View {
@@ -289,8 +288,7 @@ struct ProjectPickerPopover: View {
                 }
                 .padding(.horizontal, 3)
             }
-            .scrollIndicators(.hidden)
-            .hideNativeScrollers()
+            .scrollIndicators(.never, axes: .vertical)
             .frame(width: 360, height: 220)
         }
         .padding(14)

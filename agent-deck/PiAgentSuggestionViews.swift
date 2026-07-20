@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import SwiftUI
 import UniformTypeIdentifiers
@@ -822,8 +821,7 @@ struct PiAgentUIRequestSheet: View {
             TextEditor(text: $draft)
                 .font(.system(.body, design: .monospaced))
                 .scrollContentBackground(.hidden)
-                .scrollIndicators(.never)
-                .hideNativeScrollers()
+                .scrollIndicators(.never, axes: .vertical)
                 .padding(14)
             if draft.isEmpty {
                 Text("Type your custom response…")

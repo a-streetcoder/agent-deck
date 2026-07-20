@@ -147,8 +147,6 @@ struct AppList<Item: Identifiable & Hashable, RowContent: View>: View {
 
     var body: some View {
         // Perf-critical notes:
-        //   - `.hideNativeScrollers()` keeps AppList chrome consistent when
-        //     macOS is configured to always show scroll bars.
         //   - Focus + arrow-key handlers attach ONLY when the caller opts
         //     into `keyboardNavigation`.
         //   - Selection state is snapshotted ONCE per body eval into a
@@ -201,14 +199,9 @@ struct AppList<Item: Identifiable & Hashable, RowContent: View>: View {
                 .padding(.bottom, bottomContentInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // `.never`, not `.hidden`: `.hidden` still lets AppKit briefly *flash* the
-            // overlay scroller when the content size changes — which a list hits as its
-            // rows lay out on appear (most visible on the Skills list, whose warning
-            // strip + sections grow the content height). `.never` suppresses the
-            // reservation entirely so there's no flash. `.hideNativeScrollers()` then
-            // guarantees no scroller even when macOS is set to always show scroll bars.
-            .scrollIndicators(.never)
-            .hideNativeScrollers()
+            // `.never`, not `.hidden`: `.hidden` still lets macOS show indicators
+            // for some input-device configurations and can flash as content grows.
+            .scrollIndicators(.never, axes: .vertical)
             .modifier(AppListKeyboardNavigation(
                 enabled: keyboardNavigation,
                 isFocused: $isFocused,
