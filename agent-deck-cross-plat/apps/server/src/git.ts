@@ -79,35 +79,6 @@ export async function gitStatus(cwd: string): Promise<GitStatus> {
 }
 
 /**
- * Stage everything and commit with `message`. Throws "nothing_to_commit" when
- * the work tree is clean (native noChanges) and "not_a_repo" outside a repo, so
- * the route maps them to a 400 with a clear message.
- */
-/**
- * Shallow-clone a repository (or a local path — the hermetic test form) into an
- * empty destination dir. GIT_TERMINAL_PROMPT=0 makes a private/auth-required
- * remote fail fast instead of hanging on a credential prompt (native
- * SkillRepositorySyncService). Throws "clone_failed" on any git error.
- */
-export async function gitCloneShallow(
-  source: string,
-  destDir: string,
-  ref?: string,
-): Promise<void> {
-  // A pinned ref (a `/tree/<branch>` URL) clones just that branch.
-  const branchArgs = ref ? ["--branch", ref, "--single-branch"] : [];
-  try {
-    await execFileAsync(gitBin(), ["clone", "--depth", "1", ...branchArgs, source, destDir], {
-      timeout: 120_000,
-      maxBuffer: 8_000_000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    });
-  } catch {
-    throw new Error("clone_failed");
-  }
-}
-
-/**
  * Clone a repo into a PERSISTENT dir kept for later re-sync (native
  * SkillRepositorySyncService.cloneForDiscovery). Uses a blobless partial clone
  * (`--filter=blob:none`) so only reachable trees download up front; if the source
@@ -182,6 +153,11 @@ export async function gitPullFfInto(cloneDir: string, ref?: string): Promise<str
   return (await runGit(cloneDir, ["rev-parse", "HEAD"])).trim();
 }
 
+/**
+ * Stage everything and commit with `message`. Throws "nothing_to_commit" when
+ * the work tree is clean (native noChanges) and "not_a_repo" outside a repo, so
+ * the route maps them to a 400 with a clear message.
+ */
 export async function gitCommitAll(cwd: string, message: string): Promise<{ committed: true }> {
   const status = await gitStatus(cwd);
   if (!status.repo) throw new Error("not_a_repo");
@@ -243,6 +219,30 @@ export async function gitWorktreeAdd(
   sourceBranch: string,
 ): Promise<void> {
   await runGit(projectDir, ["worktree", "add", "-b", branch, targetPath, sourceBranch]);
+}
+
+/**
+ * The shared session/loop worktree dance: fork a NEW branch off the project's
+ * CURRENT branch into an isolated worktree at `targetPath`. Throws
+ * "detached HEAD — check out a branch first" when there is no branch to fork,
+ * and removes any partial worktree before rethrowing a git failure. Callers own
+ * the surrounding policy (400 vs silent fallback) and the target/branch naming.
+ */
+export async function createSessionWorktree(
+  projectDir: string,
+  targetPath: string,
+  branch: string,
+): Promise<GitWorktree> {
+  const sourceBranch = await gitCurrentBranch(projectDir);
+  if (sourceBranch === "HEAD") throw new Error("detached HEAD — check out a branch first");
+  try {
+    await gitWorktreeAdd(projectDir, targetPath, branch, sourceBranch);
+  } catch (error) {
+    // Best-effort: clean any partial worktree git created before failing.
+    await gitWorktreeRemove(projectDir, targetPath);
+    throw error;
+  }
+  return { path: targetPath, branch, sourceBranch };
 }
 
 /**
