@@ -54,6 +54,12 @@ export interface AppState {
   sessions: SessionMeta[];
   /** A prompt to drop into the composer (e.g. seeded from a GitHub issue). */
   pendingComposerText: string | null;
+  /**
+   * Whether the per-session terminal drawer is open (Slice 8b). One global
+   * boolean like panelExpanded: the drawer shows the CURRENT session's
+   * terminal, and closing it keeps the terminal alive server-side.
+   */
+  terminalOpen: boolean;
   transcript: TranscriptState;
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
   lastSeq: number;
@@ -70,6 +76,7 @@ export interface AppState {
   setSession(session: SessionMeta | null): void;
   setSessions(sessions: SessionMeta[]): void;
   setPendingComposerText(text: string | null): void;
+  setTerminalOpen(open: boolean): void;
   upsertSessionMeta(session: SessionMeta): void;
   removeSession(sessionId: string): void;
   setSnapshot(state: TranscriptState, seq: number): void;
@@ -104,6 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
   session: null,
   sessions: [],
   pendingComposerText: null,
+  terminalOpen: false,
   transcript: emptyTranscript(),
   lastSeq: 0,
   error: null,
@@ -130,6 +138,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSession: (session) => set({ session }),
   setSessions: (sessions) => set({ sessions }),
   setPendingComposerText: (pendingComposerText) => set({ pendingComposerText }),
+  setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
   upsertSessionMeta: (session) =>
     set((state) => ({
       sessions: state.sessions.some((s) => s.id === session.id)

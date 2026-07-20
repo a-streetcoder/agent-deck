@@ -2,3 +2,4 @@
 // (@agent-deck/domain is imported type-only, for the ServerMessage payloads).
 export * from "./protocol.ts";
 export * from "./rpc.ts";
+export * from "./terminal.ts";

@@ -4,6 +4,8 @@ import {
   type ClientMessage,
   type ServerMessage,
   type SessionMeta,
+  type TerminalClientRequest,
+  type TerminalPush,
 } from "@agent-deck/contracts";
 import { Either, Schema } from "effect";
 
@@ -69,6 +71,8 @@ export interface TransportOptions {
   readonly onConnected?: () => void;
   /** A decoded, schema-valid server push (event/snapshot/meta/exit/…). */
   readonly onPush?: (message: ServerMessage) => void;
+  /** A decoded terminal push (Slice 8b): output chunks + the exit notification. */
+  readonly onTerminalPush?: (message: TerminalPush) => void;
   /** A frame that failed contracts decode at the boundary — dropped, reported. */
   readonly onDecodeError?: (error: string, raw: unknown) => void;
   readonly backoff?: BackoffOptions;
@@ -77,8 +81,23 @@ export interface TransportOptions {
   readonly clearTimer?: (handle: TimerHandle) => void;
 }
 
+/** The reply to a `terminal_open` request (Slice 8b): the server-allocated id
+ * plus — on reattach — the replayed scrollback and whether the PTY still runs. */
+export interface TerminalOpenResult {
+  readonly terminalId: string;
+  readonly scrollback: string;
+  readonly running: boolean;
+}
+
+/** How one request settled: a plain ack, the hello session list, or a
+ * terminal_open_ok payload. Internal — the public methods narrow it. */
+type RequestSettled =
+  | { readonly kind: "ok" }
+  | { readonly kind: "sessions"; readonly sessions: SessionMeta[] }
+  | { readonly kind: "terminal_open"; readonly result: TerminalOpenResult };
+
 interface Pending {
-  readonly resolve: (sessions: SessionMeta[]) => void;
+  readonly resolve: (settled: RequestSettled) => void;
   readonly reject: (error: Error) => void;
 }
 
@@ -200,7 +219,7 @@ export class RpcTransport {
     const frame = decoded.right;
     switch (frame.kind) {
       case "hello_ok": {
-        this.pending.get(frame.id)?.resolve(frame.sessions);
+        this.pending.get(frame.id)?.resolve({ kind: "sessions", sessions: frame.sessions });
         this.pending.delete(frame.id);
         return;
       }
@@ -208,12 +227,29 @@ export class RpcTransport {
         const entry = this.pending.get(frame.id);
         if (!entry) return;
         this.pending.delete(frame.id);
-        if (frame.ok) entry.resolve([]);
+        if (frame.ok) entry.resolve({ kind: "ok" });
         else entry.reject(new Error(frame.error));
+        return;
+      }
+      case "terminal_open_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "terminal_open",
+          result: {
+            terminalId: frame.terminalId,
+            scrollback: frame.scrollback,
+            running: frame.running,
+          },
+        });
         return;
       }
       case "push":
         this.options.onPush?.(frame.message);
+        return;
+      case "terminal_push":
+        this.options.onTerminalPush?.(frame.message);
         return;
     }
   }
@@ -223,18 +259,15 @@ export class RpcTransport {
     this.pending.clear();
   }
 
-  /**
-   * Send a request and resolve when its reply arrives. `hello` resolves with the
-   * session list; every other op resolves with `[]` on ack and rejects on a
-   * server failure reply. Rejects immediately if not connected.
-   */
-  request(message: ClientMessage): Promise<SessionMeta[]> {
+  /** Send one frame and settle on its correlated reply (shared by the typed
+   * request methods below). Rejects immediately if not connected. */
+  private sendRequest(request: ClientMessage | TerminalClientRequest): Promise<RequestSettled> {
     if (this.state !== "connected" || !this.socket) {
       return Promise.reject(new Error("transport not connected"));
     }
     const id = this.nextRequestId++;
-    const frame: RpcClientFrame = { id, request: message };
-    return new Promise<SessionMeta[]>((resolve, reject) => {
+    const frame: RpcClientFrame = { id, request };
+    return new Promise<RequestSettled>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       try {
         // Encode through the contract so an ill-formed request is caught here
@@ -245,6 +278,41 @@ export class RpcTransport {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  /**
+   * Send a request and resolve when its reply arrives. `hello` resolves with the
+   * session list; every other op resolves with `[]` on ack and rejects on a
+   * server failure reply. Rejects immediately if not connected.
+   */
+  async request(message: ClientMessage): Promise<SessionMeta[]> {
+    const settled = await this.sendRequest(message);
+    return settled.kind === "sessions" ? settled.sessions : [];
+  }
+
+  /**
+   * Open (or, with `terminalId`, reattach to) a session terminal (Slice 8b).
+   * Resolves with the server-allocated id + replayed scrollback; rejects on a
+   * server failure reply (unknown session/terminal, spawn failure).
+   */
+  async openTerminal(request: {
+    sessionId: string;
+    terminalId?: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<TerminalOpenResult> {
+    const settled = await this.sendRequest({ type: "terminal_open", ...request });
+    if (settled.kind !== "terminal_open") {
+      throw new Error("terminal_open settled without a terminal_open_ok reply");
+    }
+    return settled.result;
+  }
+
+  /** Send a terminal input/resize/close op; resolves on ack, rejects on error. */
+  async terminalRequest(
+    message: Exclude<TerminalClientRequest, { type: "terminal_open" }>,
+  ): Promise<void> {
+    await this.sendRequest(message);
   }
 
   /** Convenience: the `hello` handshake, resolving with the session list. */

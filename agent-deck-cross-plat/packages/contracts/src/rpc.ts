@@ -1,5 +1,11 @@
 import { Schema } from "effect";
 import { ClientMessage, ServerMessage, SessionMeta } from "./protocol.ts";
+import {
+  TERMINAL_MAX_SCROLLBACK_CHARS,
+  TerminalClientRequest,
+  TerminalId,
+  TerminalPush,
+} from "./terminal.ts";
 
 /**
  * The Effect-RPC-over-WebSocket wire framing (Slice 7).
@@ -44,10 +50,15 @@ const RequestId = Schema.Number.pipe(
   }),
 );
 
-/** client → server: a request frame carrying one legacy client command. */
+/**
+ * client → server: a request frame carrying one legacy client command or —
+ * since Slice 8a — one terminal request (terminal.ts). `ClientMessage` itself
+ * is untouched: it stays parity-pinned against the legacy zod envelope, so the
+ * terminal surface widens the FRAME, not the legacy message union.
+ */
 export const RpcClientFrame = Schema.Struct({
   id: RequestId,
-  request: ClientMessage,
+  request: Schema.Union(ClientMessage, TerminalClientRequest),
 });
 export type RpcClientFrame = typeof RpcClientFrame.Type;
 
@@ -83,8 +94,40 @@ export const RpcPushFrame = Schema.Struct({
 });
 export type RpcPushFrame = typeof RpcPushFrame.Type;
 
+/**
+ * server → client: the reply to a `terminal_open` request (Slice 8a). Carries
+ * the server-allocated terminal id, plus — on reattach — the bounded scrollback
+ * buffer and whether the PTY is still running (an exited terminal replays its
+ * scrollback but will push no further output).
+ */
+export const RpcTerminalOpenOkFrame = Schema.Struct({
+  kind: Schema.Literal("terminal_open_ok"),
+  id: RequestId,
+  terminalId: TerminalId,
+  scrollback: Schema.String.pipe(Schema.maxLength(TERMINAL_MAX_SCROLLBACK_CHARS)),
+  running: Schema.Boolean,
+});
+export type RpcTerminalOpenOkFrame = typeof RpcTerminalOpenOkFrame.Type;
+
+/**
+ * server → client: an unsolicited terminal push (Slice 8a) — output chunks and
+ * the exit notification. A separate frame kind from `push` so `ServerMessage`
+ * (parity-pinned against the legacy envelope) stays untouched.
+ */
+export const RpcTerminalPushFrame = Schema.Struct({
+  kind: Schema.Literal("terminal_push"),
+  message: TerminalPush,
+});
+export type RpcTerminalPushFrame = typeof RpcTerminalPushFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
-export const RpcServerFrame = Schema.Union(RpcReplyFrame, RpcHelloOkFrame, RpcPushFrame);
+export const RpcServerFrame = Schema.Union(
+  RpcReplyFrame,
+  RpcHelloOkFrame,
+  RpcPushFrame,
+  RpcTerminalOpenOkFrame,
+  RpcTerminalPushFrame,
+);
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 
 /** The WebSocket path the RPC endpoint listens on (legacy stays on `/ws`). */

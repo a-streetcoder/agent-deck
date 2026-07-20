@@ -63,6 +63,7 @@ import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerSettingsRoutes } from "./routes/settings.ts";
 import { SessionManager } from "./SessionManager.ts";
 import { SupervisorLog } from "./supervisor.ts";
+import { createTerminalGateway } from "./terminalGateway.ts";
 import { setupWebSocket } from "./wsHandler.ts";
 
 /** Tools only bridge extensions provide — stripped from an agent's --tools
@@ -542,7 +543,15 @@ async function initServer(
   // WebSocket layer (wsHandler.ts): socket accept, subscribe/replay,
   // client-message dispatch. Set up before the route modules register so
   // `broadcast` is live when they capture it.
-  const { close: closeWebSockets, broadcast: wsBroadcast } = setupWebSocket({ fastify, sessions });
+  // Slice 8a: per-session terminal PTYs, scope-owned through the runtime.
+  // Held here (not just inside the WS layer) so close() can run the awaited
+  // closeAll() sweep — terminal scopes are detached roots dispose() can't reap.
+  const terminals = createTerminalGateway(effectRuntime);
+  const { close: closeWebSockets, broadcast: wsBroadcast } = setupWebSocket({
+    fastify,
+    sessions,
+    terminals,
+  });
   broadcast = wsBroadcast;
 
   // One coarse watcher: global catalogs at boot, project dirs added as
@@ -636,6 +645,10 @@ async function initServer(
         await step(() => sessions.stopAll());
         await step(() => mcp.close());
         await step(() => closeWebSockets());
+        // Deterministic terminal teardown (the sessions.stopAll() analogue):
+        // socket-close teardown is fire-and-forget and terminal scopes are
+        // detached roots, so await the PTY kills BEFORE dispose() below.
+        await step(() => terminals.closeAll());
         await step(() => fastify.close());
       } finally {
         // Dispose LAST, after the HTTP/WS surface is gone (see startServer).

@@ -6,6 +6,7 @@ import {
   SessionManagerServiceLive,
   type SessionManagerService,
 } from "./services/sessionManager.ts";
+import { TerminalHostLive, type TerminalHost } from "./services/terminal.ts";
 
 /**
  * The Effect composition seam (Slice 3, t3code's `serverLayers` pattern).
@@ -57,12 +58,23 @@ import {
  * narrow gap; a future slice may re-root session scopes under a runtime-held
  * parent so `dispose()` reclaims leaks.
  */
-const leafLayers = Layer.mergeAll(SessionPushBusesLive, PiHostLive, PersistenceLive);
+const leafLayers = Layer.mergeAll(
+  SessionPushBusesLive,
+  PiHostLive,
+  PersistenceLive,
+  // Slice 8a — terminal PTY factory, a PiHost sibling (scoped process handles).
+  TerminalHostLive,
+);
 
 export const serverLayers = SessionManagerServiceLive.pipe(Layer.provideMerge(leafLayers));
 
 /** Union of every service the runtime can provide (grows with the merge). */
-export type ServerServices = SessionPushBuses | PiHost | SessionManagerService | Persistence;
+export type ServerServices =
+  | SessionPushBuses
+  | PiHost
+  | SessionManagerService
+  | Persistence
+  | TerminalHost;
 
 export type ServerRuntime = ManagedRuntime.ManagedRuntime<ServerServices, never>;
 

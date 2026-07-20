@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { SquareTerminal } from "lucide-react";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { TerminalDrawer } from "./components/TerminalDrawer.tsx";
 import { Toaster } from "./components/Toaster.tsx";
 import { Transcript } from "./components/Transcript.tsx";
 import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
@@ -60,22 +62,29 @@ const VIEW_TITLES: Record<string, string> = {
 function ChatColumn() {
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   return (
-    <div className="flex h-full min-w-0">
-      <div className="flex h-full min-w-0 flex-1 flex-col">
-        <Transcript />
-        <PiAgentProcessingIndicatorBar
-          message={agentStatus === "running" ? "Pi is working…" : null}
-          className="px-6"
-        />
-        <Composer />
+    <div className="flex h-full min-w-0 flex-col">
+      <div className="flex min-h-0 flex-1">
+        <div className="flex h-full min-w-0 flex-1 flex-col">
+          <Transcript />
+          <PiAgentProcessingIndicatorBar
+            message={agentStatus === "running" ? "Pi is working…" : null}
+            className="px-6"
+          />
+          <Composer />
+        </div>
+        <DeckPanel />
       </div>
-      <DeckPanel />
+      {/* The per-session terminal drawer (Slice 8b) spans the full chat surface
+          bottom, like the donor's thread drawer. Renders null while closed. */}
+      <TerminalDrawer />
     </div>
   );
 }
 
 export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const terminalOpen = useAppStore((state) => state.terminalOpen);
+  const setTerminalOpen = useAppStore((state) => state.setTerminalOpen);
   const connection = useAppStore((state) => state.connection);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const session = useAppStore((state) => state.session);
@@ -150,16 +159,35 @@ export function App() {
                 </span>
               ) : null}
             </div>
-            <div
-              className="flex items-center gap-2"
-              data-testid="status-indicator"
-              data-status={statusLabel}
-            >
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ background: statusColor }}
-              />
-              <span className="text-sm text-text-secondary">{statusLabel}</span>
+            <div className="flex items-center gap-3">
+              {session && isChat ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
+                    terminalOpen ? "text-accent" : "text-text-muted",
+                    macDesktop && "[-webkit-app-region:no-drag]",
+                  )}
+                  title="Toggle terminal (⌘`)"
+                  aria-label="Toggle terminal"
+                  aria-pressed={terminalOpen}
+                  data-testid="terminal-toggle"
+                  onClick={() => setTerminalOpen(!terminalOpen)}
+                >
+                  <SquareTerminal className="h-4 w-4" />
+                </button>
+              ) : null}
+              <div
+                className="flex items-center gap-2"
+                data-testid="status-indicator"
+                data-status={statusLabel}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ background: statusColor }}
+                />
+                <span className="text-sm text-text-secondary">{statusLabel}</span>
+              </div>
             </div>
           </header>
           <OnboardingOverlay />

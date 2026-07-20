@@ -78,6 +78,7 @@ function makeHarness(overrides?: {
   const sockets: FakeSocket[] = [];
   const states: ConnectionState[] = [];
   const pushes: unknown[] = [];
+  const terminalPushes: unknown[] = [];
   const decodeErrors: string[] = [];
   let connectedCount = 0;
   const clock = new FakeClock();
@@ -93,6 +94,7 @@ function makeHarness(overrides?: {
     onState: (s) => states.push(s),
     onConnected: () => connectedCount++,
     onPush: (m) => pushes.push(m),
+    onTerminalPush: (m) => terminalPushes.push(m),
     onDecodeError: (e) => decodeErrors.push(e),
     backoff: overrides?.backoff ?? { initialMs: 500, maxMs: 10_000, factor: 2 },
     setTimer: clock.setTimer,
@@ -104,6 +106,7 @@ function makeHarness(overrides?: {
     sockets,
     states,
     pushes,
+    terminalPushes,
     decodeErrors,
     clock,
     connectedCount: () => connectedCount,
@@ -289,5 +292,101 @@ describe("RpcTransport state machine", () => {
     h.sockets[0]!.drop();
     await expect(pending).rejects.toThrow("disconnected");
     expect(h.transport.getState()).toBe("reconnecting");
+  });
+});
+
+describe("RpcTransport terminal surface (Slice 8b)", () => {
+  it("openTerminal resolves with the terminal_open_ok payload", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.openTerminal({ sessionId: "s1", cols: 120, rows: 30 });
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({
+      type: "terminal_open",
+      sessionId: "s1",
+      cols: 120,
+      rows: 30,
+    });
+
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "terminal_open_ok",
+        id: sentFrame.id,
+        terminalId: "term-1",
+        scrollback: "hello\r\n",
+        running: true,
+      }),
+    );
+    await expect(promise).resolves.toEqual({
+      terminalId: "term-1",
+      scrollback: "hello\r\n",
+      running: true,
+    });
+  });
+
+  it("openTerminal rejects on a server failure reply", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.openTerminal({ sessionId: "nope" });
+    const id = (JSON.parse(h.sockets[0]!.sent[0]!) as { id: number }).id;
+    h.sockets[0]!.message(
+      JSON.stringify({ kind: "reply", id, ok: false, error: "unknown session" }),
+    );
+    await expect(promise).rejects.toThrow("unknown session");
+  });
+
+  it("terminalRequest resolves on ack and rejects on error", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const okPromise = h.transport.terminalRequest({
+      type: "terminal_input",
+      terminalId: "term-1",
+      data: "ls\r",
+    });
+    const errPromise = h.transport.terminalRequest({
+      type: "terminal_close",
+      terminalId: "term-9",
+    });
+    const ids = h.sockets[0]!.sent.map((s) => (JSON.parse(s) as { id: number }).id);
+    h.sockets[0]!.message(JSON.stringify({ kind: "reply", id: ids[0], ok: true }));
+    h.sockets[0]!.message(
+      JSON.stringify({ kind: "reply", id: ids[1], ok: false, error: "unknown terminal" }),
+    );
+
+    await expect(okPromise).resolves.toBeUndefined();
+    await expect(errPromise).rejects.toThrow("unknown terminal");
+  });
+
+  it("terminal_push frames dispatch to onTerminalPush (not onPush)", () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const output = { type: "terminal_output", terminalId: "term-1", data: "chunk" };
+    // sanity: the frame is contract-valid
+    expect(
+      Schema.decodeUnknownEither(RpcServerFrame)({ kind: "terminal_push", message: output })._tag,
+    ).toBe("Right");
+
+    h.sockets[0]!.message(JSON.stringify({ kind: "terminal_push", message: output }));
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "terminal_push",
+        message: { type: "terminal_exit", terminalId: "term-1", exitCode: 0, signal: null },
+      }),
+    );
+
+    expect(h.pushes).toHaveLength(0);
+    expect(h.terminalPushes).toEqual([
+      { type: "terminal_output", terminalId: "term-1", data: "chunk" },
+      { type: "terminal_exit", terminalId: "term-1", exitCode: 0, signal: null },
+    ]);
+    expect(h.decodeErrors).toHaveLength(0);
   });
 });

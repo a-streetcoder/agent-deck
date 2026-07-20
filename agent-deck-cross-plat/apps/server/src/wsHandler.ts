@@ -4,6 +4,7 @@ import type { ServerMessage } from "@agent-deck/contracts";
 import type { FastifyInstance } from "fastify";
 import { setupRpcEndpoint } from "./rpcHandler.ts";
 import type { SessionManager } from "./SessionManager.ts";
+import type { TerminalGateway } from "./terminalGateway.ts";
 
 export interface WebSocketLayer {
   /** Push a server message to every connected RPC client (wrapped as a frame). */
@@ -21,12 +22,13 @@ export interface WebSocketLayer {
 export function setupWebSocket(deps: {
   fastify: FastifyInstance;
   sessions: SessionManager;
+  terminals: TerminalGateway;
 }): WebSocketLayer {
-  const { fastify, sessions } = deps;
+  const { fastify, sessions, terminals } = deps;
 
   // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
   // subscribe/replay, and broadcast — all sharing the SessionManager facade.
-  const rpc = setupRpcEndpoint({ sessions });
+  const rpc = setupRpcEndpoint({ sessions, terminals });
 
   // Browsers may open cross-origin WebSockets to localhost services; only
   // accept upgrades from local origins (or non-browser clients, which send
@@ -56,6 +58,14 @@ export function setupWebSocket(deps: {
 
   return {
     broadcast: rpc.broadcast,
-    close: () => rpc.wss.close(),
+    close: () => {
+      // `wss.close()` with `noServer: true` does NOT destroy accepted client
+      // sockets — it only waits for them to leave. Terminate them so every
+      // connection's 'close' handler (subscription + terminal teardown in
+      // rpcHandler) runs deterministically during server shutdown instead of
+      // whenever the remote peer decides to hang up.
+      for (const client of rpc.wss.clients) client.terminate();
+      rpc.wss.close();
+    },
   };
 }

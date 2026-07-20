@@ -55,6 +55,15 @@ const REPLY = "The visual baseline reply: stable, short, and fully deterministic
 let harness: E2eHarness;
 
 test.beforeAll(async () => {
+  // Deterministic terminal chrome for the drawer baseline: pin the shell (the
+  // server-side AGENT_DECK_TERMINAL_SHELL test seam) and give it a fixed
+  // prompt, so no machine cwd path ever renders inside the terminal.
+  process.env.AGENT_DECK_TERMINAL_SHELL =
+    process.platform === "win32"
+      ? (process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe")
+      : "/bin/sh";
+  process.env.PROMPT = "agent-deck$G";
+  process.env.PS1 = "agent-deck> ";
   harness = await startHarness({ reply: () => REPLY, chunkDelayMs: 0 });
 });
 
@@ -102,6 +111,51 @@ test("visual: skills screen", async ({ page }) => {
   await page.getByTestId("nav-skills").click();
   await expect(page.getByTestId("app-view-title")).toContainText("Skills");
   await expect(page).toHaveScreenshot("skills-screen.png", {
+    ...SCREENSHOT_OPTS,
+    mask: dynamicChrome(page),
+  });
+});
+
+test("visual: session view with the terminal drawer open", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  await page.getByTestId("terminal-toggle").click();
+  const drawer = page.getByTestId("terminal-drawer");
+  await expect(drawer).toBeVisible();
+  const rows = page.locator(".xterm-rows");
+  await expect(rows).toContainText("agent-deck>", { timeout: 15_000 });
+
+  // Wipe the shell banner (cmd prints an OS version line), then run one echo,
+  // leaving a fully deterministic screen: prompt+command, output, prompt.
+  await drawer.locator(".xterm").click();
+  await page.keyboard.type(process.platform === "win32" ? "cls" : "clear");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => ((await rows.innerText()).match(/agent-deck>/g) ?? []).length, {
+      timeout: 15_000,
+    })
+    .toBe(1);
+  await page.keyboard.type("echo visual-baseline-echo");
+  await page.keyboard.press("Enter");
+  // Settled = the output line arrived AND the next prompt is back: the sentinel
+  // renders twice (typed + output) and a second prompt follows the first.
+  await expect
+    .poll(
+      async () => {
+        const text = await rows.innerText();
+        return (
+          (text.match(/visual-baseline-echo/g) ?? []).length >= 2 &&
+          (text.match(/agent-deck>/g) ?? []).length >= 2
+        );
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+
+  // Clip to the chat layer (the drawer's mount) like the transcript baseline;
+  // the sidebar's nondeterministic session list stays out of frame.
+  await expect(page.getByTestId("chat-layer")).toHaveScreenshot("terminal-drawer.png", {
     ...SCREENSHOT_OPTS,
     mask: dynamicChrome(page),
   });

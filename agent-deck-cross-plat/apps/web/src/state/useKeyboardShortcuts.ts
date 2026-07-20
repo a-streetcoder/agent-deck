@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { isTerminalFocused } from "../lib/terminalFocus.ts";
 import { newChat, sendAbort, switchToSession } from "./wsBridge.ts";
 import { type AppView, useAppStore } from "./store.ts";
 
@@ -11,8 +12,12 @@ import { type AppView, useAppStore } from "./store.ts";
  * require the modifier, they never interfere with plain typing in the composer.
  *
  * Mapped: ⌘1–6 screens, ⌘N new session, ⌘. stop, ⌘] / ⌘[ next/prev session,
- * ⌘S toggle the sessions panel. Alt/⌥ and Shift combos are ignored (native
+ * ⌘S toggle the sessions panel, ⌘` toggle the terminal drawer (the VS Code
+ * binding, per the t3code donor). Alt/⌥ and Shift combos are ignored (native
  * reserves those for commands not yet ported — ⌘⌥O add project, ⌘⇧N new agent).
+ *
+ * While the terminal drawer owns focus (t3code's terminalFocus guard, MIT),
+ * only the toggle shortcut fires — every other combo belongs to the shell.
  */
 const NAV_KEYS: Record<string, AppView> = {
   "1": "chat",
@@ -32,6 +37,18 @@ export function useKeyboardShortcuts(): void {
       // held ⌘] doesn't flood switch requests.
       if (event.repeat) return;
       const store = useAppStore.getState();
+
+      // Terminal toggle (⌘`/Ctrl+`): the one shortcut that also fires FROM the
+      // terminal — xterm's custom key handler declines it so it bubbles here.
+      if (event.key === "`") {
+        if (store.view !== "chat") return;
+        event.preventDefault();
+        store.setTerminalOpen(!store.terminalOpen);
+        return;
+      }
+      // Every other combo is the shell's while the terminal owns focus
+      // (Ctrl+C interrupt, Ctrl+N history, …) — never hijack those.
+      if (isTerminalFocused()) return;
 
       const navView = NAV_KEYS[event.key];
       if (navView) {

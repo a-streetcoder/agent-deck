@@ -5,6 +5,8 @@ import type { RpcServerFrame as Frame } from "@agent-deck/contracts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
 import type { StampedEvent } from "../src/services/pushBus.ts";
+import type { TerminalEvent } from "../src/services/terminal.ts";
+import type { OpenedTerminal, TerminalGateway } from "../src/terminalGateway.ts";
 
 /**
  * Unit tests for the Effect-RPC connection core (rpcHandler.ts) — the same
@@ -27,6 +29,10 @@ function makeSession(
   opts?: {
     replay?: StampedEvent[] | null;
     snapshot?: { seq: number; state: unknown };
+    /** Session already ended: meta carries endedAt (manager keeps it listed). */
+    endedAt?: string;
+    /** Session exit already happened: onExit fires its listener immediately. */
+    exitImmediately?: boolean;
   },
 ) {
   let subscriber: ((s: StampedEvent) => void) | null = null;
@@ -49,8 +55,15 @@ function makeSession(
     respondToUiRequest: vi.fn(),
     getAvailableModels: vi.fn(async () => [{ provider: "anthropic", id: "sonnet" }]),
   };
+  const exitListeners = new Set<() => void>();
+  const exitUnhook = vi.fn();
   const session = {
-    meta: { id, cwd: "/tmp", createdAt: "2026-01-01T00:00:00.000Z" },
+    meta: {
+      id,
+      cwd: "/tmp",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      ...(opts?.endedAt !== undefined ? { endedAt: opts.endedAt } : {}),
+    },
     bus: {
       subscribe: bus.subscribe,
       replayFrom: bus.replayFrom,
@@ -58,11 +71,94 @@ function makeSession(
         return 0;
       },
     },
-    onExit: () => () => {},
+    onExit: (fn: () => void) => {
+      // Mirrors services/sessionManager.ts: an already-exited session fires
+      // the listener SYNCHRONOUSLY and returns a no-op unhook.
+      if (opts?.exitImmediately) {
+        fn();
+        return exitUnhook;
+      }
+      exitListeners.add(fn);
+      return () => exitListeners.delete(fn);
+    },
     snapshot: () => opts?.snapshot ?? { seq: 0, state: { cells: [] } },
     ...ops,
   } as unknown as ManagedSession;
-  return { session, bus, unsubscribe, ops };
+  const triggerExit = (): void => {
+    for (const listener of [...exitListeners]) listener();
+  };
+  return { session, bus, unsubscribe, ops, triggerExit, exitUnhook };
+}
+
+// --- Fake terminal gateway (Slice 8a): scripted PTY handles, no runtime ---
+
+interface FakeTerminal {
+  readonly opened: OpenedTerminal;
+  /** Simulate PTY output/exit reaching the service listeners (+ scrollback). */
+  emit: (event: TerminalEvent) => void;
+  listenerCount: () => number;
+  write: ReturnType<typeof vi.fn>;
+  resize: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+  resume: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+}
+
+function makeFakeTerminal(terminalId: string, sessionId: string): FakeTerminal {
+  const listeners = new Set<(event: TerminalEvent) => void>();
+  let scrollback = "";
+  let running = true;
+  const emit = (event: TerminalEvent): void => {
+    if (event._tag === "Output") scrollback += event.data;
+    else running = false;
+    for (const listener of [...listeners]) listener(event);
+  };
+  const write = vi.fn(async () => {});
+  const resize = vi.fn(async () => {});
+  const pause = vi.fn();
+  const resume = vi.fn();
+  const close = vi.fn(async () => {
+    // The scope-close release kills the PTY → the exit event fires.
+    if (running) emit({ _tag: "Exit", exit: { exitCode: 0, signal: null } });
+  });
+  const opened: OpenedTerminal = {
+    terminalId,
+    sessionId,
+    pid: 4242,
+    write,
+    resize,
+    attach: (listener) => {
+      listeners.add(listener);
+      return { scrollback, running, unsubscribe: () => listeners.delete(listener) };
+    },
+    pause,
+    resume,
+    close,
+  };
+  return { opened, emit, listenerCount: () => listeners.size, write, resize, pause, resume, close };
+}
+
+function makeTerminalGateway() {
+  const openCalls: Array<{ sessionId: string; cwd: string; cols?: number; rows?: number }> = [];
+  const terminals: FakeTerminal[] = [];
+  let nextId = 1;
+  const gateway: TerminalGateway = {
+    open: async (options) => {
+      openCalls.push({
+        sessionId: options.sessionId,
+        cwd: options.cwd,
+        cols: options.cols,
+        rows: options.rows,
+      });
+      const terminal = makeFakeTerminal(`term-${nextId++}`, options.sessionId);
+      terminals.push(terminal);
+      return terminal.opened;
+    },
+    closeAll: async () => {
+      await Promise.all(terminals.map((terminal) => terminal.opened.close()));
+    },
+  };
+  return { gateway, openCalls, terminals };
 }
 
 function makeManager(sessions: Record<string, ManagedSession>, list: unknown[] = []) {
@@ -72,15 +168,21 @@ function makeManager(sessions: Record<string, ManagedSession>, list: unknown[] =
   } as unknown as SessionManager;
 }
 
-function harness(manager: SessionManager) {
+function harness(
+  manager: SessionManager,
+  terminals?: TerminalGateway,
+  bufferedAmount?: () => number,
+) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
     sessions: manager,
+    terminals: terminals ?? makeTerminalGateway().gateway,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
       frames.push(frame);
     },
+    ...(bufferedAmount ? { bufferedAmount } : {}),
   });
   return { conn, frames };
 }
@@ -227,5 +329,254 @@ describe("createRpcConnection", () => {
     const { conn, frames } = harness(makeManager({}));
     await conn.handleMessage("}{ not json");
     expect(frames).toEqual([{ kind: "reply", id: 0, ok: false, error: "invalid JSON" }]);
+  });
+});
+
+describe("createRpcConnection terminal ops (Slice 8a)", () => {
+  it("terminal_open spawns in the session's cwd and replies terminal_open_ok", async () => {
+    const { session } = makeSession("s1");
+    const { gateway, openCalls, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+
+    await conn.handleMessage(
+      frame(1, { type: "terminal_open", sessionId: "s1", cols: 100, rows: 40 }),
+    );
+    // cwd came from the session server-side, never from the wire.
+    expect(openCalls).toEqual([{ sessionId: "s1", cwd: "/tmp", cols: 100, rows: 40 }]);
+    expect(frames).toEqual([
+      { kind: "terminal_open_ok", id: 1, terminalId: "term-1", scrollback: "", running: true },
+    ]);
+
+    // PTY output flows as terminal_push frames on this connection.
+    frames.length = 0;
+    terminals[0]!.emit({ _tag: "Output", data: "hi\r\n" });
+    expect(frames).toEqual([
+      {
+        kind: "terminal_push",
+        message: { type: "terminal_output", terminalId: "term-1", data: "hi\r\n" },
+      },
+    ]);
+  });
+
+  it("terminal_open on an unknown session errors without spawning", async () => {
+    const { gateway, openCalls } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({}), gateway);
+    await conn.handleMessage(frame(2, { type: "terminal_open", sessionId: "nope" }));
+    expect(openCalls).toEqual([]);
+    expect(frames).toEqual([{ kind: "reply", id: 2, ok: false, error: "unknown session" }]);
+  });
+
+  it("terminal_input and terminal_resize route to the owning terminal and ack", async () => {
+    const { session } = makeSession("s1");
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    frames.length = 0;
+
+    await conn.handleMessage(
+      frame(2, { type: "terminal_input", terminalId: "term-1", data: "ls\r" }),
+    );
+    expect(terminals[0]!.write).toHaveBeenCalledWith("ls\r");
+    await conn.handleMessage(
+      frame(3, { type: "terminal_resize", terminalId: "term-1", cols: 80, rows: 24 }),
+    );
+    expect(terminals[0]!.resize).toHaveBeenCalledWith(80, 24);
+    expect(frames).toEqual([
+      { kind: "reply", id: 2, ok: true },
+      { kind: "reply", id: 3, ok: true },
+    ]);
+  });
+
+  it("terminal ops against an unknown terminal error", async () => {
+    const { conn, frames } = harness(makeManager({}));
+    await conn.handleMessage(frame(4, { type: "terminal_input", terminalId: "term-9", data: "x" }));
+    expect(frames).toEqual([{ kind: "reply", id: 4, ok: false, error: "unknown terminal" }]);
+  });
+
+  it("a failing write yields an error reply", async () => {
+    const { session } = makeSession("s1");
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    frames.length = 0;
+    terminals[0]!.write.mockRejectedValueOnce(new Error("terminal already exited"));
+    await conn.handleMessage(frame(2, { type: "terminal_input", terminalId: "term-1", data: "x" }));
+    expect(frames).toEqual([
+      { kind: "reply", id: 2, ok: false, error: "Error: terminal already exited" },
+    ]);
+  });
+
+  it("terminal_close tears the PTY down and the exit push still reaches the client", async () => {
+    const { session } = makeSession("s1");
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    frames.length = 0;
+
+    await conn.handleMessage(frame(2, { type: "terminal_close", terminalId: "term-1" }));
+    expect(terminals[0]!.close).toHaveBeenCalledTimes(1);
+    // The kill-produced exit event is pushed BEFORE the ack (listener stays
+    // attached through the close), and the terminal is gone afterwards.
+    expect(frames).toEqual([
+      {
+        kind: "terminal_push",
+        message: { type: "terminal_exit", terminalId: "term-1", exitCode: 0, signal: null },
+      },
+      { kind: "reply", id: 2, ok: true },
+    ]);
+    await conn.handleMessage(frame(3, { type: "terminal_input", terminalId: "term-1", data: "x" }));
+    expect(frames.at(-1)).toEqual({ kind: "reply", id: 3, ok: false, error: "unknown terminal" });
+  });
+
+  it("terminal_open with a terminalId reattaches: scrollback replayed, listener replaced", async () => {
+    const { session } = makeSession("s1");
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    terminals[0]!.emit({ _tag: "Output", data: "earlier output" });
+    frames.length = 0;
+
+    await conn.handleMessage(
+      frame(2, { type: "terminal_open", sessionId: "s1", terminalId: "term-1" }),
+    );
+    expect(frames).toEqual([
+      {
+        kind: "terminal_open_ok",
+        id: 2,
+        terminalId: "term-1",
+        scrollback: "earlier output",
+        running: true,
+      },
+    ]);
+    // The old push listener was replaced, not stacked: one listener, one push.
+    expect(terminals[0]!.listenerCount()).toBe(1);
+    frames.length = 0;
+    terminals[0]!.emit({ _tag: "Output", data: "later" });
+    expect(frames).toHaveLength(1);
+  });
+
+  it("reattach validates ownership: unknown id or wrong session errors", async () => {
+    const { session: s1 } = makeSession("s1");
+    const { session: s2 } = makeSession("s2");
+    const { gateway } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1, s2 }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    frames.length = 0;
+
+    await conn.handleMessage(
+      frame(2, { type: "terminal_open", sessionId: "s1", terminalId: "term-9" }),
+    );
+    await conn.handleMessage(
+      frame(3, { type: "terminal_open", sessionId: "s2", terminalId: "term-1" }),
+    );
+    expect(frames).toEqual([
+      { kind: "reply", id: 2, ok: false, error: "unknown terminal" },
+      { kind: "reply", id: 3, ok: false, error: "unknown terminal" },
+    ]);
+  });
+
+  it("connection close tears every owned terminal down without pushing to the dead socket", async () => {
+    const { session } = makeSession("s1");
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    await conn.handleMessage(frame(2, { type: "terminal_open", sessionId: "s1" }));
+    frames.length = 0;
+
+    conn.close();
+    expect(terminals[0]!.close).toHaveBeenCalledTimes(1);
+    expect(terminals[1]!.close).toHaveBeenCalledTimes(1);
+    // Listeners were detached BEFORE the kill: no frames to a dropped socket.
+    expect(frames).toEqual([]);
+  });
+
+  it("the owning session's exit tears down that session's terminals only", async () => {
+    const { session: s1, triggerExit } = makeSession("s1");
+    const { session: s2 } = makeSession("s2");
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1, s2 }), gateway);
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    await conn.handleMessage(frame(2, { type: "terminal_open", sessionId: "s2" }));
+    frames.length = 0;
+
+    triggerExit();
+    expect(terminals[0]!.close).toHaveBeenCalledTimes(1);
+    expect(terminals[1]!.close).not.toHaveBeenCalled();
+    // The kill-produced exit push for the torn-down terminal reached the client.
+    expect(frames).toEqual([
+      {
+        kind: "terminal_push",
+        message: { type: "terminal_exit", terminalId: "term-1", exitCode: 0, signal: null },
+      },
+    ]);
+    // s2's terminal is still usable.
+    await conn.handleMessage(frame(3, { type: "terminal_input", terminalId: "term-2", data: "x" }));
+    expect(frames.at(-1)).toEqual({ kind: "reply", id: 3, ok: true });
+  });
+
+  it("terminal_open on an ENDED (still-listed) session is rejected without spawning", async () => {
+    const { session } = makeSession("s1", { endedAt: "2026-01-02T00:00:00.000Z" });
+    const { gateway, openCalls } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    // No shell was spawned-and-killed, and the client gets the truth.
+    expect(openCalls).toEqual([]);
+    expect(frames).toEqual([{ kind: "reply", id: 1, ok: false, error: "session has ended" }]);
+  });
+
+  it("a session that exits DURING the spawn yields an error, a reaped PTY, and no stale hook", async () => {
+    // meta not yet marked ended (the guard passes), but onExit fires
+    // immediately — the session died between sessions.get() and the spawn.
+    const { session, exitUnhook } = makeSession("s1", { exitImmediately: true });
+    const { gateway, terminals } = makeTerminalGateway();
+    const { conn, frames } = harness(makeManager({ s1: session }), gateway);
+
+    await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+    // The freshly spawned PTY was reaped by the exit hook…
+    expect(terminals[0]!.close).toHaveBeenCalledTimes(1);
+    // …the immediately-fired hook was unhooked, not left stale in the map…
+    expect(exitUnhook).toHaveBeenCalledTimes(1);
+    // …and the reply is an error, never `running: true` for a dead terminal.
+    const reply = frames.find((f) => f.kind === "reply" || f.kind === "terminal_open_ok");
+    expect(reply).toEqual({ kind: "reply", id: 1, ok: false, error: "session has ended" });
+  });
+
+  it("a socket buffer over the high-water mark pauses the PTY; drain resumes it", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session } = makeSession("s1");
+      const { gateway, terminals } = makeTerminalGateway();
+      let buffered = 0;
+      const { conn } = harness(makeManager({ s1: session }), gateway, () => buffered);
+      await conn.handleMessage(frame(1, { type: "terminal_open", sessionId: "s1" }));
+
+      // Below the mark: output flows, no pause.
+      terminals[0]!.emit({ _tag: "Output", data: "ok" });
+      expect(terminals[0]!.pause).not.toHaveBeenCalled();
+
+      // The socket backs up: the producing PTY is paused exactly once.
+      buffered = 2_000_000;
+      terminals[0]!.emit({ _tag: "Output", data: "flood" });
+      terminals[0]!.emit({ _tag: "Output", data: "flood" });
+      expect(terminals[0]!.pause).toHaveBeenCalledTimes(1);
+      expect(terminals[0]!.resume).not.toHaveBeenCalled();
+
+      // Still above the resume mark: the poller keeps waiting.
+      await vi.advanceTimersByTimeAsync(200);
+      expect(terminals[0]!.resume).not.toHaveBeenCalled();
+
+      // Buffer drains below the low-water mark: the poller resumes the PTY.
+      buffered = 1_000;
+      await vi.advanceTimersByTimeAsync(100);
+      expect(terminals[0]!.resume).toHaveBeenCalledTimes(1);
+
+      // A later flood pauses again (the valve re-arms).
+      buffered = 2_000_000;
+      terminals[0]!.emit({ _tag: "Output", data: "flood" });
+      expect(terminals[0]!.pause).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

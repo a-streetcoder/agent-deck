@@ -243,6 +243,30 @@ Donor paths below are relative to the t3code clone.
 - Per-session terminal drawer running in the session cwd (worktree-aware).
 - Success here validates the whole substrate bet; friction here is cheap early signal.
 - Exit gate: e2e opening a terminal in a real session worktree.
+- **Status: LANDED (2026-07-20).** Server half (8a): `contracts/src/terminal.ts`
+  wire schema (terminal ops ride `RpcClientFrame`; pushes get their own
+  `terminal_push`/`terminal_open_ok` frame kinds), `services/terminal.ts`
+  TerminalHost (scoped PTY on the piHost template: acquireRelease kill
+  escalation, donor PtyAdapter seam, lazy node-pty, capped scrollback with
+  atomic attach), `terminalGateway.ts` facade + rpcHandler ops — server-allocated
+  ids, scrollback replay on reattach, teardown funneled into one scope close
+  (terminal_close / connection drop / session exit). Web half (8b):
+  `components/TerminalDrawer.tsx` (xterm + FitAddon, resizable bottom drawer on
+  the chat surface, ported from ThreadTerminalDrawer minus splits/tabs),
+  header toggle + Ctrl/⌘+` shortcut with the donor's terminalFocus guard,
+transport terminal ops in client-runtime (`openTerminal`/`terminalRequest`/
+`onTerminalPush`) and a per-session terminal-id registry in wsBridge (closing
+the drawer keeps the PTY; reopening reattaches and replays scrollback; ids
+die with the connection). Gate: `e2e/tests/terminal.spec.ts`against the real
+stack (echo round-trip via a shell variable, session-cwd match, scrollback
+replay on reopen, shortcut toggle) + a 4th visual baseline (drawer open,
+deterministic prompt via the`AGENT_DECK_TERMINAL_SHELL`+`PROMPT` seam).
+Review: 4 blocker/major findings fixed in-workflow; minors resolved on
+landing — orphan-observability log when kill escalation is exhausted,
+surrogate-safe chunk/scrollback cuts, `connectionClosed` guard on the awaited
+terminal_open spawn, client-side in-flight open dedup (pendingOpens join).
+Deferred (latent until a light theme exists): donor's dual ANSI palette +
+live retheming — pick up with the theming slice (S19).
 
 ## Phase 5 — Change review core
 

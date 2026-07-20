@@ -2,6 +2,8 @@ import { RpcClientFrame, type RpcServerFrame, type ServerMessage } from "@agent-
 import { Either, Schema } from "effect";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ManagedSession, SessionManager } from "./SessionManager.ts";
+import type { TerminalEvent } from "./services/terminal.ts";
+import type { OpenedTerminal, TerminalGateway } from "./terminalGateway.ts";
 
 /**
  * The Effect-RPC-over-WebSocket endpoint (Slice 7), mounted on `/rpc` by
@@ -26,6 +28,19 @@ import type { ManagedSession, SessionManager } from "./SessionManager.ts";
 
 const decodeClientFrame = Schema.decodeUnknownEither(RpcClientFrame);
 
+// Terminal push backpressure (Slice 8 hardening): a PTY is a sustained
+// multi-MB/s producer (`yes`, `cat largefile`), and `ws` buffers frames in
+// server memory without bound when the client is slow. When the socket's send
+// buffer crosses the high-water mark we PAUSE the producing PTY (node-pty
+// pause/resume) and poll for drain — ws exposes no drain event — resuming
+// below the low-water mark. Session/pi pushes are low-rate and stay ungated.
+/** Pause a terminal's PTY once the socket buffers more than this (bytes). */
+export const TERMINAL_PUSH_PAUSE_BUFFERED_BYTES = 1_048_576;
+/** Resume paused PTYs once the socket buffer drains below this (bytes). */
+export const TERMINAL_PUSH_RESUME_BUFFERED_BYTES = 131_072;
+/** Drain poll cadence while at least one PTY is paused. */
+export const TERMINAL_PUSH_DRAIN_POLL_MS = 50;
+
 /** One RPC connection's protocol: message dispatch + subscription cleanup,
  * independent of the socket transport. */
 export interface RpcConnection {
@@ -37,14 +52,128 @@ export interface RpcConnection {
 
 export function createRpcConnection(deps: {
   sessions: SessionManager;
+  terminals: TerminalGateway;
   send: (frame: RpcServerFrame) => void;
+  /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
+  bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, send } = deps;
+  const { sessions, terminals, send } = deps;
+  const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
   // Per-connection subscription bookkeeping: re-subscribing to a session
   // replaces its old subscription, and every listener is released on close.
   const cleanups = new Map<string, () => void>();
+  // Set by close(); guards async handlers (terminal_open's awaited spawn) from
+  // registering resources into maps close() has already swept.
+  let connectionClosed = false;
+
+  // Terminal ownership (Slice 8a): terminals opened over THIS connection, each
+  // one a detached Scope owned via its gateway handle. Every teardown path —
+  // terminal_close, the connection dropping, the owning session exiting —
+  // funnels into `entry.opened.close()` (the scope close that kills the PTY).
+  interface TerminalEntry {
+    opened: OpenedTerminal;
+    /** Unsubscribe of the CURRENT push listener (replaced on reattach). */
+    detach: () => void;
+  }
+  const terminalEntries = new Map<string, TerminalEntry>();
+  // One session-exit hook per session with live terminals: the session
+  // closing (pi exit — destroy() funnels into stop() → exit) tears its
+  // terminals down, so a removed session can never leave orphan PTYs.
+  const sessionExitHooks = new Map<string, () => void>();
+
+  // Backpressure valve state: PTYs paused because this connection's socket
+  // buffer crossed the high-water mark, and the drain poller that resumes them.
+  const pausedTerminals = new Set<OpenedTerminal>();
+  let drainPoll: ReturnType<typeof setInterval> | null = null;
+  const stopDrainPoll = (): void => {
+    if (drainPoll !== null) {
+      clearInterval(drainPoll);
+      drainPoll = null;
+    }
+  };
+  const resumePausedTerminals = (): void => {
+    for (const opened of pausedTerminals) opened.resume();
+    pausedTerminals.clear();
+    stopDrainPoll();
+  };
+  const ensureDrainPoll = (): void => {
+    if (drainPoll !== null) return;
+    drainPoll = setInterval(() => {
+      if (bufferedAmount() <= TERMINAL_PUSH_RESUME_BUFFERED_BYTES) resumePausedTerminals();
+    }, TERMINAL_PUSH_DRAIN_POLL_MS);
+    // Never keep the process alive just to poll a socket buffer (unref is
+    // absent under fake timers in tests, hence the feature check).
+    (drainPoll as { unref?: () => void }).unref?.();
+  };
+
+  const terminalListener =
+    (terminalId: string, opened: OpenedTerminal) =>
+    (event: TerminalEvent): void => {
+      if (event._tag === "Output") {
+        send({
+          kind: "terminal_push",
+          message: { type: "terminal_output", terminalId, data: event.data },
+        });
+        // The frame just queued may have tipped the socket buffer over the
+        // high-water mark: pause THIS producer until the buffer drains.
+        if (!pausedTerminals.has(opened) && bufferedAmount() > TERMINAL_PUSH_PAUSE_BUFFERED_BYTES) {
+          opened.pause();
+          pausedTerminals.add(opened);
+          ensureDrainPoll();
+        }
+        return;
+      }
+      send({
+        kind: "terminal_push",
+        message: {
+          type: "terminal_exit",
+          terminalId,
+          exitCode: event.exit.exitCode,
+          signal: event.exit.signal,
+        },
+      });
+    };
+
+  const closeTerminal = (terminalId: string): void => {
+    const entry = terminalEntries.get(terminalId);
+    if (!entry) return;
+    terminalEntries.delete(terminalId);
+    pausedTerminals.delete(entry.opened);
+    if (pausedTerminals.size === 0) stopDrainPoll();
+    // The push listener stays attached through the close so the client still
+    // receives the terminal_exit push produced by the PTY kill.
+    void entry.opened.close().catch(() => {});
+  };
+
+  const closeTerminalsForSession = (sessionId: string): void => {
+    for (const [terminalId, entry] of terminalEntries) {
+      if (entry.opened.sessionId === sessionId) closeTerminal(terminalId);
+    }
+    sessionExitHooks.get(sessionId)?.();
+    sessionExitHooks.delete(sessionId);
+  };
+
+  const ensureSessionExitHook = (session: ManagedSession): void => {
+    const sessionId = session.meta.id;
+    if (sessionExitHooks.has(sessionId)) return;
+    // onExit fires the listener SYNCHRONOUSLY when the session has already
+    // exited (services/sessionManager.ts) — possible when the session dies
+    // between the handler's sessions.get() and the PTY spawn. Detect that and
+    // drop the hook instead of storing a stale no-op unhook for a session
+    // that will never fire again.
+    let exited = false;
+    const unhook = session.onExit(() => {
+      exited = true;
+      closeTerminalsForSession(sessionId);
+    });
+    if (exited) {
+      unhook();
+      return;
+    }
+    sessionExitHooks.set(sessionId, unhook);
+  };
 
   const subscribe = (session: ManagedSession, lastSeq?: number): void => {
     cleanups.get(session.meta.id)?.();
@@ -112,6 +241,106 @@ export function createRpcConnection(deps: {
       send({ kind: "hello_ok", id, sessions: sessions.list() });
       return;
     }
+
+    // Terminal ops (Slice 8a) — handled ahead of the session dispatch because
+    // input/resize/close address a terminalId, not a sessionId.
+    if (request.type === "terminal_open") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      if (request.terminalId !== undefined) {
+        // Reattach: replace the push listener and replay the scrollback.
+        const entry = terminalEntries.get(request.terminalId);
+        if (!entry || entry.opened.sessionId !== request.sessionId) {
+          replyError("unknown terminal");
+          return;
+        }
+        entry.detach();
+        const attachment = entry.opened.attach(terminalListener(request.terminalId, entry.opened));
+        entry.detach = attachment.unsubscribe;
+        send({
+          kind: "terminal_open_ok",
+          id,
+          terminalId: request.terminalId,
+          scrollback: attachment.scrollback,
+          running: attachment.running,
+        });
+        return;
+      }
+      // An ENDED session stays listed (only destroy removes it) but its exit
+      // hook would reap any fresh terminal synchronously — reject instead of
+      // burning a shell spawn+kill and reporting `running: true`.
+      if (session.meta.endedAt !== undefined) {
+        replyError("session has ended");
+        return;
+      }
+      try {
+        // cwd comes from the session, server-side (worktree-aware meta.cwd).
+        const opened = await terminals.open({
+          sessionId: session.meta.id,
+          cwd: session.meta.cwd,
+          cols: request.cols,
+          rows: request.rows,
+        });
+        // The socket may have dropped DURING the spawn — close() already swept
+        // (and cleared) terminalEntries, so inserting now would orphan this
+        // PTY forever. Reap it immediately instead.
+        if (connectionClosed) {
+          void opened.close().catch(() => {});
+          return;
+        }
+        const attachment = opened.attach(terminalListener(opened.terminalId, opened));
+        terminalEntries.set(opened.terminalId, { opened, detach: attachment.unsubscribe });
+        ensureSessionExitHook(session);
+        // The session may have exited DURING the spawn: the hook fired
+        // immediately and already reaped the entry — report the truth instead
+        // of a running terminal that is being killed.
+        if (!terminalEntries.has(opened.terminalId)) {
+          replyError("session has ended");
+          return;
+        }
+        send({
+          kind: "terminal_open_ok",
+          id,
+          terminalId: opened.terminalId,
+          scrollback: attachment.scrollback,
+          running: attachment.running,
+        });
+      } catch (error) {
+        replyError(String(error));
+      }
+      return;
+    }
+    if (
+      request.type === "terminal_input" ||
+      request.type === "terminal_resize" ||
+      request.type === "terminal_close"
+    ) {
+      const entry = terminalEntries.get(request.terminalId);
+      if (!entry) {
+        replyError("unknown terminal");
+        return;
+      }
+      try {
+        switch (request.type) {
+          case "terminal_input":
+            await entry.opened.write(request.data);
+            break;
+          case "terminal_resize":
+            await entry.opened.resize(request.cols, request.rows);
+            break;
+          case "terminal_close":
+            closeTerminal(request.terminalId);
+            break;
+        }
+        replyOk();
+      } catch (error) {
+        replyError(String(error));
+      }
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -166,8 +395,21 @@ export function createRpcConnection(deps: {
   return {
     handleMessage,
     close: () => {
+      connectionClosed = true;
       for (const cleanup of cleanups.values()) cleanup();
       cleanups.clear();
+      // The terminals are dying anyway; stop the drain poller outright.
+      stopDrainPoll();
+      pausedTerminals.clear();
+      // Connection drop tears every owned terminal down (no orphan PTYs).
+      // Detach first: the socket is gone, so exit pushes would go nowhere.
+      for (const entry of terminalEntries.values()) {
+        entry.detach();
+        void entry.opened.close().catch(() => {});
+      }
+      terminalEntries.clear();
+      for (const unhook of sessionExitHooks.values()) unhook();
+      sessionExitHooks.clear();
     },
   };
 }
@@ -178,8 +420,11 @@ export interface RpcEndpoint {
   broadcast: (message: ServerMessage) => void;
 }
 
-export function setupRpcEndpoint(deps: { sessions: SessionManager }): RpcEndpoint {
-  const { sessions } = deps;
+export function setupRpcEndpoint(deps: {
+  sessions: SessionManager;
+  terminals: TerminalGateway;
+}): RpcEndpoint {
+  const { sessions, terminals } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -195,7 +440,10 @@ export function setupRpcEndpoint(deps: { sessions: SessionManager }): RpcEndpoin
     clients.add(socket);
     const connection = createRpcConnection({
       sessions,
+      terminals,
       send: (frame) => sendTo(socket, frame),
+      // Terminal push backpressure reads the real socket send-buffer depth.
+      bufferedAmount: () => socket.bufferedAmount,
     });
     socket.on("close", () => {
       clients.delete(socket);

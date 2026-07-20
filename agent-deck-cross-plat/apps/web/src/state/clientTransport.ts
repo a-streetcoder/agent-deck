@@ -1,6 +1,16 @@
-import { RpcTransport, type ConnectionState, type WebSocketCtor } from "@agent-deck/client-runtime";
+import {
+  RpcTransport,
+  type ConnectionState,
+  type TerminalOpenResult,
+  type WebSocketCtor,
+} from "@agent-deck/client-runtime";
 import { RPC_WS_PATH } from "@agent-deck/contracts";
-import type { ClientMessage, ServerMessage } from "@agent-deck/contracts";
+import type {
+  ClientMessage,
+  ServerMessage,
+  TerminalClientRequest,
+  TerminalPush,
+} from "@agent-deck/contracts";
 import type { ConnectionStatus } from "./store.ts";
 
 /**
@@ -27,11 +37,23 @@ export interface TransportHost {
   setConnection(status: ConnectionStatus): void;
   /** The last applied seq — sent on (re)subscribe so the server replays the gap. */
   getLastSeq(): number;
+  /** A terminal push (Slice 8b): output chunks + exit, outside the reducer path. */
+  onTerminalPush?(message: TerminalPush): void;
 }
 
 export interface ClientTransport {
   connect(sessionId: string): void;
   send(message: ClientMessage): void;
+  /** Open (or reattach `terminalId` to) the session terminal; rejects offline. */
+  openTerminal(request: {
+    sessionId: string;
+    terminalId?: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<TerminalOpenResult>;
+  /** Fire-and-forget terminal input/resize/close (dropped while disconnected,
+   * like {@link send} — the drawer resyncs via reattach on reconnect). */
+  sendTerminal(message: Exclude<TerminalClientRequest, { type: "terminal_open" }>): void;
 }
 
 function socketUrl(pathSuffix: string): string {
@@ -103,6 +125,10 @@ export class RpcClientTransport implements ClientTransport {
         if (myGeneration !== this.generation) return;
         this.host.onServerMessage(message);
       },
+      onTerminalPush: (message) => {
+        if (myGeneration !== this.generation) return;
+        this.host.onTerminalPush?.(message);
+      },
       onDecodeError: (error, raw) => {
         // A push that fails the contract at the boundary is dropped (never
         // surfaced as an event). Log for diagnosis; do not disturb UI state.
@@ -129,6 +155,31 @@ export class RpcClientTransport implements ClientTransport {
         message: String(error),
         sessionId: this.currentSessionId ?? undefined,
       });
+    });
+  }
+
+  openTerminal(request: {
+    sessionId: string;
+    terminalId?: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<TerminalOpenResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.openTerminal(request);
+  }
+
+  sendTerminal(message: Exclude<TerminalClientRequest, { type: "terminal_open" }>): void {
+    const transport = this.transport;
+    // Fire-and-forget, mirroring send(): while disconnected the op is dropped —
+    // a disconnect kills the server-side terminal anyway (the connection owns
+    // it), and the drawer reopens/reattaches once the transport is back.
+    if (!transport || transport.getState() !== "connected") return;
+    void transport.terminalRequest(message).catch(() => {
+      // Failures here (e.g. input to an exited terminal) are surfaced to the
+      // drawer through the terminal_exit push, not the error banner.
     });
   }
 }

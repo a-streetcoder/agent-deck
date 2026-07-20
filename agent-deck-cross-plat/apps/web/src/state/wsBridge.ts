@@ -1,5 +1,12 @@
-import type { ClientMessage, ProjectMeta, ServerMessage, SessionMeta } from "@agent-deck/contracts";
+import type {
+  ClientMessage,
+  ProjectMeta,
+  ServerMessage,
+  SessionMeta,
+  TerminalPush,
+} from "@agent-deck/contracts";
 import { reduceTranscript } from "@agent-deck/domain";
+import type { TerminalOpenResult } from "@agent-deck/client-runtime";
 import { RpcClientTransport, type ClientTransport, type TransportHost } from "./clientTransport.ts";
 import { useAppStore } from "./store.ts";
 
@@ -21,11 +28,106 @@ let currentSessionId: string | null = null;
 
 const transportHost: TransportHost = {
   onServerMessage: (message) => handleMessage(message),
-  setConnection: (status) => useAppStore.getState().setConnection(status),
+  setConnection: (status) => {
+    // Terminals are owned by the server-side RPC connection: any drop kills
+    // their PTYs, so every remembered terminal id dies with the socket.
+    if (status !== "open") sessionTerminals.clear();
+    useAppStore.getState().setConnection(status);
+  },
   getLastSeq: () => useAppStore.getState().lastSeq,
+  onTerminalPush: (message) => {
+    for (const listener of terminalPushListeners) listener(message);
+  },
 };
 
 const transport: ClientTransport = new RpcClientTransport(transportHost);
+
+// ---------------------------------------------------------------------------
+// Terminal drawer surface (Slice 8b) — ported from t3code's terminal state
+// wiring (MIT), re-expressed over our RPC transport: the drawer opens a
+// terminal for the CURRENT session, the server remembers it per connection,
+// and reopening the drawer reattaches by id to replay the scrollback.
+// ---------------------------------------------------------------------------
+
+/** Terminal ids the server allocated for this connection, per session. */
+const sessionTerminals = new Map<string, string>();
+/** In-flight opens, per session: a drawer close+reopen before the first open
+ * resolves must JOIN it, not race a second terminal_open (last-writer-wins
+ * would leave the first PTY streaming to a filtered-out listener). */
+const pendingOpens = new Map<string, Promise<TerminalOpenResult & { sessionId: string }>>();
+const terminalPushListeners = new Set<(message: TerminalPush) => void>();
+
+/** Subscribe to terminal pushes (output/exit). Returns the unsubscriber. */
+export function subscribeTerminalPush(listener: (message: TerminalPush) => void): () => void {
+  terminalPushListeners.add(listener);
+  return () => terminalPushListeners.delete(listener);
+}
+
+/**
+ * Open the current session's terminal — reattaching to the one this connection
+ * already opened (scrollback replays), or spawning a fresh PTY in the session's
+ * cwd. A stale remembered id (e.g. the session exited and took its terminals
+ * down) falls back to a fresh open.
+ */
+export async function openSessionTerminal(
+  cols?: number,
+  rows?: number,
+): Promise<TerminalOpenResult & { sessionId: string }> {
+  const sessionId = currentSessionId;
+  if (!sessionId) throw new Error("no active session");
+  const inFlight = pendingOpens.get(sessionId);
+  if (inFlight) return await inFlight;
+  const task = doOpenSessionTerminal(sessionId, cols, rows);
+  pendingOpens.set(sessionId, task);
+  try {
+    return await task;
+  } finally {
+    pendingOpens.delete(sessionId);
+  }
+}
+
+async function doOpenSessionTerminal(
+  sessionId: string,
+  cols?: number,
+  rows?: number,
+): Promise<TerminalOpenResult & { sessionId: string }> {
+  const size = {
+    ...(cols !== undefined ? { cols } : {}),
+    ...(rows !== undefined ? { rows } : {}),
+  };
+  const known = sessionTerminals.get(sessionId);
+  try {
+    const result = await transport.openTerminal({
+      sessionId,
+      ...(known !== undefined ? { terminalId: known } : {}),
+      ...size,
+    });
+    sessionTerminals.set(sessionId, result.terminalId);
+    return { ...result, sessionId };
+  } catch (error) {
+    if (known === undefined) throw error;
+    sessionTerminals.delete(sessionId);
+    const result = await transport.openTerminal({ sessionId, ...size });
+    sessionTerminals.set(sessionId, result.terminalId);
+    return { ...result, sessionId };
+  }
+}
+
+export function sendTerminalInput(terminalId: string, data: string): void {
+  transport.sendTerminal({ type: "terminal_input", terminalId, data });
+}
+
+export function sendTerminalResize(terminalId: string, cols: number, rows: number): void {
+  transport.sendTerminal({ type: "terminal_resize", terminalId, cols, rows });
+}
+
+/** Kill the current session's terminal (the PTY dies; the next open is fresh). */
+export function closeSessionTerminal(sessionId: string): void {
+  const terminalId = sessionTerminals.get(sessionId);
+  if (terminalId === undefined) return;
+  sessionTerminals.delete(sessionId);
+  transport.sendTerminal({ type: "terminal_close", terminalId });
+}
 
 /** (Re)connect subscribed to `sessionId` — the single entry point that keeps
  * `currentSessionId` (which gates handleMessage's per-session filtering) in sync
@@ -68,6 +170,8 @@ function handleMessage(message: ServerMessage): void {
       break;
     case "session_removed":
       store.removeSession(message.sessionId);
+      // Its terminals died server-side with the session (rpcHandler teardown).
+      sessionTerminals.delete(message.sessionId);
       // If ANOTHER client deleted the session we're viewing, drop it and open
       // a fresh chat so we're not pointing at (or subscribed to) a dead id.
       if (useAppStore.getState().session?.id === message.sessionId) {
