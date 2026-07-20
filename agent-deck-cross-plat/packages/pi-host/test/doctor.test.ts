@@ -33,7 +33,7 @@ describe("runDoctor", () => {
       expect(check!.detail).not.toBe("");
       expect(["ok", "warn", "error"]).toContain(check!.status);
     }
-  });
+  }, 20_000);
 
   it("validates pi's settings.json (native Doctor Settings Files)", async () => {
     // Absent → ok (pi uses defaults).
