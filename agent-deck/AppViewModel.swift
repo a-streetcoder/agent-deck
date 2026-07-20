@@ -1053,7 +1053,7 @@ final class AppViewModel: NSObject {
             }
         }
 
-        if !session.isNoProject, let catalog = await mcpCatalogPrompt(for: session) {
+        if let catalog = await mcpCatalogPrompt(for: session) {
             parts.append("mcpCatalog=\(catalog)")
         } else {
             parts.append("mcpCatalog=")
@@ -4658,6 +4658,15 @@ final class AppViewModel: NSObject {
     /// assigned servers; a project session uses the global defaults unioned with the
     /// project's assignment. Always intersected with servers that actually exist in config.
     private func assignedMCPServerNames(for session: PiAgentSessionRecord) -> Set<String> {
+        if session.isNoProject {
+            return ComputerUseCapability.noProjectScope(
+                mode: session.effectiveNoProjectMode,
+                assignedModes: appSettings.computerUseNoProjectModes,
+                mcpEnabled: appSettings.mcpEnabled,
+                entries: mergedMCPEntries
+            )
+        }
+
         let resolved: Set<String>
         if let agent = boundAgent(for: session) {
             resolved = Set(agent.resolved.mcpServers ?? [])
@@ -4735,6 +4744,18 @@ final class AppViewModel: NSObject {
         refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
     }
 
+    func computerUseIsEnabledForNoProjectMode(_ mode: PiAgentNoProjectMode) -> Bool {
+        appSettings.computerUseNoProjectModes.contains(mode)
+    }
+
+    func setComputerUseEnabledForNoProjectMode(_ mode: PiAgentNoProjectMode, enabled: Bool) {
+        guard appSettingsController.setComputerUseNoProjectMode(mode, enabled: enabled) else { return }
+        appSettings = appSettingsController.settings
+        // A running no-project session's launch resources have changed. This also
+        // removes the bridge immediately on its next safe relaunch when disabled.
+        reconcileRunningSessionLaunchResourceFingerprints()
+    }
+
     /// Compact MCP tool catalog injected into the system prompt, scoped to the session's
     /// assigned servers. Returns nil when MCP is off or nothing is assigned, so neither
     /// the bridge nor a prompt block is injected (matching the Deck-agents catalog).
@@ -4759,7 +4780,10 @@ final class AppViewModel: NSObject {
     /// servers (the common case) are always present regardless of active project.
     private func mcpCatalogEntries(forScope scope: Set<String>, projectPath: String?) async -> [MCPCatalogEntry] {
         guard !scope.isEmpty else { return [] }
-        if projectPath == projectRootURL?.path {
+        // `nil == nil` must not select the active-project cache: a no-project
+        // session has its own capability-only scope and must discover that scope
+        // directly rather than inheriting any cached project catalog.
+        if let projectPath, projectPath == projectRootURL?.path {
             return mcpCatalogSnapshot.filter { scope.contains($0.server) }
         }
         return await mcpConnectionManager.discoverCatalog(serverNames: scope)
@@ -4831,15 +4855,12 @@ final class AppViewModel: NSObject {
     /// Handles an `mcp` proxy bridge request: routes list/search/describe/call to the
     /// native connection manager, scoped to the session's assigned servers.
     private func handleMCPBridge(sessionID: UUID, request: PiMCPBridgeRequest, completion: @escaping (String) -> Void) {
-        let scope: Set<String>
-        let boundAgentName: String?
-        if let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) {
-            scope = assignedMCPServerNames(for: session)
-            boundAgentName = boundAgent(for: session)?.name
-        } else {
-            boundAgentName = nil
-            scope = mcpConfiguredServerNames
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else {
+            completion("Unknown Agent Deck session; MCP access is denied.")
+            return
         }
+        let scope = assignedMCPServerNames(for: session)
+        let boundAgentName = boundAgent(for: session)?.name
         Task { [weak self] in
             guard let self else { completion("\(AppBrand.displayName)'s MCP bridge is not available."); return }
             let text = await self.performMCPBridge(request: request, scope: scope, sessionID: sessionID, projectID: self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.projectPathForProjectFeatures, requestingAgent: boundAgentName)

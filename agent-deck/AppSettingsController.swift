@@ -1144,6 +1144,16 @@ final class AppSettingsController {
         persist()
     }
 
+    @discardableResult
+    func setComputerUseNoProjectMode(_ mode: PiAgentNoProjectMode, enabled: Bool) -> Bool {
+        var modes = settings.computerUseNoProjectModes
+        let changed = enabled ? modes.insert(mode).inserted : modes.remove(mode) != nil
+        guard changed else { return false }
+        settings.computerUseNoProjectModes = modes
+        persist()
+        return true
+    }
+
     private func persist() {
         store.settings = settings
     }

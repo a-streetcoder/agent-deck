@@ -805,6 +805,45 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertNil(store.uiRequestsBySessionID[session.id])
     }
 
+    func testNoProjectSessionUsesCatalogProviderAndInjectsMCPBridgeOnlyForNonEmptyCatalog() throws {
+        let enabledHarness = try PiTestSupport.makeBridgeHarness(events: [])
+        defer { enabledHarness.restoreEnvironment() }
+
+        let enabledStore = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let enabledRunner = PiAgentRunnerService(store: enabledStore)
+        var requestedMode: PiAgentNoProjectMode?
+        enabledRunner.mcpCatalogProvider = { session in
+            requestedMode = session.effectiveNoProjectMode
+            return "Computer Use catalog."
+        }
+        let enabledSession = enabledStore.createNoProjectCodingAgentSession()
+        enabledRunner.resume(session: enabledSession)
+        defer { enabledRunner.stop(sessionID: enabledSession.id, recordTranscript: false) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            enabledStore.sessions.first(where: { $0.id == enabledSession.id })?.launchCommand != nil
+        })
+        let enabledCommand = try XCTUnwrap(enabledStore.sessions.first(where: { $0.id == enabledSession.id })?.launchCommand)
+        XCTAssertEqual(requestedMode, .general)
+        XCTAssertTrue(enabledCommand.contains("agent-deck-mcp-bridge.ts"))
+        XCTAssertTrue(enabledCommand.contains("Computer Use catalog."))
+
+        let disabledHarness = try PiTestSupport.makeBridgeHarness(events: [])
+        defer { disabledHarness.restoreEnvironment() }
+        let disabledStore = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let disabledRunner = PiAgentRunnerService(store: disabledStore)
+        disabledRunner.mcpCatalogProvider = { _ in nil }
+        let disabledSession = disabledStore.createAgentDeckBuilderSession()
+        disabledRunner.resume(session: disabledSession)
+        defer { disabledRunner.stop(sessionID: disabledSession.id, recordTranscript: false) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            disabledStore.sessions.first(where: { $0.id == disabledSession.id })?.launchCommand != nil
+        })
+        let disabledCommand = try XCTUnwrap(disabledStore.sessions.first(where: { $0.id == disabledSession.id })?.launchCommand)
+        XCTAssertFalse(disabledCommand.contains("agent-deck-mcp-bridge.ts"))
+    }
+
     func testParentSessionLaunchInjectsNativeBridgeExtensionAndCatalogOnlyWhenEnabled() throws {
         let enabledHarness = try PiTestSupport.makeBridgeHarness(events: [])
         defer { enabledHarness.restoreEnvironment() }

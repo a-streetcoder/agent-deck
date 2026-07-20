@@ -172,6 +172,9 @@ struct AppSettings: Codable, Hashable {
     /// MCP server names enabled for every project ("All Projects"). Per-project
     /// additions live in `ProjectPreference.assignedMcpServerNames`.
     var defaultMcpServerNames: Set<String> = []
+    /// No-project chats never inherit generic MCP assignments. Only the trusted
+    /// Computer Use capability may be explicitly assigned to these modes.
+    var computerUseNoProjectModes: Set<PiAgentNoProjectMode> = []
     var agentMemoryEnabled: Bool = true
     var agentMemorySubagentsEnabled: Bool = true
     var agentMemoryShowTranscriptCards: Bool = true
@@ -241,6 +244,7 @@ struct AppSettings: Codable, Hashable {
         case nativeSubagentDelegationPolicy
         case mcpEnabled
         case defaultMcpServerNames
+        case computerUseNoProjectModes
         case agentMemoryEnabled
         case agentMemorySubagentsEnabled
         case agentMemoryShowTranscriptCards
@@ -307,6 +311,7 @@ struct AppSettings: Codable, Hashable {
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         mcpEnabled = try container.decodeIfPresent(Bool.self, forKey: .mcpEnabled) ?? false
         defaultMcpServerNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultMcpServerNames) ?? []
+        computerUseNoProjectModes = try container.decodeIfPresent(Set<PiAgentNoProjectMode>.self, forKey: .computerUseNoProjectModes) ?? []
         nativeSubagentDelegationPolicy = try container.decodeIfPresent(NativeSubagentDelegationPolicy.self, forKey: .nativeSubagentDelegationPolicy) ?? .balanced
         agentMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryEnabled) ?? true
         agentMemorySubagentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemorySubagentsEnabled) ?? true

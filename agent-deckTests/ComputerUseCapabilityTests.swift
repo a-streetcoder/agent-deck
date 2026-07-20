@@ -137,6 +137,43 @@ final class ComputerUseCapabilityTests: XCTestCase {
         ))
     }
 
+    func testNoProjectScopeRequiresExplicitModeTrustedAvailableComputerUseAndMCP() {
+        XCTAssertEqual(
+            ComputerUseCapability.noProjectScope(
+                mode: .general,
+                assignedModes: [.general],
+                mcpEnabled: true,
+                entries: [pluginEntry()]
+            ),
+            Set([ComputerUseCapability.serverName])
+        )
+        XCTAssertTrue(ComputerUseCapability.noProjectScope(
+            mode: .agentDeckBuilder,
+            assignedModes: [.general],
+            mcpEnabled: true,
+            entries: [pluginEntry()]
+        ).isEmpty)
+        XCTAssertTrue(ComputerUseCapability.noProjectScope(
+            mode: .general,
+            assignedModes: [.general],
+            mcpEnabled: false,
+            entries: [pluginEntry()]
+        ).isEmpty)
+        XCTAssertTrue(ComputerUseCapability.noProjectScope(
+            mode: .general,
+            assignedModes: [.general],
+            mcpEnabled: true,
+            entries: [pluginEntry(available: false)]
+        ).isEmpty)
+        let collision = MCPServerEntry(name: ComputerUseCapability.serverName, config: MCPServerConfig(command: "user-server"), sourcePath: "/user/mcp.json")
+        XCTAssertTrue(ComputerUseCapability.noProjectScope(
+            mode: .general,
+            assignedModes: [.general],
+            mcpEnabled: true,
+            entries: [collision]
+        ).isEmpty)
+    }
+
     func testGuideIsNotInjectedWhenUnassignedUnavailableOrCollided() {
         let catalogEntries = fullCatalogEntries()
         XCTAssertEqual(ComputerUseCapability.appendGuide(to: "catalog", scope: [], entries: [pluginEntry()], catalogEntries: catalogEntries), "catalog")

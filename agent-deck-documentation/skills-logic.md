@@ -36,6 +36,8 @@ Computer Use is the targeted exception. Its installed Codex skill is not indepen
 
 The Agent Deck variant automatically accepts bounded approval requests from the signed app-server, so calls do not show Agent Deck or OpenAI Computer Use approval prompts. This is broad authority: assigned sessions can click, type, scroll, drag, and press keys in targeted apps. The guide still requires explicit user-authored intent for consequential effects. Unassigning the MCP removes the guide on the next session launch.
 
+**General Chat** and **Agent Deck Builder** never inherit All Projects/default, project, or agent MCP assignments. The trusted discovered `codex-computer-use` entry exposes a separate toggle for each no-project mode. A mode receives Computer Use only when its toggle is on, MCP is enabled, and the verified auto-accept broker is currently available; otherwise it receives no MCP bridge or catalog.
+
 ChatGPT must be running and signed in to an account where Computer Use is available. OpenAI includes Codex across ChatGPT plans, including Free and Go, but Computer Use/plugin eligibility, regional availability, workspace policy, and usage limits can vary. When a parent session first starts with trusted Computer Use in scope and ChatGPT is closed, Agent Deck offers to open it, continue without opening it, or cancel while preserving the composer.
 
 The broker is an external prerequisite and is not bundled into Agent Deck. From an Agent Deck source checkout, install the reviewed upstream package and deterministic derived variant into the explicit Application Support paths with:

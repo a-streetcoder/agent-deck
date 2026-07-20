@@ -246,6 +246,7 @@ struct MCPServersScreen: View {
 
     private func isTrustedComputerUse(_ entry: MCPServerEntry) -> Bool {
         guard entry.name == ComputerUseCapability.serverName,
+              entry.isAvailable,
               entry.toolPolicy == .computerUseAutoAccept else { return false }
         if case .codexPlugin = entry.provenance { return entry.config.resolvedTransport == .stdio }
         return false
@@ -270,7 +271,17 @@ struct MCPServersScreen: View {
                 }
                 Text("Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_text, scroll, drag, press_key, and type_text.")
                 Text("Automatic authority: assigning Computer Use gives sessions in this scope access to all ten methods—including clicking, typing, scrolling, dragging, and key presses—without an Agent Deck approval prompt. Signed OpenAI app-server requests are accepted automatically.")
-                Text("Enable it only for projects or agents you trust to control this Mac. Unassign or disable Computer Use to stop exposing it. ChatGPT availability and macOS privacy permissions are prerequisites; neither is consent for effects the user did not request.")
+                Divider()
+                Toggle("General Chat", isOn: Binding(
+                    get: { viewModel.computerUseIsEnabledForNoProjectMode(.general) },
+                    set: { viewModel.setComputerUseEnabledForNoProjectMode(.general, enabled: $0) }
+                ))
+                Toggle("Agent Deck Builder", isOn: Binding(
+                    get: { viewModel.computerUseIsEnabledForNoProjectMode(.agentDeckBuilder) },
+                    set: { viewModel.setComputerUseEnabledForNoProjectMode(.agentDeckBuilder, enabled: $0) }
+                ))
+                Text("No-project chats never inherit All Projects, project, default, or agent MCP assignments. These toggles explicitly assign only Computer Use to the selected chat mode.")
+                Text("Enable it only for projects, agents, or no-project modes you trust to control this Mac. Unassign or disable Computer Use to stop exposing it. ChatGPT availability and macOS privacy permissions are prerequisites; neither is consent for effects the user did not request.")
             }
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)

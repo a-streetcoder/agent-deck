@@ -139,6 +139,21 @@ nonisolated enum ComputerUseCapability {
         return false
     }
 
+    /// No-project sessions deliberately have no generic MCP scope. They can receive
+    /// only this capability, and only after the user explicitly assigns its mode and
+    /// the currently discovered entry proves it is the trusted auto-accept broker.
+    static func noProjectScope(
+        mode: PiAgentNoProjectMode,
+        assignedModes: Set<PiAgentNoProjectMode>,
+        mcpEnabled: Bool,
+        entries: [MCPServerEntry]
+    ) -> Set<String> {
+        guard mcpEnabled,
+              assignedModes.contains(mode),
+              hasTrustedAvailableAssignment(scope: [serverName], entries: entries) else { return [] }
+        return [serverName]
+    }
+
     static func hasActiveAssignment(
         scope: Set<String>,
         entries: [MCPServerEntry],

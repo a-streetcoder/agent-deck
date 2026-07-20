@@ -804,7 +804,7 @@ final class PiAgentRunnerService {
             // provider discovers on demand for sessions in a project other than the
             // active one, so their assigned servers are connected even when the
             // active-project snapshot wouldn't cover them.
-            let mcpCatalog: String? = session.isNoProject ? nil : await mcpCatalogProvider?(session)
+            let mcpCatalog = await mcpCatalogProvider?(session)
             guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
             if session.isAgentDeckBuilderSession {
                 extraArguments.append(contentsOf: [
