@@ -103,6 +103,16 @@ throughout this phase — handlers call into a `ManagedRuntime`; dropping Fastif
   also used by tests). The Effect wrapper lives server-side first.
 - This is the slice where Effect has to prove itself against the process-lifecycle
   edge cases (abort, exit mid-turn, resume). Budget review time accordingly.
+- **Status: LANDED (2026-07-20).** `services/piHost.ts`: scoped spawn (acquireRelease,
+  tree-kill on release), Deferred RPC correlation (exit fails pending), JSONL Stream
+  terminated by exit; joined into serverLayers. packages/pi-host hardened: stdin EPIPE
+  swallow, cross-platform process-tree kill, drain-gated exit (buffered stdout flushes
+  before ProcessExit), stop() bounded by a 10s last-resort deadline so a wedged child
+  can't hang shutdown. 13 fake-subprocess unit tests + a real-pi service test (spawn →
+  streamed turn → clean close, orphan check via kill(pid,0)). Deferred to Slice 5 scope
+  (its consumer): enforce the events-queue single-consumer contract / consumer-detach
+  policy, dedupe the JSONL line-classification into a shared pi-host helper, add
+  SIGTERM-ignoring + grandchild fixtures for kill-escalation coverage.
 
 ### Slice 5 — SessionManager service
 

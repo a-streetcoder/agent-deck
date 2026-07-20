@@ -45,8 +45,10 @@ test("walks the tour, runs the setup check, and finishes from the final step", a
   await expect(page.getByTestId("onboarding-setup")).toBeVisible();
   const piCheck = page.locator('[data-check-id="pi-binary"]');
   await expect(piCheck).toBeVisible();
-  // pi is installed in the e2e environment, so it reads Ready.
-  await expect(piCheck).toHaveAttribute("data-check-status", "ok");
+  // pi is installed in the e2e environment, so it reads Ready. The doctor
+  // probes real subprocesses and can take 4-10s under full-suite load — same
+  // headroom precedent as the doctor unit tests.
+  await expect(piCheck).toHaveAttribute("data-check-status", "ok", { timeout: 20_000 });
 
   // Preferences: native OnboardingPreferences toggles/pickers that persist to
   // /settings. autoTitle defaults on; toggling it off writes through.

@@ -1,4 +1,5 @@
 import { Layer, ManagedRuntime } from "effect";
+import { PiHostLive, type PiHost } from "./services/piHost.ts";
 import { SessionPushBusesLive, type SessionPushBuses } from "./services/pushBus.ts";
 
 /**
@@ -10,7 +11,7 @@ import { SessionPushBusesLive, type SessionPushBuses } from "./services/pushBus.
  *
  *   Layer.mergeAll(
  *     SessionPushBusesLive,
- *     PiHostLive,          // Slice 4 — scoped subprocess lifecycle
+ *     PiHostLive,          // Slice 4 — scoped subprocess lifecycle (landed)
  *     SessionManagerLive,  // Slice 5 — consumes push bus + pi-host
  *     PersistenceLive,     // Slice 6
  *   )
@@ -25,12 +26,14 @@ import { SessionPushBusesLive, type SessionPushBuses } from "./services/pushBus.
  * finalizers run on shutdown. Until Slice 5 makes SessionManager a consumer,
  * live callsites still reach the push bus through the `SessionPushBus` class
  * adapter (pushBus.ts), which wraps the same handle implementation the layer
- * serves; the service is exercised through the runtime by the unit tests.
+ * serves, and pi subprocesses through the legacy `PiSession` path — the Effect
+ * services are exercised through the runtime by the unit tests plus, for
+ * PiHost, a real-pi integration test (test/piHost.pi.test.ts).
  */
-export const serverLayers = Layer.mergeAll(SessionPushBusesLive);
+export const serverLayers = Layer.mergeAll(SessionPushBusesLive, PiHostLive);
 
 /** Union of every service the runtime can provide (grows with the merge). */
-export type ServerServices = SessionPushBuses;
+export type ServerServices = SessionPushBuses | PiHost;
 
 export type ServerRuntime = ManagedRuntime.ManagedRuntime<ServerServices, never>;
 

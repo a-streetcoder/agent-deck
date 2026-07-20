@@ -5,8 +5,13 @@ export {
   PiRpcError,
   PiSession,
   type PiAgentEvent,
+  type PiCommand,
+  type PiCommandData,
+  type PiCommandType,
   type PiInboundEvent,
+  type PiRpcResponse,
   type PiSessionOptions,
+  type PiUiResponse,
 } from "./PiSession.ts";
 export { runDoctor, type CheckStatus, type DoctorReport, type HealthCheck } from "./doctor.ts";
 export {

@@ -24,6 +24,18 @@ type DataOf<T extends CommandType> = ResponseOf<T> extends { data: infer D } ? D
 /** Not re-exported from pi's package root — derived from the response shape. */
 export type RpcSlashCommand = DataOf<"get_commands">["commands"][number];
 
+/**
+ * Typed RPC command surface, exported for wrappers that implement their own
+ * correlation on top of PiProcess (the server's Effect service does): the
+ * command-type union, the full command shape per type, its response `data`,
+ * plus the raw response and extension-UI response unions.
+ */
+export type PiCommandType = CommandType;
+export type PiCommand<T extends PiCommandType> = CommandOf<T>;
+export type PiCommandData<T extends PiCommandType> = DataOf<T>;
+export type PiRpcResponse = RpcResponse;
+export type PiUiResponse = RpcExtensionUIResponse;
+
 export class PiRpcError extends Error {
   constructor(
     message: string,
