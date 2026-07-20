@@ -125,6 +125,34 @@ describe("SessionPushBuses service through the ManagedRuntime", () => {
     }
   });
 
+  it("exposes unsafeAppend/unsafeLastSeq sync bridges with the same stamp+dispatch semantics", async () => {
+    const runtime = makeServerRuntime();
+    try {
+      const result = await runtime.runPromise(
+        Effect.gen(function* () {
+          const buses = yield* SessionPushBuses;
+          const bus = yield* buses.make();
+          const seen: number[] = [];
+          yield* bus.subscribe(({ seq }) => seen.push(seq));
+          // The in-fiber SessionManager `emit` path: a synchronous append that
+          // returns the stamped event directly (no runSync, no Effect wrapper).
+          const first = bus.unsafeAppend(event(1));
+          expect(first.seq).toBe(1);
+          expect(seen).toEqual([1]); // dispatched synchronously, like append
+          expect(bus.unsafeLastSeq()).toBe(1);
+          // Interleaves with the Effect surface on the SAME seq counter.
+          yield* bus.append(event(2));
+          expect(bus.unsafeAppend(event(3)).seq).toBe(3);
+          return { lastSeq: yield* bus.lastSeq, seen };
+        }),
+      );
+      expect(result.lastSeq).toBe(3);
+      expect(result.seen).toEqual([1, 2, 3]);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("keeps stamp+dispatch atomic under concurrent fiber appends (monotonic delivery)", async () => {
     const runtime = makeServerRuntime();
     try {

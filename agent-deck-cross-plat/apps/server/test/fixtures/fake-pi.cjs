@@ -102,10 +102,24 @@ rl.on("line", (line) => {
     case "compact":
       // Never respond — exercises the timeout path.
       break;
+    case "get_messages":
+      // Minimal history for SessionManager seed tests: one user message so the
+      // rebuilt transcript has a first user cell (which drives title generation).
+      send({
+        id: cmd.id,
+        type: "response",
+        command: "get_messages",
+        success: true,
+        data: { messages: [{ role: "user", content: "hello world" }] },
+      });
+      break;
     case "prompt":
       send({ id: cmd.id, type: "response", command: "prompt", success: true });
       send({ type: "turn_start" });
-      if (cmd.message === "stream-forever") {
+      // FAKE_PI_HANG makes EVERY prompt stream forever (never agent_end) — used
+      // to stand in for a still-running helper pi (e.g. an in-flight title
+      // helper) so tests can assert scope close reaps it.
+      if (cmd.message === "stream-forever" || process.env.FAKE_PI_HANG === "1") {
         // A turn that never ends by itself — only `abort` stops it.
         streamTimer = setInterval(() => {
           streamed += 1;
@@ -114,6 +128,24 @@ rl.on("line", (line) => {
             assistantMessageEvent: { type: "text_delta", delta: `chunk-${streamed} ` },
           });
         }, 15);
+      } else if (cmd.message === "say-hello") {
+        // A COMPLETE assistant turn (message_start → deltas → message_end), so
+        // the domain reducer opens, streams, and finalizes a real assistant cell
+        // — the SessionManager ingestion tests need a cell_final to key off.
+        send({ type: "message_start", message: { role: "assistant" } });
+        send({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "he" },
+        });
+        send({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "llo" },
+        });
+        send({
+          type: "message_end",
+          message: { role: "assistant", content: [{ type: "text", text: "hello" }] },
+        });
+        send({ type: "agent_end" });
       } else {
         send({
           type: "message_update",

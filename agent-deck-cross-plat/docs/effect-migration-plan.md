@@ -129,6 +129,41 @@ throughout this phase — handlers call into a `ManagedRuntime`; dropping Fastif
 - `SessionManager.ts` (1,086 lines) becomes an Effect service consuming Slice 3+4
   services. Supervisor + receipts fold in here (they are small and coupled to it).
 - Domain ingestion (`domain/ingest.ts`) is called as a pure function — unchanged.
+- **Status: LANDED (2026-07-20).** `services/sessionManager.ts`
+  (`SessionManagerService`, template anatomy) is the coordinator, joined into
+  `serverLayers` via `Layer.provideMerge` over PiHostLive + SessionPushBusesLive.
+  Each session owns a `Scope.CloseableScope`: pi comes from PiHost, the bus from
+  SessionPushBuses, and session close == scope close == pi tree-kill. The
+  per-session ingestion fiber is the long-lived single consumer of PiHost's
+  scope-tied `events` stream; a single synchronous `emit` (transcript reduce +
+  `bus.append`) keeps stdout order (leans on the S3 sync-dispatch guarantee), and
+  synthetic domain events (subagent cards, plan, supervisor cards) stamp through
+  the SAME `emit`. Resume needs no seed gate — `getMessages()` (RPC-correlated)
+  seeds first, then ingestion forks and drains the buffered live events strictly
+  after. Title/subagent/one-shot-helper launches spawn their own pi through the
+  same PiHost service under short-lived `Effect.scoped` blocks, retiring the last
+  `new PiSession()` / `new SessionPushBus()` production paths. `SessionManager.ts`
+  is now a synchronous class facade (adapter, like pushBus.ts) over the service —
+  external API unchanged for routes/wsHandler/bridgeTools (Effect-native at S7);
+  it resolves everything through the server's ManagedRuntime, which now carries
+  production traffic (runtime.ts doc updated). supervisor.ts + receipts.ts kept as
+  their own modules — they are coupled to the ROUTES (bridge.ts) and the receipts
+  bus, not the manager internals, so the service _consumes_ ReceiptBus and the
+  observable receipt timing (first_delta / assistant_final / idle / session_created
+  / title) is byte-identical. Exit handling is idempotent and driven by the
+  ProcessExit stream item, with a post-scope-close `ensureExitHandled` guard in
+  `stop()` so endedAt/session_meta fire before session_removed (legacy ordering).
+  Full gate green: typecheck, lint, format:check, `pnpm test`, and `pnpm test:pi`
+  (pi-host 5, apps/server 54 real-pi, e2e 118 incl. abort/resume/exit-mid-turn).
+  Review: 5 blocker/major findings fixed in-workflow; the 3 deferred minors
+  resolved on landing — (a) title/session-file daemons already fork via
+  `forkIn(sessionScope)` (not `forkDaemon`), so `stopAll()` on close interrupts
+  them and no helper pi orphans; (b) the resume/fork plan-vs-buffered-events
+  ordering flagged as a behavior change is inert — plans mutate ONLY via the
+  set/update_session_plan BRIDGE tools, never pi stdout, so no buffered pi event
+  can race the restore (documented at both call sites); (c) runtime.ts doc
+  corrected — session Scopes are detached roots reclaimed by `stopAll()` before
+  `dispose()`, not by `dispose()` itself (matters for S6 copying the pattern).
 
 ### Slice 6 — Persistence service
 

@@ -2,75 +2,48 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-  createIngestState,
-  emptyTranscript,
-  ingestPiEvent,
-  reduceTranscript,
-  type DomainEvent,
-  type IngestState,
-  type SessionMeta,
-  type SessionPlanItem,
-  type SessionPlanUpdate,
-  type TranscriptState,
+import type {
+  SessionMeta,
+  SessionPlanItem,
+  SessionPlanUpdate,
+  TranscriptState,
 } from "@agent-deck/domain";
 import {
   buildLaunchArgs,
-  PiSession,
   resolvePiBinary,
   type AgentSessionPlan,
   type LaunchPlan,
   type ModelSelection,
   type PiProcessExit,
 } from "@agent-deck/pi-host";
-export type { AgentSessionPlan, LaunchPlan };
-import { SessionPushBus } from "./pushBus.ts";
+import { Cause, Effect, Exit, Runtime, Scope } from "effect";
 import type { ReceiptBus } from "./receipts.ts";
+import type { ServerRuntime, ServerServices } from "./runtime.ts";
+import type { PiSpawnOptions } from "./services/piHost.ts";
+import type { StampedEvent } from "./services/pushBus.ts";
+import {
+  runOneShotHelper,
+  SessionManagerService,
+  type ChildBridgeFactory,
+  type ManagedSessionRuntime,
+  type RunHelperOptions,
+  type SpawnSessionParams,
+} from "./services/sessionManager.ts";
+
+export type { AgentSessionPlan, LaunchPlan };
+export type { ChildBridgeFactory, AgentResolver } from "./services/sessionManager.ts";
 
 /**
- * Builds a child subagent's `contact_supervisor` bridge for one run: returns the
- * generated extension path (loaded via --extension) and a dispose() that tears
- * down the child's bridge token + supervisor route + temp dir. Returns undefined
- * when no supervisor channel is available (e.g. the bridge endpoint isn't bound),
- * in which case the child runs tool-less as before. The server implements this;
- * `route` tells it which parent transcript cell the child's progress flows into.
+ * SessionManager — the synchronous class facade over the Slice 5 Effect service
+ * (services/sessionManager.ts). It keeps the exact external API the routes,
+ * wsHandler and bridge tools depend on, while every session's real lifecycle
+ * (pi subprocess, push bus, ingestion fiber) now runs through the server's
+ * ManagedRuntime and its PiHost + SessionPushBuses services — this is the slice
+ * where the runtime stops being transitional debt and carries production
+ * traffic. Callsites become Effect-native at Slice 7 (the transport swap); this
+ * facade is the seam that lets them not churn before then. Same pattern
+ * `pushBus.ts` used for the bus in Slice 3.
  */
-export type ChildBridgeFactory = (
-  childSessionId: string,
-  route: { parentSessionId: string; cellId: string },
-) => { extension: string; dispose: () => void } | undefined;
-
-/** Resolves a named agent (for `managed_subagent{agent}`) to the launch inputs a
- * delegated child adopts — its persona body, model, thinking level, declared
- * tools, and resolved skill dirs — scoped to the delegating session's project.
- * Returns undefined if not found. `tools` are the agent's real pi tools (the
- * child adds `contact_supervisor` and drops parent-only bridge tools itself);
- * skills only surface when the child also has the `read` tool, so the two are
- * threaded together. */
-export type AgentResolver = (
-  name: string,
-  projectId?: string,
-) =>
-  | {
-      body: string;
-      model?: string;
-      thinking?: AgentSessionPlan["thinking"];
-      tools?: string[];
-      skillDirs?: string[];
-    }
-  | undefined;
-
-/** Bridge tools a delegated child must never receive: parent-only channels and
- * the subagent spawners (a child can't recurse). `contact_supervisor` is its one
- * allowed bridge tool and is added back explicitly. */
-const CHILD_FORBIDDEN_TOOLS = new Set([
-  "managed_subagent",
-  "managed_parallel",
-  "set_session_plan",
-  "update_session_plan",
-  "contact_supervisor",
-  "ask_user",
-]);
 
 export interface CreateSessionOptions {
   cwd: string;
@@ -84,118 +57,91 @@ export interface CreateSessionOptions {
   worktree?: { path: string; branch: string; sourceBranch: string };
 }
 
-const TITLE_SYSTEM_PROMPT =
-  "You generate a session title. Reply with ONLY a short title (max 8 words) " +
-  "summarizing the user's message. No quotes, no punctuation at the end.";
+/**
+ * `Effect.runSync`, unwrapping a FiberFailure to the ORIGINAL error instance so
+ * callsites that `String(error)` / `instanceof`-check see the legacy identity
+ * (the class implementation threw plain Errors, not Effect wrappers). Same
+ * technique as pushBus.ts's adapter.
+ */
+function runSyncUnwrapped<A, E>(effect: Effect.Effect<A, E>): A {
+  try {
+    return Effect.runSync(effect);
+  } catch (error) {
+    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
+    throw error;
+  }
+}
 
-const TITLE_TIMEOUT_MS = 20_000;
+/** {@link runSyncUnwrapped} for a promise-returning effect, run on `runtime`. */
+async function runPromiseUnwrapped<A, E>(
+  runtime: ServerRuntime,
+  effect: Effect.Effect<A, E, ServerServices>,
+): Promise<A> {
+  try {
+    return await runtime.runPromise(effect);
+  } catch (error) {
+    if (Runtime.isFiberFailure(error)) throw Cause.squash(error[Runtime.FiberFailureCauseId]);
+    throw error;
+  }
+}
 
-const SUBAGENT_SYSTEM_PROMPT =
-  "You are a focused subagent launched by Agent Deck to complete one task and " +
-  "report back. You have no conversation history. Do the task, then give a " +
-  "concise, self-contained result the parent agent can use directly.";
-
-const SUBAGENT_TIMEOUT_MS = 120_000;
-
-function normalizeTitle(raw: string): string {
-  const firstLine =
-    raw
-      .split("\n", 1)[0]
-      ?.trim()
-      .replace(/^["'"']|["'"']$/g, "") ?? "";
-  return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+/** A synchronous view of one session's push bus, for the (still class-based)
+ * wsHandler: subscribe/replay dispatch synchronously, exactly like the legacy
+ * SessionPushBus (see services/pushBus.ts's sync-dispatch note). */
+export interface SessionBusView {
+  subscribe(subscriber: (stamped: StampedEvent) => void): () => void;
+  replayFrom(lastSeq: number): StampedEvent[] | null;
+  readonly lastSeq: number;
 }
 
 /**
- * One live chat session: a PiSession whose events flow through the ingest
- * pipeline into (a) the authoritative in-memory transcript and (b) the ordered
- * push bus that clients subscribe to. Ingestion is synchronous, so stamping
- * happens in pi-stdout order — no async fan-out before seq assignment.
+ * One live chat session — the class facade over a {@link ManagedSessionRuntime}.
+ * Synchronous operations (bus subscribe, plan edits, snapshot) run the runtime's
+ * effects via `runSync`; async pi operations run them on the ManagedRuntime.
  */
 export class ManagedSession {
-  readonly bus = new SessionPushBus();
-  private readonly ingest: IngestState = createIngestState();
-  private transcript: TranscriptState = emptyTranscript();
-  private sawFirstDelta = false;
-  private titleStarted = false;
-  /** Open extension_ui_requests: id → method. Answers must match one. */
-  private readonly pendingUiRequests = new Map<string, string>();
-  /** While seeding history on resume, live pi events are queued, not applied. */
-  private seedGate: Array<Parameters<typeof ingestPiEvent>[1]> | null = null;
-  exit: PiProcessExit | null = null;
+  private ingestionStarted = false;
+  private readonly busView: SessionBusView;
 
   constructor(
-    readonly meta: SessionMeta,
-    private readonly pi: PiSession,
-    private readonly receipts: ReceiptBus,
-    private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
-    /** Provider/model/extensions + env for the isolated title-helper launch. */
-    private readonly helperContext?: ModelSelection & {
-      extensions?: string[];
-      env?: Record<string, string | undefined>;
-    },
-    /** Temp dirs generated for this launch (bridge extension, memory append
-     * file); removed once pi has exited. */
-    private readonly tempDirs: string[] = [],
-    /** Builds a child subagent's contact_supervisor bridge (server-provided). */
-    private readonly childBridgeFactory?: ChildBridgeFactory,
-    /** Resolves a named agent for `managed_subagent{agent}` delegation. */
-    private readonly resolveAgent?: AgentResolver,
-    /** Whether to auto-title this session (native autoTitle preference). Read
-     *  live so toggling the setting affects sessions started afterwards. */
-    private readonly autoTitle: () => boolean = () => true,
+    private readonly rt: ManagedSessionRuntime,
+    private readonly runtime: ServerRuntime,
+    /** The session's own Scope: closing it kills pi and settles everything. */
+    private readonly scope: Scope.CloseableScope,
   ) {
-    pi.on("event", (piEvent) => {
-      if (this.seedGate) {
-        this.seedGate.push(piEvent);
-        return;
-      }
-      this.applyPiEvent(piEvent);
-    });
-    pi.on("exit", (exit) => {
-      this.exit = exit;
-      this.meta.endedAt = new Date().toISOString();
-      this.onMetaChange(this.meta);
-      this.cleanupTempDirs();
-    });
+    const handle = rt.bus;
+    this.busView = {
+      subscribe: (subscriber) => {
+        const unsubscribe = Effect.runSync(handle.subscribe(subscriber));
+        return () => Effect.runSync(unsubscribe);
+      },
+      replayFrom: (lastSeq) => Effect.runSync(handle.replayFrom(lastSeq)),
+      get lastSeq() {
+        return Effect.runSync(handle.lastSeq);
+      },
+    };
   }
 
-  /** Remove this launch's generated temp dirs once pi has exited. */
-  private cleanupTempDirs(): void {
-    for (const dir of this.tempDirs) {
-      try {
-        rmSync(dir, { recursive: true, force: true });
-      } catch {
-        // Best-effort: a leftover temp dir is harmless.
-      }
-    }
+  get meta(): SessionMeta {
+    return this.rt.meta;
   }
 
-  /**
-   * Apply one domain event to the authoritative transcript and stamp it onto the
-   * ordered push bus. The single seam through which both pi-derived events and
-   * synthetic ones (native subagent cards) reach clients, so ordering stays in
-   * pi-stdout order — everything is synchronous up to the bus.
-   */
-  private emitDomain(event: DomainEvent): void {
-    this.transcript = reduceTranscript(this.transcript, event);
-    this.bus.append(event);
+  get bus(): SessionBusView {
+    return this.busView;
   }
 
-  /**
-   * Append a child subagent's non-blocking progress update to its card in this
-   * (the parent's) transcript. Called by the server's supervisor handler when a
-   * child invokes contact_supervisor{progress_update}. No-op if the cell is gone.
-   */
+  /** Fork the ingestion fiber (idempotent). Create forks immediately; resume/fork
+   * fork it only AFTER seeding history, so buffered live events apply after. */
+  startIngestion(): void {
+    if (this.ingestionStarted) return;
+    this.ingestionStarted = true;
+    this.runtime.runFork(this.rt.ingest);
+  }
+
   appendSubagentProgress(cellId: string, message: string): void {
-    this.emitDomain({ type: "subagent_progress", cellId, message });
+    runSyncUnwrapped(this.rt.appendSubagentProgress(cellId, message));
   }
 
-  /**
-   * Open a BLOCKING supervisor-request card in this (the parent's) transcript
-   * when a child raises contact_supervisor{need_decision|interview_request}. The
-   * child stays suspended until the card is answered.
-   */
   openSupervisorQuestion(req: {
     requestId: string;
     subagentCellId: string;
@@ -204,534 +150,124 @@ export class ManagedSession {
     message?: string;
     options?: string[];
   }): void {
-    this.emitDomain({
-      type: "cell_open",
-      cell: {
-        kind: "supervisor_question",
-        id: `supervisor-${req.requestId}`,
-        requestId: req.requestId,
-        subagentCellId: req.subagentCellId,
-        method: req.method,
-        title: req.title,
-        message: req.message,
-        options: req.options,
-        answered: false,
-      },
-    });
+    runSyncUnwrapped(this.rt.openSupervisorQuestion(req));
   }
 
-  /** Mark a supervisor-request card answered (with the answer text) in this transcript. */
   answerSupervisorQuestion(requestId: string, answer: string): void {
-    this.emitDomain({ type: "supervisor_answered", cellId: `supervisor-${requestId}`, answer });
+    runSyncUnwrapped(this.rt.answerSupervisorQuestion(requestId, answer));
   }
 
-  /** Close a supervisor-request card WITHOUT an answer (timed out / subagent ended). */
   closeSupervisorQuestion(requestId: string, reason: string): void {
-    this.emitDomain({ type: "supervisor_closed", cellId: `supervisor-${requestId}`, reason });
+    runSyncUnwrapped(this.rt.closeSupervisorQuestion(requestId, reason));
   }
 
-  /** Replace this session's activity plan (set_session_plan). */
   setPlan(items: SessionPlanItem[]): void {
-    this.emitDomain({ type: "plan_set", items });
-    this.persistPlan();
+    runSyncUnwrapped(this.rt.setPlan(items));
   }
 
-  /** Patch plan items by id (update_session_plan). */
   updatePlan(updates: SessionPlanUpdate[]): void {
-    this.emitDomain({ type: "plan_update", updates });
-    this.persistPlan();
+    runSyncUnwrapped(this.rt.updatePlan(updates));
   }
 
-  /**
-   * Restore a persisted plan into a resumed session's transcript (the plan is
-   * app state, not in pi's session file, so seedFromHistory can't rebuild it).
-   */
   restorePlan(items: SessionPlanItem[]): void {
-    if (items.length === 0) return;
-    this.emitDomain({ type: "plan_set", items });
+    runSyncUnwrapped(this.rt.restorePlan(items));
   }
 
-  /** Mirror the current plan onto the meta so the session index persists it. */
-  private persistPlan(): void {
-    this.meta.plan = this.transcript.plan;
-    this.onMetaChange(this.meta);
-  }
-
-  /** The session's current activity plan. */
   get plan(): SessionPlanItem[] {
-    return this.transcript.plan;
+    return Effect.runSync(this.rt.plan);
   }
 
-  private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {
-    if (piEvent.type === "extension_ui_request") {
-      this.pendingUiRequests.set(piEvent.id, piEvent.method);
-    }
-    for (const domainEvent of ingestPiEvent(this.ingest, piEvent)) {
-      this.emitDomain(domainEvent);
-      if (domainEvent.type === "cell_delta" && !this.sawFirstDelta) {
-        this.sawFirstDelta = true;
-        this.receipts.emit("first_delta", this.meta.id);
-      }
-      if (domainEvent.type === "cell_final" && domainEvent.cell.kind === "assistant") {
-        this.receipts.emit("assistant_final", this.meta.id);
-      }
-      if (domainEvent.type === "agent_status" && domainEvent.status === "idle") {
-        this.receipts.emit("idle", this.meta.id);
-        this.captureSessionFile();
-        if (this.autoTitle()) void this.generateTitle();
-      }
-    }
-  }
-
-  /** Record pi's canonical session file (the resume handle) once it exists. */
-  private captureSessionFile(): void {
-    if (this.meta.piSessionFile || !this.pi.isRunning) return;
-    void this.pi
-      .getState()
-      .then((state) => {
-        if (state.sessionFile && !this.meta.piSessionFile) {
-          this.meta.piSessionFile = state.sessionFile;
-          this.onMetaChange(this.meta);
-        }
-      })
-      .catch(() => {
-        // Exited or unresponsive — nothing to record.
-      });
-  }
-
-  /**
-   * Isolated title-helper launch (pi-rpc-launch-flags.md §3): no session, no
-   * tools, no resources; sends only the first user message.
-   */
-  private async generateTitle(): Promise<void> {
-    if (this.titleStarted || this.meta.title) return;
-    const firstUser = this.transcript.cells.find((cell) => cell.kind === "user");
-    if (!firstUser || firstUser.kind !== "user" || !firstUser.text.trim()) return;
-    this.titleStarted = true;
-
-    const helper = new PiSession({
-      binPath: resolvePiBinary().path,
-      args: buildLaunchArgs({
-        kind: "helper",
-        systemPrompt: TITLE_SYSTEM_PROMPT,
-        provider: this.helperContext?.provider,
-        model: this.helperContext?.model,
-        extensions: this.helperContext?.extensions,
-      }),
-      cwd: this.meta.cwd,
-      env: this.helperContext?.env,
-      requestTimeoutMs: TITLE_TIMEOUT_MS,
-    });
-    try {
-      const idle = new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("title helper timeout")), TITLE_TIMEOUT_MS);
-        timer.unref();
-        helper.on("event", (event) => {
-          if ((event as { type: string }).type === "agent_end") {
-            clearTimeout(timer);
-            resolve();
-          }
-        });
-        helper.on("exit", () => reject(new Error("title helper exited")));
-      });
-      // Mark handled up front: a startup exit must never become an unhandled
-      // rejection while we're still awaiting prompt().
-      idle.catch(() => {});
-      helper.start();
-      await helper.prompt(firstUser.text.slice(0, 2000));
-      await idle;
-      const { text } = await helper.request({ type: "get_last_assistant_text" });
-      const title = text ? normalizeTitle(text) : "";
-      if (title) {
-        this.meta.title = title;
-        this.onMetaChange(this.meta);
-        this.receipts.emit("title", this.meta.id);
-      }
-    } catch {
-      this.titleStarted = false; // retry on a later idle
-    } finally {
-      await helper.stop();
-    }
-  }
-
-  /**
-   * Run a native subagent (native-subagent-bridge.md): launch a fresh child
-   * `pi --mode rpc` with the given task as its system prompt, no conversation
-   * history and no tools, using the parent's provider/model/env (like the title
-   * helper). Await the child's turn and return its final assistant text for the
-   * parent tool result.
-   *
-   * The child's transcript is ALSO streamed into the parent as a native
-   * "Subagent" card: a subagent cell opens when the child starts, accumulates
-   * the child's assistant text deltas, and finalizes with the child's
-   * authoritative output. The returned text (the tool result the model sees) is
-   * unchanged — the card is purely the visible surface. Runs concurrently under
-   * managed_parallel: each child owns a distinct cell id, and the bus stamps
-   * interleaved deltas in arrival order.
-   *
-   * The child also gets a single `contact_supervisor` tool (via a child bridge
-   * extension) so it can send non-blocking progress updates up to this card
-   * while it works. That is the ONLY tool it has (--tools allowlist of one),
-   * so it still cannot recurse into managed_subagent.
-   */
   async runChildAgent(task: string, agentName?: string): Promise<string> {
-    // Named delegation (native named subagents): resolve the agent's persona and
-    // compose it INTO the subagent operating prompt (never replacing it — that
-    // prompt carries the contact_supervisor / self-contained-result contract).
-    // The child adopts the agent's persona body + model + thinking level + skills;
-    // tools/extensions stay out of scope for now (they'd conflict with the
-    // supervisor-channel tool allowlist and need their own verified slice).
-    const resolved = agentName ? this.resolveAgent?.(agentName, this.meta.projectId) : undefined;
-    if (agentName && !resolved) {
-      throw new Error(`unknown agent: ${agentName}`);
-    }
-    const persona = resolved ? `\n\n# Agent: ${agentName}\n${resolved.body}` : "";
-    const cellId = `subagent-${randomUUID()}`;
-    // The child's supervisor bridge (server-provided): a distinct bridge session
-    // id whose contact_supervisor calls route back to THIS card. undefined when
-    // no channel is available — the child then runs tool-less (--no-tools).
-    const childSessionId = randomUUID();
-    const childBridge = this.childBridgeFactory?.(childSessionId, {
-      parentSessionId: this.meta.id,
-      cellId,
-    });
-    // Outermost try/finally disposes the child bridge no matter what — even if
-    // the mkdtempSync below throws before the inner (prompt-dir) try is entered,
-    // the bridge token/route/temp dir would otherwise leak.
-    try {
-      // The child system prompt is multi-line, so route it through a temp file —
-      // a multi-line --system-prompt literal is truncated by cmd.exe on Windows.
-      const promptDir = mkdtempSync(join(tmpdir(), "agent-deck-subagent-"));
-      // Inner try/finally removes the prompt dir even if building the child
-      // (writeFileSync / resolvePiBinary / new PiSession) throws before it exists.
-      try {
-        const promptFile = join(promptDir, "system.md");
-        writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}${persona}\n\nTask:\n${task}`);
-
-        // A delegated named agent runs with ITS declared tools (dropping the
-        // recursion-risky / parent-only bridge tools) PLUS the supervisor channel
-        // — so it can actually do work, and its assigned skills surface (pi only
-        // injects the skills section when the `read` tool is present). An
-        // anonymous subagent, or a named agent that declares no tools, keeps the
-        // v1 lockdown: the supervisor tool alone (allowlist of one — verified
-        // against real pi that an extension tool is callable this way while
-        // --no-tools would strip it), or tool-less. Either way it can't recurse
-        // into managed_subagent.
-        const agentTools = resolved?.tools?.filter((tool) => !CHILD_FORBIDDEN_TOOLS.has(tool));
-        const childTools =
-          agentTools && agentTools.length > 0
-            ? childBridge
-              ? [...agentTools, "contact_supervisor"]
-              : agentTools
-            : childBridge
-              ? ["contact_supervisor"]
-              : [];
-
-        const child = new PiSession({
-          binPath: resolvePiBinary().path,
-          args: buildLaunchArgs({
-            kind: "agent",
-            systemPrompt: { mode: "replace", text: promptFile },
-            tools: childTools,
-            // A delegated named agent runs on ITS declared model (same provider —
-            // pi resolves the model string against available models, exactly as
-            // the parent agent-launch does); else the parent's inherited model.
-            // Its frontmatter thinking level applies too (suffixed onto the model
-            // when known, else --thinking), matching the parent agent-launch.
-            provider: this.helperContext?.provider,
-            model: resolved?.model ?? this.helperContext?.model,
-            thinking: resolved?.thinking,
-            // The agent's assigned skills inject into the child (they surface only
-            // because the agent's `read` tool is now in the allowlist above).
-            skills: resolved?.skillDirs,
-            // Provider-registration extensions (ambient discovery disabled), plus
-            // the child bridge that carries contact_supervisor.
-            extensions: childBridge
-              ? [...(this.helperContext?.extensions ?? []), childBridge.extension]
-              : this.helperContext?.extensions,
-          }),
-          cwd: this.meta.cwd,
-          env: this.helperContext?.env,
-          requestTimeoutMs: SUBAGENT_TIMEOUT_MS,
-        });
-        // Open the Subagent card in the PARENT transcript before the child runs.
-        this.emitDomain({
-          type: "cell_open",
-          cell: {
-            kind: "subagent",
-            id: cellId,
-            task,
-            status: "running",
-            text: "",
-            progress: [],
-            ...(agentName ? { agentName } : {}),
-          },
-        });
-        const startedAt = Date.now();
-        let streamed = "";
-        // Run metadata captured from the child's assistant turns (native
-        // PiSubagentRunRecord parity): the model it used + token usage ACCUMULATED
-        // across turns (a contact_supervisor round-trip produces two assistant
-        // turns, and the run's total token cost is their sum).
-        let childModel: string | undefined;
-        let childInputTokens = 0;
-        let childOutputTokens = 0;
-        let sawUsage = false;
-        const metadata = (): {
-          model?: string;
-          inputTokens?: number;
-          outputTokens?: number;
-          durationMs: number;
-        } => ({
-          model: childModel,
-          inputTokens: sawUsage ? childInputTokens : undefined,
-          outputTokens: sawUsage ? childOutputTokens : undefined,
-          durationMs: Date.now() - startedAt,
-        });
-        try {
-          const idle = new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(
-              () => reject(new Error("subagent timeout")),
-              SUBAGENT_TIMEOUT_MS,
-            );
-            timer.unref();
-            child.on("event", (event) => {
-              // Forward the child's assistant text into the parent card as it
-              // streams (best-effort visual; cell_final below is authoritative).
-              const e = event as {
-                type?: string;
-                message?: {
-                  role?: string;
-                  model?: unknown;
-                  usage?: { input?: number; output?: number };
-                };
-                assistantMessageEvent?: { type?: string; delta?: string };
-              };
-              if (
-                e.type === "message_update" &&
-                e.assistantMessageEvent?.type === "text_delta" &&
-                typeof e.assistantMessageEvent.delta === "string"
-              ) {
-                streamed += e.assistantMessageEvent.delta;
-                this.emitDomain({
-                  type: "subagent_delta",
-                  cellId,
-                  delta: e.assistantMessageEvent.delta,
-                });
-              }
-              // Capture model + token usage from each of the child's assistant
-              // turns; accumulate tokens so a tool round-trip counts every turn.
-              if (e.type === "message_end" && e.message?.role === "assistant") {
-                if (typeof e.message.model === "string") childModel = e.message.model;
-                if (e.message.usage) {
-                  if (typeof e.message.usage.input === "number") {
-                    childInputTokens += e.message.usage.input;
-                  }
-                  if (typeof e.message.usage.output === "number") {
-                    childOutputTokens += e.message.usage.output;
-                  }
-                  sawUsage = true;
-                }
-              }
-              if (e.type === "agent_end") {
-                clearTimeout(timer);
-                resolve();
-              }
-            });
-            child.on("exit", () => reject(new Error("subagent exited before finishing")));
-          });
-          idle.catch(() => {});
-          child.start();
-          await child.prompt(task);
-          await idle;
-          const { text } = await child.request({ type: "get_last_assistant_text" });
-          const finalText = text ?? streamed;
-          this.emitDomain({
-            type: "cell_final",
-            cell: {
-              kind: "subagent",
-              id: cellId,
-              task,
-              status: "done",
-              text: finalText,
-              progress: [],
-              ...(agentName ? { agentName } : {}),
-              ...metadata(),
-            },
-          });
-          return finalText;
-        } catch (error) {
-          // Mark the card failed (preserving whatever streamed) and re-throw so the
-          // bridge tool still renders the failure in its result.
-          this.emitDomain({
-            type: "cell_final",
-            cell: {
-              kind: "subagent",
-              id: cellId,
-              task,
-              status: "error",
-              text: streamed,
-              progress: [],
-              ...(agentName ? { agentName } : {}),
-              ...metadata(),
-            },
-          });
-          throw error;
-        } finally {
-          await child.stop();
-        }
-      } finally {
-        // Remove the prompt temp dir once the child has exited (best-effort).
-        try {
-          rmSync(promptDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort.
-        }
-      }
-    } finally {
-      // Tear down the child bridge (token + supervisor route + temp dir) — runs
-      // even if mkdtempSync above threw before the inner try was entered.
-      childBridge?.dispose();
-    }
+    return await runPromiseUnwrapped(this.runtime, this.rt.runChildAgent(task, agentName));
   }
 
-  /** Queue live pi events until seedFromHistory finishes (resume path). */
-  holdLiveEvents(): void {
-    this.seedGate = [];
-  }
-
-  /**
-   * Rebuild the transcript from pi's canonical history (resume path). Live
-   * events received meanwhile were queued and are applied strictly after the
-   * seed, preserving order.
-   */
   async seedFromHistory(): Promise<void> {
-    try {
-      const { messages } = await this.pi.getMessages();
-      for (const message of messages) {
-        for (const domainEvent of ingestPiEvent(this.ingest, {
-          type: "message_end",
-          message,
-        } as Parameters<typeof ingestPiEvent>[1])) {
-          this.emitDomain(domainEvent);
-        }
-      }
-    } finally {
-      const queued = this.seedGate ?? [];
-      this.seedGate = null;
-      for (const piEvent of queued) this.applyPiEvent(piEvent);
-    }
+    await runPromiseUnwrapped(this.runtime, this.rt.seedFromHistory);
   }
 
   snapshot(): { seq: number; state: TranscriptState } {
-    return { seq: this.bus.lastSeq, state: this.transcript };
+    return Effect.runSync(this.rt.snapshot);
   }
 
   get isRunning(): boolean {
-    return this.pi.isRunning;
+    return Effect.runSync(this.rt.isRunning);
   }
 
-  async prompt(message: string, images?: Parameters<PiSession["prompt"]>[1]): Promise<void> {
-    await this.pi.prompt(message, images);
-    // Prompting is activity — bump updatedAt (the callback stamps it) so this
-    // session sorts to the top of the most-recent-first list.
-    this.onMetaChange(this.meta);
+  async prompt(
+    message: string,
+    images?: Parameters<ManagedSessionRuntime["prompt"]>[1],
+  ): Promise<void> {
+    await runPromiseUnwrapped(this.runtime, this.rt.prompt(message, images));
   }
 
   async steer(message: string): Promise<void> {
-    await this.pi.steer(message);
+    await runPromiseUnwrapped(this.runtime, this.rt.steer(message));
   }
 
   async followUp(message: string): Promise<void> {
-    await this.pi.followUp(message);
+    await runPromiseUnwrapped(this.runtime, this.rt.followUp(message));
   }
 
-  /** Manually compact this session's context (native "Compact context"). */
   async compact(): Promise<void> {
-    await this.pi.compact();
+    await runPromiseUnwrapped(this.runtime, this.rt.compact);
   }
 
   async abort(): Promise<void> {
-    await this.pi.abort();
+    await runPromiseUnwrapped(this.runtime, this.rt.abort);
   }
 
-  /**
-   * Answer an extension UI request. The client's payload is NOT forwarded
-   * raw: the id must match an open request and the response is rebuilt here
-   * in the exact typed shape pi expects (RpcExtensionUIResponse).
-   */
   respondToUiRequest(raw: Record<string, unknown>): void {
-    const id = raw.id;
-    if (typeof id !== "string" || !this.pendingUiRequests.has(id)) {
-      throw new Error("no open extension UI request with that id");
-    }
-    let response: { type: "extension_ui_response"; id: string } & Record<string, unknown>;
-    if (raw.cancelled === true) {
-      response = { type: "extension_ui_response", id, cancelled: true };
-    } else if (typeof raw.confirmed === "boolean") {
-      response = { type: "extension_ui_response", id, confirmed: raw.confirmed };
-    } else if (typeof raw.value === "string") {
-      response = { type: "extension_ui_response", id, value: raw.value };
-    } else {
-      throw new Error("ui response must carry cancelled, confirmed, or a string value");
-    }
-    this.pendingUiRequests.delete(id);
-    this.pi.respondToUiRequest(response as Parameters<PiSession["respondToUiRequest"]>[0]);
-    // The card is answered from the transcript's point of view immediately.
-    this.emitDomain({ type: "question_answered", cellId: `question-${id}` });
+    runSyncUnwrapped(this.rt.respondToUiRequest(raw));
   }
 
-  async getCommands(): Promise<Awaited<ReturnType<PiSession["getCommands"]>>> {
-    return await this.pi.getCommands();
+  async getCommands(): Promise<Effect.Effect.Success<ManagedSessionRuntime["getCommands"]>> {
+    return await runPromiseUnwrapped(this.runtime, this.rt.getCommands);
   }
 
-  async getState(): Promise<Awaited<ReturnType<PiSession["getState"]>>> {
-    return await this.pi.getState();
+  async getState(): Promise<Effect.Effect.Success<ManagedSessionRuntime["getState"]>> {
+    return await runPromiseUnwrapped(this.runtime, this.rt.getState);
   }
 
-  async getSessionStats(): Promise<Awaited<ReturnType<PiSession["getSessionStats"]>>> {
-    return await this.pi.getSessionStats();
+  async getSessionStats(): Promise<
+    Effect.Effect.Success<ManagedSessionRuntime["getSessionStats"]>
+  > {
+    return await runPromiseUnwrapped(this.runtime, this.rt.getSessionStats);
   }
 
-  async getAvailableModels(): Promise<Awaited<ReturnType<PiSession["getAvailableModels"]>>> {
-    return await this.pi.getAvailableModels();
+  async getAvailableModels(): Promise<
+    Effect.Effect.Success<ManagedSessionRuntime["getAvailableModels"]>
+  > {
+    return await runPromiseUnwrapped(this.runtime, this.rt.getAvailableModels);
   }
 
   async setModel(provider: string, modelId: string): Promise<void> {
-    await this.pi.setModel(provider, modelId);
+    await runPromiseUnwrapped(this.runtime, this.rt.setModel(provider, modelId));
   }
 
-  async setThinkingLevel(level: Parameters<PiSession["setThinkingLevel"]>[0]): Promise<void> {
-    await this.pi.setThinkingLevel(level);
+  async setThinkingLevel(
+    level: Parameters<ManagedSessionRuntime["setThinkingLevel"]>[0],
+  ): Promise<void> {
+    await runPromiseUnwrapped(this.runtime, this.rt.setThinkingLevel(level));
   }
 
-  /** Subscribe to process exit; returns an unsubscribe. Fires immediately if already exited. */
   onExit(listener: (exit: PiProcessExit) => void): () => void {
-    if (this.exit) {
-      listener(this.exit);
-      return () => {};
-    }
-    this.pi.on("exit", listener);
-    return () => this.pi.off("exit", listener);
+    return this.rt.onExit(listener);
   }
 
-  /** Rename: update pi's session name (when live) and the persisted title. */
   async rename(title: string): Promise<void> {
-    if (this.pi.isRunning) {
-      await this.pi.setSessionName(title).catch(() => {
-        // Non-fatal: the display title below is authoritative for the UI.
-      });
-    }
-    this.meta.title = title;
-    this.onMetaChange(this.meta);
+    await runPromiseUnwrapped(this.runtime, this.rt.rename(title));
   }
 
   get piSessionFile(): string | undefined {
-    return this.meta.piSessionFile;
+    return this.rt.meta.piSessionFile;
   }
 
+  /** Stop the session: close its Scope (kills pi, runs finalizers), then run the
+   * exit handling now so endedAt/exit listeners fire before the caller proceeds
+   * (matching the legacy synchronous pi-exit handler ordering). */
   async stop(): Promise<void> {
-    await this.pi.stop();
+    await this.runtime.runPromise(Scope.close(this.scope, Exit.void));
+    Effect.runSync(this.rt.ensureExitHandled);
   }
 }
 
@@ -741,6 +277,9 @@ export class SessionManager {
   private readonly resuming = new Map<string, Promise<ManagedSession>>();
 
   constructor(
+    /** The server's ManagedRuntime (runtime.ts): every session resolves its pi
+     * subprocess + push bus through this. */
+    private readonly runtime: ServerRuntime,
     private readonly receipts: ReceiptBus,
     private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
     /** Provider-registration extensions — the ONLY ones helper launches load. */
@@ -770,15 +309,13 @@ export class SessionManager {
     ) => { appends: string[]; cleanupDir?: string } = () => ({ appends: [] }),
     /**
      * Builds a child subagent's contact_supervisor bridge (server-provided).
-     * Threaded to each ManagedSession so runChildAgent can give its children a
+     * Threaded to each session so runChildAgent can give its children a
      * supervisor channel routed back to the right transcript cell.
      */
     private readonly childBridgeFactory?: ChildBridgeFactory,
-    /** Resolves a named agent for `managed_subagent{agent}` delegation, threaded
-     * to each ManagedSession. */
-    private readonly resolveAgent?: AgentResolver,
-    /** Live-read autoTitle preference, threaded to each ManagedSession so a
-     * toggle affects sessions created afterwards (native autoTitle). */
+    /** Resolves a named agent for `managed_subagent{agent}` delegation. */
+    private readonly resolveAgent?: SpawnSessionParams["resolveAgent"],
+    /** Live-read autoTitle preference (native autoTitle). */
     private readonly autoTitle: () => boolean = () => true,
   ) {}
 
@@ -800,7 +337,9 @@ export class SessionManager {
           }
         : {}),
     };
-    return this.launch(meta, options.plan, options.env);
+    const session = this.launch(meta, options.plan, options.env);
+    session.startIngestion();
+    return session;
   }
 
   /**
@@ -829,11 +368,36 @@ export class SessionManager {
 
     const task = (async () => {
       const revived: SessionMeta = { ...meta, endedAt: undefined };
-      const session = this.launch(revived, plan, env, { holdLive: true });
-      await session.seedFromHistory();
-      // The activity plan is app state (not in pi's session file), so restore it
-      // from the persisted meta after the pi history is rebuilt.
-      if (revived.plan && revived.plan.length > 0) session.restorePlan(revived.plan);
+      const session = this.launch(revived, plan, env);
+      try {
+        await session.seedFromHistory();
+        // The activity plan is app state (not in pi's session file), so restore
+        // it from the persisted meta after the pi history is rebuilt.
+        //
+        // Ordering note: plan_set is emitted here BEFORE startIngestion drains
+        // the pi events buffered since spawn — the reverse of the pre-Effect
+        // order (buffered-live then plan). This is safe because the plan is
+        // mutated ONLY via the set_session_plan/update_session_plan BRIDGE tools
+        // (a separate HTTP round-trip, see services/sessionManager setPlan/
+        // updatePlan), never from pi's stdout stream — so no buffered pi event
+        // can carry a plan mutation that would race the restore. (And on resume
+        // pi stays idle until the first prompt, so the buffer is near-empty.)
+        // Final plan state is identical to legacy; only intermediate seq
+        // numbering differs, which a snapshotting client never observes.
+        if (revived.plan && revived.plan.length > 0) session.restorePlan(revived.plan);
+        // Now that history is seeded, start draining live events (buffered since
+        // spawn) so they apply strictly after the seed.
+        session.startIngestion();
+      } catch (error) {
+        // launch() already spawned pi and registered the session, but seeding
+        // failed (pi died / getMessages timed out) BEFORE ingestion was forked,
+        // so its exit handling would never run. Tear the half-built session down
+        // — destroy() closes its Scope (killing pi) and runs exit handling
+        // (endedAt, temp-dir cleanup) — instead of leaking a dead session with
+        // an orphaned pi and an unconsumed stdout queue.
+        await this.destroy(revived.id).catch(() => {});
+        throw error;
+      }
       this.onMetaChange(revived);
       return session;
     })();
@@ -845,24 +409,44 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Build one session synchronously through the ManagedRuntime: create its
+   * Scope, spawn pi + bus + wire ingestion via the SessionManagerService (all
+   * non-suspending, so `runSync` returns immediately). Ingestion forking is the
+   * caller's (create forks now; resume/fork fork after seeding).
+   */
   private launch(
     meta: SessionMeta,
     plan: LaunchPlan,
     env?: Record<string, string | undefined>,
-    options?: { holdLive?: boolean },
   ): ManagedSession {
-    // Inject the app-managed tool bridge (memory/mcp/subagents) for this
-    // session. The session id is baked into the generated extension so its
-    // calls come back tagged; helper launches never pass through here.
     const tempDirs: string[] = [];
-    // Until a ManagedSession is constructed (it owns tempDirs cleanup via the
-    // pi-exit handler), a throw here would leak the generated temp dirs — clean
-    // them up on any pre-construction failure.
+    // A throw before the session owns tempDirs would leak them; clean up on any
+    // pre-ownership failure.
     let owned = false;
     try {
-      return this.launchWithTemp(meta, plan, env, options, tempDirs, () => {
-        owned = true;
-      });
+      const params = this.buildSpawnParams(meta, plan, env, tempDirs);
+      const scope = this.runtime.runSync(Scope.make());
+      let rt: ManagedSessionRuntime;
+      try {
+        rt = this.runtime.runSync(
+          SessionManagerService.pipe(
+            Effect.flatMap((service) => service.spawn(params)),
+            Effect.provideService(Scope.Scope, scope),
+          ),
+        );
+      } catch (error) {
+        // Spawn failed after the Scope existed — close it so no resource leaks.
+        this.runtime.runFork(Scope.close(scope, Exit.void));
+        throw error;
+      }
+      // The session now owns tempDirs cleanup (via its exit handling).
+      owned = true;
+      const session = new ManagedSession(rt, this.runtime, scope);
+      this.sessions.set(meta.id, session);
+      this.receipts.emit("session_created", meta.id);
+      this.onMetaChange(meta);
+      return session;
     } catch (error) {
       if (!owned) {
         for (const dir of tempDirs) {
@@ -877,14 +461,15 @@ export class SessionManager {
     }
   }
 
-  private launchWithTemp(
+  /** Assemble the pi spawn options + session-build params, applying the bridge
+   * extension, parent system-prompt appends, and the agent-prompt temp file —
+   * the launch-plan shaping that used to live in `launchWithTemp`. */
+  private buildSpawnParams(
     meta: SessionMeta,
     plan: LaunchPlan,
     env: Record<string, string | undefined> | undefined,
-    options: { holdLive?: boolean } | undefined,
     tempDirs: string[],
-    markOwned: () => void,
-  ): ManagedSession {
+  ): SpawnSessionParams {
     const bridgeExtension = this.bridgeExtensionFactory(meta);
     let launchPlan: LaunchPlan = bridgeExtension
       ? { ...plan, extensions: [...(plan.extensions ?? []), bridgeExtension] }
@@ -895,8 +480,6 @@ export class SessionManager {
     // suppresses pi's auto-discovery, so the factory re-adds APPEND_SYSTEM.md
     // ahead of our own; empty leaves pi to discover it.
     if (launchPlan.kind === "parent") {
-      // The HOME the pi child will actually see (cross-spawn merges env over
-      // process.env), so global APPEND_SYSTEM.md resolves where pi would find it.
       const launchHome = env?.HOME ?? env?.USERPROFILE ?? homedir();
       const { appends, cleanupDir } = this.parentAppendFactory(meta.cwd, launchHome);
       if (appends.length > 0) {
@@ -907,16 +490,13 @@ export class SessionManager {
       }
       if (cleanupDir) tempDirs.push(cleanupDir);
     }
-    // Agent-backed sessions pass the agent body as a --system-prompt /
-    // --append-system-prompt value. A MULTI-LINE literal is truncated on Windows
-    // (pi runs via a pi.cmd shim through cmd.exe, which cuts an argument at the
-    // first newline) — the same bug the memory block hit. pi reads a value that
-    // is an existing file path as a file, so route a multi-line agent body
-    // through a temp file (single-line bodies stay literal). The temp dir is
-    // cleaned up with the others on exit.
+    // A MULTI-LINE agent body literal is truncated on Windows (pi runs via a
+    // pi.cmd shim through cmd.exe, cutting an argument at the first newline) — pi
+    // reads a value that is an existing file path as a file, so route a
+    // multi-line agent body through a temp file (single-line bodies stay
+    // literal). The temp dir is cleaned up with the others on exit.
     if (launchPlan.kind === "agent" && launchPlan.systemPrompt.text.includes("\n")) {
       const dir = mkdtempSync(join(tmpdir(), "agent-deck-agent-prompt-"));
-      // Track before the write so a writeFileSync failure still cleans up the dir.
       tempDirs.push(dir);
       const file = join(dir, "system.md");
       writeFileSync(file, launchPlan.systemPrompt.text);
@@ -925,39 +505,33 @@ export class SessionManager {
         systemPrompt: { ...launchPlan.systemPrompt, text: file },
       };
     }
-    const pi = new PiSession({
+    const spawn: PiSpawnOptions = {
       binPath: resolvePiBinary().path,
       args: buildLaunchArgs(launchPlan),
       cwd: meta.cwd,
       env,
-    });
-    const helperContext = {
-      provider: plan.provider,
-      model: plan.model,
-      // Helpers stay resource-free (launch contract §3) except for
-      // provider-registration extensions, which custom providers require.
-      extensions: this.helperExtensions(),
-      env,
     };
-    const session = new ManagedSession(
+    return {
       meta,
-      pi,
-      this.receipts,
-      this.onMetaChange,
-      helperContext,
+      spawn,
+      receipts: this.receipts,
+      onMetaChange: this.onMetaChange,
+      helperContext: {
+        provider: plan.provider,
+        model: plan.model,
+        // Helpers stay resource-free (launch contract §3) except for
+        // provider-registration extensions, which custom providers require.
+        extensions: this.helperExtensions(),
+        env,
+      } satisfies ModelSelection & {
+        extensions?: string[];
+        env?: Record<string, string | undefined>;
+      },
       tempDirs,
-      this.childBridgeFactory,
-      this.resolveAgent,
-      this.autoTitle,
-    );
-    // ManagedSession now owns tempDirs cleanup (on pi exit); no leak past here.
-    markOwned();
-    if (options?.holdLive) session.holdLiveEvents();
-    this.sessions.set(meta.id, session);
-    pi.start();
-    this.receipts.emit("session_created", meta.id);
-    this.onMetaChange(meta);
-    return session;
+      childBridgeFactory: this.childBridgeFactory,
+      resolveAgent: this.resolveAgent,
+      autoTitle: this.autoTitle,
+    };
   }
 
   get(id: string): ManagedSession | undefined {
@@ -978,54 +552,10 @@ export class SessionManager {
   /**
    * Run a one-shot pi helper (native commit-message / title generation): an
    * isolated `--no-session --no-tools` launch that answers a single prompt and
-   * exits — the same shape ManagedSession.generateTitle uses. Returns the final
-   * assistant text; throws on timeout / early exit.
+   * exits. Returns the final assistant text; throws on timeout / early exit.
    */
-  async runHelper(opts: {
-    systemPrompt: string;
-    userPrompt: string;
-    cwd: string;
-    provider?: string;
-    model?: string;
-    extensions?: string[];
-    env?: Record<string, string>;
-    timeoutMs?: number;
-  }): Promise<string> {
-    const timeoutMs = opts.timeoutMs ?? 30_000;
-    const helper = new PiSession({
-      binPath: resolvePiBinary().path,
-      args: buildLaunchArgs({
-        kind: "helper",
-        systemPrompt: opts.systemPrompt,
-        provider: opts.provider,
-        model: opts.model,
-        extensions: opts.extensions,
-      }),
-      cwd: opts.cwd,
-      env: opts.env,
-      requestTimeoutMs: timeoutMs,
-    });
-    try {
-      const idle = new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("helper timeout")), timeoutMs);
-        timer.unref();
-        helper.on("event", (event) => {
-          if ((event as { type: string }).type === "agent_end") {
-            clearTimeout(timer);
-            resolve();
-          }
-        });
-        helper.on("exit", () => reject(new Error("helper exited")));
-      });
-      idle.catch(() => {}); // handled up front so a startup exit isn't unhandled
-      helper.start();
-      await helper.prompt(opts.userPrompt);
-      await idle;
-      const { text } = await helper.request({ type: "get_last_assistant_text" });
-      return text ?? "";
-    } finally {
-      await helper.stop();
-    }
+  async runHelper(opts: RunHelperOptions): Promise<string> {
+    return await runPromiseUnwrapped(this.runtime, runOneShotHelper(opts));
   }
 
   list(): SessionMeta[] {
@@ -1073,9 +603,20 @@ export class SessionManager {
     } else {
       plan = original;
     }
-    const session = this.launch(meta, plan, env, { holdLive: true });
-    await session.seedFromHistory();
-    if (meta.plan && meta.plan.length > 0) session.restorePlan(meta.plan);
+    const session = this.launch(meta, plan, env);
+    try {
+      await session.seedFromHistory();
+      // plan_set before startIngestion — safe for the same reason as resume()
+      // (plans arrive only via bridge tools, never pi stdout).
+      if (meta.plan && meta.plan.length > 0) session.restorePlan(meta.plan);
+      session.startIngestion();
+    } catch (error) {
+      // Seeding failed before ingestion was forked — destroy the half-built
+      // session so its Scope closes (killing pi) and exit handling runs, rather
+      // than leaking a dead session with an orphaned pi (see resume()).
+      await this.destroy(meta.id).catch(() => {});
+      throw error;
+    }
     this.onMetaChange(meta);
     return session;
   }

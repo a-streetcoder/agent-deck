@@ -267,6 +267,7 @@ async function initServer(
   };
 
   const sessions = new SessionManager(
+    effectRuntime,
     receipts,
     (meta) => {
       // User activity (create / resume / prompt / title) floats the session up

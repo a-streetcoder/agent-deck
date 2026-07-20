@@ -85,6 +85,19 @@ export interface SessionPushBusHandle {
   readonly replayFrom: (lastSeq: number) => Effect.Effect<StampedEvent[] | null>;
   /** Register a subscriber; the yielded effect unregisters it. */
   readonly subscribe: (subscriber: PushSubscriber) => Effect.Effect<Effect.Effect<void>>;
+
+  /**
+   * Synchronous stamp+dispatch for in-fiber service logic (Slice 5's
+   * SessionManager `emit`): does exactly what {@link append} does, but returns
+   * the stamped event directly instead of wrapping it in an `Effect`, so a
+   * synchronous domain-event callback can push into the bus WITHOUT capturing a
+   * runtime via `runSync` (the pushBus caveat, mirrored by piHost's
+   * `Queue.unsafeOffer` bridge). Same single-op atomicity as `append` — the
+   * whole stamp+dispatch runs synchronously with no suspension point.
+   */
+  readonly unsafeAppend: (event: DomainEvent) => StampedEvent;
+  /** Synchronous read of {@link lastSeq} for the same in-fiber callers. */
+  readonly unsafeLastSeq: () => number;
 }
 
 interface RingState {
@@ -102,20 +115,24 @@ export const makeSessionPushBusHandle = (
     let state: RingState = { seq: 0, ring: Chunk.empty() };
     const subscribers = new Set<PushSubscriber>();
 
+    // Stamp AND dispatch in one synchronous unit: no fiber can be preempted
+    // between seq N being committed and subscribers observing it, so delivery
+    // stays monotonic even when appends run concurrently in fibers. This is the
+    // shared core behind both `append` (the Effect surface) and `unsafeAppend`
+    // (the sync bridge for in-fiber callers).
+    const appendSync = (event: DomainEvent): StampedEvent => {
+      const seq = state.seq + 1;
+      const stamped: StampedEvent = { seq, event };
+      let ring: Chunk.Chunk<StampedEvent> = Chunk.append(state.ring, stamped);
+      const overflow = Chunk.size(ring) - capacity;
+      if (overflow > 0) ring = Chunk.drop(ring, overflow);
+      state = { seq, ring };
+      for (const subscriber of subscribers) subscriber(stamped);
+      return stamped;
+    };
+
     const append = (event: DomainEvent): Effect.Effect<StampedEvent> =>
-      // Stamp AND dispatch in one sync op: no fiber can be preempted between
-      // seq N being committed and subscribers observing it, so delivery stays
-      // monotonic even when appends run concurrently in fibers.
-      Effect.sync(() => {
-        const seq = state.seq + 1;
-        const stamped: StampedEvent = { seq, event };
-        let ring: Chunk.Chunk<StampedEvent> = Chunk.append(state.ring, stamped);
-        const overflow = Chunk.size(ring) - capacity;
-        if (overflow > 0) ring = Chunk.drop(ring, overflow);
-        state = { seq, ring };
-        for (const subscriber of subscribers) subscriber(stamped);
-        return stamped;
-      });
+      Effect.sync(() => appendSync(event));
 
     const replayFrom = (lastSeq: number): Effect.Effect<StampedEvent[] | null> =>
       Effect.sync(() => {
@@ -139,6 +156,8 @@ export const makeSessionPushBusHandle = (
       append,
       replayFrom,
       subscribe,
+      unsafeAppend: appendSync,
+      unsafeLastSeq: () => state.seq,
     } satisfies SessionPushBusHandle;
   });
 
