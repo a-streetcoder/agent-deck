@@ -516,6 +516,7 @@ private struct AppearanceSettingsTab: View {
 
     var body: some View {
         SettingsForm {
+            textSizeSection
             themePickerSection
             if isEditingCustomTheme {
                 editorSection
@@ -557,6 +558,30 @@ private struct AppearanceSettingsTab: View {
     /// The live draft while editing a custom theme, otherwise the selected preset.
     private var previewTheme: Theme {
         isEditingCustomTheme ? draft : selectedTheme
+    }
+
+    // MARK: Text size
+
+    private var textSizeSection: some View {
+        SettingsSection {
+            groupHeader("Text")
+            SettingsPickerRow(
+                title: "Text size:",
+                selection: appTextSizeBinding,
+                note: "Changes readable text throughout the app, including Pi Agent transcripts and Markdown."
+            ) {
+                ForEach(AppTextSize.allCases) { textSize in
+                    Text(textSize.displayName).tag(textSize)
+                }
+            }
+        }
+    }
+
+    private var appTextSizeBinding: Binding<AppTextSize> {
+        Binding(
+            get: { viewModel.appSettings.appTextSize },
+            set: { viewModel.setAppTextSize($0) }
+        )
     }
 
     // MARK: Chat text

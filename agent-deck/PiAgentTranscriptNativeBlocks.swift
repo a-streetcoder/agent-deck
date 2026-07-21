@@ -5,11 +5,11 @@ import AppKit
 /// SwiftUI's `.weight(.semibold)` is the SF semibold face — NOT NSFontManager's
 /// `.boldFontMask` (heavier, `.bold`); use these for parity.
 enum NativeTranscriptFont {
-    static let bodySize = AppTheme.Font.bodySize
-    static let calloutSize = AppTheme.Font.calloutSize
-    static let footnoteSize = AppTheme.Font.footnoteSize
-    static let captionSize = AppTheme.Font.captionSize
-    static let caption2Size = AppTheme.Font.caption2Size
+    static var bodySize: CGFloat { AppTheme.Font.bodySize }
+    static var calloutSize: CGFloat { AppTheme.Font.calloutSize }
+    static var footnoteSize: CGFloat { AppTheme.Font.footnoteSize }
+    static var captionSize: CGFloat { AppTheme.Font.captionSize }
+    static var caption2Size: CGFloat { AppTheme.Font.caption2Size }
 
     static func body(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: bodySize, weight: weight) }
     static func callout(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: calloutSize, weight: weight) }
@@ -18,19 +18,27 @@ enum NativeTranscriptFont {
     static func caption2(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: caption2Size, weight: weight) }
     static func captionMono(_ weight: NSFont.Weight = .regular) -> NSFont { .monospacedSystemFont(ofSize: captionSize, weight: weight) }
 
+    /// AppKit semantic fonts do not inherit SwiftUI's Dynamic Type environment.
+    /// Preserve each native text style while applying the app's persisted scale.
+    static func preferred(_ textStyle: NSFont.TextStyle) -> NSFont {
+        let base = NSFont.preferredFont(forTextStyle: textStyle)
+        let size = base.pointSize * ThemeManager.shared.textSize.fontScale
+        return NSFont(descriptor: base.fontDescriptor, size: size) ?? base
+    }
+
     // MARK: Shared card / bubble header
 
     /// The one header title used by EVERY transcript row — message bubbles and
     /// chrome cards alike: footnote-sized SF semibold, slightly width-expanded to
     /// match SwiftUI's `.weight(.semibold)` header. Keep all card titles on this
     /// so the transcript reads as a single scale rather than two competing ones.
-    static let header: NSFont = {
+    static var header: NSFont {
         let semibold = NSFont.systemFont(ofSize: footnoteSize, weight: .semibold)
         let merged = semibold.fontDescriptor.addingAttributes([
             .traits: [NSFontDescriptor.TraitKey.width: 0.2]
         ])
         return NSFont(descriptor: merged, size: footnoteSize) ?? semibold
-    }()
+    }
 
     /// Side length of the glyph box that sits beside `header` (matches the
     /// message bubbles' 16pt icon).
@@ -42,7 +50,7 @@ enum NativeTranscriptFont {
     static func configureHeaderLabel(_ label: NSTextField) {
         label.font = header
         label.maximumNumberOfLines = 1
-        label.heightAnchor.constraint(equalToConstant: headerIconSize).isActive = true
+        label.heightAnchor.constraint(equalToConstant: max(headerIconSize, ceil(header.ascender - header.descender))).isActive = true
     }
 
     /// A header glyph rendered at its natural ~15pt size (never upscaled to fill
@@ -861,7 +869,7 @@ final class PiAgentNativeTextPopoverController: NSViewController {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 300))
 
         let titleLabel = NSTextField(labelWithString: titleText)
-        titleLabel.font = NSFont.preferredFont(forTextStyle: .headline)
+        titleLabel.font = NativeTranscriptFont.preferred(.headline)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let scroll = NSScrollView()
@@ -872,7 +880,7 @@ final class PiAgentNativeTextPopoverController: NSViewController {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.font = .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
+        textView.font = .monospacedSystemFont(ofSize: NativeTranscriptFont.preferred(.callout).pointSize, weight: .regular)
         textView.string = bodyText
         textView.textContainerInset = NSSize(width: 4, height: 4)
         scroll.documentView = textView

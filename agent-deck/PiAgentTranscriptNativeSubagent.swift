@@ -599,9 +599,12 @@ final class PiAgentNativeSubagentParallelCardView: NSView, PiAgentNativeRowConte
     private let pad: CGFloat = 16
     private let childPad: CGFloat = 14
     private let childSpacing: CGFloat = 10
-    // Single-line header height: NSTextField's intrinsic height for a 14pt
-    // semibold run comes up a hair short and clips descenders, so pin a floor.
-    private let headerHeight: CGFloat = 18
+    /// Match the shared header-label constraint and keep the manual row
+    /// measurement large enough for a scaled header font or its icon box.
+    private var headerHeight: CGFloat {
+        let font = NativeTranscriptFont.header
+        return max(NativeTranscriptFont.headerIconSize, ceil(font.ascender - font.descender))
+    }
     private var surfaceWidthC: NSLayoutConstraint!
 
     required init() {
@@ -613,8 +616,7 @@ final class PiAgentNativeSubagentParallelCardView: NSView, PiAgentNativeRowConte
 
         // Shared transcript header scale, matching the memory / web / diff / status
         // card titles so every card reads at one size.
-        headerLabel.font = NativeTranscriptFont.header
-        headerLabel.maximumNumberOfLines = 1
+        NativeTranscriptFont.configureHeaderLabel(headerLabel)
         headerLabel.lineBreakMode = .byTruncatingTail
         childStack.translatesAutoresizingMaskIntoConstraints = false
         childStack.orientation = .vertical
@@ -635,7 +637,6 @@ final class PiAgentNativeSubagentParallelCardView: NSView, PiAgentNativeRowConte
             headerLabel.topAnchor.constraint(equalTo: surface.topAnchor, constant: pad),
             headerLabel.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: pad),
             headerLabel.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -pad),
-            headerLabel.heightAnchor.constraint(equalToConstant: headerHeight),
             childStack.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 12),
             childStack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: pad),
             childStack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -pad),
@@ -919,7 +920,7 @@ final class PiAgentNativeKeyValuePopover: NSViewController {
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
 
         let title = NSTextField(labelWithString: titleText)
-        title.font = NSFont.preferredFont(forTextStyle: .headline)
+        title.font = NativeTranscriptFont.preferred(.headline)
         stack.addArrangedSubview(title)
 
         for (k, v) in rows {

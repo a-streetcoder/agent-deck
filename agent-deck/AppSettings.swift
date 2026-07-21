@@ -1,5 +1,31 @@
 import Foundation
 
+enum AppTextSize: String, Codable, CaseIterable, Hashable, Identifiable {
+    case standard
+    case large
+    case extraLarge
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .standard: return "Standard"
+        case .large: return "Large"
+        case .extraLarge: return "Extra Large"
+        }
+    }
+
+    /// Scales fixed app typography while semantic SwiftUI text follows the
+    /// matching Dynamic Type environment set at the scene root.
+    var fontScale: CGFloat {
+        switch self {
+        case .standard: return 1
+        case .large: return 1.15
+        case .extraLarge: return 1.3
+        }
+    }
+}
+
 struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
     var showShortcutsStrip: Bool = true
     var showThinking: Bool = true
@@ -223,6 +249,8 @@ struct AppSettings: Codable, Hashable {
     var didMigrateAgentAssignmentsFromDiscoveredFiles: Bool = false
     var selectedThemeID: UUID = Theme.defaultTheme.id
     var customThemes: [Theme] = []
+    /// App-wide readable text preference. Missing legacy values use Standard.
+    var appTextSize: AppTextSize = .standard
     /// Semantic theme colors for Markdown in Pi Agent replies. Off preserves the
     /// neutral transcript rendering used before this preference existed.
     var piAgentMarkdownHighlightingEnabled: Bool = true
@@ -283,6 +311,7 @@ struct AppSettings: Codable, Hashable {
         case didMigrateAgentAssignmentsFromDiscoveredFiles
         case selectedThemeID
         case customThemes
+        case appTextSize
         case piAgentMarkdownHighlightingEnabled
         case selectedAppIconName
         case didOpenLoopsFromSidebar
@@ -353,6 +382,8 @@ struct AppSettings: Codable, Hashable {
         didMigrateAgentAssignmentsFromDiscoveredFiles = try container.decodeIfPresent(Bool.self, forKey: .didMigrateAgentAssignmentsFromDiscoveredFiles) ?? false
         selectedThemeID = try container.decodeIfPresent(UUID.self, forKey: .selectedThemeID) ?? Theme.defaultTheme.id
         customThemes = try container.decodeIfPresent([Theme].self, forKey: .customThemes) ?? []
+        // Unknown future values must not make the whole settings payload fail decoding.
+        appTextSize = (try? container.decodeIfPresent(AppTextSize.self, forKey: .appTextSize)) ?? .standard
         piAgentMarkdownHighlightingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentMarkdownHighlightingEnabled) ?? true
         selectedAppIconName = try container.decodeIfPresent(String.self, forKey: .selectedAppIconName)
         didOpenLoopsFromSidebar = try container.decodeIfPresent(Bool.self, forKey: .didOpenLoopsFromSidebar) ?? false

@@ -780,7 +780,7 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
     override var isFlipped: Bool { true }
 
     /// The shared transcript header font — same definition as the bubbles + cards.
-    static let headerFont = NativeTranscriptFont.header
+    static var headerFont: NSFont { NativeTranscriptFont.header }
 
     // MARK: Constraints
 

@@ -1057,6 +1057,14 @@ final class AppSettingsController {
     }
 
     @discardableResult
+    func setAppTextSize(_ textSize: AppTextSize) -> Bool {
+        guard settings.appTextSize != textSize else { return false }
+        settings.appTextSize = textSize
+        persist()
+        return true
+    }
+
+    @discardableResult
     func setPiAgentMarkdownHighlightingEnabled(_ isEnabled: Bool) -> Bool {
         guard settings.piAgentMarkdownHighlightingEnabled != isEnabled else { return false }
         settings.piAgentMarkdownHighlightingEnabled = isEnabled

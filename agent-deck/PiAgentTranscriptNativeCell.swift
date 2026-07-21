@@ -555,7 +555,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
 
     /// The shared transcript header font (footnote semibold, width-expanded) —
     /// every card + bubble title routes through one definition.
-    static let headerFont = NativeTranscriptFont.header
+    static var headerFont: NSFont { NativeTranscriptFont.header }
 
     // MARK: Layout
 
