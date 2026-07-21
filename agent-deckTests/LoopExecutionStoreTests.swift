@@ -518,6 +518,33 @@ final class LoopExecutionStoreTests: XCTestCase {
         XCTAssertTrue(observed.allSatisfy { $0.writeTarget == .artifactMarkdown && $0.outputPath != nil })
     }
 
+    func testAgentPipelineLoopAllowsRepeatedStageNames() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        var calls: [String] = []
+        let draft = LoopDraft(
+            goal: "Analyze twice, then implement",
+            structure: .agentPipeline,
+            writeTarget: .artifactMarkdown,
+            validationCommand: "/usr/bin/true",
+            pipeline: LoopPipelineConfig(stageNames: ["Analyze", "Analyze", "Implement"])
+        )
+
+        let maybeRun = await store.launchAgentPipelineLoop(session: session, draft: draft, executeEvaluator: Self.successEvaluator(for: session)) { _, role, task, _, _, _ in
+            calls.append(role)
+            if calls.count == 2 {
+                XCTAssertTrue(task.contains("stage 2 of 3"))
+                XCTAssertTrue(task.contains("Analyze done"))
+            }
+            return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: "\(role) done")
+        }
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(calls, ["Analyze", "Analyze", "Implement"])
+        XCTAssertEqual(run.iterations[0].timeline.map(\.roleName), calls)
+    }
+
     func testAgentPipelineLoopStopsOnFailedStage() async throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = try makeSession(store: store)

@@ -37,6 +37,29 @@ final class PiAgentLaunchResolverTests: XCTestCase {
         XCTAssertFalse(effective.contains { $0.name == "coder" })
     }
 
+    func testAgentsByNameIndexesUniqueEffectiveAgents() throws {
+        let explorer = effectiveAgent(name: "explorer", id: "project::explorer")
+        let reviewer = effectiveAgent(name: "reviewer", id: "project::reviewer")
+
+        let indexed = try PiAgentLaunchResolver.agentsByName([explorer, reviewer])
+
+        XCTAssertEqual(indexed.keys.sorted(), ["explorer", "reviewer"])
+        XCTAssertEqual(indexed["explorer"]?.id, explorer.id)
+        XCTAssertEqual(indexed["reviewer"]?.id, reviewer.id)
+    }
+
+    func testAgentsByNameReportsDuplicateNamesInsteadOfTrappingOrChoosingOne() {
+        let first = effectiveAgent(name: "reviewer", id: "global::reviewer")
+        let second = effectiveAgent(name: "reviewer", id: "library::reviewer")
+
+        XCTAssertThrowsError(try PiAgentLaunchResolver.agentsByName([first, second])) { error in
+            XCTAssertEqual(
+                error as? PiAgentLaunchResolver.DuplicateEffectiveAgentNamesError,
+                PiAgentLaunchResolver.DuplicateEffectiveAgentNamesError(names: ["reviewer"])
+            )
+        }
+    }
+
     func testDefaultAgentAssignmentMakesCatalogAgentEffective() {
         let custom = agentRecord(name: "coder", kind: .global, path: "/tmp/coder.md")
         let effective = PiAgentLaunchResolver.effectiveAgents(
@@ -158,6 +181,22 @@ final class PiAgentLaunchResolverTests: XCTestCase {
         XCTAssertEqual(explorer?.resolved.skills, ["agent-authoring"])
         XCTAssertNil(explorer?.projectOverride)
         XCTAssertEqual(explorer?.resolutionKind, .builtinWithOverride)
+    }
+
+    private func effectiveAgent(name: String, id: String) -> EffectiveAgentRecord {
+        let record = agentRecord(name: name, kind: .global, path: "/tmp/\(id).md")
+        return EffectiveAgentRecord(
+            id: id,
+            name: name,
+            projectRoot: "/tmp/project",
+            builtin: nil,
+            globalCustom: record,
+            projectCustom: nil,
+            userOverride: nil,
+            projectOverride: nil,
+            resolved: record.parsed,
+            resolutionKind: .globalCustom
+        )
     }
 
     private func agentRecord(name: String, kind: ResourceScopeKind, path: String) -> AgentRecord {

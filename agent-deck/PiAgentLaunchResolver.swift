@@ -1,6 +1,32 @@
 import Foundation
 
 nonisolated enum PiAgentLaunchResolver {
+    struct DuplicateEffectiveAgentNamesError: Error, Equatable {
+        let names: [String]
+    }
+
+    /// Builds a name index without relying on `Dictionary(uniqueKeysWithValues:)`,
+    /// which traps when an upstream resolution regression produces duplicate names.
+    static func agentsByName(_ agents: [EffectiveAgentRecord]) throws -> [String: EffectiveAgentRecord] {
+        var result: [String: EffectiveAgentRecord] = [:]
+        var duplicateNames: Set<String> = []
+
+        for agent in agents {
+            guard result[agent.name] == nil else {
+                duplicateNames.insert(agent.name)
+                continue
+            }
+            result[agent.name] = agent
+        }
+
+        guard duplicateNames.isEmpty else {
+            throw DuplicateEffectiveAgentNamesError(
+                names: duplicateNames.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            )
+        }
+        return result
+    }
+
     /// Builds a project-shaped snapshot from the global catalog for the window
     /// before that project's filesystem scan has completed. In particular, do
     /// not borrow `effectiveAgents` from whichever project the UI is displaying.
