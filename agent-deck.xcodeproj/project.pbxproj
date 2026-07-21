@@ -10,10 +10,10 @@
 		24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */ = {isa = PBXBuildFile; productRef = 24B3A7709E2E4A2A89175011 /* TourKit */; };
 		5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A92B5029E2E4A2A89175011 /* Sparkle */; };
 		7C4E10039E2E4A2A89175011 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7C4E10029E2E4A2A89175011 /* Lottie */; };
-		D2A5E8012FB0000000000001 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = D2A5E8032FB0000000000001 /* PostHog */; };
 		8F5A2A6925B14789B7C0D431 /* bundled-agents in Resources */ = {isa = PBXBuildFile; fileRef = 4E1F0B28C6D84725B47F2D75 /* bundled-agents */; };
 		9D1B4A5C7E8F901234567890 /* bundled-skills in Resources */ = {isa = PBXBuildFile; fileRef = 9D1B4A5C7E8F901234567891 /* bundled-skills */; };
 		9D1B4A5C7E8F901234567A01 /* bundled-prompts in Resources */ = {isa = PBXBuildFile; fileRef = 9D1B4A5C7E8F901234567A02 /* bundled-prompts */; };
+		D2A5E8012FB0000000000001 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = D2A5E8032FB0000000000001 /* PostHog */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -123,7 +123,7 @@
 				6572B1672FA2391500596CE4 /* Sources */,
 				6572B1682FA2391500596CE4 /* Frameworks */,
 				6572B1692FA2391500596CE4 /* Resources */,
-				AABBCCDD0000000100000001 /* Inject Sparkle Info.plist keys */,
+				AABBCCDD0000000100000001 /* Inject app Info.plist keys */,
 			);
 			buildRules = (
 			);
@@ -232,7 +232,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		AABBCCDD0000000100000001 /* Inject Sparkle Info.plist keys */ = {
+		AABBCCDD0000000100000001 /* Inject app Info.plist keys */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -405,8 +405,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APP_PRODUCT_NAME = "Agent Deck";
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				POSTHOG_PROJECT_TOKEN = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -419,6 +417,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_CFBundleName = "$(APP_PRODUCT_NAME)";
@@ -436,6 +435,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
+				POSTHOG_PROJECT_TOKEN = "";
 				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deck";
 				PRODUCT_MODULE_NAME = agent_deck;
 				PRODUCT_NAME = "$(APP_PRODUCT_NAME)";
@@ -454,8 +454,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APP_PRODUCT_NAME = "Agent Deck";
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				POSTHOG_PROJECT_TOKEN = "phc_rQKMPA8UAGKsMDAKuRaAADJuxnUha4qy68J4UhaomQnU";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -470,6 +468,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_CFBundleName = "$(APP_PRODUCT_NAME)";
@@ -487,6 +486,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
+				POSTHOG_PROJECT_TOKEN = phc_rQKMPA8UAGKsMDAKuRaAADJuxnUha4qy68J4UhaomQnU;
 				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deck";
 				PRODUCT_MODULE_NAME = agent_deck;
 				PRODUCT_NAME = "$(APP_PRODUCT_NAME)";
