@@ -484,3 +484,99 @@ describe("RpcTransport diff surface (Slice 10)", () => {
     expect(h.decodeErrors).toHaveLength(0);
   });
 });
+
+describe("RpcTransport file surface (Slice 13b)", () => {
+  it("fileList resolves with the file_list_ok payload (root omits path)", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.fileList("s1");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    // The root request carries no `path` field (undefined/"" both mean root).
+    expect(sentFrame.request).toEqual({ type: "file_list", sessionId: "s1" });
+
+    const entries = [
+      { name: "src", kind: "dir", size: null },
+      { name: "readme.md", kind: "file", size: 42 },
+    ];
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "file_list_ok",
+        id: sentFrame.id,
+        path: "",
+        entries,
+        truncated: false,
+      }),
+    );
+    await expect(promise).resolves.toEqual({ path: "", entries, truncated: false });
+  });
+
+  it("fileList sends a subdirectory path when given", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.fileList("s1", "src");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({ type: "file_list", sessionId: "s1", path: "src" });
+
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "file_list_ok",
+        id: sentFrame.id,
+        path: "src",
+        entries: [],
+        truncated: false,
+      }),
+    );
+    await expect(promise).resolves.toEqual({ path: "src", entries: [], truncated: false });
+  });
+
+  it("fileRead resolves with the file_read_ok payload (text)", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.fileRead("s1", "src/app.ts");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({ type: "file_read", sessionId: "s1", path: "src/app.ts" });
+
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "file_read_ok",
+        id: sentFrame.id,
+        path: "src/app.ts",
+        contentKind: "text",
+        content: "const x = 1;\n",
+        byteLength: 12,
+        truncated: false,
+      }),
+    );
+    await expect(promise).resolves.toEqual({
+      path: "src/app.ts",
+      contentKind: "text",
+      content: "const x = 1;\n",
+      byteLength: 12,
+      truncated: false,
+    });
+  });
+
+  it("fileRead rejects on a server failure reply", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.fileRead("s1", "../etc/passwd");
+    const id = (JSON.parse(h.sockets[0]!.sent[0]!) as { id: number }).id;
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "reply",
+        id,
+        ok: false,
+        error: "path escapes the session directory",
+      }),
+    );
+    await expect(promise).rejects.toThrow("path escapes the session directory");
+  });
+});

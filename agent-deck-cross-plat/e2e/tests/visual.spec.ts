@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +60,12 @@ const REPLY = "The visual baseline reply: stable, short, and fully deterministic
 const DIFF_REPO = mkdtempSync(path.join(tmpdir(), "proj-diff-visual-"));
 const DIFF_FILE_CONTENT = "alpha one\nbeta two\ngamma three\n";
 
+// The files-panel baseline's project: a plain scratch dir with a FIXED tree so
+// the lazy listing (names + byte sizes) and the previewed file's line-numbered
+// content are byte-stable run to run.
+const FILES_PROJECT = mkdtempSync(path.join(tmpdir(), "proj-files-visual-"));
+const FILES_PREVIEW_CONTENT = 'export const answer = 42;\nexport const greeting = "hi";\n';
+
 let harness: E2eHarness;
 
 test.beforeAll(async () => {
@@ -83,6 +89,11 @@ test.beforeAll(async () => {
   git(["add", "-A"]);
   git(["commit", "-m", "init"]);
 
+  // The files-panel project's fixed tree: one subdirectory + a previewed file.
+  mkdirSync(path.join(FILES_PROJECT, "src"));
+  writeFileSync(path.join(FILES_PROJECT, "src", "example.ts"), FILES_PREVIEW_CONTENT);
+  writeFileSync(path.join(FILES_PROJECT, "README.md"), "# fixture\n");
+
   harness = await startHarness({
     reply: () => REPLY,
     chunkDelayMs: 0,
@@ -99,12 +110,14 @@ test.beforeAll(async () => {
       };
     },
   });
-  const response = await fetch(`${harness.baseUrl}/projects`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path: DIFF_REPO }),
-  });
-  if (!response.ok) throw new Error(await response.text());
+  for (const projectPath of [DIFF_REPO, FILES_PROJECT]) {
+    const response = await fetch(`${harness.baseUrl}/projects`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: projectPath }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+  }
 });
 
 test.afterAll(async () => {
@@ -296,4 +309,29 @@ test("visual: composer with pending review-comment cards", async ({ page }) => {
     "composer-pending-comments.png",
     SCREENSHOT_OPTS,
   );
+});
+
+test("visual: files panel with a text file previewed", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(FILES_PROJECT));
+  await expect(page.getByTestId("session-cwd")).toHaveText(FILES_PROJECT);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Open the panel, expand the fixed subdirectory, preview the fixed file:
+  // tree strip on top (names + byte sizes), line-numbered content below.
+  await page.getByTestId("files-toggle").click();
+  await page.locator('[data-testid="file-tree-dir"][data-path="src"]').click();
+  await page.locator('[data-testid="file-tree-file"][data-path="src/example.ts"]').click();
+  await expect(page.getByTestId("file-preview")).toBeVisible();
+  await expect(page.getByTestId("file-preview-text")).toContainText("export const answer", {
+    timeout: 15_000,
+  });
+
+  // Clip to the chat layer (the panel's mount), like the diff-panel baseline;
+  // the sidebar's nondeterministic session list stays out of frame.
+  await expect(page.getByTestId("chat-layer")).toHaveScreenshot("files-panel.png", {
+    ...SCREENSHOT_OPTS,
+    mask: dynamicChrome(page),
+  });
 });

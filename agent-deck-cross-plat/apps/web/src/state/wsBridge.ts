@@ -7,7 +7,11 @@ import type {
   TerminalPush,
 } from "@agent-deck/contracts";
 import { reduceTranscript } from "@agent-deck/domain";
-import type { TerminalOpenResult } from "@agent-deck/client-runtime";
+import type {
+  FileListResult,
+  FileReadResult,
+  TerminalOpenResult,
+} from "@agent-deck/client-runtime";
 import { RpcClientTransport, type ClientTransport, type TransportHost } from "./clientTransport.ts";
 import { useAppStore } from "./store.ts";
 
@@ -204,6 +208,29 @@ export async function fetchFileDiff(
   if (!sessionId) return null;
   const result = await transport.diffFile(sessionId, path);
   return { diff: result.diff, truncated: result.truncated, binary: result.binary };
+}
+
+// ---------------------------------------------------------------------------
+// File-navigation surface (Slice 13b) — the Files panel lazily browses the
+// CURRENT session's project tree one directory at a time and reads one file's
+// bounded content for the read-only preview. On-demand (no store cache); the
+// panel owns its own directory/expansion state (components/files/useFileTree).
+// The current-session capture mirrors the diff surface: a request that resolves
+// after a session switch is dropped by the panel's own stale guard.
+// ---------------------------------------------------------------------------
+
+/** List one directory of the CURRENT session's project (omit `path` = root). */
+export async function fetchFileList(path?: string): Promise<FileListResult | null> {
+  const sessionId = currentSessionId;
+  if (!sessionId) return null;
+  return await transport.fileList(sessionId, path);
+}
+
+/** Read one file of the CURRENT session's project, bounded (text/image/binary). */
+export async function fetchFileRead(path: string): Promise<FileReadResult | null> {
+  const sessionId = currentSessionId;
+  if (!sessionId) return null;
+  return await transport.fileRead(sessionId, path);
 }
 
 /** (Re)connect subscribed to `sessionId` — the single entry point that keeps

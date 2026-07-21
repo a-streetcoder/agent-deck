@@ -9,6 +9,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { DiffGateway } from "./diffGateway.ts";
 import type { EditorLauncher } from "./editorLauncher.ts";
 import type { ManagedSession, SessionManager } from "./SessionManager.ts";
+import type { FileService } from "./services/files.ts";
 import type { TerminalEvent } from "./services/terminal.ts";
 import type { OpenedTerminal, TerminalGateway } from "./terminalGateway.ts";
 
@@ -62,11 +63,12 @@ export function createRpcConnection(deps: {
   terminals: TerminalGateway;
   diffs: DiffGateway;
   editors: EditorLauncher;
+  files: FileService;
   send: (frame: RpcServerFrame) => void;
   /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
   bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, terminals, diffs, editors, send } = deps;
+  const { sessions, terminals, diffs, editors, files, send } = deps;
   const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
@@ -415,6 +417,43 @@ export function createRpcConnection(deps: {
       }
       return;
     }
+    // File-navigation ops (Slice 13a) — session-ownership validated like the
+    // diff/editor ops; the cwd is resolved server-side from the session's meta
+    // (worktree-aware) and the path stays within it (containment in
+    // services/files.ts, the SAME gate editorLauncher uses).
+    if (request.type === "file_list" || request.type === "file_read") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      try {
+        if (request.type === "file_list") {
+          const result = await files.listDirectory(session.meta.cwd, request.path);
+          send({
+            kind: "file_list_ok",
+            id,
+            path: result.path,
+            entries: result.entries,
+            truncated: result.truncated,
+          });
+        } else {
+          const result = await files.readFile(session.meta.cwd, request.path);
+          send({
+            kind: "file_read_ok",
+            id,
+            path: request.path,
+            contentKind: result.contentKind,
+            content: result.content,
+            byteLength: result.byteLength,
+            truncated: result.truncated,
+          });
+        }
+      } catch (error) {
+        replyError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -501,8 +540,9 @@ export function setupRpcEndpoint(deps: {
   terminals: TerminalGateway;
   diffs: DiffGateway;
   editors: EditorLauncher;
+  files: FileService;
 }): RpcEndpoint {
-  const { sessions, terminals, diffs, editors } = deps;
+  const { sessions, terminals, diffs, editors, files } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -524,6 +564,7 @@ export function setupRpcEndpoint(deps: {
       terminals,
       diffs,
       editors,
+      files,
       send: (frame) => sendTo(socket, frame),
       // Terminal push backpressure reads the real socket send-buffer depth.
       bufferedAmount: () => socket.bufferedAmount,

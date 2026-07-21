@@ -6,6 +6,7 @@ import type { DiffGateway } from "./diffGateway.ts";
 import type { EditorLauncher } from "./editorLauncher.ts";
 import { setupRpcEndpoint } from "./rpcHandler.ts";
 import type { SessionManager } from "./SessionManager.ts";
+import type { FileService } from "./services/files.ts";
 import type { TerminalGateway } from "./terminalGateway.ts";
 
 export interface WebSocketLayer {
@@ -29,12 +30,13 @@ export function setupWebSocket(deps: {
   terminals: TerminalGateway;
   diffs: DiffGateway;
   editors: EditorLauncher;
+  files: FileService;
 }): WebSocketLayer {
-  const { fastify, sessions, terminals, diffs, editors } = deps;
+  const { fastify, sessions, terminals, diffs, editors, files } = deps;
 
   // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
   // subscribe/replay, and broadcast — all sharing the SessionManager facade.
-  const rpc = setupRpcEndpoint({ sessions, terminals, diffs, editors });
+  const rpc = setupRpcEndpoint({ sessions, terminals, diffs, editors, files });
 
   // Browsers may open cross-origin WebSockets to localhost services; only
   // accept upgrades from local origins (or non-browser clients, which send

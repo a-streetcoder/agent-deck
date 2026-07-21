@@ -7,6 +7,9 @@ import {
   type DiffPush,
   type EditorClientRequest,
   type EditorId,
+  type FileClientRequest,
+  type FileContentKind,
+  type FileListEntry,
   type ServerMessage,
   type SessionMeta,
   type TerminalClientRequest,
@@ -113,15 +116,36 @@ export interface DiffFileResult {
   readonly binary: boolean;
 }
 
+/** The reply to a `file_list` request (Slice 13b): one directory's entries
+ * within the session's project, bounded (`path` is "" for the project root). */
+export interface FileListResult {
+  readonly path: string;
+  readonly entries: readonly FileListEntry[];
+  readonly truncated: boolean;
+}
+
+/** The reply to a `file_read` request (Slice 13b): one file's bounded content.
+ * `contentKind` discriminates delivery — `text` (UTF-8, `truncated` when capped),
+ * `image` (`content` a `data:` URI), or `binary` (`content` empty). */
+export interface FileReadResult {
+  readonly path: string;
+  readonly contentKind: FileContentKind;
+  readonly content: string;
+  readonly byteLength: number;
+  readonly truncated: boolean;
+}
+
 /** How one request settled: a plain ack, the hello session list, or a
- * terminal/diff/editor reply payload. Internal — the public methods narrow it. */
+ * terminal/diff/editor/file reply payload. Internal — the public methods narrow it. */
 type RequestSettled =
   | { readonly kind: "ok" }
   | { readonly kind: "sessions"; readonly sessions: SessionMeta[] }
   | { readonly kind: "terminal_open"; readonly result: TerminalOpenResult }
   | { readonly kind: "diff_files"; readonly result: DiffFilesResult }
   | { readonly kind: "diff_file"; readonly result: DiffFileResult }
-  | { readonly kind: "editors"; readonly editors: readonly EditorId[] };
+  | { readonly kind: "editors"; readonly editors: readonly EditorId[] }
+  | { readonly kind: "file_list"; readonly result: FileListResult }
+  | { readonly kind: "file_read"; readonly result: FileReadResult };
 
 interface Pending {
   readonly resolve: (settled: RequestSettled) => void;
@@ -304,6 +328,32 @@ export class RpcTransport {
         entry.resolve({ kind: "editors", editors: frame.editors });
         return;
       }
+      case "file_list_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "file_list",
+          result: { path: frame.path, entries: frame.entries, truncated: frame.truncated },
+        });
+        return;
+      }
+      case "file_read_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "file_read",
+          result: {
+            path: frame.path,
+            contentKind: frame.contentKind,
+            content: frame.content,
+            byteLength: frame.byteLength,
+            truncated: frame.truncated,
+          },
+        });
+        return;
+      }
       case "push":
         this.options.onPush?.(frame.message);
         return;
@@ -324,7 +374,12 @@ export class RpcTransport {
   /** Send one frame and settle on its correlated reply (shared by the typed
    * request methods below). Rejects immediately if not connected. */
   private sendRequest(
-    request: ClientMessage | TerminalClientRequest | DiffClientRequest | EditorClientRequest,
+    request:
+      | ClientMessage
+      | TerminalClientRequest
+      | DiffClientRequest
+      | EditorClientRequest
+      | FileClientRequest,
   ): Promise<RequestSettled> {
     if (this.state !== "connected" || !this.socket) {
       return Promise.reject(new Error("transport not connected"));
@@ -428,6 +483,38 @@ export class RpcTransport {
     editor: EditorId;
   }): Promise<void> {
     await this.sendRequest({ type: "editor_open", ...request });
+  }
+
+  /**
+   * List one directory within the session's project (Slice 13b) — omit `path`
+   * (or pass "") for the project root. Resolves with the bounded entry set;
+   * rejects on a server failure reply (unknown session, path escapes the cwd,
+   * not a directory) or while disconnected.
+   */
+  async fileList(sessionId: string, path?: string): Promise<FileListResult> {
+    const settled = await this.sendRequest({
+      type: "file_list",
+      sessionId,
+      ...(path !== undefined && path !== "" ? { path } : {}),
+    });
+    if (settled.kind !== "file_list") {
+      throw new Error("file_list settled without a file_list_ok reply");
+    }
+    return settled.result;
+  }
+
+  /**
+   * Read one file of the session's project, bounded (Slice 13b). Resolves with
+   * text / an image data URI / a binary marker (see {@link FileReadResult});
+   * rejects on a server failure reply (unknown session, path escapes the cwd,
+   * not a file) or while disconnected.
+   */
+  async fileRead(sessionId: string, path: string): Promise<FileReadResult> {
+    const settled = await this.sendRequest({ type: "file_read", sessionId, path });
+    if (settled.kind !== "file_read") {
+      throw new Error("file_read settled without a file_read_ok reply");
+    }
+    return settled.result;
   }
 
   /** Convenience: the `hello` handshake, resolving with the session list. */

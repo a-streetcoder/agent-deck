@@ -42,6 +42,7 @@ import {
 import { registerDeckBridgeTools } from "./bridgeTools.ts";
 import { createDiffGateway } from "./diffGateway.ts";
 import { createEditorLauncher } from "./editorLauncher.ts";
+import { createFileService } from "./services/files.ts";
 import { LoopEngine } from "./loopEngine.ts";
 import {
   McpManager,
@@ -576,6 +577,9 @@ async function initServer(
   const terminals = createTerminalGateway(effectRuntime);
   // Slice 11: editor detection + open-in-editor launches (editorLauncher.ts).
   const editors = createEditorLauncher();
+  // Slice 13a: file-navigation endpoints (services/files.ts) — directory browse
+  // + bounded file read, containment-gated to each session's project cwd.
+  const files = createFileService();
   const {
     close: closeWebSockets,
     broadcast: wsBroadcast,
@@ -586,6 +590,7 @@ async function initServer(
     terminals,
     diffs,
     editors,
+    files,
   });
   broadcast = wsBroadcast;
   broadcastDiff = wsBroadcastDiff;

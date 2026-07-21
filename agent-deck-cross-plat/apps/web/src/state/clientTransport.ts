@@ -3,6 +3,8 @@ import {
   type ConnectionState,
   type DiffFileResult,
   type DiffFilesResult,
+  type FileListResult,
+  type FileReadResult,
   type TerminalOpenResult,
   type WebSocketCtor,
 } from "@agent-deck/client-runtime";
@@ -78,6 +80,10 @@ export interface ClientTransport {
     line?: number;
     editor: EditorId;
   }): Promise<void>;
+  /** List one directory of the session's project (Slice 13b); rejects offline. */
+  fileList(sessionId: string, path?: string): Promise<FileListResult>;
+  /** Read one file of the session's project, bounded (Slice 13b); rejects offline. */
+  fileRead(sessionId: string, path: string): Promise<FileReadResult>;
 }
 
 function socketUrl(pathSuffix: string): string {
@@ -250,5 +256,21 @@ export class RpcClientTransport implements ClientTransport {
       return Promise.reject(new Error("transport not connected"));
     }
     return transport.openInEditor(request);
+  }
+
+  fileList(sessionId: string, path?: string): Promise<FileListResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.fileList(sessionId, path);
+  }
+
+  fileRead(sessionId: string, path: string): Promise<FileReadResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.fileRead(sessionId, path);
   }
 }

@@ -76,6 +76,13 @@ export interface AppState {
    * CURRENT session's changed-file set.
    */
   diffPanelOpen: boolean;
+  /**
+   * Whether the file-navigation panel is open (Slice 13b). Follows the
+   * terminalOpen / diffPanelOpen pattern: one global boolean, the panel always
+   * browses the CURRENT session's project tree. Ungated by repo (any session
+   * has a cwd), so the toggle shows for every chat session.
+   */
+  filesPanelOpen: boolean;
   /** Whether the current session's cwd is a git work tree (diff surface gate).
    * False until the first diff_files fetch answers — the toggle stays hidden
    * for non-repo sessions and while the answer is in flight. */
@@ -111,6 +118,7 @@ export interface AppState {
   setPendingComposerText(text: string | null): void;
   setTerminalOpen(open: boolean): void;
   setDiffPanelOpen(open: boolean): void;
+  setFilesPanelOpen(open: boolean): void;
   /** Replace the changed-file set (a diff_push or a diff_files fetch). */
   setDiffState(state: { repo: boolean; files: readonly DiffFileEntry[]; truncated: boolean }): void;
   /** Drop the previous session's set on a session switch (panel stays open). */
@@ -163,6 +171,7 @@ export const useAppStore = create<AppState>((set) => ({
   pendingComposerText: null,
   terminalOpen: false,
   diffPanelOpen: false,
+  filesPanelOpen: false,
   diffRepo: false,
   diffFiles: [],
   diffTruncated: false,
@@ -196,6 +205,7 @@ export const useAppStore = create<AppState>((set) => ({
   setPendingComposerText: (pendingComposerText) => set({ pendingComposerText }),
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
   setDiffPanelOpen: (diffPanelOpen) => set({ diffPanelOpen }),
+  setFilesPanelOpen: (filesPanelOpen) => set({ filesPanelOpen }),
   setDiffState: ({ repo, files, truncated }) =>
     set({ diffRepo: repo, diffFiles: files, diffTruncated: truncated }),
   resetDiffState: () => set({ diffRepo: false, diffFiles: [], diffTruncated: false }),

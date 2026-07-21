@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { GitCompareArrows, SquareTerminal } from "lucide-react";
+import { FolderTree, GitCompareArrows, SquareTerminal } from "lucide-react";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
 import { DiffPanel } from "./components/diff/DiffPanel.tsx";
+import { FilesPanel } from "./components/files/FilesPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
@@ -77,6 +78,9 @@ function ChatColumn() {
         {/* The changed-files / diff panel (Slice 10): a right aside like the
             deck; renders null while closed or for non-repo sessions. */}
         <DiffPanel />
+        {/* The file-navigation panel (Slice 13b): a sibling right aside;
+            renders null while closed. Ungated by git (any session has a cwd). */}
+        <FilesPanel />
       </div>
       {/* The per-session terminal drawer (Slice 8b) spans the full chat surface
           bottom, like the donor's thread drawer. Renders null while closed. */}
@@ -91,6 +95,8 @@ export function App() {
   const setTerminalOpen = useAppStore((state) => state.setTerminalOpen);
   const diffPanelOpen = useAppStore((state) => state.diffPanelOpen);
   const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
+  const filesPanelOpen = useAppStore((state) => state.filesPanelOpen);
+  const setFilesPanelOpen = useAppStore((state) => state.setFilesPanelOpen);
   const diffRepo = useAppStore((state) => state.diffRepo);
   const diffFileCount = useAppStore((state) => state.diffFiles.length);
   const connection = useAppStore((state) => state.connection);
@@ -168,6 +174,26 @@ export function App() {
               ) : null}
             </div>
             <div className="flex items-center gap-3">
+              {/* Files toggle (Slice 13b): a lazy project-tree browser +
+                  read-only preview. Ungated by git — shown for any chat
+                  session (it browses the session cwd). */}
+              {session && isChat ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
+                    filesPanelOpen ? "text-accent" : "text-text-muted",
+                    macDesktop && "[-webkit-app-region:no-drag]",
+                  )}
+                  title="Toggle files"
+                  aria-label="Toggle files"
+                  aria-pressed={filesPanelOpen}
+                  data-testid="files-toggle"
+                  onClick={() => setFilesPanelOpen(!filesPanelOpen)}
+                >
+                  <FolderTree className="h-4 w-4" />
+                </button>
+              ) : null}
               {/* Changed-files toggle (Slice 10): only for git-repo sessions
                   (repo:false keeps the whole surface hidden); the badge tracks
                   the server-refreshed changed-file count live. */}

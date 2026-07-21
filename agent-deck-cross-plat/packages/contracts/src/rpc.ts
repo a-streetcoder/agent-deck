@@ -7,6 +7,14 @@ import {
   DiffPush,
 } from "./diff.ts";
 import { EditorClientRequest, EditorId } from "./editor.ts";
+import {
+  FILE_CONTENT_MAX_CHARS,
+  FILE_LIST_MAX_ENTRIES,
+  FileClientRequest,
+  FileContentKind,
+  FileDirPath,
+  FileListEntry,
+} from "./files.ts";
 import { ClientMessage, ServerMessage, SessionMeta } from "./protocol.ts";
 import {
   TERMINAL_MAX_SCROLLBACK_CHARS,
@@ -73,6 +81,7 @@ export const RpcClientFrame = Schema.Struct({
     TerminalClientRequest,
     DiffClientRequest,
     EditorClientRequest,
+    FileClientRequest,
   ),
 });
 export type RpcClientFrame = typeof RpcClientFrame.Type;
@@ -191,6 +200,48 @@ export const RpcEditorsOkFrame = Schema.Struct({
 });
 export type RpcEditorsOkFrame = typeof RpcEditorsOkFrame.Type;
 
+/**
+ * server → client: the reply to a `file_list` request (Slice 13a) — one
+ * directory's entries within the session's project, bounded (see files.ts
+ * FILE_LIST_MAX_ENTRIES). `path` is the listed directory relative to the
+ * project root ("" for the root itself).
+ */
+export const RpcFileListOkFrame = Schema.Struct({
+  kind: Schema.Literal("file_list_ok"),
+  id: RequestId,
+  path: FileDirPath,
+  // Decode-side cap (defense-in-depth, parity with DiffPush's maxItems): the
+  // producer already slices to FILE_LIST_MAX_ENTRIES, so a conforming frame
+  // never exceeds it; a non-conforming/compromised producer is rejected here.
+  entries: Schema.Array(FileListEntry).pipe(Schema.maxItems(FILE_LIST_MAX_ENTRIES)),
+  /** True when the listing was capped at FILE_LIST_MAX_ENTRIES entries. */
+  truncated: Schema.Boolean,
+});
+export type RpcFileListOkFrame = typeof RpcFileListOkFrame.Type;
+
+/**
+ * server → client: the reply to a `file_read` request (Slice 13a) — one file's
+ * bounded content. `contentKind` discriminates delivery: `text` (UTF-8, capped
+ * with `truncated`), `image` (`content` is a `data:` URI), or `binary`
+ * (`content` empty). `byteLength` is the file's true size on disk.
+ */
+export const RpcFileReadOkFrame = Schema.Struct({
+  kind: Schema.Literal("file_read_ok"),
+  id: RequestId,
+  path: DiffPath,
+  contentKind: FileContentKind,
+  content: Schema.String.pipe(Schema.maxLength(FILE_CONTENT_MAX_CHARS)),
+  byteLength: Schema.Number.pipe(
+    Schema.filter((n) => (Number.isInteger(n) && n >= 0) || "must be a non-negative integer", {
+      identifier: "FileByteLength",
+      description: "the file's size in bytes",
+    }),
+  ),
+  /** True when a text file was capped at FILE_READ_MAX_BYTES. */
+  truncated: Schema.Boolean,
+});
+export type RpcFileReadOkFrame = typeof RpcFileReadOkFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
 export const RpcServerFrame = Schema.Union(
   RpcReplyFrame,
@@ -202,6 +253,8 @@ export const RpcServerFrame = Schema.Union(
   RpcDiffFileOkFrame,
   RpcDiffPushFrame,
   RpcEditorsOkFrame,
+  RpcFileListOkFrame,
+  RpcFileReadOkFrame,
 );
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 

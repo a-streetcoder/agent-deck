@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import nodePath from "node:path";
 import { EDITORS, type EditorId } from "@agent-deck/contracts";
+import { resolveContainedPath } from "./pathContainment.ts";
 
 /**
  * Editor detection + launch (Slice 11), ported from t3code's
@@ -176,43 +177,15 @@ export function buildEditorArgs(
  * that escapes it: absolute inputs, `..` traversal, and symlinks pointing
  * outside (realpath containment — the resolved REAL path must stay under the
  * cwd's real path). The file must exist (a deleted changed-set entry can't be
- * opened). Returns the absolute path to hand to the editor.
+ * opened). Returns the absolute CANONICAL path to hand to the editor (launching
+ * on realpath shrinks the check-to-spawn TOCTOU window; defense-in-depth).
+ *
+ * A thin wrapper over the shared {@link resolveContainedPath} gate (Slice 13a
+ * lifted the logic there so the file-navigation endpoints reuse it verbatim);
+ * `allowBase` stays false — opening the cwd directory itself is meaningless.
  */
 export function resolveContainedFile(cwd: string, relativePath: string): string {
-  if (relativePath.includes("\0")) throw new Error("invalid path");
-  if (nodePath.isAbsolute(relativePath)) {
-    throw new Error("path must be relative to the session directory");
-  }
-  const absCwd = nodePath.resolve(cwd);
-  const abs = nodePath.resolve(absCwd, relativePath);
-  const contained = (base: string, target: string): boolean => {
-    const rel = nodePath.relative(base, target);
-    // Segment-aware: a bare startsWith("..") would also reject files under a
-    // directory literally NAMED "..foo" (legal on NTFS/POSIX). Only an exact
-    // ".." or a "../"-prefixed relative path escapes.
-    return (
-      rel.length > 0 &&
-      rel !== ".." &&
-      !rel.startsWith(`..${nodePath.sep}`) &&
-      !nodePath.isAbsolute(rel)
-    );
-  };
-  if (!contained(absCwd, abs)) {
-    throw new Error("path escapes the session directory");
-  }
-  if (!existsSync(abs)) throw new Error("file not found");
-  // Symlink escape: compare REAL paths too, so a link inside the cwd can't
-  // smuggle the launch outside it.
-  const realAbs = realpathSync(abs);
-  const realCwd = realpathSync(absCwd);
-  if (!contained(realCwd, realAbs)) {
-    throw new Error("path escapes the session directory");
-  }
-  // Launch on the CANONICAL path, not the as-checked one: shrinks the
-  // check-to-spawn TOCTOU window where a component could be swapped for a
-  // symlink after validation (defense-in-depth; the editor open is same-user,
-  // same-machine, read-only from the server's perspective).
-  return realAbs;
+  return resolveContainedPath(cwd, relativePath);
 }
 
 // ---------------------------------------------------------------------------

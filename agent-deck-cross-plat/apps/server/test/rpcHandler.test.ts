@@ -6,6 +6,7 @@ import type { DiffGateway } from "../src/diffGateway.ts";
 import type { EditorLauncher, EditorOpenInput } from "../src/editorLauncher.ts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
+import type { FileService } from "../src/services/files.ts";
 import type { StampedEvent } from "../src/services/pushBus.ts";
 import type { TerminalEvent } from "../src/services/terminal.ts";
 import type { OpenedTerminal, TerminalGateway } from "../src/terminalGateway.ts";
@@ -210,12 +211,38 @@ function makeEditorLauncher() {
   return { launcher, openCalls };
 }
 
+// --- Fake file service (Slice 13a): scripted listings/reads, no filesystem ---
+
+function makeFileService() {
+  const calls: Array<{ op: string; cwd: string; path?: string }> = [];
+  const listResult = {
+    path: "src",
+    entries: [
+      { name: "lib", kind: "dir" as const, size: null },
+      { name: "a.ts", kind: "file" as const, size: 42 },
+    ],
+    truncated: false,
+  };
+  const service: FileService = {
+    listDirectory: async (cwd, path) => {
+      calls.push({ op: "listDirectory", cwd, path });
+      return listResult;
+    },
+    readFile: async (cwd, path) => {
+      calls.push({ op: "readFile", cwd, path });
+      return { contentKind: "text", content: `// ${path}\n`, byteLength: 8, truncated: false };
+    },
+  };
+  return { service, calls, listResult };
+}
+
 function harness(
   manager: SessionManager,
   terminals?: TerminalGateway,
   bufferedAmount?: () => number,
   diffs?: DiffGateway,
   editors?: EditorLauncher,
+  files?: FileService,
 ) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
@@ -223,6 +250,7 @@ function harness(
     terminals: terminals ?? makeTerminalGateway().gateway,
     diffs: diffs ?? makeDiffGateway().gateway,
     editors: editors ?? makeEditorLauncher().launcher,
+    files: files ?? makeFileService().service,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
@@ -790,6 +818,90 @@ describe("createRpcConnection editor ops (Slice 11)", () => {
     );
     expect(frames).toEqual([
       { kind: "reply", id: 5, ok: false, error: "path escapes the session directory" },
+    ]);
+  });
+});
+
+describe("createRpcConnection file ops (Slice 13a)", () => {
+  const withFiles = (
+    sessions: Record<string, ManagedSession>,
+    files: FileService,
+    list: unknown[] = [],
+  ) => harness(makeManager(sessions, list), undefined, undefined, undefined, undefined, files);
+
+  it("file_list answers file_list_ok, resolving the cwd from the session meta", async () => {
+    const { session } = makeSession("s1");
+    const files = makeFileService();
+    const { conn, frames } = withFiles({ s1: session }, files.service);
+    await conn.handleMessage(frame(1, { type: "file_list", sessionId: "s1", path: "src" }));
+    expect(frames).toEqual([
+      {
+        kind: "file_list_ok",
+        id: 1,
+        path: "src",
+        entries: files.listResult.entries,
+        truncated: false,
+      },
+    ]);
+    // The cwd is server-side session meta; the wire carried only a relative path.
+    expect(files.calls).toEqual([{ op: "listDirectory", cwd: "/tmp", path: "src" }]);
+  });
+
+  it("file_list without a path lists the project root (path undefined)", async () => {
+    const { session } = makeSession("s1");
+    const files = makeFileService();
+    const { conn } = withFiles({ s1: session }, files.service);
+    await conn.handleMessage(frame(2, { type: "file_list", sessionId: "s1" }));
+    expect(files.calls).toEqual([{ op: "listDirectory", cwd: "/tmp", path: undefined }]);
+  });
+
+  it("file_read answers file_read_ok with the bounded content", async () => {
+    const { session } = makeSession("s1");
+    const files = makeFileService();
+    const { conn, frames } = withFiles({ s1: session }, files.service);
+    await conn.handleMessage(frame(3, { type: "file_read", sessionId: "s1", path: "src/a.ts" }));
+    expect(frames).toEqual([
+      {
+        kind: "file_read_ok",
+        id: 3,
+        path: "src/a.ts",
+        contentKind: "text",
+        content: "// src/a.ts\n",
+        byteLength: 8,
+        truncated: false,
+      },
+    ]);
+    expect(files.calls).toEqual([{ op: "readFile", cwd: "/tmp", path: "src/a.ts" }]);
+  });
+
+  it("file ops on an unknown session reply with an error (ownership gate)", async () => {
+    const files = makeFileService();
+    const { conn, frames } = withFiles({}, files.service);
+    await conn.handleMessage(frame(4, { type: "file_list", sessionId: "nope" }));
+    await conn.handleMessage(frame(5, { type: "file_read", sessionId: "nope", path: "a.ts" }));
+    expect(frames).toEqual([
+      { kind: "reply", id: 4, ok: false, error: "unknown session" },
+      { kind: "reply", id: 5, ok: false, error: "unknown session" },
+    ]);
+    expect(files.calls).toEqual([]);
+  });
+
+  it("a rejecting file service (containment) surfaces as a failure reply", async () => {
+    const { session } = makeSession("s1");
+    const throwing: FileService = {
+      listDirectory: async () => {
+        throw new Error("path escapes the session directory");
+      },
+      readFile: async () => {
+        throw new Error("file not found");
+      },
+    };
+    const { conn, frames } = withFiles({ s1: session }, throwing);
+    await conn.handleMessage(frame(6, { type: "file_list", sessionId: "s1", path: "../etc" }));
+    await conn.handleMessage(frame(7, { type: "file_read", sessionId: "s1", path: "missing" }));
+    expect(frames).toEqual([
+      { kind: "reply", id: 6, ok: false, error: "path escapes the session directory" },
+      { kind: "reply", id: 7, ok: false, error: "file not found" },
     ]);
   });
 });
