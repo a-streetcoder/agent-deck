@@ -1,7 +1,12 @@
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The doctor probes real subprocesses (bash/git/gh/node); individual checks
+// run ~4s alone and exceed the 5s default under `pnpm -r test` parallel load.
+// File-wide headroom per the diff/skill-repo-import precedent.
+vi.setConfig({ testTimeout: 20_000 });
 import {
   MIN_NODE_VERSION,
   meetsMinNode,
