@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { SquareTerminal } from "lucide-react";
+import { GitCompareArrows, SquareTerminal } from "lucide-react";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
+import { DiffPanel } from "./components/diff/DiffPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
@@ -73,6 +74,9 @@ function ChatColumn() {
           <Composer />
         </div>
         <DeckPanel />
+        {/* The changed-files / diff panel (Slice 10): a right aside like the
+            deck; renders null while closed or for non-repo sessions. */}
+        <DiffPanel />
       </div>
       {/* The per-session terminal drawer (Slice 8b) spans the full chat surface
           bottom, like the donor's thread drawer. Renders null while closed. */}
@@ -85,6 +89,10 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const terminalOpen = useAppStore((state) => state.terminalOpen);
   const setTerminalOpen = useAppStore((state) => state.setTerminalOpen);
+  const diffPanelOpen = useAppStore((state) => state.diffPanelOpen);
+  const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
+  const diffRepo = useAppStore((state) => state.diffRepo);
+  const diffFileCount = useAppStore((state) => state.diffFiles.length);
   const connection = useAppStore((state) => state.connection);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const session = useAppStore((state) => state.session);
@@ -160,6 +168,34 @@ export function App() {
               ) : null}
             </div>
             <div className="flex items-center gap-3">
+              {/* Changed-files toggle (Slice 10): only for git-repo sessions
+                  (repo:false keeps the whole surface hidden); the badge tracks
+                  the server-refreshed changed-file count live. */}
+              {session && isChat && diffRepo ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "relative rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
+                    diffPanelOpen ? "text-accent" : "text-text-muted",
+                    macDesktop && "[-webkit-app-region:no-drag]",
+                  )}
+                  title="Toggle changed files"
+                  aria-label="Toggle changed files"
+                  aria-pressed={diffPanelOpen}
+                  data-testid="diff-toggle"
+                  onClick={() => setDiffPanelOpen(!diffPanelOpen)}
+                >
+                  <GitCompareArrows className="h-4 w-4" />
+                  {diffFileCount > 0 ? (
+                    <span
+                      className="absolute -right-0.5 -top-0.5 rounded-capsule bg-accent px-1 text-[9px] font-semibold leading-[14px] text-[var(--color-accent-foreground)]"
+                      data-testid="diff-badge"
+                    >
+                      {diffFileCount}
+                    </span>
+                  ) : null}
+                </button>
+              ) : null}
               {session && isChat ? (
                 <button
                   type="button"

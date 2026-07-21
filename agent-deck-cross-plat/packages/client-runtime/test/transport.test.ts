@@ -79,6 +79,7 @@ function makeHarness(overrides?: {
   const states: ConnectionState[] = [];
   const pushes: unknown[] = [];
   const terminalPushes: unknown[] = [];
+  const diffPushes: unknown[] = [];
   const decodeErrors: string[] = [];
   let connectedCount = 0;
   const clock = new FakeClock();
@@ -95,6 +96,7 @@ function makeHarness(overrides?: {
     onConnected: () => connectedCount++,
     onPush: (m) => pushes.push(m),
     onTerminalPush: (m) => terminalPushes.push(m),
+    onDiffPush: (m) => diffPushes.push(m),
     onDecodeError: (e) => decodeErrors.push(e),
     backoff: overrides?.backoff ?? { initialMs: 500, maxMs: 10_000, factor: 2 },
     setTimer: clock.setTimer,
@@ -107,6 +109,7 @@ function makeHarness(overrides?: {
     states,
     pushes,
     terminalPushes,
+    diffPushes,
     decodeErrors,
     clock,
     connectedCount: () => connectedCount,
@@ -387,6 +390,97 @@ describe("RpcTransport terminal surface (Slice 8b)", () => {
       { type: "terminal_output", terminalId: "term-1", data: "chunk" },
       { type: "terminal_exit", terminalId: "term-1", exitCode: 0, signal: null },
     ]);
+    expect(h.decodeErrors).toHaveLength(0);
+  });
+});
+
+describe("RpcTransport diff surface (Slice 10)", () => {
+  it("diffFiles resolves with the diff_files_ok payload", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.diffFiles("s1");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({ type: "diff_files", sessionId: "s1" });
+
+    const files = [
+      { path: "src/app.ts", status: "M", insertions: 3, deletions: 1, binary: false },
+      { path: "logo.png", status: "?", insertions: null, deletions: null, binary: true },
+    ];
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "diff_files_ok",
+        id: sentFrame.id,
+        repo: true,
+        files,
+        truncated: false,
+      }),
+    );
+    await expect(promise).resolves.toEqual({ repo: true, files, truncated: false });
+  });
+
+  it("diffFiles rejects on a server failure reply", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.diffFiles("nope");
+    const id = (JSON.parse(h.sockets[0]!.sent[0]!) as { id: number }).id;
+    h.sockets[0]!.message(
+      JSON.stringify({ kind: "reply", id, ok: false, error: "unknown session" }),
+    );
+    await expect(promise).rejects.toThrow("unknown session");
+  });
+
+  it("diffFile resolves with the diff_file_ok payload", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.diffFile("s1", "src/app.ts");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({ type: "diff_file", sessionId: "s1", path: "src/app.ts" });
+
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "diff_file_ok",
+        id: sentFrame.id,
+        path: "src/app.ts",
+        diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        truncated: false,
+        binary: false,
+      }),
+    );
+    await expect(promise).resolves.toEqual({
+      path: "src/app.ts",
+      diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      truncated: false,
+      binary: false,
+    });
+  });
+
+  it("diff_push frames dispatch to onDiffPush (not onPush)", () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const message = {
+      type: "diff_changed",
+      sessionId: "s1",
+      repo: true,
+      files: [{ path: "a.txt", status: "?", insertions: 1, deletions: 0, binary: false }],
+      truncated: false,
+    };
+    // sanity: the frame is contract-valid
+    expect(Schema.decodeUnknownEither(RpcServerFrame)({ kind: "diff_push", message })._tag).toBe(
+      "Right",
+    );
+
+    h.sockets[0]!.message(JSON.stringify({ kind: "diff_push", message }));
+
+    expect(h.pushes).toHaveLength(0);
+    expect(h.diffPushes).toEqual([message]);
     expect(h.decodeErrors).toHaveLength(0);
   });
 });

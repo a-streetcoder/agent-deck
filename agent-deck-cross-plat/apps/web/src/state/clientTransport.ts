@@ -1,12 +1,15 @@
 import {
   RpcTransport,
   type ConnectionState,
+  type DiffFileResult,
+  type DiffFilesResult,
   type TerminalOpenResult,
   type WebSocketCtor,
 } from "@agent-deck/client-runtime";
 import { RPC_WS_PATH } from "@agent-deck/contracts";
 import type {
   ClientMessage,
+  DiffPush,
   ServerMessage,
   TerminalClientRequest,
   TerminalPush,
@@ -39,6 +42,13 @@ export interface TransportHost {
   getLastSeq(): number;
   /** A terminal push (Slice 8b): output chunks + exit, outside the reducer path. */
   onTerminalPush?(message: TerminalPush): void;
+  /** A diff push (Slice 10): a session's refreshed changed-file set, outside
+   * the reducer path (like terminal pushes). */
+  onDiffPush?(message: DiffPush): void;
+  /** Fired once per (re)connection AFTER the session subscription settled —
+   * the point where per-session sideband state (the changed-file set) is
+   * (re)fetched, so it can never race the subscribe. */
+  onSessionSubscribed?(sessionId: string): void;
 }
 
 export interface ClientTransport {
@@ -54,6 +64,10 @@ export interface ClientTransport {
   /** Fire-and-forget terminal input/resize/close (dropped while disconnected,
    * like {@link send} — the drawer resyncs via reattach on reconnect). */
   sendTerminal(message: Exclude<TerminalClientRequest, { type: "terminal_open" }>): void;
+  /** Fetch the session's changed-file set (Slice 10); rejects offline. */
+  diffFiles(sessionId: string): Promise<DiffFilesResult>;
+  /** Fetch one changed file's bounded unified diff; rejects offline. */
+  diffFile(sessionId: string, path: string): Promise<DiffFileResult>;
 }
 
 function socketUrl(pathSuffix: string): string {
@@ -113,6 +127,10 @@ export class RpcClientTransport implements ClientTransport {
             sessionId,
             lastSeq: lastSeq > 0 ? lastSeq : undefined,
           })
+          .then(() => {
+            if (myGeneration !== this.generation) return;
+            this.host.onSessionSubscribed?.(sessionId);
+          })
           .catch((error: unknown) => {
             // A genuine subscribe failure (e.g. unknown session) surfaces like
             // legacy's error push; a disconnect-driven rejection does not.
@@ -128,6 +146,10 @@ export class RpcClientTransport implements ClientTransport {
       onTerminalPush: (message) => {
         if (myGeneration !== this.generation) return;
         this.host.onTerminalPush?.(message);
+      },
+      onDiffPush: (message) => {
+        if (myGeneration !== this.generation) return;
+        this.host.onDiffPush?.(message);
       },
       onDecodeError: (error, raw) => {
         // A push that fails the contract at the boundary is dropped (never
@@ -181,5 +203,21 @@ export class RpcClientTransport implements ClientTransport {
       // Failures here (e.g. input to an exited terminal) are surfaced to the
       // drawer through the terminal_exit push, not the error banner.
     });
+  }
+
+  diffFiles(sessionId: string): Promise<DiffFilesResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.diffFiles(sessionId);
+  }
+
+  diffFile(sessionId: string, path: string): Promise<DiffFileResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.diffFile(sessionId, path);
   }
 }

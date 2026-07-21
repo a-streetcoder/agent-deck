@@ -10,6 +10,14 @@ body,
   height: 100%;
 }
 
+/* Full-viewport app shell: every region scrolls internally, so the page
+   itself never scrolls. Also keeps transient layout overflow (e.g. a wide
+   panel mid-mount) from flashing a window scrollbar that shifts the whole
+   layout by the scrollbar width (visual-baseline nondeterminism). */
+body {
+  overflow: hidden;
+}
+
 body {
   background: var(--color-surface);
   color: var(--color-text-primary);

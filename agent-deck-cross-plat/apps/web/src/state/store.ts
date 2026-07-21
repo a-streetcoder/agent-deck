@@ -1,4 +1,4 @@
-import type { ProjectMeta, SessionMeta } from "@agent-deck/contracts";
+import type { DiffFileEntry, ProjectMeta, SessionMeta } from "@agent-deck/contracts";
 import { emptyTranscript, type TranscriptState } from "@agent-deck/domain";
 import { create } from "zustand";
 
@@ -60,6 +60,20 @@ export interface AppState {
    * terminal, and closing it keeps the terminal alive server-side.
    */
   terminalOpen: boolean;
+  /**
+   * Whether the changed-files / diff panel is open (Slice 10). Follows the
+   * terminalOpen pattern: one global boolean, the panel always shows the
+   * CURRENT session's changed-file set.
+   */
+  diffPanelOpen: boolean;
+  /** Whether the current session's cwd is a git work tree (diff surface gate).
+   * False until the first diff_files fetch answers — the toggle stays hidden
+   * for non-repo sessions and while the answer is in flight. */
+  diffRepo: boolean;
+  /** The current session's changed-file set (server-refreshed per turn). */
+  diffFiles: readonly DiffFileEntry[];
+  /** True when the set was capped at the server's DIFF_MAX_FILES bound. */
+  diffTruncated: boolean;
   transcript: TranscriptState;
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
   lastSeq: number;
@@ -77,6 +91,11 @@ export interface AppState {
   setSessions(sessions: SessionMeta[]): void;
   setPendingComposerText(text: string | null): void;
   setTerminalOpen(open: boolean): void;
+  setDiffPanelOpen(open: boolean): void;
+  /** Replace the changed-file set (a diff_push or a diff_files fetch). */
+  setDiffState(state: { repo: boolean; files: readonly DiffFileEntry[]; truncated: boolean }): void;
+  /** Drop the previous session's set on a session switch (panel stays open). */
+  resetDiffState(): void;
   upsertSessionMeta(session: SessionMeta): void;
   removeSession(sessionId: string): void;
   setSnapshot(state: TranscriptState, seq: number): void;
@@ -112,6 +131,10 @@ export const useAppStore = create<AppState>((set) => ({
   sessions: [],
   pendingComposerText: null,
   terminalOpen: false,
+  diffPanelOpen: false,
+  diffRepo: false,
+  diffFiles: [],
+  diffTruncated: false,
   transcript: emptyTranscript(),
   lastSeq: 0,
   error: null,
@@ -139,6 +162,10 @@ export const useAppStore = create<AppState>((set) => ({
   setSessions: (sessions) => set({ sessions }),
   setPendingComposerText: (pendingComposerText) => set({ pendingComposerText }),
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
+  setDiffPanelOpen: (diffPanelOpen) => set({ diffPanelOpen }),
+  setDiffState: ({ repo, files, truncated }) =>
+    set({ diffRepo: repo, diffFiles: files, diffTruncated: truncated }),
+  resetDiffState: () => set({ diffRepo: false, diffFiles: [], diffTruncated: false }),
   upsertSessionMeta: (session) =>
     set((state) => ({
       sessions: state.sessions.some((s) => s.id === session.id)

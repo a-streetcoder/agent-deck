@@ -24,7 +24,10 @@ export function asThinkingLevel(value: string | undefined): AgentSessionPlan["th
  * AGENT_DECK_DEFAULT_EXTENSIONS (path.delimiter-separated),
  * AGENT_DECK_PROVIDER_EXTENSIONS (provider-registration extensions only —
  * the ONLY extensions isolated helper launches may load),
- * AGENT_DECK_PI_ENV (JSON object merged into the pi subprocess env).
+ * AGENT_DECK_PI_ENV (JSON object merged into the pi subprocess env),
+ * AGENT_DECK_DEFAULT_CWD (cwd for sessions created without a project/cwd —
+ * a test seam like AGENT_DECK_TERMINAL_SHELL, so e2e default sessions run in
+ * a hermetic temp dir instead of the server process's own checkout).
  */
 export function envDefaults(): {
   provider?: string;
@@ -32,6 +35,7 @@ export function envDefaults(): {
   extensions?: string[];
   providerExtensions?: string[];
   env?: Record<string, string>;
+  cwd?: string;
 } {
   const extensions = process.env.AGENT_DECK_DEFAULT_EXTENSIONS?.split(nodePath.delimiter).filter(
     Boolean,
@@ -53,6 +57,7 @@ export function envDefaults(): {
     extensions: extensions?.length ? extensions : undefined,
     providerExtensions: providerExtensions?.length ? providerExtensions : undefined,
     env,
+    cwd: process.env.AGENT_DECK_DEFAULT_CWD || undefined,
   };
 }
 

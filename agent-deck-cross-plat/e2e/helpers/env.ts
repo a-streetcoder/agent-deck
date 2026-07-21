@@ -49,6 +49,11 @@ export async function startHarness(options?: {
 
   const providerExtension = writeMockProviderExtension(mock.baseUrl);
   process.env.AGENT_DECK_TEST = "1";
+  // Default (no-project) sessions run in a hermetic temp dir instead of the
+  // e2e process's own checkout — which is inside THIS git repo, so without the
+  // seam every default session would carry the dev tree's changed-file set
+  // into the Slice-10 diff surface (nondeterministic badges/baselines).
+  process.env.AGENT_DECK_DEFAULT_CWD = mkdtempSync(path.join(tmpdir(), "agent-deck-e2e-cwd-"));
   process.env.AGENT_DECK_DEFAULT_PROVIDER = MOCK_PROVIDER_ID;
   process.env.AGENT_DECK_DEFAULT_MODEL = MOCK_MODEL_ID;
   process.env.AGENT_DECK_DEFAULT_EXTENSIONS = [

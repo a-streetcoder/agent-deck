@@ -339,7 +339,7 @@ export function registerSessionRoutes(ctx: ServerContext): void {
     }
     const body = parsed.data;
     const defaults = envDefaults();
-    let cwd = body.cwd ?? process.cwd();
+    let cwd = body.cwd ?? defaults.cwd ?? process.cwd();
     let project: ProjectMeta | undefined;
     if (body.projectId) {
       project = projects.find((p) => p.id === body.projectId);

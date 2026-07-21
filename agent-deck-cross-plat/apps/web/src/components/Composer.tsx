@@ -357,7 +357,10 @@ export function Composer() {
             }
           }}
         />
-        <div className="flex items-center gap-2 px-3 pb-3 pt-1">
+        {/* flex-wrap: with the Slice-10 diff panel open the chat column can
+            drop under this row's intrinsic width — the chips wrap instead of
+            sliding (unclickably) beneath the panel. */}
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-1">
           <label className={chipClass()} title="Agent">
             <select
               data-testid="agent-picker"

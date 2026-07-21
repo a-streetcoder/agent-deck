@@ -2,6 +2,9 @@ import {
   RpcClientFrame,
   RpcServerFrame,
   type ClientMessage,
+  type DiffClientRequest,
+  type DiffFileEntry,
+  type DiffPush,
   type ServerMessage,
   type SessionMeta,
   type TerminalClientRequest,
@@ -73,6 +76,8 @@ export interface TransportOptions {
   readonly onPush?: (message: ServerMessage) => void;
   /** A decoded terminal push (Slice 8b): output chunks + the exit notification. */
   readonly onTerminalPush?: (message: TerminalPush) => void;
+  /** A decoded diff push (Slice 10): a session's refreshed changed-file set. */
+  readonly onDiffPush?: (message: DiffPush) => void;
   /** A frame that failed contracts decode at the boundary — dropped, reported. */
   readonly onDecodeError?: (error: string, raw: unknown) => void;
   readonly backoff?: BackoffOptions;
@@ -89,12 +94,31 @@ export interface TerminalOpenResult {
   readonly running: boolean;
 }
 
+/** The reply to a `diff_files` request (Slice 10): the session's changed-file
+ * set, with the non-git answer expressed as `repo: false` + an empty set. */
+export interface DiffFilesResult {
+  readonly repo: boolean;
+  readonly files: readonly DiffFileEntry[];
+  readonly truncated: boolean;
+}
+
+/** The reply to a `diff_file` request (Slice 10): one file's bounded unified
+ * diff (empty for binary files / paths outside the changed set). */
+export interface DiffFileResult {
+  readonly path: string;
+  readonly diff: string;
+  readonly truncated: boolean;
+  readonly binary: boolean;
+}
+
 /** How one request settled: a plain ack, the hello session list, or a
- * terminal_open_ok payload. Internal — the public methods narrow it. */
+ * terminal/diff reply payload. Internal — the public methods narrow it. */
 type RequestSettled =
   | { readonly kind: "ok" }
   | { readonly kind: "sessions"; readonly sessions: SessionMeta[] }
-  | { readonly kind: "terminal_open"; readonly result: TerminalOpenResult };
+  | { readonly kind: "terminal_open"; readonly result: TerminalOpenResult }
+  | { readonly kind: "diff_files"; readonly result: DiffFilesResult }
+  | { readonly kind: "diff_file"; readonly result: DiffFileResult };
 
 interface Pending {
   readonly resolve: (settled: RequestSettled) => void;
@@ -245,11 +269,39 @@ export class RpcTransport {
         });
         return;
       }
+      case "diff_files_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "diff_files",
+          result: { repo: frame.repo, files: frame.files, truncated: frame.truncated },
+        });
+        return;
+      }
+      case "diff_file_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "diff_file",
+          result: {
+            path: frame.path,
+            diff: frame.diff,
+            truncated: frame.truncated,
+            binary: frame.binary,
+          },
+        });
+        return;
+      }
       case "push":
         this.options.onPush?.(frame.message);
         return;
       case "terminal_push":
         this.options.onTerminalPush?.(frame.message);
+        return;
+      case "diff_push":
+        this.options.onDiffPush?.(frame.message);
         return;
     }
   }
@@ -261,7 +313,9 @@ export class RpcTransport {
 
   /** Send one frame and settle on its correlated reply (shared by the typed
    * request methods below). Rejects immediately if not connected. */
-  private sendRequest(request: ClientMessage | TerminalClientRequest): Promise<RequestSettled> {
+  private sendRequest(
+    request: ClientMessage | TerminalClientRequest | DiffClientRequest,
+  ): Promise<RequestSettled> {
     if (this.state !== "connected" || !this.socket) {
       return Promise.reject(new Error("transport not connected"));
     }
@@ -313,6 +367,31 @@ export class RpcTransport {
     message: Exclude<TerminalClientRequest, { type: "terminal_open" }>,
   ): Promise<void> {
     await this.sendRequest(message);
+  }
+
+  /**
+   * Fetch a session's changed-file set (Slice 10). Resolves with the bounded
+   * set (`repo: false` + empty for non-git sessions); rejects on a server
+   * failure reply (unknown session) or while disconnected.
+   */
+  async diffFiles(sessionId: string): Promise<DiffFilesResult> {
+    const settled = await this.sendRequest({ type: "diff_files", sessionId });
+    if (settled.kind !== "diff_files") {
+      throw new Error("diff_files settled without a diff_files_ok reply");
+    }
+    return settled.result;
+  }
+
+  /**
+   * Fetch one changed file's bounded unified diff (Slice 10). A path outside
+   * the session's changed set (or a binary file) resolves with an empty diff.
+   */
+  async diffFile(sessionId: string, path: string): Promise<DiffFileResult> {
+    const settled = await this.sendRequest({ type: "diff_file", sessionId, path });
+    if (settled.kind !== "diff_file") {
+      throw new Error("diff_file settled without a diff_file_ok reply");
+    }
+    return settled.result;
   }
 
   /** Convenience: the `hello` handshake, resolving with the session list. */

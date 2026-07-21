@@ -38,6 +38,19 @@ const transportHost: TransportHost = {
   onTerminalPush: (message) => {
     for (const listener of terminalPushListeners) listener(message);
   },
+  // Slice 10: a turn boundary refreshed the session's changed-file set. The
+  // push is broadcast per connection and carries its sessionId — only the
+  // subscribed session's set drives the store (same filter as event pushes).
+  onDiffPush: (message) => {
+    if (message.sessionId !== currentSessionId) return;
+    useAppStore.getState().setDiffState(message);
+  },
+  // Fired after every (re)subscription settles: fetch the freshly-subscribed
+  // session's set (a session switch dropped the old one; a reconnect may have
+  // missed pushes while down).
+  onSessionSubscribed: (sessionId) => {
+    void refreshDiffFiles(sessionId);
+  },
 };
 
 const transport: ClientTransport = new RpcClientTransport(transportHost);
@@ -129,11 +142,42 @@ export function closeSessionTerminal(sessionId: string): void {
   transport.sendTerminal({ type: "terminal_close", terminalId });
 }
 
+// ---------------------------------------------------------------------------
+// Changed-files surface (Slice 10) — the session's diff set lives in the store
+// and is kept fresh two ways: diff_push at turn boundaries (onDiffPush above)
+// and an explicit fetch on every (re)subscription (onSessionSubscribed).
+// ---------------------------------------------------------------------------
+
+/** Fetch `sessionId`'s changed-file set into the store (if still current). */
+async function refreshDiffFiles(sessionId: string): Promise<void> {
+  try {
+    const result = await transport.diffFiles(sessionId);
+    if (sessionId !== currentSessionId) return; // switched away mid-flight
+    useAppStore.getState().setDiffState(result);
+  } catch {
+    // Offline or a torn-down session: leave the (reset) state alone — the
+    // next subscription refetches. Never worth the error banner.
+  }
+}
+
+/** Fetch one changed file's unified diff for the CURRENT session. */
+export async function fetchFileDiff(
+  path: string,
+): Promise<{ diff: string; truncated: boolean; binary: boolean } | null> {
+  const sessionId = currentSessionId;
+  if (!sessionId) return null;
+  const result = await transport.diffFile(sessionId, path);
+  return { diff: result.diff, truncated: result.truncated, binary: result.binary };
+}
+
 /** (Re)connect subscribed to `sessionId` — the single entry point that keeps
  * `currentSessionId` (which gates handleMessage's per-session filtering) in sync
  * with the transport's subscription. */
 function connect(sessionId: string): void {
   currentSessionId = sessionId;
+  // The old session's changed-file set must not bleed into the new one; the
+  // fresh set arrives via onSessionSubscribed once the subscription settles.
+  useAppStore.getState().resetDiffState();
   transport.connect(sessionId);
 }
 

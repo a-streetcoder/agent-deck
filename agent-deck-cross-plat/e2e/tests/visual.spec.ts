@@ -1,8 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
-import { expect, test, type Page } from "../helpers/fixtures.ts";
+import { expect, selectProject, test, type Page } from "../helpers/fixtures.ts";
 
 /**
  * Visual regression gate (docs/effect-migration-plan.md — standing gate for the
@@ -52,6 +54,12 @@ test.use({ viewport: { width: 1280, height: 800 } });
 
 const REPLY = "The visual baseline reply: stable, short, and fully deterministic.";
 
+// The diff baseline's repo project: a scratch git repo whose only change is a
+// file with FIXED content, so the tree stats and the unified patch (hashes
+// included — content-addressed) are byte-stable run to run.
+const DIFF_REPO = mkdtempSync(path.join(tmpdir(), "proj-diff-visual-"));
+const DIFF_FILE_CONTENT = "alpha one\nbeta two\ngamma three\n";
+
 let harness: E2eHarness;
 
 test.beforeAll(async () => {
@@ -64,7 +72,39 @@ test.beforeAll(async () => {
       : "/bin/sh";
   process.env.PROMPT = "agent-deck$G";
   process.env.PS1 = "agent-deck> ";
-  harness = await startHarness({ reply: () => REPLY, chunkDelayMs: 0 });
+
+  const git = (args: string[]): void => {
+    execFileSync("git", args, { cwd: DIFF_REPO, stdio: "ignore" });
+  };
+  git(["init", "-b", "main"]);
+  git(["config", "user.email", "t@example.com"]);
+  git(["config", "user.name", "Test"]);
+  writeFileSync(path.join(DIFF_REPO, "README.md"), "# scratch\n");
+  git(["add", "-A"]);
+  git(["commit", "-m", "init"]);
+
+  harness = await startHarness({
+    reply: () => REPLY,
+    chunkDelayMs: 0,
+    // Only the diff-baseline prompt drives a tool call (one real pi `write`
+    // per turn); every other visual test streams the plain text reply.
+    toolCall: (lastUser, body) => {
+      if (!lastUser.includes("write the diff baseline file")) return null;
+      const lastUserIndex = body.messages.map((m) => m.role).lastIndexOf("user");
+      const toolRanThisTurn = body.messages.slice(lastUserIndex + 1).some((m) => m.role === "tool");
+      if (toolRanThisTurn) return null;
+      return {
+        name: "write",
+        arguments: { path: path.join(DIFF_REPO, "src", "visual.txt"), content: DIFF_FILE_CONTENT },
+      };
+    },
+  });
+  const response = await fetch(`${harness.baseUrl}/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: DIFF_REPO }),
+  });
+  if (!response.ok) throw new Error(await response.text());
 });
 
 test.afterAll(async () => {
@@ -180,5 +220,38 @@ test("visual: transcript with a completed exchange", async ({ page }) => {
   await expect(page.getByTestId("chat-layer")).toHaveScreenshot("transcript-exchange.png", {
     ...SCREENSHOT_OPTS,
     mask: dynamicChrome(page),
+  });
+});
+
+test("visual: changed-files tree + open diff panel", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(DIFF_REPO));
+  await expect(page.getByTestId("session-cwd")).toHaveText(DIFF_REPO);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // One turn writes the fixed-content file; the boundary refresh badges it.
+  await page.getByTestId("composer-input").fill("please write the diff baseline file");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("diff-badge")).toHaveText("1", { timeout: 30_000 });
+
+  // Open the panel and the file: tree strip on top, unified patch below.
+  await page.getByTestId("diff-toggle").click();
+  await page.locator('[data-testid="diff-tree-file"][data-path="src/visual.txt"]').click();
+  await expect(page.getByTestId("diff-file-view")).toBeVisible();
+  await expect(page.getByTestId("diff-lines")).toContainText("+gamma three", { timeout: 15_000 });
+  // The composer settles its post-turn layout before the shot (like the
+  // transcript baseline).
+  await expect(page.getByTestId("session-tokens")).toBeVisible({ timeout: 15_000 });
+
+  // Clip to the chat layer. Masks on top of the standard dynamic chrome: the
+  // Write tool card's file path renders the temp repo's absolute path, and
+  // run durations vary — mask the whole tool card.
+  await expect(page.getByTestId("chat-layer")).toHaveScreenshot("diff-panel.png", {
+    ...SCREENSHOT_OPTS,
+    mask: [...dynamicChrome(page), page.locator('[data-tool="write"]')],
   });
 });
