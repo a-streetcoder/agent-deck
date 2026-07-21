@@ -357,6 +357,15 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - Comment on a diff hunk; comments accumulate as pending composer context and are sent
   as a structured follow-up turn to pi.
 - Depends on Slices 9–10.
+- **Status: LANDED (2026-07-21, dfc6a0b).** Client-side only (no server review/ state
+  needed — the donor serializes into the prompt client-side): hover-revealed inline
+  comment editor on diff rows, per-session pending cards above the composer
+  (ComposerPendingReviewComments), donor-faithful `<review_comment>` serialization
+  appended to the next prompt + cleared on send. Review fixes: sectionId → donor's
+  literal `"unstaged"`, same-frame double-submit guard. Deferred: stale-card
+  re-anchor (cosmetic; outgoing excerpt frozen/correct) → S19. e2e + 6th visual
+  baseline. **PHASE 5 COMPLETE** — diff engine → panel → open-in-editor → review
+  comments all landed.
 
 ## Phase 6 — Files & navigation
 
