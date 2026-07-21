@@ -340,6 +340,16 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
   open action on; landing the diff-panel + changed-files-tree surfaces now and
   revisiting transcript references once the transcript gains file-reference
   rendering (natural home: Slice 13 file navigation, or S19 polish).
+- **Status: LANDED (2026-07-21, fc63e3f).** Donor 20-editor table, PATH×PATHEXT
+  detection re-probed per list (donor parity), .cmd shell-hop escaping, containment
+  (relative-only, segment-aware "..", symlink realpath compare, canonical-path
+  launch), server-detected ids only, AGENT_DECK_OPEN_BIN argv seam; OpenInPicker
+  split control on diff header + tree rows; preferredEditor in AppSettings. Review:
+  3 confirmed fixed in-workflow, 4 minors fixed on landing. Deferred: picker ARIA
+  menu keyboard pattern → S19. Post-landing: mac CI fix — launcher tests now expect
+  CANONICAL paths (mac tmpdir is a /var→/private/var symlink; the TOCTOU fix
+  returns realpath). ae3a0e5's windows-e2e desktop-electron CI failure confirmed a
+  runner flake (green again on fc63e3f).
 
 ### Slice 12 — Review comments → composer
 

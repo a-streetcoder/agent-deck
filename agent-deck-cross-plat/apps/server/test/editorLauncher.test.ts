@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -144,7 +144,11 @@ describe("resolveContainedFile (the containment gate)", () => {
 
   it("resolves a repo-relative path inside the cwd", () => {
     const { cwd } = makeRepo();
-    expect(resolveContainedFile(cwd, "src/a.ts")).toBe(nodePath.resolve(cwd, "src", "a.ts"));
+    // CANONICAL path expected: the launcher returns realpath (TOCTOU shrink),
+    // which differs from the joined path on macOS (/var -> /private/var).
+    expect(resolveContainedFile(cwd, "src/a.ts")).toBe(
+      realpathSync(nodePath.resolve(cwd, "src", "a.ts")),
+    );
   });
 
   it("rejects .. traversal outside the cwd", () => {
@@ -207,7 +211,9 @@ describe("open (spawn seam — exact argv, no real process)", () => {
     mkdirSync(nodePath.join(cwd, "src"));
     const abs = nodePath.join(cwd, "src", "a.ts");
     writeFileSync(abs, "x\n");
-    return { cwd, abs: nodePath.resolve(abs) };
+    // CANONICAL path: the launcher spawns on realpath (TOCTOU shrink), which
+    // differs from the joined path on macOS (/var -> /private/var symlink).
+    return { cwd, abs: realpathSync(nodePath.resolve(abs)) };
   }
 
   it("launches the AGENT_DECK_OPEN_BIN override with the editor's exact argv", async () => {
