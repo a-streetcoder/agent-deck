@@ -8,6 +8,7 @@ import { fetchFileDiff } from "../../state/wsBridge.ts";
 import { useAppStore } from "../../state/store.ts";
 import { ChangedFilesTree } from "./ChangedFilesTree.tsx";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel.tsx";
+import { OpenInPicker, editorLabel, useOpenInEditor } from "./OpenInPicker.tsx";
 
 /**
  * The changed-files / diff panel (Slice 10): a right-hand aside on the chat
@@ -121,6 +122,11 @@ export function DiffPanel() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [fileDiff, setFileDiff] = useState<FileDiffState | null>(null);
 
+  // Slice 11: the server-detected editors + the remembered default. The
+  // affordances (file-header picker, tree-row hover action) are hover-revealed
+  // so the resting panel layout — and the visual baseline — stay unchanged.
+  const editorPicker = useOpenInEditor();
+
   const summaryStat = useMemo(() => summarizeDiffStats(files), [files]);
   const selectedEntry = selectedPath
     ? (files.find((file) => file.path === selectedPath) ?? null)
@@ -200,6 +206,14 @@ export function DiffPanel() {
       ? fileDiff
       : null;
 
+  // The line the header's Open jumps to: the first changed line of the loaded
+  // patch (its new-side number; a pure deletion falls back to the old side).
+  const firstChanged =
+    activeDiff !== null && activeDiff.status === "loaded"
+      ? activeDiff.lines.find((line) => line.kind === "add" || line.kind === "del")
+      : undefined;
+  const openAtLine = firstChanged?.newLine ?? firstChanged?.oldLine ?? undefined;
+
   return (
     <aside
       className="flex shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
@@ -272,14 +286,22 @@ export function DiffPanel() {
             allDirectoriesExpanded={allDirectoriesExpanded}
             onOpenFile={setSelectedPath}
             selectedPath={selectedPath}
+            {...(editorPicker.available.length > 0 && editorPicker.preferred !== null
+              ? {
+                  openInEditorLabel: `Open in ${editorLabel(editorPicker.preferred)}`,
+                  onOpenInEditor: (path: string) => editorPicker.open(path, undefined),
+                }
+              : {})}
           />
         </div>
       )}
 
       {inDiffView && (
         <div className="flex min-h-0 flex-1 flex-col" data-testid="diff-file-view">
-          {/* File header: path + its stat label + close-file. */}
-          <div className="flex items-center gap-2 border-b border-border-subtle bg-surface px-3 py-1.5">
+          {/* File header: path + its stat label + open-in-editor + close-file.
+              The picker reveals on header hover/focus so the resting layout
+              (and the diff-panel visual baseline) is unchanged. */}
+          <div className="group/fileheader flex items-center gap-2 border-b border-border-subtle bg-surface px-3 py-1.5">
             <span
               className="min-w-0 truncate font-mono text-[11px] text-text-primary"
               data-testid="diff-file-path"
@@ -296,6 +318,14 @@ export function DiffPanel() {
                 />
               </span>
             )}
+            <OpenInPicker
+              available={editorPicker.available}
+              preferred={editorPicker.preferred}
+              className="hidden group-focus-within/fileheader:flex group-hover/fileheader:flex"
+              onOpen={(editor) => {
+                if (selectedPath !== null) editorPicker.open(selectedPath, openAtLine, editor);
+              }}
+            />
             <button
               type="button"
               className={cn(

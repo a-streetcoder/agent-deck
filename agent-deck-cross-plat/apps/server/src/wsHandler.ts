@@ -3,6 +3,7 @@ import { RPC_WS_PATH } from "@agent-deck/contracts";
 import type { DiffPush, ServerMessage } from "@agent-deck/contracts";
 import type { FastifyInstance } from "fastify";
 import type { DiffGateway } from "./diffGateway.ts";
+import type { EditorLauncher } from "./editorLauncher.ts";
 import { setupRpcEndpoint } from "./rpcHandler.ts";
 import type { SessionManager } from "./SessionManager.ts";
 import type { TerminalGateway } from "./terminalGateway.ts";
@@ -27,12 +28,13 @@ export function setupWebSocket(deps: {
   sessions: SessionManager;
   terminals: TerminalGateway;
   diffs: DiffGateway;
+  editors: EditorLauncher;
 }): WebSocketLayer {
-  const { fastify, sessions, terminals, diffs } = deps;
+  const { fastify, sessions, terminals, diffs, editors } = deps;
 
   // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
   // subscribe/replay, and broadcast — all sharing the SessionManager facade.
-  const rpc = setupRpcEndpoint({ sessions, terminals, diffs });
+  const rpc = setupRpcEndpoint({ sessions, terminals, diffs, editors });
 
   // Browsers may open cross-origin WebSockets to localhost services; only
   // accept upgrades from local origins (or non-browser clients, which send

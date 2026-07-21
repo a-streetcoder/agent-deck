@@ -10,6 +10,7 @@ import { RPC_WS_PATH } from "@agent-deck/contracts";
 import type {
   ClientMessage,
   DiffPush,
+  EditorId,
   ServerMessage,
   TerminalClientRequest,
   TerminalPush,
@@ -68,6 +69,15 @@ export interface ClientTransport {
   diffFiles(sessionId: string): Promise<DiffFilesResult>;
   /** Fetch one changed file's bounded unified diff; rejects offline. */
   diffFile(sessionId: string, path: string): Promise<DiffFileResult>;
+  /** List the editors detected server-side (Slice 11); rejects offline. */
+  listEditors(): Promise<readonly EditorId[]>;
+  /** Open one changed file in a detected editor (Slice 11); rejects offline. */
+  openInEditor(request: {
+    sessionId: string;
+    path: string;
+    line?: number;
+    editor: EditorId;
+  }): Promise<void>;
 }
 
 function socketUrl(pathSuffix: string): string {
@@ -219,5 +229,26 @@ export class RpcClientTransport implements ClientTransport {
       return Promise.reject(new Error("transport not connected"));
     }
     return transport.diffFile(sessionId, path);
+  }
+
+  listEditors(): Promise<readonly EditorId[]> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.listEditors();
+  }
+
+  openInEditor(request: {
+    sessionId: string;
+    path: string;
+    line?: number;
+    editor: EditorId;
+  }): Promise<void> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.openInEditor(request);
   }
 }

@@ -154,6 +154,12 @@ export interface AppSettings {
   extensionLoadingMode: "useMyExtensions" | "agentDeckManaged";
   /** Provenance for git-imported skill repos (native importedSkillRepositories). */
   importedSkillRepositories: ImportedSkillRepository[];
+  /**
+   * The remembered open-in-editor choice (Slice 11): the editor id last picked
+   * from the diff panel's picker, so the next open is one click. An id, never
+   * a command — the server only launches editors from its own detected list.
+   */
+  preferredEditor: string | null;
 }
 
 /** App-level settings (app-settings.json); the effectful surface of the store. */
@@ -258,6 +264,7 @@ export const makeSettingsStoreHandle = (dataDir: string): Effect.Effect<Settings
       defaultThinking: null,
       extensionLoadingMode: "useMyExtensions", // port default: load discovered extensions
       importedSkillRepositories: [],
+      preferredEditor: null,
     };
 
     try {
@@ -300,6 +307,8 @@ export const makeSettingsStoreHandle = (dataDir: string): Effect.Effect<Settings
           importedSkillRepositories: Array.isArray(record.importedSkillRepositories)
             ? (record.importedSkillRepositories as ImportedSkillRepository[])
             : [],
+          preferredEditor:
+            typeof record.preferredEditor === "string" ? record.preferredEditor : null,
         };
       }
     } catch {

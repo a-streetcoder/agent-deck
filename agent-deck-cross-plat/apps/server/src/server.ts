@@ -41,6 +41,7 @@ import {
 } from "./context.ts";
 import { registerDeckBridgeTools } from "./bridgeTools.ts";
 import { createDiffGateway } from "./diffGateway.ts";
+import { createEditorLauncher } from "./editorLauncher.ts";
 import { LoopEngine } from "./loopEngine.ts";
 import {
   McpManager,
@@ -573,6 +574,8 @@ async function initServer(
   // Held here (not just inside the WS layer) so close() can run the awaited
   // closeAll() sweep — terminal scopes are detached roots dispose() can't reap.
   const terminals = createTerminalGateway(effectRuntime);
+  // Slice 11: editor detection + open-in-editor launches (editorLauncher.ts).
+  const editors = createEditorLauncher();
   const {
     close: closeWebSockets,
     broadcast: wsBroadcast,
@@ -582,6 +585,7 @@ async function initServer(
     sessions,
     terminals,
     diffs,
+    editors,
   });
   broadcast = wsBroadcast;
   broadcastDiff = wsBroadcastDiff;

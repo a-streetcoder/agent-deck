@@ -7,6 +7,7 @@ import {
 import { Either, Schema } from "effect";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { DiffGateway } from "./diffGateway.ts";
+import type { EditorLauncher } from "./editorLauncher.ts";
 import type { ManagedSession, SessionManager } from "./SessionManager.ts";
 import type { TerminalEvent } from "./services/terminal.ts";
 import type { OpenedTerminal, TerminalGateway } from "./terminalGateway.ts";
@@ -60,11 +61,12 @@ export function createRpcConnection(deps: {
   sessions: SessionManager;
   terminals: TerminalGateway;
   diffs: DiffGateway;
+  editors: EditorLauncher;
   send: (frame: RpcServerFrame) => void;
   /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
   bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, terminals, diffs, send } = deps;
+  const { sessions, terminals, diffs, editors, send } = deps;
   const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
@@ -382,6 +384,37 @@ export function createRpcConnection(deps: {
       }
       return;
     }
+    // Editor ops (Slice 11). editors_list is machine-scoped (no session);
+    // editor_open resolves the file INSIDE the session's cwd (server-side
+    // meta, like the diff ops) and only launches server-DETECTED editor ids —
+    // the containment + membership validation lives in editorLauncher.ts.
+    if (request.type === "editors_list") {
+      try {
+        send({ kind: "editors_ok", id, editors: await editors.listEditors() });
+      } catch (error) {
+        replyError(String(error));
+      }
+      return;
+    }
+    if (request.type === "editor_open") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      try {
+        await editors.open({
+          cwd: session.meta.cwd,
+          path: request.path,
+          ...(request.line !== undefined ? { line: request.line } : {}),
+          editor: request.editor,
+        });
+        replyOk();
+      } catch (error) {
+        replyError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -467,8 +500,9 @@ export function setupRpcEndpoint(deps: {
   sessions: SessionManager;
   terminals: TerminalGateway;
   diffs: DiffGateway;
+  editors: EditorLauncher;
 }): RpcEndpoint {
-  const { sessions, terminals, diffs } = deps;
+  const { sessions, terminals, diffs, editors } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -489,6 +523,7 @@ export function setupRpcEndpoint(deps: {
       sessions,
       terminals,
       diffs,
+      editors,
       send: (frame) => sendTo(socket, frame),
       // Terminal push backpressure reads the real socket send-buffer depth.
       bufferedAmount: () => socket.bufferedAmount,

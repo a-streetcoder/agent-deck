@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { ChevronRight, FileText, Folder, FolderClosed } from "lucide-react";
+import { ChevronRight, FileText, Folder, FolderClosed, SquareArrowOutUpRight } from "lucide-react";
 import type { DiffFileEntry } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
 import {
@@ -16,7 +16,10 @@ import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
  * chevron+folder expand/collapse with per-directory overrides keyed against
  * the current tree shape (a changed set resets stale overrides), and per-file
  * rows opening the diff panel. Additions vs the donor: a rename row shows its
- * source path, and binary files label as "binary" instead of a stat.
+ * source path, and binary files label as "binary" instead of a stat. Slice 11
+ * adds a hover-revealed open-in-editor action per file row (one click into the
+ * remembered editor) — file rows are divs with a button role so the nested
+ * action button stays valid HTML.
  */
 
 const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
@@ -37,8 +40,19 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   allDirectoriesExpanded: boolean;
   onOpenFile: (path: string) => void;
   selectedPath?: string | null;
+  /** Hover action (Slice 11): open this file in the remembered editor. */
+  onOpenInEditor?: (path: string) => void;
+  /** Tooltip/aria label for the hover action (names the remembered editor). */
+  openInEditorLabel?: string;
 }) {
-  const { files, allDirectoriesExpanded, onOpenFile, selectedPath = null } = props;
+  const {
+    files,
+    allDirectoriesExpanded,
+    onOpenFile,
+    selectedPath = null,
+    onOpenInEditor,
+    openInEditorLabel = "Open in editor",
+  } = props;
   const treeNodes = useMemo(() => buildChangedFilesTree(files), [files]);
   const directoryPathsKey = useMemo(() => collectDirectoryPaths(treeNodes).join("\0"), [treeNodes]);
   const hasDirectoryNodes = directoryPathsKey.length > 0;
@@ -116,11 +130,12 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
     const { entry } = node;
     const statusLabel = STATUS_LABEL[entry.status];
     return (
-      <button
+      <div
         key={`file:${node.path}`}
-        type="button"
+        role="button"
+        tabIndex={0}
         className={cn(
-          "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left transition-colors hover:bg-[var(--color-hover-fill)]",
+          "group flex w-full cursor-pointer items-center gap-1.5 rounded-md py-1 pr-2 text-left transition-colors hover:bg-[var(--color-hover-fill)]",
           selectedPath === node.path && "bg-[var(--color-selection-fill)]",
         )}
         style={{ paddingLeft: `${leftPadding}px` }}
@@ -129,6 +144,17 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
         data-status={entry.status}
         title={statusLabel ? `${node.path} (${statusLabel})` : node.path}
         onClick={() => onOpenFile(node.path)}
+        onKeyDown={(event) => {
+          // Only when the ROW itself is focused: Enter/Space on the nested
+          // open-in-editor button bubbles here, and preventDefault would
+          // cancel the button's own activation (keyboard users would get the
+          // diff view instead of the editor).
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpenFile(node.path);
+          }
+        }}
       >
         {hasDirectoryNodes || depth > 0 ? (
           <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
@@ -140,14 +166,33 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
             <span className="text-text-muted"> ← {entry.oldPath}</span>
           )}
         </span>
-        <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-          {entry.binary ? (
-            <span className="text-text-muted">binary</span>
-          ) : node.stat ? (
-            <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
-          ) : null}
+        {/* Right cluster: the hover-revealed open action (hidden at rest, so
+            the resting row layout is unchanged) + the stat label. */}
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {onOpenInEditor && (
+            <button
+              type="button"
+              className="hidden shrink-0 rounded p-0.5 text-text-muted hover:text-text-primary group-focus-within:flex group-hover:flex"
+              title={openInEditorLabel}
+              aria-label={openInEditorLabel}
+              data-testid="diff-tree-open"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenInEditor(node.path);
+              }}
+            >
+              <SquareArrowOutUpRight aria-hidden="true" className="h-3 w-3" />
+            </button>
+          )}
+          <span className="shrink-0 font-mono text-[10px] tabular-nums">
+            {entry.binary ? (
+              <span className="text-text-muted">binary</span>
+            ) : node.stat ? (
+              <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
+            ) : null}
+          </span>
         </span>
-      </button>
+      </div>
     );
   };
 

@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import { RpcServerFrame } from "@agent-deck/contracts";
 import type { RpcServerFrame as Frame } from "@agent-deck/contracts";
 import type { DiffGateway } from "../src/diffGateway.ts";
+import type { EditorLauncher, EditorOpenInput } from "../src/editorLauncher.ts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
 import type { StampedEvent } from "../src/services/pushBus.ts";
@@ -196,17 +197,32 @@ function makeDiffGateway() {
   return { gateway, calls, set };
 }
 
+// --- Fake editor launcher (Slice 11): scripted detection, recorded opens ---
+
+function makeEditorLauncher() {
+  const openCalls: Array<EditorOpenInput> = [];
+  const launcher: EditorLauncher = {
+    listEditors: async () => ["vscode", "zed"],
+    open: async (input) => {
+      openCalls.push(input);
+    },
+  };
+  return { launcher, openCalls };
+}
+
 function harness(
   manager: SessionManager,
   terminals?: TerminalGateway,
   bufferedAmount?: () => number,
   diffs?: DiffGateway,
+  editors?: EditorLauncher,
 ) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
     sessions: manager,
     terminals: terminals ?? makeTerminalGateway().gateway,
     diffs: diffs ?? makeDiffGateway().gateway,
+    editors: editors ?? makeEditorLauncher().launcher,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
@@ -678,5 +694,102 @@ describe("createRpcConnection diff ops (Slice 9)", () => {
     const { conn, frames } = harness(makeManager({ s1: session }), undefined, undefined, throwing);
     await conn.handleMessage(frame(5, { type: "diff_files", sessionId: "s1" }));
     expect(frames).toEqual([{ kind: "reply", id: 5, ok: false, error: "Error: git exploded" }]);
+  });
+});
+
+describe("createRpcConnection editor ops (Slice 11)", () => {
+  it("editors_list answers editors_ok with the server-detected list", async () => {
+    const editors = makeEditorLauncher();
+    const { conn, frames } = harness(
+      makeManager({}),
+      undefined,
+      undefined,
+      undefined,
+      editors.launcher,
+    );
+    await conn.handleMessage(frame(1, { type: "editors_list" }));
+    expect(frames).toEqual([{ kind: "editors_ok", id: 1, editors: ["vscode", "zed"] }]);
+  });
+
+  it("editor_open resolves the cwd from the session's meta and acks", async () => {
+    const { session } = makeSession("s1");
+    const editors = makeEditorLauncher();
+    const { conn, frames } = harness(
+      makeManager({ s1: session }),
+      undefined,
+      undefined,
+      undefined,
+      editors.launcher,
+    );
+    await conn.handleMessage(
+      frame(2, {
+        type: "editor_open",
+        sessionId: "s1",
+        path: "src/a.ts",
+        line: 12,
+        editor: "vscode",
+      }),
+    );
+    expect(frames).toEqual([{ kind: "reply", id: 2, ok: true }]);
+    // The cwd is server-side session meta — the wire only carried a RELATIVE
+    // path and an editor ID (never a command string or an absolute path).
+    expect(editors.openCalls).toEqual([
+      { cwd: "/tmp", path: "src/a.ts", line: 12, editor: "vscode" },
+    ]);
+  });
+
+  it("editor_open without a line omits the field entirely", async () => {
+    const { session } = makeSession("s1");
+    const editors = makeEditorLauncher();
+    const { conn } = harness(
+      makeManager({ s1: session }),
+      undefined,
+      undefined,
+      undefined,
+      editors.launcher,
+    );
+    await conn.handleMessage(
+      frame(3, { type: "editor_open", sessionId: "s1", path: "src/a.ts", editor: "zed" }),
+    );
+    expect(editors.openCalls).toEqual([{ cwd: "/tmp", path: "src/a.ts", editor: "zed" }]);
+  });
+
+  it("editor_open on an unknown session replies with an error (never launches)", async () => {
+    const editors = makeEditorLauncher();
+    const { conn, frames } = harness(
+      makeManager({}),
+      undefined,
+      undefined,
+      undefined,
+      editors.launcher,
+    );
+    await conn.handleMessage(
+      frame(4, { type: "editor_open", sessionId: "nope", path: "src/a.ts", editor: "vscode" }),
+    );
+    expect(frames).toEqual([{ kind: "reply", id: 4, ok: false, error: "unknown session" }]);
+    expect(editors.openCalls).toEqual([]);
+  });
+
+  it("a rejecting launcher (containment/unknown editor) surfaces as a failure reply", async () => {
+    const { session } = makeSession("s1");
+    const throwing: EditorLauncher = {
+      listEditors: async () => [],
+      open: async () => {
+        throw new Error("path escapes the session directory");
+      },
+    };
+    const { conn, frames } = harness(
+      makeManager({ s1: session }),
+      undefined,
+      undefined,
+      undefined,
+      throwing,
+    );
+    await conn.handleMessage(
+      frame(5, { type: "editor_open", sessionId: "s1", path: "src/a.ts", editor: "vscode" }),
+    );
+    expect(frames).toEqual([
+      { kind: "reply", id: 5, ok: false, error: "path escapes the session directory" },
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import type {
   ClientMessage,
+  EditorId,
   ProjectMeta,
   ServerMessage,
   SessionMeta,
@@ -158,6 +159,41 @@ async function refreshDiffFiles(sessionId: string): Promise<void> {
     // Offline or a torn-down session: leave the (reset) state alone — the
     // next subscription refetches. Never worth the error banner.
   }
+}
+
+// ---------------------------------------------------------------------------
+// Open-in-editor surface (Slice 11) — the diff panel / changed-files tree open
+// a file in one of the editors the SERVER detected on its machine.
+// ---------------------------------------------------------------------------
+
+/** The server's detected-editor list, cached per page load (the server caches
+ * its own probe too — the set doesn't change within a run). */
+let availableEditorsPromise: Promise<readonly EditorId[]> | null = null;
+
+/** The editors detected on the server's machine ([] while offline). */
+export function fetchAvailableEditors(): Promise<readonly EditorId[]> {
+  availableEditorsPromise ??= transport.listEditors().catch(() => {
+    availableEditorsPromise = null; // offline — retry on the next surface mount
+    return [] as readonly EditorId[];
+  });
+  return availableEditorsPromise;
+}
+
+/** Open one changed file of the CURRENT session in `editor` (optionally at a
+ * 1-based line). Throws on a server failure reply. */
+export async function openFileInEditor(
+  path: string,
+  line: number | undefined,
+  editor: EditorId,
+): Promise<void> {
+  const sessionId = currentSessionId;
+  if (!sessionId) return;
+  await transport.openInEditor({
+    sessionId,
+    path,
+    ...(line !== undefined ? { line } : {}),
+    editor,
+  });
 }
 
 /** Fetch one changed file's unified diff for the CURRENT session. */

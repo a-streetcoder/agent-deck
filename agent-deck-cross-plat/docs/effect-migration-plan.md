@@ -335,6 +335,11 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
   `JetBrainsIcons.tsx`.
 - Open file/line from diff panel, changed-files tree, and transcript file references.
 - Small slice; lands right after Slice 10 so diffs get "open in editor" immediately.
+- DEFERRED from this slice: transcript file references. The transcript renderer has
+  no file-reference detection/linkification yet, so there is no anchor to hang the
+  open action on; landing the diff-panel + changed-files-tree surfaces now and
+  revisiting transcript references once the transcript gains file-reference
+  rendering (natural home: Slice 13 file navigation, or S19 polish).
 
 ### Slice 12 — Review comments → composer
 

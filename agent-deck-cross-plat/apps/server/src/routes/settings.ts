@@ -165,6 +165,9 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
           .nullable()
           .optional(),
         extensionLoadingMode: z.enum(["useMyExtensions", "agentDeckManaged"]).optional(),
+        // The remembered open-in-editor choice (Slice 11). An id only — the
+        // server maps it to its own detected editor list; never a command.
+        preferredEditor: z.string().min(1).max(64).nullable().optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
@@ -194,6 +197,7 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
     if (d.defaultModel !== undefined) patch.defaultModel = d.defaultModel;
     if (d.defaultThinking !== undefined) patch.defaultThinking = d.defaultThinking;
     if (d.extensionLoadingMode !== undefined) patch.extensionLoadingMode = d.extensionLoadingMode;
+    if (d.preferredEditor !== undefined) patch.preferredEditor = d.preferredEditor;
     return { settings: settings.update(patch) };
   });
 

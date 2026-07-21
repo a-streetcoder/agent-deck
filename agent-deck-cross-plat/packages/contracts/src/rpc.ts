@@ -6,6 +6,7 @@ import {
   DiffPath,
   DiffPush,
 } from "./diff.ts";
+import { EditorClientRequest, EditorId } from "./editor.ts";
 import { ClientMessage, ServerMessage, SessionMeta } from "./protocol.ts";
 import {
   TERMINAL_MAX_SCROLLBACK_CHARS,
@@ -60,13 +61,19 @@ const RequestId = Schema.Number.pipe(
 /**
  * client → server: a request frame carrying one legacy client command or —
  * since Slice 8a — one terminal request (terminal.ts), or — since Slice 9 —
- * one diff request (diff.ts). `ClientMessage` itself is untouched: it stays
- * parity-pinned against the legacy zod envelope, so the terminal and diff
- * surfaces widen the FRAME, not the legacy message union.
+ * one diff request (diff.ts), or — since Slice 11 — one editor request
+ * (editor.ts). `ClientMessage` itself is untouched: it stays parity-pinned
+ * against the legacy zod envelope, so the terminal/diff/editor surfaces widen
+ * the FRAME, not the legacy message union.
  */
 export const RpcClientFrame = Schema.Struct({
   id: RequestId,
-  request: Schema.Union(ClientMessage, TerminalClientRequest, DiffClientRequest),
+  request: Schema.Union(
+    ClientMessage,
+    TerminalClientRequest,
+    DiffClientRequest,
+    EditorClientRequest,
+  ),
 });
 export type RpcClientFrame = typeof RpcClientFrame.Type;
 
@@ -172,6 +179,18 @@ export const RpcDiffPushFrame = Schema.Struct({
 });
 export type RpcDiffPushFrame = typeof RpcDiffPushFrame.Type;
 
+/**
+ * server → client: the reply to an `editors_list` request (Slice 11) — the
+ * editors DETECTED on the server's machine (its own probe; editors not
+ * installed simply don't appear). `editor_open` answers with a plain `reply`.
+ */
+export const RpcEditorsOkFrame = Schema.Struct({
+  kind: Schema.Literal("editors_ok"),
+  id: RequestId,
+  editors: Schema.Array(EditorId),
+});
+export type RpcEditorsOkFrame = typeof RpcEditorsOkFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
 export const RpcServerFrame = Schema.Union(
   RpcReplyFrame,
@@ -182,6 +201,7 @@ export const RpcServerFrame = Schema.Union(
   RpcDiffFilesOkFrame,
   RpcDiffFileOkFrame,
   RpcDiffPushFrame,
+  RpcEditorsOkFrame,
 );
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 

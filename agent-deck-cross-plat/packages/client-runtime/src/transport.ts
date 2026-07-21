@@ -5,6 +5,8 @@ import {
   type DiffClientRequest,
   type DiffFileEntry,
   type DiffPush,
+  type EditorClientRequest,
+  type EditorId,
   type ServerMessage,
   type SessionMeta,
   type TerminalClientRequest,
@@ -112,13 +114,14 @@ export interface DiffFileResult {
 }
 
 /** How one request settled: a plain ack, the hello session list, or a
- * terminal/diff reply payload. Internal — the public methods narrow it. */
+ * terminal/diff/editor reply payload. Internal — the public methods narrow it. */
 type RequestSettled =
   | { readonly kind: "ok" }
   | { readonly kind: "sessions"; readonly sessions: SessionMeta[] }
   | { readonly kind: "terminal_open"; readonly result: TerminalOpenResult }
   | { readonly kind: "diff_files"; readonly result: DiffFilesResult }
-  | { readonly kind: "diff_file"; readonly result: DiffFileResult };
+  | { readonly kind: "diff_file"; readonly result: DiffFileResult }
+  | { readonly kind: "editors"; readonly editors: readonly EditorId[] };
 
 interface Pending {
   readonly resolve: (settled: RequestSettled) => void;
@@ -294,6 +297,13 @@ export class RpcTransport {
         });
         return;
       }
+      case "editors_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({ kind: "editors", editors: frame.editors });
+        return;
+      }
       case "push":
         this.options.onPush?.(frame.message);
         return;
@@ -314,7 +324,7 @@ export class RpcTransport {
   /** Send one frame and settle on its correlated reply (shared by the typed
    * request methods below). Rejects immediately if not connected. */
   private sendRequest(
-    request: ClientMessage | TerminalClientRequest | DiffClientRequest,
+    request: ClientMessage | TerminalClientRequest | DiffClientRequest | EditorClientRequest,
   ): Promise<RequestSettled> {
     if (this.state !== "connected" || !this.socket) {
       return Promise.reject(new Error("transport not connected"));
@@ -392,6 +402,32 @@ export class RpcTransport {
       throw new Error("diff_file settled without a diff_file_ok reply");
     }
     return settled.result;
+  }
+
+  /**
+   * List the editors detected on the server's machine (Slice 11). The server
+   * caches its probe; editors not installed simply don't appear.
+   */
+  async listEditors(): Promise<readonly EditorId[]> {
+    const settled = await this.sendRequest({ type: "editors_list" });
+    if (settled.kind !== "editors") {
+      throw new Error("editors_list settled without an editors_ok reply");
+    }
+    return settled.editors;
+  }
+
+  /**
+   * Open one changed file (optionally at a 1-based line) in a detected editor
+   * (Slice 11). Resolves on ack; rejects on a server failure reply (unknown
+   * session/editor, path outside the session's cwd, missing file).
+   */
+  async openInEditor(request: {
+    sessionId: string;
+    path: string;
+    line?: number;
+    editor: EditorId;
+  }): Promise<void> {
+    await this.sendRequest({ type: "editor_open", ...request });
   }
 
   /** Convenience: the `hello` handshake, resolving with the session list. */
