@@ -321,6 +321,13 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
   `chat/ChangedFilesTree.tsx`, `chat/DiffStatLabel.tsx`.
 - Diff rendering in web workers; changed-files tree in the session view wired to the
   Slice 9 stream.
+- **Status: LANDED (2026-07-21, ae8a39c).** Transport diff ops + onDiffPush in
+  client-runtime (Slice-8 pattern); tree/panel/stat-label pattern-ported (no worker
+  pool — documented rationale: no shiki highlighting, 200k-char server cap,
+  react-virtuoso rows); session-scoped stale-while-revalidate on file diffs (review
+  fix); AGENT_DECK_DEFAULT_CWD e2e seam; diff.spec.ts real-pi e2e + 5th visual
+  baseline stable. Deferred minors: session-switch toggle blink (aggressive reset —
+  revisit at S19 polish), client-side tests for error/binary/truncated panel states.
 
 ### Slice 11 — Open-in editor (VS Code / JetBrains / etc.)
 
