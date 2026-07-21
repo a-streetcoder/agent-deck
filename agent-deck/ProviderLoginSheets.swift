@@ -86,7 +86,7 @@ private struct ProviderPickerRow: View {
 
 /// Add Provider flow opened from the Models toolbar `+`. Self-contained so there
 /// is no sheet-swapping: it walks picker → (auth method) → API key / OAuth in
-/// place. OAuth reuses PI's own login via `PiProviderLoginService`.
+/// place. Every method uses Pi's own login via `PiProviderLoginService`.
 struct AddProviderFlowSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -112,9 +112,7 @@ struct AddProviderFlowSheet: View {
 
     @State private var step: Step = .picker
     @State private var search = ""
-    @State private var apiKey = ""
-    @State private var errorMessage: String?
-    @State private var oauthStarted = false
+    @State private var authStarted = false
 
     private var allProviders: [PiConnectableProvider] {
         viewModel.connectableProviders
@@ -131,12 +129,12 @@ struct AddProviderFlowSheet: View {
         }
         .frame(maxWidth: isEmbedded ? .infinity : nil, maxHeight: isEmbedded ? .infinity : nil)
         .frame(width: isEmbedded ? nil : 520)
-        .onChange(of: oauthSucceeded) { _, success in
+        .onChange(of: authSucceeded) { _, success in
             guard success else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { close() }
         }
         .task {
-            viewModel.ensureConnectableProvidersLoaded()
+            viewModel.reloadConnectableProviders()
         }
     }
 
@@ -182,8 +180,8 @@ struct AddProviderFlowSheet: View {
         switch step {
         case .picker: return "Sign in to a model provider without leaving Agent Deck."
         case .method: return "Select authentication method"
-        case .apiKey: return "Stored locally in ~/.pi/agent/auth.json"
-        case .oauth: return "Your browser opens to finish signing in"
+        case .apiKey: return "Pi will guide you through provider setup"
+        case .oauth: return "Your browser may open to finish signing in"
         }
     }
 
@@ -194,8 +192,8 @@ struct AddProviderFlowSheet: View {
         switch step {
         case .picker: pickerBody
         case let .method(provider): methodBody(provider)
-        case let .apiKey(provider): apiKeyBody(provider)
-        case let .oauth(provider): oauthBody(provider)
+        case let .apiKey(provider): authBody(provider, authType: "api_key")
+        case let .oauth(provider): authBody(provider, authType: "oauth")
         }
     }
 
@@ -309,46 +307,14 @@ struct AddProviderFlowSheet: View {
         .buttonStyle(.plain)
     }
 
-    private func apiKeyBody(_ provider: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("API key")
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
-            SecureField("", text: $apiKey, prompt: Text("Paste your \(providerName(for: provider)) API key"))
-                .textFieldStyle(.plain)
-                .appBrandTint()
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(AppTheme.textContentFill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(AppTheme.contentStroke, lineWidth: 1)
-                )
-                .onSubmit { saveAPIKey(provider) }
-                .onChange(of: apiKey) { _, _ in errorMessage = nil }
-
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(18)
-    }
-
-    private func oauthBody(_ provider: String) -> some View {
+    private func authBody(_ provider: String, authType: String) -> some View {
         ProviderLoginPhaseView(service: loginService)
             .padding(18)
             .onAppear {
-                guard !oauthStarted else { return }
-                oauthStarted = true
+                guard !authStarted else { return }
+                authStarted = true
                 loginService.onCompleted = { [viewModel] in viewModel.reloadAfterProviderAuthChange() }
-                loginService.start(providerID: provider)
+                loginService.start(providerID: provider, authType: authType)
             }
     }
 
@@ -365,16 +331,9 @@ struct AddProviderFlowSheet: View {
             case .method:
                 Button("Cancel") { close() }
                     .appSecondaryButton()
-            case let .apiKey(provider):
-                Button("Cancel") { close() }
-                    .appSecondaryButton()
-                Button("Save") { saveAPIKey(provider) }
-                    .appPrimaryButton()
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            case .oauth:
-                Button(oauthIsTerminal ? "Close" : "Cancel") {
-                    if !oauthIsTerminal { loginService.cancel() }
+            case .apiKey, .oauth:
+                Button(authIsTerminal ? "Close" : "Cancel") {
+                    if !authIsTerminal { loginService.cancel() }
                     close()
                 }
                 .appSecondaryButton()
@@ -386,8 +345,6 @@ struct AddProviderFlowSheet: View {
     // MARK: Actions
 
     private func select(_ provider: PiConnectableProvider) {
-        errorMessage = nil
-        apiKey = ""
         if provider.supportsOAuth && provider.supportsAPIKey {
             step = .method(provider: provider.id)
         } else if provider.supportsOAuth {
@@ -398,22 +355,14 @@ struct AddProviderFlowSheet: View {
     }
 
     private func goBackToPicker() {
-        if case .oauth = step, !oauthIsTerminal { loginService.cancel() }
-        oauthStarted = false
-        errorMessage = nil
-        apiKey = ""
-        step = .picker
-    }
-
-    private func saveAPIKey(_ provider: String) {
-        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try viewModel.signInWithAPIKey(trimmed, provider: provider)
-            close()
-        } catch {
-            errorMessage = error.localizedDescription
+        switch step {
+        case .apiKey, .oauth where !authIsTerminal:
+            loginService.cancel()
+        default:
+            break
         }
+        authStarted = false
+        step = .picker
     }
 
     private var subscriptionProviders: [PiConnectableProvider] {
@@ -443,12 +392,17 @@ struct AddProviderFlowSheet: View {
         allProviders.first(where: { $0.id == providerID })?.name ?? providerID
     }
 
-    private var oauthSucceeded: Bool {
-        if case .oauth = step, case .success = loginService.phase { return true }
+    private var authSucceeded: Bool {
+        switch step {
+        case .apiKey, .oauth:
+            if case .success = loginService.phase { return true }
+        default:
+            break
+        }
         return false
     }
 
-    private var oauthIsTerminal: Bool {
+    private var authIsTerminal: Bool {
         switch loginService.phase {
         case .success, .failure: return true
         default: return false
@@ -456,9 +410,9 @@ struct AddProviderFlowSheet: View {
     }
 }
 
-/// Renders a `PiProviderLoginService` phase (open browser / paste code / select
+/// Renders a `PiProviderLoginService` phase (browser / dynamic prompt / select
 /// / device code / progress / result) and feeds responses back to the service.
-/// Used inside the Add Provider OAuth step.
+/// Used inside the Add Provider authentication step.
 struct ProviderLoginPhaseView: View {
     let service: PiProviderLoginService
 
@@ -484,27 +438,14 @@ struct ProviderLoginPhaseView: View {
                         .controlSize(.small)
                 }
 
-            case let .pasteCode(promptID, message, placeholder, allowEmpty):
+            case let .prompt(promptID, kind, message, placeholder):
                 VStack(alignment: .leading, spacing: 8) {
                     Text(message)
                         .font(.subheadline)
-                    TextField(placeholder ?? "Authorization code", text: $pasteText)
-                        .textFieldStyle(.plain)
-                        .appBrandTint()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(AppTheme.textContentFill)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(AppTheme.contentStroke, lineWidth: 1)
-                        )
-                        .onSubmit { submit(promptID, allowEmpty: allowEmpty) }
-                    Button("Continue") { submit(promptID, allowEmpty: allowEmpty) }
+                    promptField(kind: kind, placeholder: placeholder, promptID: promptID)
+                    Button("Continue") { submit(promptID, kind: kind) }
                         .appPrimaryButton()
-                        .disabled(!allowEmpty && pasteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(kind.requiresNonEmptyEntry && pasteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
             case let .select(promptID, message, options):
@@ -584,14 +525,30 @@ struct ProviderLoginPhaseView: View {
         }
     }
 
-    private func submit(_ promptID: Int, allowEmpty: Bool) {
+    @ViewBuilder
+    private func promptField(kind: PiProviderLoginService.PromptKind, placeholder: String?, promptID: Int) -> some View {
+        if kind.requiresSecureEntry {
+            SecureField(placeholder ?? "Secret", text: $pasteText)
+                .textFieldStyle(.plain)
+                .appBrandTint()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(AppTheme.textContentFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(AppTheme.contentStroke, lineWidth: 1))
+                .onSubmit { submit(promptID, kind: kind) }
+        } else {
+            AppTextField(text: $pasteText, placeholder: placeholder ?? (kind == .manualCode ? "Authorization code" : "Enter a value"), onSubmit: { submit(promptID, kind: kind) })
+        }
+    }
+
+    private func submit(_ promptID: Int, kind: PiProviderLoginService.PromptKind) {
         let value = pasteText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard allowEmpty || !value.isEmpty else { return }
+        guard !kind.requiresNonEmptyEntry || !value.isEmpty else { return }
         service.submit(promptID: promptID, value: value)
     }
 
     private var currentPromptID: Int {
-        if case let .pasteCode(promptID, _, _, _) = service.phase { return promptID }
+        if case let .prompt(promptID, _, _, _) = service.phase { return promptID }
         return 0
     }
 }

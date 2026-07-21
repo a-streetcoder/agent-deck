@@ -1,5 +1,39 @@
 import Foundation
 
+/// Serializes metadata refresh requests while retaining the fact that a newer
+/// refresh was requested during an active load.
+struct PiProviderCatalogLoadState {
+    private(set) var didLoad = false
+    private(set) var isLoading = false
+    private var refreshAfterCompletion = false
+
+    mutating func beginInitialLoadIfNeeded() -> Bool {
+        guard !didLoad, !isLoading else { return false }
+        didLoad = true
+        isLoading = true
+        return true
+    }
+
+    mutating func beginRefresh() -> Bool {
+        guard !isLoading else {
+            refreshAfterCompletion = true
+            return false
+        }
+        didLoad = true
+        isLoading = true
+        return true
+    }
+
+    /// Returns whether a queued refresh should start now.
+    mutating func completeLoad() -> Bool {
+        isLoading = false
+        guard refreshAfterCompletion else { return false }
+        refreshAfterCompletion = false
+        isLoading = true
+        return true
+    }
+}
+
 /// A provider and the authentication methods advertised by the installed Pi runtime.
 struct PiConnectableProvider: Codable, Equatable, Identifiable, Sendable {
     let id: String

@@ -3279,33 +3279,43 @@ final class AppViewModel: NSObject {
     private(set) var connectableProviders: [PiConnectableProvider] = []
     private(set) var isLoadingConnectableProviders = false
     private(set) var connectableProvidersError: String?
-    private var didLoadConnectableProviders = false
+    private var connectableProviderLoadState = PiProviderCatalogLoadState()
+    private let providerLogoutService = PiProviderLoginService()
     /// Drives the Add Provider picker sheet (opened from the Models toolbar `+`).
     var isAddProviderPresented = false
 
-    /// Loads the full connectable-provider list once (cached).
+    /// Loads the full connectable-provider list once until an explicit refresh.
     func ensureConnectableProvidersLoaded() {
-        guard !didLoadConnectableProviders, !isLoadingConnectableProviders else { return }
-        didLoadConnectableProviders = true
-        isLoadingConnectableProviders = true
+        guard connectableProviderLoadState.beginInitialLoadIfNeeded() else { return }
+        loadConnectableProviders()
+    }
+
+    /// Refreshes runtime metadata when Add Provider opens. A request received
+    /// while a load is in flight is performed immediately afterward, never in
+    /// parallel with it.
+    func reloadConnectableProviders() {
+        guard connectableProviderLoadState.beginRefresh() else { return }
+        loadConnectableProviders()
+    }
+
+    private func loadConnectableProviders() {
+        isLoadingConnectableProviders = connectableProviderLoadState.isLoading
         connectableProvidersError = nil
         Task.detached(priority: .utility) {
             let providers = await PiProviderCatalogService().loadConnectableProviders()
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.connectableProviders = providers
-                self.isLoadingConnectableProviders = false
+                let shouldReload = self.connectableProviderLoadState.completeLoad()
+                self.isLoadingConnectableProviders = self.connectableProviderLoadState.isLoading
                 if providers.isEmpty {
                     self.connectableProvidersError = "Couldn’t load providers from Pi. Update or reinstall Pi, then try again."
                 }
+                if shouldReload {
+                    self.loadConnectableProviders()
+                }
             }
         }
-    }
-
-    func reloadConnectableProviders() {
-        didLoadConnectableProviders = false
-        connectableProviders = []
-        ensureConnectableProvidersLoaded()
     }
 
     /// Reloads sign-in state from auth.json off the main thread.
@@ -3323,23 +3333,14 @@ final class AppViewModel: NSObject {
         signedInProviders = Set(types.keys)
     }
 
-    /// Writes an API key into auth.json, then refreshes auth + catalog. Throws
-    /// surface as an inline error in the sign-in sheet.
-    func signInWithAPIKey(_ key: String, provider: String) throws {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        try PiAuthCredentialStore().setAPIKey(trimmed, provider: provider)
-        reloadAfterProviderAuthChange()
-    }
-
-    func signOutProvider(_ provider: String) throws {
-        try PiAuthCredentialStore().removeProvider(provider)
-        reloadAfterProviderAuthChange()
+    func signOutProvider(_ provider: String) {
+        providerLogoutService.onCompleted = { [weak self] in self?.reloadAfterProviderAuthChange() }
+        providerLogoutService.startLogout(providerID: provider)
     }
 
     /// Re-reads sign-in state and re-queries the model catalog so newly
-    /// authorized (or removed) providers appear/disappear. Called after an
-    /// API-key write and on OAuth login completion.
+    /// authorized (or removed) providers appear/disappear. Called after Pi
+    /// completes a login or logout.
     func reloadAfterProviderAuthChange() {
         refreshProviderAuthState()
         refreshAvailableModels()

@@ -1,16 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Drives PI's own OAuth login flow from inside Agent Deck so subscription
-/// providers (Claude Pro/Max, ChatGPT/Codex, GitHub Copilot) can be signed in
-/// without the terminal.
+/// Drives Pi's own provider login flow from inside Agent Deck.
 ///
-/// PI exposes no auth method over RPC, so we run a small Node bridge that
-/// imports Pi's SDK and calls `ModelRuntime.login(provider, "oauth", interaction)` —
-/// the same runtime flow Pi's TUI `/login` uses. The SDK performs the real handshake
-/// (endpoints, PKCE, token exchange/refresh, file locking) and writes
-/// `~/.pi/agent/auth.json`. The bridge relays each callback over stdio; this
-/// service turns those into UI phases and feeds pasted codes back on stdin.
+/// Pi exposes no auth method over RPC, so a small Node bridge calls
+/// `ModelRuntime.login(provider, type, interaction)`. Pi performs every
+/// credential write under its own lock; Agent Deck only relays interaction
+/// prompts and never passes a credential in process arguments or environment.
 @MainActor
 @Observable
 final class PiProviderLoginService {
@@ -19,10 +15,20 @@ final class PiProviderLoginService {
         let label: String
     }
 
+    enum PromptKind: String, Equatable {
+        case text
+        case secret
+        case manualCode = "manual_code"
+
+        var requiresSecureEntry: Bool { self == .secret }
+        /// Pi's ordinary text prompts may intentionally use Enter as confirmation.
+        var requiresNonEmptyEntry: Bool { self != .text }
+    }
+
     enum Phase: Equatable {
         case launching
         case opening(url: URL, instructions: String?)
-        case pasteCode(promptID: Int, message: String, placeholder: String?, allowEmpty: Bool)
+        case prompt(promptID: Int, kind: PromptKind, message: String, placeholder: String?)
         case select(promptID: Int, message: String, options: [SelectOption])
         case deviceCode(userCode: String, verificationURI: URL)
         case progress(String)
@@ -39,9 +45,18 @@ final class PiProviderLoginService {
     private var didFinish = false
     private let sentinel = "@@ADAUTH@@"
 
-    /// Spawns the bridge for `providerID`. Resolves Node + pi up front so a
-    /// missing toolchain fails gracefully instead of crashing the child.
-    func start(providerID: String) {
+    /// Spawns Pi's login bridge. Resolves Node + pi up front so a missing
+    /// toolchain fails gracefully instead of crashing the child.
+    func start(providerID: String, authType: String) {
+        start(providerID: providerID, authType: authType, action: "login")
+    }
+
+    /// Removes credentials through Pi's locked credential store.
+    func startLogout(providerID: String) {
+        start(providerID: providerID, authType: "", action: "logout")
+    }
+
+    private func start(providerID: String, authType: String, action: String) {
         self.providerID = providerID
         phase = .launching
         didFinish = false
@@ -61,7 +76,9 @@ final class PiProviderLoginService {
             currentDirectoryURL: FileManager.default.homeDirectoryForCurrentUser,
             environment: [
                 "AGENT_DECK_PI_PATH": piPath,
-                "AGENT_DECK_OAUTH_PROVIDER": providerID
+                "AGENT_DECK_AUTH_PROVIDER": providerID,
+                "AGENT_DECK_AUTH_TYPE": authType,
+                "AGENT_DECK_AUTH_ACTION": action
             ],
             executableURL: node
         )
@@ -82,7 +99,7 @@ final class PiProviderLoginService {
         }
     }
 
-    /// Sends a pasted code or chosen option id back to the bridge.
+    /// Sends a prompted value or chosen option id back to the bridge.
     func submit(promptID: Int, value: String) {
         writeResponse(["id": promptID, "value": value])
         phase = .progress("Working…")
@@ -140,11 +157,11 @@ final class PiProviderLoginService {
             phase = .progress(object["message"] as? String ?? "Working…")
         case "prompt":
             if let id = object["id"] as? Int {
-                phase = .pasteCode(
+                phase = .prompt(
                     promptID: id,
-                    message: object["message"] as? String ?? "Paste the authorization code",
-                    placeholder: object["placeholder"] as? String,
-                    allowEmpty: object["allowEmpty"] as? Bool ?? false
+                    kind: PromptKind(rawValue: object["promptType"] as? String ?? "text") ?? .text,
+                    message: object["message"] as? String ?? "Enter a value",
+                    placeholder: object["placeholder"] as? String
                 )
             }
         case "select":
@@ -191,12 +208,11 @@ final class PiProviderLoginService {
         phase = .failure(message)
     }
 
-    /// ESM script run via `node --input-type=module --eval`. Mirrors the model
-    /// discovery bridge: walk up from the real `pi` binary to its package, then
-    /// `import` `ModelRuntime` and run its OAuth login with stdio-relayed callbacks.
+    /// ESM script run via `node --input-type=module --eval`. It locates the
+    /// installed package, then relays `ModelRuntime.login` interactions over stdio.
     /// Protocol lines on stdout are prefixed with `@@ADAUTH@@`; responses arrive
     /// on stdin as `{ "id":n, "value":"…" }` (or `{ "id":n, "cancel":true }`).
-    private static let bridgeScript = #"""
+    static let bridgeScript = #"""
     import { existsSync, realpathSync } from 'node:fs';
     import { dirname, resolve } from 'node:path';
     import { createInterface } from 'node:readline';
@@ -216,6 +232,7 @@ final class PiProviderLoginService {
           let dir = dirname(real);
           for (let i = 0; i < 10; i++) {
             candidates.push(resolve(dir, 'node_modules/@earendil-works/pi-coding-agent/dist/index.js'));
+            candidates.push(resolve(dir, 'node_modules/@mariozechner/pi-coding-agent/dist/index.js'));
             const parent = dirname(dir);
             if (parent === dir) break;
             dir = parent;
@@ -225,12 +242,18 @@ final class PiProviderLoginService {
       candidates.push(
         '/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js',
         '/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js',
+        '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/index.js',
+        '/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/dist/index.js',
       );
       return candidates.find((p) => existsSync(p));
     }
 
-    const providerId = process.env.AGENT_DECK_OAUTH_PROVIDER;
-    if (!providerId) fail('Missing provider id.');
+    const providerId = process.env.AGENT_DECK_AUTH_PROVIDER;
+    const authType = process.env.AGENT_DECK_AUTH_TYPE;
+    const action = process.env.AGENT_DECK_AUTH_ACTION;
+    if (!providerId || (action !== 'login' && action !== 'logout') || (action === 'login' && authType !== 'oauth' && authType !== 'api_key')) {
+      fail('Missing or invalid provider authentication.');
+    }
 
     const indexPath = findIndex();
     if (!indexPath) fail('Could not locate the pi package. Make sure pi is installed.');
@@ -273,30 +296,31 @@ final class PiProviderLoginService {
 
     try {
       const runtime = await ModelRuntime.create({ allowModelNetwork: false });
-      const provider = runtime.getProvider(providerId);
-      if (!provider || !provider.auth || !provider.auth.oauth) {
-        throw new Error(`Provider "${providerId}" does not advertise subscription sign-in.`);
+      if (action === 'logout') {
+        await runtime.logout(providerId);
+      } else {
+        const provider = runtime.getProvider(providerId);
+        if (!provider || !provider.auth || !provider.auth[authType]) {
+          throw new Error(`Provider "${providerId}" does not advertise ${authType} authentication.`);
+        }
+        await runtime.login(providerId, authType, {
+          prompt: (p) => {
+            if (p.type === 'select') {
+              return ask({ t: 'select', message: p.message, options: p.options });
+            }
+            return ask({ t: 'prompt', promptType: p.type, message: p.message, placeholder: p.placeholder });
+          },
+          notify: (event) => {
+            if (event.type === 'auth_url') {
+              send({ t: 'auth_url', url: event.url, instructions: event.instructions });
+            } else if (event.type === 'device_code') {
+              send({ t: 'device_code', userCode: event.userCode, verificationUri: event.verificationUri, intervalSeconds: event.intervalSeconds });
+            } else {
+              send({ t: 'progress', message: event.message || 'Working…' });
+            }
+          },
+        });
       }
-      await runtime.login(providerId, 'oauth', {
-        prompt: (p) => {
-          if (p.type === 'select') {
-            return ask({ t: 'select', message: p.message, options: p.options });
-          }
-          if (p.type === 'manual_code') {
-            return ask({ t: 'prompt', message: p.message || 'Paste the authorization code from your browser', allowEmpty: false });
-          }
-          return ask({ t: 'prompt', message: p.message, placeholder: p.placeholder, allowEmpty: p.allowEmpty });
-        },
-        notify: (event) => {
-          if (event.type === 'auth_url') {
-            send({ t: 'auth_url', url: event.url, instructions: event.instructions });
-          } else if (event.type === 'device_code') {
-            send({ t: 'device_code', userCode: event.userCode, verificationUri: event.verificationUri, intervalSeconds: event.intervalSeconds });
-          } else {
-            send({ t: 'progress', message: event.message || 'Working…' });
-          }
-        },
-      });
       clearInterval(keepAlive);
       send({ t: 'done' });
       process.exit(0);

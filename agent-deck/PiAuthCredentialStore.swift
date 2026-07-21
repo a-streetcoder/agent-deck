@@ -1,28 +1,17 @@
 import Foundation
 
-/// Reads and writes PI's shared credential file (`~/.pi/agent/auth.json`).
+/// Reads Pi's shared credential file (`~/.pi/agent/auth.json`) for status UI.
 ///
-/// PI stores every provider credential in this one JSON object, keyed by
-/// provider id, each entry being either `{ "type":"api_key", "key":"..." }` or
-/// `{ "type":"oauth", "access":..., "refresh":..., "expires":..., ... }`.
-/// Writing an entry here *is* signing in as far as PI is concerned — `pi`
-/// reads it on launch and on `pi --list-models`.
-///
-/// We never model-decode the whole file: OAuth entries carry tokens (refreshed
-/// later by PI under its own file lock) and arbitrary extra fields, so we
-/// operate on the raw dictionary and touch only the one provider key we're
-/// changing. Every other entry round-trips byte-for-byte.
+/// Pi owns every credential mutation through `ModelRuntime`, including its
+/// cross-process lock. Agent Deck only reads non-secret provider/type metadata.
 struct PiAuthCredentialStore: Sendable {
     enum StoreError: LocalizedError {
         case corrupt(path: String)
-        case writeFailed(underlying: Error)
 
         var errorDescription: String? {
             switch self {
             case let .corrupt(path):
                 return "\(path) is not valid JSON. Fix or remove it, then try again."
-            case let .writeFailed(error):
-                return "Couldn't update auth.json: \(error.localizedDescription)"
             }
         }
     }
@@ -56,21 +45,6 @@ struct PiAuthCredentialStore: Sendable {
         return data.reduce(into: [:]) { $0[$1.key] = $1.value["type"] as? String }
     }
 
-    /// Merge an API-key credential for `provider`, preserving all other entries.
-    nonisolated func setAPIKey(_ key: String, provider: String) throws {
-        var data = try load()
-        data[provider] = ["type": "api_key", "key": key]
-        try write(data)
-    }
-
-    /// Remove a provider's credential (sign out). Works for api_key and oauth.
-    nonisolated func removeProvider(_ provider: String) throws {
-        var data = try load()
-        guard data[provider] != nil else { return }
-        data.removeValue(forKey: provider)
-        try write(data)
-    }
-
     // MARK: - Disk
 
     /// Returns `{}` when the file is absent; throws `.corrupt` rather than
@@ -87,35 +61,4 @@ struct PiAuthCredentialStore: Sendable {
         return dictionary
     }
 
-    /// Atomic write with PI's permissions: dir `0700`, file `0600`.
-    nonisolated private func write(_ data: [String: [String: Any]]) throws {
-        do {
-            let directory = fileURL.deletingLastPathComponent()
-            try ensureDirectory(directory)
-
-            let payload = try JSONSerialization.data(withJSONObject: data, options: [.prettyPrinted, .sortedKeys])
-            let tempURL = directory.appendingPathComponent("auth.json.tmp-\(UUID().uuidString)")
-            try payload.write(to: tempURL, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempURL.path)
-            _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: tempURL)
-            // replaceItemAt can drop the temp's attributes onto the destination;
-            // re-assert 0600 so the credential file is never world-readable.
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-        } catch let error as StoreError {
-            throw error
-        } catch {
-            throw StoreError.writeFailed(underlying: error)
-        }
-    }
-
-    nonisolated private func ensureDirectory(_ directory: URL) throws {
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-        }
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-    }
 }

@@ -94,7 +94,7 @@ Agent Deck stores this in `AppViewModel.availableModels`. The Models screen, Pi 
 
 Disabled models from app settings are filtered out.
 
-The **Add Provider** picker is separate from the authorized model catalog. It asks the installed Pi `ModelRuntime` for every registered provider, its display name, and its advertised API-key and OAuth capabilities. Agent Deck does not maintain a provider allowlist, so providers added by a Pi update appear automatically. If runtime metadata cannot be loaded, the picker shows an error and retry action rather than a potentially stale fallback list.
+The **Add Provider** picker is separate from the authorized model catalog. It refreshes the installed Pi `ModelRuntime` metadata each time it opens, listing every registered provider with its display name and advertised API-key and OAuth capabilities. Agent Deck does not maintain a provider allowlist, so providers added by a Pi update appear automatically. Authentication, including API-key setup, runs through Pi's interactive `ModelRuntime` flow; Pi alone writes credentials under its credential lock. If runtime metadata cannot be loaded, the picker shows an error and retry action rather than a potentially stale fallback list.
 
 ## OpenAI Fast mode
 

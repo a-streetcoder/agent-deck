@@ -402,6 +402,7 @@ final class PiProviderCatalogServiceTests: XCTestCase {
         XCTAssertTrue(script.contains("ModelRuntime.create"))
         XCTAssertTrue(script.contains("provider.auth.apiKey"))
         XCTAssertTrue(script.contains("provider.auth.oauth"))
+        XCTAssertTrue(script.contains("@mariozechner/pi-coding-agent/dist/index.js"))
         XCTAssertFalse(script.contains("knownProviderFallbacks"))
     }
 
@@ -414,6 +415,43 @@ final class PiProviderCatalogServiceTests: XCTestCase {
 
         let providers = await service.loadConnectableProviders()
         XCTAssertTrue(providers.isEmpty)
+    }
+
+    func testProviderCatalogLoadStateQueuesARefreshWithoutConcurrentLoad() {
+        var state = PiProviderCatalogLoadState()
+
+        XCTAssertTrue(state.beginInitialLoadIfNeeded())
+        XCTAssertTrue(state.isLoading)
+        XCTAssertFalse(state.beginRefresh())
+        XCTAssertTrue(state.isLoading)
+        XCTAssertTrue(state.completeLoad())
+        XCTAssertTrue(state.isLoading)
+        XCTAssertFalse(state.completeLoad())
+        XCTAssertFalse(state.isLoading)
+        XCTAssertFalse(state.beginInitialLoadIfNeeded())
+    }
+
+    func testProviderLoginBridgeUsesPiForBothDynamicAuthTypes() {
+        let script = PiProviderLoginService.bridgeScript
+
+        XCTAssertTrue(script.contains("runtime.login(providerId, authType"))
+        XCTAssertTrue(script.contains("authType !== 'oauth' && authType !== 'api_key'"))
+        XCTAssertTrue(script.contains("promptType: p.type"))
+        XCTAssertTrue(script.contains("runtime.logout(providerId)"))
+        XCTAssertTrue(script.contains("@mariozechner/pi-coding-agent/dist/index.js"))
+        XCTAssertFalse(script.contains("AuthStorage"))
+    }
+
+    func testProviderPromptKindsPreservePiPromptTypes() {
+        XCTAssertEqual(PiProviderLoginService.PromptKind(rawValue: "text"), .text)
+        XCTAssertEqual(PiProviderLoginService.PromptKind(rawValue: "secret"), .secret)
+        XCTAssertEqual(PiProviderLoginService.PromptKind(rawValue: "manual_code"), .manualCode)
+        XCTAssertTrue(PiProviderLoginService.PromptKind.secret.requiresSecureEntry)
+        XCTAssertFalse(PiProviderLoginService.PromptKind.text.requiresSecureEntry)
+        XCTAssertFalse(PiProviderLoginService.PromptKind.manualCode.requiresSecureEntry)
+        XCTAssertFalse(PiProviderLoginService.PromptKind.text.requiresNonEmptyEntry)
+        XCTAssertTrue(PiProviderLoginService.PromptKind.secret.requiresNonEmptyEntry)
+        XCTAssertTrue(PiProviderLoginService.PromptKind.manualCode.requiresNonEmptyEntry)
     }
 
     func testConnectableProvidersNormalizeNamesAndDeduplicateIDs() {

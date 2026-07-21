@@ -6,8 +6,8 @@ import OSLog
 ///
 /// `models.json` is pi's config file (pi's `ModelRegistry` reads it on launch and on
 /// `pi --list-models`). The block is written **only when a real API key exists in
-/// `~/.pi/agent/auth.json`** (the Add Provider `+` sheet writes it there via
-/// `PiAuthCredentialStore.setAPIKey`). When no key exists, any stale `neuralwatt` block is
+/// `~/.pi/agent/auth.json`** (Pi's `ModelRuntime` writes it after the Add
+/// Provider `+` flow completes). When no key exists, any stale `neuralwatt` block is
 /// removed, so pi never lists NeuralWatt models without a credential and there is no possibility
 /// of "on without a key."
 ///

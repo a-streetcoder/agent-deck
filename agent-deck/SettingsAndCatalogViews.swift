@@ -781,7 +781,7 @@ struct ModelsScreen: View {
 
     private func signOutButton(for provider: String) -> some View {
         Button {
-            Task { try? viewModel.signOutProvider(provider) }
+            viewModel.signOutProvider(provider)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
