@@ -374,6 +374,15 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - Donor: `components/files/` (FilePreviewPanel), workspace file endpoints.
 - Project file navigation panel + read-only preview (syntax highlight, images), gated
   to project root/worktree paths.
+- **Status: LANDED (2026-07-21, 2cbafb8).** Server file list/read (services/files.ts)
+  gated by a SHARED `pathContainment.ts` (extracted from editorLauncher — one hardened
+  containment gate, reused not re-copied); bounded read, binary/image handling. Web
+  Files panel: session-header toggle → lazy directory tree (changed-files-tree pattern)
+  - read-only preview with syntax highlight/image/binary states, S11 OpenInPicker wired
+    into the preview header. Review minors fixed: file_list decode maxItems cap (DiffPush
+    parity), StrictMode-safe lazy-load. New files-panel visual baseline + 4 legit header
+    baseline updates (Files toggle). Deferred: readdir-before-cap, NUL-only binary
+    heuristic (donor-faithful).
 
 ### Slice 14 — Command palette + keybindings
 
