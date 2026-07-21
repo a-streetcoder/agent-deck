@@ -94,6 +94,8 @@ Agent Deck stores this in `AppViewModel.availableModels`. The Models screen, Pi 
 
 Disabled models from app settings are filtered out.
 
+The **Add Provider** picker is separate from the authorized model catalog. It asks the installed Pi `ModelRuntime` for every registered provider, its display name, and its advertised API-key and OAuth capabilities. Agent Deck does not maintain a provider allowlist, so providers added by a Pi update appear automatically. If runtime metadata cannot be loaded, the picker shows an error and retry action rather than a potentially stale fallback list.
+
 ## OpenAI Fast mode
 
 For the `openai-codex` provider, the Models header has a provider-wide **Fast** control. When enabled, Agent Deck applies OpenAI's `priority` service tier to each eligible ChatGPT OAuth Codex request from parent chats and managed Deck agents. The setting is one global preference, remains effective for subsequent requests from already-running sessions, and does not affect one-shot automation/helper Pi calls.

@@ -3274,21 +3274,38 @@ final class AppViewModel: NSObject {
     private(set) var signedInProviders: Set<String> = []
     /// Provider id → credential type (`"api_key"`/`"oauth"`) for UI labelling.
     private(set) var providerAuthTypes: [String: String] = [:]
-    /// Every provider PI can connect to (from pi-ai `getProviders()`), powering
-    /// the Add Provider picker — independent of what the model catalog shows.
-    private(set) var connectableProviders: [String] = []
+    /// Every provider Pi can connect to, including the authentication methods
+    /// advertised by the installed runtime. This powers the Add Provider picker.
+    private(set) var connectableProviders: [PiConnectableProvider] = []
+    private(set) var isLoadingConnectableProviders = false
+    private(set) var connectableProvidersError: String?
+    private var didLoadConnectableProviders = false
     /// Drives the Add Provider picker sheet (opened from the Models toolbar `+`).
     var isAddProviderPresented = false
 
     /// Loads the full connectable-provider list once (cached).
     func ensureConnectableProvidersLoaded() {
-        guard connectableProviders.isEmpty else { return }
+        guard !didLoadConnectableProviders, !isLoadingConnectableProviders else { return }
+        didLoadConnectableProviders = true
+        isLoadingConnectableProviders = true
+        connectableProvidersError = nil
         Task.detached(priority: .utility) {
             let providers = await PiProviderCatalogService().loadConnectableProviders()
             await MainActor.run { [weak self] in
-                self?.connectableProviders = providers
+                guard let self else { return }
+                self.connectableProviders = providers
+                self.isLoadingConnectableProviders = false
+                if providers.isEmpty {
+                    self.connectableProvidersError = "Couldn’t load providers from Pi. Update or reinstall Pi, then try again."
+                }
             }
         }
+    }
+
+    func reloadConnectableProviders() {
+        didLoadConnectableProviders = false
+        connectableProviders = []
+        ensureConnectableProvidersLoaded()
     }
 
     /// Reloads sign-in state from auth.json off the main thread.

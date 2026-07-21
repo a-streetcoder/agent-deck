@@ -380,12 +380,12 @@ openai-codex gpt-5.6-terra 372K 128K yes yes
     }
 }
 
+@MainActor
 final class PiProviderCatalogServiceTests: XCTestCase {
-    @MainActor
-    func testConnectableProvidersMergeFallbacksWhenLoadedListIsPartial() async {
+    func testConnectableProvidersUseDynamicRuntimeMetadata() async {
         let runner = FakeModelDiscoveryCommandRunner(
             listOutput: "",
-            nodeOutput: #"["neuralwatt"]"#
+            nodeOutput: #"[{"id":"radius","name":"Radius","supportsAPIKey":false,"supportsOAuth":true},{"id":"xai","name":"xAI (Grok)","supportsAPIKey":true,"supportsOAuth":false}]"#
         )
         let service = PiProviderCatalogService(
             commandRunner: runner,
@@ -394,12 +394,37 @@ final class PiProviderCatalogServiceTests: XCTestCase {
 
         let providers = await service.loadConnectableProviders()
 
-        XCTAssertTrue(providers.contains("neuralwatt"))
-        XCTAssertTrue(providers.contains("openrouter"))
-        XCTAssertTrue(providers.contains("anthropic"))
-        XCTAssertTrue(providers.contains("zai"))
-        XCTAssertTrue(providers.contains("opencode-go"))
-        XCTAssertEqual(providers.filter { $0 == "neuralwatt" }.count, 1)
+        XCTAssertEqual(providers, [
+            PiConnectableProvider(id: "radius", name: "Radius", supportsAPIKey: false, supportsOAuth: true),
+            PiConnectableProvider(id: "xai", name: "xAI (Grok)", supportsAPIKey: true, supportsOAuth: false),
+        ])
+        let script = await runner.nodeScript ?? ""
+        XCTAssertTrue(script.contains("ModelRuntime.create"))
+        XCTAssertTrue(script.contains("provider.auth.apiKey"))
+        XCTAssertTrue(script.contains("provider.auth.oauth"))
+        XCTAssertFalse(script.contains("knownProviderFallbacks"))
+    }
+
+    func testConnectableProvidersReturnEmptyWhenRuntimeDiscoveryFails() async {
+        let runner = FakeModelDiscoveryCommandRunner(listOutput: "", nodeOutput: "not-json")
+        let service = PiProviderCatalogService(
+            commandRunner: runner,
+            piResolver: PiExecutableResolver(candidatesProvider: { [] }, defaultPathDirectories: { [] })
+        )
+
+        let providers = await service.loadConnectableProviders()
+        XCTAssertTrue(providers.isEmpty)
+    }
+
+    func testConnectableProvidersNormalizeNamesAndDeduplicateIDs() {
+        let providers = PiProviderCatalogService.normalized([
+            PiConnectableProvider(id: " custom ", name: " ", supportsAPIKey: true, supportsOAuth: false),
+            PiConnectableProvider(id: "custom", name: "Duplicate", supportsAPIKey: false, supportsOAuth: true),
+        ])
+
+        XCTAssertEqual(providers, [
+            PiConnectableProvider(id: "custom", name: "custom", supportsAPIKey: true, supportsOAuth: false),
+        ])
     }
 }
 

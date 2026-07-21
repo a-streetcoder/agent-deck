@@ -6,8 +6,8 @@ import SwiftUI
 /// without the terminal.
 ///
 /// PI exposes no auth method over RPC, so we run a small Node bridge that
-/// imports PI's SDK and calls `AuthStorage.login(provider, callbacks)` — the
-/// exact same call PI's TUI `/login` makes. The SDK performs the real handshake
+/// imports Pi's SDK and calls `ModelRuntime.login(provider, "oauth", interaction)` —
+/// the same runtime flow Pi's TUI `/login` uses. The SDK performs the real handshake
 /// (endpoints, PKCE, token exchange/refresh, file locking) and writes
 /// `~/.pi/agent/auth.json`. The bridge relays each callback over stdio; this
 /// service turns those into UI phases and feeds pasted codes back on stdin.
@@ -28,14 +28,6 @@ final class PiProviderLoginService {
         case progress(String)
         case success
         case failure(String)
-    }
-
-    /// Providers whose model-list id equals their PI OAuth provider id, so a
-    /// successful `login` writes credentials the catalog immediately uses.
-    static let oauthCapableProviders: Set<String> = ["anthropic", "github-copilot", "openai-codex"]
-
-    static func isOAuthCapable(_ provider: String) -> Bool {
-        oauthCapableProviders.contains(provider)
     }
 
     private(set) var providerID: String = ""
@@ -201,7 +193,7 @@ final class PiProviderLoginService {
 
     /// ESM script run via `node --input-type=module --eval`. Mirrors the model
     /// discovery bridge: walk up from the real `pi` binary to its package, then
-    /// `import` `AuthStorage` and run `login` with stdio-relayed callbacks.
+    /// `import` `ModelRuntime` and run its OAuth login with stdio-relayed callbacks.
     /// Protocol lines on stdout are prefixed with `@@ADAUTH@@`; responses arrive
     /// on stdin as `{ "id":n, "value":"…" }` (or `{ "id":n, "cancel":true }`).
     private static let bridgeScript = #"""
@@ -243,13 +235,15 @@ final class PiProviderLoginService {
     const indexPath = findIndex();
     if (!indexPath) fail('Could not locate the pi package. Make sure pi is installed.');
 
-    let AuthStorage;
+    let ModelRuntime;
     try {
-      ({ AuthStorage } = await import(indexPath));
+      ({ ModelRuntime } = await import(indexPath));
     } catch (e) {
       fail(e && e.message ? e.message : e);
     }
-    if (!AuthStorage) fail('pi package does not export AuthStorage.');
+    if (!ModelRuntime || typeof ModelRuntime.create !== 'function') {
+      fail('This Pi version does not expose dynamic provider authentication. Update Pi and try again.');
+    }
 
     const pending = new Map();
     let nextId = 1;
@@ -278,14 +272,30 @@ final class PiProviderLoginService {
     const keepAlive = setInterval(() => {}, 1 << 30);
 
     try {
-      const auth = AuthStorage.create();
-      await auth.login(providerId, {
-        onAuth: (info) => send({ t: 'auth_url', url: info.url, instructions: info.instructions }),
-        onDeviceCode: (info) => send({ t: 'device_code', userCode: info.userCode, verificationUri: info.verificationUri, intervalSeconds: info.intervalSeconds }),
-        onProgress: (message) => send({ t: 'progress', message }),
-        onPrompt: (p) => ask({ t: 'prompt', message: p.message, placeholder: p.placeholder, allowEmpty: p.allowEmpty }),
-        onManualCodeInput: () => ask({ t: 'prompt', message: 'Paste the authorization code from your browser', allowEmpty: false }),
-        onSelect: (p) => ask({ t: 'select', message: p.message, options: p.options }),
+      const runtime = await ModelRuntime.create({ allowModelNetwork: false });
+      const provider = runtime.getProvider(providerId);
+      if (!provider || !provider.auth || !provider.auth.oauth) {
+        throw new Error(`Provider "${providerId}" does not advertise subscription sign-in.`);
+      }
+      await runtime.login(providerId, 'oauth', {
+        prompt: (p) => {
+          if (p.type === 'select') {
+            return ask({ t: 'select', message: p.message, options: p.options });
+          }
+          if (p.type === 'manual_code') {
+            return ask({ t: 'prompt', message: p.message || 'Paste the authorization code from your browser', allowEmpty: false });
+          }
+          return ask({ t: 'prompt', message: p.message, placeholder: p.placeholder, allowEmpty: p.allowEmpty });
+        },
+        notify: (event) => {
+          if (event.type === 'auth_url') {
+            send({ t: 'auth_url', url: event.url, instructions: event.instructions });
+          } else if (event.type === 'device_code') {
+            send({ t: 'device_code', userCode: event.userCode, verificationUri: event.verificationUri, intervalSeconds: event.intervalSeconds });
+          } else {
+            send({ t: 'progress', message: event.message || 'Working…' });
+          }
+        },
       });
       clearInterval(keepAlive);
       send({ t: 'done' });

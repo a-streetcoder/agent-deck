@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Friendly labels for the handful of providers where the bare id reads poorly.
-/// Everything else falls back to the id (matching the catalog).
+/// Presentation aliases used by provider labels outside the dynamic Add Provider
+/// picker. Provider availability and authentication capabilities never come from
+/// this list.
 enum ProviderDisplay {
     static func name(for provider: String) -> String {
         switch provider {
@@ -41,7 +42,7 @@ enum ProviderDisplay {
 /// One provider row in the Add Provider picker. Matches the app's list idiom:
 /// transparent by default, neutral hover wash, dimmed when already connected.
 private struct ProviderPickerRow: View {
-    let provider: String
+    let provider: PiConnectableProvider
     let isConnected: Bool
     let onSelect: () -> Void
 
@@ -52,9 +53,9 @@ private struct ProviderPickerRow: View {
         // to a different account; the new login overwrites the stored credential.
         Button(action: onSelect) {
             HStack(spacing: 10) {
-                ProviderLogoImage(provider: provider, size: 16)
+                ProviderLogoImage(provider: provider.id, size: 16)
                     .frame(width: 16)
-                Text(ProviderDisplay.name(for: provider))
+                Text(provider.name)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)
@@ -115,12 +116,8 @@ struct AddProviderFlowSheet: View {
     @State private var errorMessage: String?
     @State private var oauthStarted = false
 
-    /// Used when `getProviders()` couldn't be read (e.g. node missing) so the
-    /// picker is never empty.
-    private static let fallbackProviders = PiProviderCatalogService.knownProviderFallbacks
-
-    private var allProviders: [String] {
-        viewModel.connectableProviders.isEmpty ? Self.fallbackProviders : viewModel.connectableProviders
+    private var allProviders: [PiConnectableProvider] {
+        viewModel.connectableProviders
     }
 
     var body: some View {
@@ -137,6 +134,9 @@ struct AddProviderFlowSheet: View {
         .onChange(of: oauthSucceeded) { _, success in
             guard success else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { close() }
+        }
+        .task {
+            viewModel.ensureConnectableProvidersLoaded()
         }
     }
 
@@ -174,7 +174,7 @@ struct AddProviderFlowSheet: View {
         switch step {
         case .picker: return "Connect a provider"
         case let .method(provider), let .apiKey(provider), let .oauth(provider):
-            return ProviderDisplay.name(for: provider)
+            return providerName(for: provider)
         }
     }
 
@@ -207,8 +207,24 @@ struct AddProviderFlowSheet: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 14) {
-                    providerGroup("Subscriptions", providers: filtered(subscriptionProviders))
-                    providerGroup("API key", providers: filtered(apiKeyProviders))
+                    if viewModel.isLoadingConnectableProviders {
+                        ProgressView("Loading providers from Pi…")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 40)
+                    } else if let error = viewModel.connectableProvidersError, allProviders.isEmpty {
+                        ContentUnavailableView {
+                            Label("Providers unavailable", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(error)
+                        } actions: {
+                            Button("Try Again") { viewModel.reloadConnectableProviders() }
+                                .appSecondaryButton()
+                        }
+                        .padding(.vertical, 24)
+                    } else {
+                        providerGroup("Subscriptions", providers: filtered(subscriptionProviders))
+                        providerGroup("API key", providers: filtered(apiKeyProviders))
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 6)
@@ -222,7 +238,7 @@ struct AddProviderFlowSheet: View {
     }
 
     @ViewBuilder
-    private func providerGroup(_ title: String, providers: [String]) -> some View {
+    private func providerGroup(_ title: String, providers: [PiConnectableProvider]) -> some View {
         if !providers.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title.uppercased())
@@ -230,10 +246,10 @@ struct AddProviderFlowSheet: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, AppListMetrics.rowHorizontalPadding)
                 VStack(spacing: AppListMetrics.rowSpacing) {
-                    ForEach(providers, id: \.self) { provider in
+                    ForEach(providers) { provider in
                         ProviderPickerRow(
                             provider: provider,
-                            isConnected: viewModel.signedInProviders.contains(provider),
+                            isConnected: viewModel.signedInProviders.contains(provider.id),
                             onSelect: { select(provider) }
                         )
                     }
@@ -246,7 +262,7 @@ struct AddProviderFlowSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             methodOption(
                 title: "Use a subscription",
-                detail: "Sign in with your \(ProviderDisplay.name(for: provider)) account in the browser.",
+                detail: "Sign in with your \(providerName(for: provider)) account in the browser.",
                 systemImage: "person.crop.circle"
             ) { step = .oauth(provider: provider) }
 
@@ -298,7 +314,7 @@ struct AddProviderFlowSheet: View {
             Text("API key")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
-            SecureField("", text: $apiKey, prompt: Text("Paste your \(ProviderDisplay.name(for: provider)) API key"))
+            SecureField("", text: $apiKey, prompt: Text("Paste your \(providerName(for: provider)) API key"))
                 .textFieldStyle(.plain)
                 .appBrandTint()
                 .padding(.horizontal, 8)
@@ -369,13 +385,15 @@ struct AddProviderFlowSheet: View {
 
     // MARK: Actions
 
-    private func select(_ provider: String) {
+    private func select(_ provider: PiConnectableProvider) {
         errorMessage = nil
         apiKey = ""
-        if PiProviderLoginService.isOAuthCapable(provider) {
-            step = .method(provider: provider)
+        if provider.supportsOAuth && provider.supportsAPIKey {
+            step = .method(provider: provider.id)
+        } else if provider.supportsOAuth {
+            step = .oauth(provider: provider.id)
         } else {
-            step = .apiKey(provider: provider)
+            step = .apiKey(provider: provider.id)
         }
     }
 
@@ -398,32 +416,31 @@ struct AddProviderFlowSheet: View {
         }
     }
 
-    private var subscriptionProviders: [String] {
-        let oauth = PiProviderLoginService.oauthCapableProviders
-        let order = ["anthropic", "openai-codex", "github-copilot"]
-        return allProviders.filter { oauth.contains($0) }
-            .sorted { (order.firstIndex(of: $0) ?? .max) < (order.firstIndex(of: $1) ?? .max) }
+    private var subscriptionProviders: [PiConnectableProvider] {
+        sorted(allProviders.filter(\.supportsOAuth))
     }
 
-    private var apiKeyProviders: [String] {
-        let oauth = PiProviderLoginService.oauthCapableProviders
-        let popular = ["openai", "google", "openrouter", "groq", "xai", "deepseek", "mistral"]
-        return allProviders.filter { !oauth.contains($0) }
-            .sorted { lhs, rhs in
-                let li = popular.firstIndex(of: lhs) ?? .max
-                let ri = popular.firstIndex(of: rhs) ?? .max
-                if li != ri { return li < ri }
-                return ProviderDisplay.name(for: lhs).localizedCaseInsensitiveCompare(ProviderDisplay.name(for: rhs)) == .orderedAscending
-            }
+    private var apiKeyProviders: [PiConnectableProvider] {
+        // Dual-auth providers live under Subscriptions and expose the existing
+        // method chooser, avoiding duplicate rows in the picker.
+        sorted(allProviders.filter { $0.supportsAPIKey && !$0.supportsOAuth })
     }
 
-    private func filtered(_ providers: [String]) -> [String] {
+    private func sorted(_ providers: [PiConnectableProvider]) -> [PiConnectableProvider] {
+        providers.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func filtered(_ providers: [PiConnectableProvider]) -> [PiConnectableProvider] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return providers }
         return providers.filter {
-            $0.localizedCaseInsensitiveContains(query) ||
-            ProviderDisplay.name(for: $0).localizedCaseInsensitiveContains(query)
+            $0.id.localizedCaseInsensitiveContains(query) ||
+            $0.name.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private func providerName(for providerID: String) -> String {
+        allProviders.first(where: { $0.id == providerID })?.name ?? providerID
     }
 
     private var oauthSucceeded: Bool {
