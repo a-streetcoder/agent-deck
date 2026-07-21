@@ -21,9 +21,8 @@ final class ThemeManager {
     private(set) var accentDeep: ThemeColor
     private(set) var accentShadow: ThemeColor
     private(set) var markdownHighlightingEnabled = true
-    private(set) var textSize: AppTextSize = .standard
 
-    /// Bumped on every appearance change. `agent_deckApp` keys the window content on this so
+    /// Bumped on every change. `agent_deckApp` keys the window content on this so
     /// a theme switch forces a uniform repaint of every view that reads `AppTheme`.
     private(set) var revision: Int = 0
 
@@ -46,12 +45,6 @@ final class ThemeManager {
     func setMarkdownHighlightingEnabled(_ isEnabled: Bool) {
         guard markdownHighlightingEnabled != isEnabled else { return }
         markdownHighlightingEnabled = isEnabled
-        revision += 1
-    }
-
-    func setTextSize(_ textSize: AppTextSize) {
-        guard self.textSize != textSize else { return }
-        self.textSize = textSize
         revision += 1
     }
 }

@@ -485,7 +485,6 @@ final class AppViewModel: NSObject {
         reloadLoopDefinitions()
         ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
         ThemeManager.shared.setMarkdownHighlightingEnabled(appSettingsController.settings.piAgentMarkdownHighlightingEnabled)
-        ThemeManager.shared.setTextSize(appSettingsController.settings.appTextSize)
         #if DEBUG
         // Xcode Previews: stop here so preview view models stay empty (no models,
         // no projects, no GitHub) and never spawn pi/gh subprocesses — giving a
@@ -6699,12 +6698,6 @@ final class AppViewModel: NSObject {
         guard appSettingsController.selectTheme(id: id) else { return }
         syncAppSettings()
         ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
-    }
-
-    func setAppTextSize(_ textSize: AppTextSize) {
-        guard appSettingsController.setAppTextSize(textSize) else { return }
-        syncAppSettings()
-        ThemeManager.shared.setTextSize(textSize)
     }
 
     func setPiAgentMarkdownHighlightingEnabled(_ isEnabled: Bool) {

@@ -44,29 +44,27 @@ enum AppTheme {
     // styles directly — those contexts have native control sizing that already
     // reads well.
     enum Font {
-        private static var textScale: CGFloat { ThemeManager.shared.textSize.fontScale }
+        static let titleSize: CGFloat = 20
+        static let headlineSize: CGFloat = 14
+        static let subheadlineSize: CGFloat = 13
+        static let bodySize: CGFloat = 14
+        static let calloutSize: CGFloat = 13
+        static let footnoteSize: CGFloat = 12
+        static let captionSize: CGFloat = 11
+        static let caption2Size: CGFloat = 10
+        static let codeSize: CGFloat = 13
+        static let smallLabelSize: CGFloat = 9
 
-        static var titleSize: CGFloat { 20 * textScale }
-        static var headlineSize: CGFloat { 14 * textScale }
-        static var subheadlineSize: CGFloat { 13 * textScale }
-        static var bodySize: CGFloat { 14 * textScale }
-        static var calloutSize: CGFloat { 13 * textScale }
-        static var footnoteSize: CGFloat { 12 * textScale }
-        static var captionSize: CGFloat { 11 * textScale }
-        static var caption2Size: CGFloat { 10 * textScale }
-        static var codeSize: CGFloat { 13 * textScale }
-        static var smallLabelSize: CGFloat { 9 * textScale }
-
-        static var title: SwiftUI.Font { .system(size: titleSize) }
-        static var headline: SwiftUI.Font { .system(size: headlineSize, weight: .semibold) }
-        static var subheadline: SwiftUI.Font { .system(size: subheadlineSize) }
-        static var body: SwiftUI.Font { .system(size: bodySize) }
-        static var callout: SwiftUI.Font { .system(size: calloutSize) }
-        static var footnote: SwiftUI.Font { .system(size: footnoteSize) }
-        static var caption: SwiftUI.Font { .system(size: captionSize) }
-        static var caption2: SwiftUI.Font { .system(size: caption2Size) }
-        static var code: SwiftUI.Font { .system(size: codeSize, design: .monospaced) }
-        static var smallLabel: SwiftUI.Font { .system(size: smallLabelSize, weight: .bold, design: .monospaced) }
+        static let title = SwiftUI.Font.system(size: titleSize)
+        static let headline = SwiftUI.Font.system(size: headlineSize, weight: .semibold)
+        static let subheadline = SwiftUI.Font.system(size: subheadlineSize)
+        static let body = SwiftUI.Font.system(size: bodySize)
+        static let callout = SwiftUI.Font.system(size: calloutSize)
+        static let footnote = SwiftUI.Font.system(size: footnoteSize)
+        static let caption = SwiftUI.Font.system(size: captionSize)
+        static let caption2 = SwiftUI.Font.system(size: caption2Size)
+        static let code = SwiftUI.Font.system(size: codeSize, design: .monospaced)
+        static let smallLabel = SwiftUI.Font.system(size: smallLabelSize, weight: .bold, design: .monospaced)
     }
 
     // MARK: Identifier label
@@ -76,9 +74,9 @@ enum AppTheme {
     // so identifiers recede rather than compete with adjacent content.
     // `nsFont()` mirrors `font` so SwiftUI and AppKit call sites stay matched.
     enum IdentifierPill {
-        static var fontSize: CGFloat { Font.captionSize }
+        static let fontSize = Font.captionSize
         static let fontWidthValue: CGFloat = -0.2   // condensed; shared by both frameworks
-        static var font: SwiftUI.Font { .system(size: fontSize, weight: .regular).width(.condensed) }
+        static let font = SwiftUI.Font.system(size: fontSize, weight: .regular).width(.condensed)
 
         static func nsFont() -> NSFont {
             let base = NSFont.systemFont(ofSize: fontSize, weight: .regular)
@@ -99,15 +97,15 @@ enum AppTheme {
     enum Popover {
         // Fonts
         /// Header title — e.g. "Model", "New Session". 13pt semibold.
-        static var titleFont: SwiftUI.Font { Font.subheadline.weight(.semibold) }
+        static let titleFont = Font.subheadline.weight(.semibold)
         /// Header subtitle / descriptive text.
-        static var subtitleFont: SwiftUI.Font { Font.caption }
+        static let subtitleFont = Font.caption
         /// Primary label of a selectable row.
-        static var itemTitleFont: SwiftUI.Font { Font.callout.weight(.semibold) }
+        static let itemTitleFont = Font.callout.weight(.semibold)
         /// Secondary label beneath a row title (path, metadata).
-        static var itemSubtitleFont: SwiftUI.Font { Font.caption2 }
+        static let itemSubtitleFont = Font.caption2
         /// Body text for empty-state or explanatory copy.
-        static var emptyBodyFont: SwiftUI.Font { Font.callout }
+        static let emptyBodyFont = Font.callout
 
         // Widths — collapse the ad-hoc 220/300/340/360/420/460 scatter to three.
         static let compactWidth: CGFloat = 260     // single short list (thinking)
