@@ -741,7 +741,7 @@ struct HoverMarqueeTitleText: View {
     }
 
     private var shouldScroll: Bool {
-        isHovering && overflow > 1 && !reduceMotion
+        marqueeTaskID.shouldScroll
     }
 
     private var scrollDurationSeconds: Double {
@@ -805,29 +805,32 @@ struct HoverMarqueeTitleText: View {
                     return
                 }
             }
-            .onChange(of: shouldScroll) { _, scrolling in
-                if !scrolling {
-                    isScrolled = false
-                }
-            }
     }
 
-    private var marqueeTaskID: MarqueeTaskID {
-        MarqueeTaskID(
+    private var marqueeTaskID: HoverMarqueeTaskID {
+        HoverMarqueeTaskID(
             text: text,
             isHovering: isHovering,
-            containerWidth: containerWidth,
-            textWidth: textWidth,
+            overflow: overflow,
             reduceMotion: reduceMotion
         )
     }
+}
 
-    private struct MarqueeTaskID: Equatable {
-        let text: String
-        let isHovering: Bool
-        let containerWidth: CGFloat
-        let textWidth: CGFloat
-        let reduceMotion: Bool
+/// Stable identity for the marquee animation task.
+///
+/// Geometry measurements deliberately do not participate in equality. Including
+/// raw widths here makes `.task(id:)` restart while SwiftUI is still resolving a
+/// frame; the restarted task writes `isScrolled`, which invalidates layout again
+/// and can trap AttributeGraph in a main-thread update loop. Width changes only
+/// matter when they cross the threshold between scrolling and not scrolling.
+struct HoverMarqueeTaskID: Equatable {
+    let text: String
+    let shouldScroll: Bool
+
+    init(text: String, isHovering: Bool, overflow: CGFloat, reduceMotion: Bool) {
+        self.text = text
+        shouldScroll = isHovering && overflow > 1 && !reduceMotion
     }
 }
 
