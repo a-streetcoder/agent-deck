@@ -311,6 +311,44 @@ test("visual: composer with pending review-comment cards", async ({ page }) => {
   );
 });
 
+test("visual: command palette open with a fixed filter", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByTestId("command-palette")).toBeVisible();
+  // A query that matches ONLY static action commands (the four panel toggles),
+  // never the machine-specific sessions/projects — so the list is byte-stable.
+  await page.getByTestId("command-palette-input").fill("toggle");
+  await expect(page.getByTestId("command-palette-item").first()).toContainText("Toggle");
+
+  // Screenshot the dialog panel only (the blurred backdrop covers the sidebar's
+  // nondeterministic session list).
+  await expect(page.getByTestId("command-palette-dialog")).toHaveScreenshot(
+    "command-palette.png",
+    SCREENSHOT_OPTS,
+  );
+});
+
+test("visual: keybindings editor with default bindings", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByTestId("command-palette-input").fill("keybind");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("keybindings-editor")).toBeVisible();
+  // The row list is the shipped defaults — no times, no per-run values.
+  await expect(
+    page.locator('[data-testid="keybindings-editor-row"][data-command="terminal.toggle"]'),
+  ).toBeVisible();
+
+  await expect(page.getByTestId("keybindings-editor-dialog")).toHaveScreenshot(
+    "keybindings-editor.png",
+    SCREENSHOT_OPTS,
+  );
+});
+
 test("visual: files panel with a text file previewed", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await selectProject(page, path.basename(FILES_PROJECT));

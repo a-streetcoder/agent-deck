@@ -1,4 +1,9 @@
-import type { DiffFileEntry, ProjectMeta, SessionMeta } from "@agent-deck/contracts";
+import type {
+  DiffFileEntry,
+  KeybindingBinding,
+  ProjectMeta,
+  SessionMeta,
+} from "@agent-deck/contracts";
 import { emptyTranscript, type TranscriptState } from "@agent-deck/domain";
 import { create } from "zustand";
 import type { PendingReviewComment, ReviewCommentSide } from "../lib/reviewComments.ts";
@@ -100,6 +105,18 @@ export interface AppState {
   pendingReviewComments: Record<string, readonly PendingReviewComment[]>;
   /** A jump-to-diff request from a pending card; consumed by the DiffPanel. */
   diffJumpRequest: DiffJumpRequest | null;
+  /**
+   * User keybinding overrides (Slice 14), layered over DEFAULT_KEYBINDINGS. The
+   * global shortcut handler and the command palette both resolve chords from
+   * this list, so a rebind applies live the moment it lands here. Seeded from
+   * GET /settings on boot; the editor PATCHes /settings and updates this in the
+   * same breath.
+   */
+  keybindings: KeybindingBinding[];
+  /** Whether the command palette overlay is open (Ctrl/⌘+K). */
+  commandPaletteOpen: boolean;
+  /** Whether the keybindings editor sheet is open (from the palette). */
+  keybindingsEditorOpen: boolean;
   transcript: TranscriptState;
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
   lastSeq: number;
@@ -116,6 +133,9 @@ export interface AppState {
   setSession(session: SessionMeta | null): void;
   setSessions(sessions: SessionMeta[]): void;
   setPendingComposerText(text: string | null): void;
+  setKeybindings(keybindings: KeybindingBinding[]): void;
+  setCommandPaletteOpen(open: boolean): void;
+  setKeybindingsEditorOpen(open: boolean): void;
   setTerminalOpen(open: boolean): void;
   setDiffPanelOpen(open: boolean): void;
   setFilesPanelOpen(open: boolean): void;
@@ -177,6 +197,9 @@ export const useAppStore = create<AppState>((set) => ({
   diffTruncated: false,
   pendingReviewComments: {},
   diffJumpRequest: null,
+  keybindings: [],
+  commandPaletteOpen: false,
+  keybindingsEditorOpen: false,
   transcript: emptyTranscript(),
   lastSeq: 0,
   error: null,
@@ -203,6 +226,9 @@ export const useAppStore = create<AppState>((set) => ({
   setSession: (session) => set({ session }),
   setSessions: (sessions) => set({ sessions }),
   setPendingComposerText: (pendingComposerText) => set({ pendingComposerText }),
+  setKeybindings: (keybindings) => set({ keybindings }),
+  setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
+  setKeybindingsEditorOpen: (keybindingsEditorOpen) => set({ keybindingsEditorOpen }),
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
   setDiffPanelOpen: (diffPanelOpen) => set({ diffPanelOpen }),
   setFilesPanelOpen: (filesPanelOpen) => set({ filesPanelOpen }),

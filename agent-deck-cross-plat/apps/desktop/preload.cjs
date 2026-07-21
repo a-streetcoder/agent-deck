@@ -18,8 +18,8 @@ contextBridge.exposeInMainWorld("agentDeck", {
   /** Open a native menu at a renderer-provided titlebar anchor. */
   openAppMenu: (name, anchor) => ipcRenderer.invoke("app-menu:open", name, anchor),
   /**
-   * Subscribe to native-menu commands ("new-chat", "add-project"). Returns an
-   * unsubscribe function.
+   * Subscribe to native-menu commands ("new-chat", "add-project",
+   * "open-keybindings"). Returns an unsubscribe function.
    * @param {(action: string) => void} handler
    * @returns {() => void}
    */

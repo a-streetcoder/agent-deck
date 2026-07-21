@@ -252,6 +252,9 @@ test("the native File menu exposes New Chat and it creates a session", async () 
   expect(helpItems).toContain("Agent Deck on GitHub");
   expect(helpItems).toContain("About Agent Deck");
   expect(fileItems).toContain("Add Project…");
+  // Non-rebindable recovery path into the keybindings editor (the palette's
+  // open-chord is itself user-rebindable, so the menu is the reset fallback).
+  expect(fileItems).toContain("Edit Keybindings…");
 
   const sessionCount = () =>
     window.evaluate(async () => {
@@ -267,6 +270,22 @@ test("the native File menu exposes New Chat and it creates a session", async () 
     file?.submenu?.items.find((i) => i.label === "New Chat")?.click();
   });
   await expect.poll(sessionCount, { timeout: 10_000 }).toBe(before + 1);
+});
+
+test("File → Edit Keybindings… opens the editor (palette-independent recovery)", async () => {
+  const window = await app.firstWindow();
+  const editor = window.getByTestId("keybindings-editor");
+  await expect(editor).toHaveCount(0);
+
+  // Fire the native menu item → IPC → renderer opens the editor, with no
+  // dependency on the (rebindable) command-palette open-chord.
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((i) => i.label === "File");
+    file?.submenu?.items.find((i) => i.label === "Edit Keybindings…")?.click();
+  });
+  await expect(editor).toBeVisible();
+  await window.getByTestId("keybindings-editor-close").click();
+  await expect(editor).toHaveCount(0);
 });
 
 test("the app presents itself as Agent Deck", async () => {

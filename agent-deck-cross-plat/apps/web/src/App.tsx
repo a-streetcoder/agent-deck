@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderTree, GitCompareArrows, SquareTerminal } from "lucide-react";
+import type { KeybindingBinding } from "@agent-deck/contracts";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
+import { CommandPalette } from "./components/CommandPalette.tsx";
+import { KeybindingsEditor } from "./components/KeybindingsEditor.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
 import { DiffPanel } from "./components/diff/DiffPanel.tsx";
 import { FilesPanel } from "./components/files/FilesPanel.tsx";
@@ -109,8 +112,22 @@ export function App() {
   const chatTitle = session
     ? sessionDisplayTitle(session.title, projectDisplayName(projects, session.projectId))
     : "Pi Agent";
+  const setKeybindings = useAppStore((state) => state.setKeybindings);
   useMenuCommands();
   useKeyboardShortcuts();
+  // Seed the user's keybinding overrides once on boot so the global handler and
+  // the palette resolve chords against the persisted map (Slice 14). The editor
+  // keeps the store in sync thereafter.
+  useEffect(() => {
+    void fetch("/settings")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { settings?: { keybindings?: KeybindingBinding[] } } | null) => {
+        if (data?.settings?.keybindings) setKeybindings(data.settings.keybindings);
+      })
+      .catch(() => {
+        // No overrides available — defaults apply.
+      });
+  }, [setKeybindings]);
   // The frameless macOS window needs a drag region across the top bar so the
   // window can be moved by its header (the sidebar strip is already draggable).
   const macDesktop = isMacDesktop();
@@ -319,6 +336,8 @@ export function App() {
           </main>
         </div>
       </div>
+      <CommandPalette />
+      <KeybindingsEditor />
       <Toaster />
     </div>
   );

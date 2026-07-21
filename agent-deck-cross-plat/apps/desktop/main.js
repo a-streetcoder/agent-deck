@@ -215,6 +215,13 @@ function buildAppMenu() {
           click: () => sendMenu("add-project"),
         },
         { type: "separator" },
+        // Stable, non-rebindable way into the keybindings editor. The command
+        // palette is the only OTHER entry point and its open-chord is itself
+        // user-rebindable, so without this a lost palette binding would leave no
+        // in-app path to reopen the editor and reset it. Deliberately given no
+        // accelerator so it can't shadow any user-bound app chord.
+        { label: "Edit Keybindings…", click: () => sendMenu("open-keybindings") },
+        { type: "separator" },
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },

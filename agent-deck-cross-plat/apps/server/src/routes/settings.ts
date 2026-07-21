@@ -8,6 +8,12 @@ import {
   scanEnv,
   writeEnvVar,
 } from "@agent-deck/resources";
+import {
+  isKeybindingCommand,
+  isValidChord,
+  MAX_KEYBINDINGS_COUNT,
+  type KeybindingBinding,
+} from "@agent-deck/contracts";
 import { z } from "zod";
 import type { AppSettings } from "../persistence.ts";
 import type { ServerContext } from "../context.ts";
@@ -168,6 +174,18 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
         // The remembered open-in-editor choice (Slice 11). An id only — the
         // server maps it to its own detected editor list; never a command.
         preferredEditor: z.string().min(1).max(64).nullable().optional(),
+        // User keybinding overrides (Slice 14): a whole-list replacement. Every
+        // entry must name a known command and a chord with a real modifier —
+        // the same validation the store applies on load, enforced here so a bad
+        // rebind is a 400, not a silently-dropped row.
+        keybindings: z
+          .array(z.object({ command: z.string(), key: z.string() }))
+          .max(MAX_KEYBINDINGS_COUNT)
+          .refine(
+            (list) => list.every((b) => isKeybindingCommand(b.command) && isValidChord(b.key)),
+            "invalid keybinding (unknown command or malformed chord)",
+          )
+          .optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
@@ -198,6 +216,9 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
     if (d.defaultThinking !== undefined) patch.defaultThinking = d.defaultThinking;
     if (d.extensionLoadingMode !== undefined) patch.extensionLoadingMode = d.extensionLoadingMode;
     if (d.preferredEditor !== undefined) patch.preferredEditor = d.preferredEditor;
+    // Refine above guarantees every command/chord is valid, so the plain
+    // {command,key} shape is safe to store as KeybindingBinding[].
+    if (d.keybindings !== undefined) patch.keybindings = d.keybindings as KeybindingBinding[];
     return { settings: settings.update(patch) };
   });
 

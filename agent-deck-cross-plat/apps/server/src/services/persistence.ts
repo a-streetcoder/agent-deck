@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import envPaths from "env-paths";
-import type { ProjectMeta, SessionMeta } from "@agent-deck/contracts";
+import type { KeybindingBinding, ProjectMeta, SessionMeta } from "@agent-deck/contracts";
+import { isKeybindingCommand, isValidChord } from "@agent-deck/contracts";
 import { THINKING_LEVELS, type ThinkingLevel } from "@agent-deck/domain";
 import { Context, Effect, Layer, Option } from "effect";
 
@@ -160,6 +161,27 @@ export interface AppSettings {
    * a command — the server only launches editors from its own detected list.
    */
   preferredEditor: string | null;
+  /**
+   * User keybinding overrides (Slice 14): a `command -> chord` list layered over
+   * the shipped `DEFAULT_KEYBINDINGS`. Empty = all defaults. Each entry is
+   * validated on load and on PATCH (known command + a chord with a real
+   * modifier); anything else is dropped rather than trusted.
+   */
+  keybindings: KeybindingBinding[];
+}
+
+/** Keep only well-formed overrides (known command + a valid, modifier-bearing chord). */
+function coerceKeybindings(value: unknown): KeybindingBinding[] {
+  if (!Array.isArray(value)) return [];
+  const out: KeybindingBinding[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as { command?: unknown; key?: unknown };
+    if (typeof record.command !== "string" || typeof record.key !== "string") continue;
+    if (!isKeybindingCommand(record.command) || !isValidChord(record.key)) continue;
+    out.push({ command: record.command, key: record.key });
+  }
+  return out;
 }
 
 /** App-level settings (app-settings.json); the effectful surface of the store. */
@@ -265,6 +287,7 @@ export const makeSettingsStoreHandle = (dataDir: string): Effect.Effect<Settings
       extensionLoadingMode: "useMyExtensions", // port default: load discovered extensions
       importedSkillRepositories: [],
       preferredEditor: null,
+      keybindings: [],
     };
 
     try {
@@ -309,6 +332,7 @@ export const makeSettingsStoreHandle = (dataDir: string): Effect.Effect<Settings
             : [],
           preferredEditor:
             typeof record.preferredEditor === "string" ? record.preferredEditor : null,
+          keybindings: coerceKeybindings(record.keybindings),
         };
       }
     } catch {
