@@ -35,6 +35,40 @@ final class SubagentCardMeasureDiagnosticTests: XCTestCase {
     that the toggle writes. Report the invalidation chain and the minimal fix.
     """
 
+    func testNameAndModelMetadataAreOpticallyCentered() {
+        let block = PiAgentNativeAgentBlockView()
+        let payload = runningPayload(task: sampleTask)
+        block.configure(payload)
+
+        let width: CGFloat = 900
+        let height = block.measuredHeight(forWidth: width)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        host.addSubview(block)
+        NSLayoutConstraint.activate([
+            block.topAnchor.constraint(equalTo: host.topAnchor),
+            block.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            block.widthAnchor.constraint(equalToConstant: width),
+            block.heightAnchor.constraint(equalToConstant: height)
+        ])
+        host.layoutSubtreeIfNeeded()
+
+        func labels(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { subview in
+                (subview as? NSTextField).map { [$0] } ?? labels(in: subview)
+            }
+        }
+        let allLabels = labels(in: block)
+        guard let name = allLabels.first(where: { $0.stringValue == payload.agentName }),
+              let model = allLabels.first(where: { $0.stringValue == payload.modelText }),
+              let row = name.superview as? NSStackView,
+              model.superview === row else {
+            return XCTFail("Could not locate the shared subagent name/model row")
+        }
+
+        XCTAssertEqual(row.alignment, .centerY)
+        XCTAssertEqual(name.frame.midY, model.frame.midY, accuracy: 0.5)
+    }
+
     func testRunCardMeasuredHeightContainsContent() {
         let rowWidth: CGFloat = 900
 
