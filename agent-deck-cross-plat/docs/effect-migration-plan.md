@@ -391,6 +391,16 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - Palette over sessions/projects/actions; user-editable keybindings persisted
   server-side; toast on binding conflicts after updates.
 - Mostly client-side; server surface is the keybindings store.
+- **Status: LANDED (2026-07-22, 2ece926).** Ctrl/Cmd+K palette (grouped, fuzzy,
+  keyboard-nav; pure logic in CommandPalette.logic.ts + tests) over nav/session/panel/
+  action commands. Keybindings map with donor defaults persisted in AppSettings
+  (chord-validated PATCH); live editor with conflict detection; ALL prior hardcoded
+  shortcuts unified through the map (rebindable, no parallel path). Review: blocker
+  fixed in-workflow — native-menu recovery (File→Edit Keybindings…) so a lost
+  palette open-chord can't lock the editor away; minor fixed — Escape-closes the
+  editor. Deferred: empty-string-unbind not persisted (dead via UI), focus-trap +
+  navigator.platform → S19 a11y pass. 2 new visual baselines. **PHASE 6 COMPLETE**
+  (file tree + preview, command palette + keybindings).
 
 ## Phase 7 — Preview browser
 
