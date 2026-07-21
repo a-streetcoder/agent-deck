@@ -60,6 +60,7 @@ struct PiExecutableResolver: Sendable {
             environment["PI_CLI_PATH"] ?? "",
             environment["BUN_INSTALL"] ?? "",
             environment["BUN_INSTALL_BIN"] ?? "",
+            environment["PNPM_HOME"] ?? "",
             environment["SHELL"] ?? "",
             environment["PATH"] ?? ""
         ].joined(separator: "\u{1f}")
@@ -145,8 +146,14 @@ struct PiExecutableResolver: Sendable {
         if let bunInstall = environment["BUN_INSTALL"], !bunInstall.isEmpty {
             paths.append(URL(fileURLWithPath: NSString(string: bunInstall).expandingTildeInPath).appendingPathComponent("bin/pi").path)
         }
+        if let pnpmHome = environment["PNPM_HOME"], !pnpmHome.isEmpty {
+            paths.append(URL(fileURLWithPath: NSString(string: pnpmHome).expandingTildeInPath).appendingPathComponent("pi").path)
+        }
         paths.append(contentsOf: [
             "\(home)/.bun/bin/pi",
+            "\(home)/Library/pnpm/pi",
+            "\(home)/Library/Application Support/pnpm/pi",
+            "\(home)/.local/share/pnpm/pi",
             "/opt/homebrew/bin/pi",
             "/usr/local/bin/pi",
             "/usr/bin/pi",

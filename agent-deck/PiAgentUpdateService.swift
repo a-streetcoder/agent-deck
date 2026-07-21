@@ -6,6 +6,7 @@ enum PiInstallationSource: Hashable {
     case npm
     case pnpm
     case yarn
+    case piDev
     case other
 
     var displayName: String {
@@ -15,18 +16,33 @@ enum PiInstallationSource: Hashable {
         case .npm: "npm"
         case .pnpm: "pnpm"
         case .yarn: "Yarn"
+        case .piDev: "pi.dev installer"
         case .other: "Pi"
         }
     }
 
-    nonisolated static func detect(piPath: String) -> PiInstallationSource {
+    nonisolated static func detect(piPath: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> PiInstallationSource {
         let resolvedPath = URL(fileURLWithPath: piPath).resolvingSymlinksInPath().path
         let paths = [piPath, resolvedPath].map { $0.lowercased() }
+        let customPNPMHome = environment["PNPM_HOME"].map {
+            NSString(string: $0).expandingTildeInPath.lowercased()
+        }
+        let customBunBin = environment["BUN_INSTALL_BIN"].map {
+            NSString(string: $0).expandingTildeInPath.lowercased()
+        }
+        let customBunInstall = environment["BUN_INSTALL"].map {
+            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath)
+                .appendingPathComponent("bin").path.lowercased()
+        }
 
         if paths.contains(where: { $0.contains("/cellar/pi-coding-agent/") }) { return .homebrew }
-        if paths.contains(where: { $0.contains("/.bun/") || $0.contains("/bun/install/global/") }) { return .bun }
+        if let customPNPMHome, paths.contains(where: { $0.hasPrefix(customPNPMHome + "/") }) { return .pnpm }
+        if let customBunBin, paths.contains(where: { $0.hasPrefix(customBunBin + "/") }) { return .bun }
+        if let customBunInstall, paths.contains(where: { $0.hasPrefix(customBunInstall + "/") }) { return .bun }
+        if paths.contains(where: { $0.contains("/.bun/") || $0.contains("/bun/install/global/") || $0.contains("/library/bun/") }) { return .bun }
         if paths.contains(where: { $0.contains("/.pnpm/") || $0.contains("/pnpm/") }) { return .pnpm }
         if paths.contains(where: { $0.contains("/.yarn/") || $0.contains("/yarn/") }) { return .yarn }
+        if paths.contains(where: { $0.contains("/.pi/agent/bin/") }) { return .piDev }
         if paths.contains(where: {
             $0.contains("/node_modules/")
                 || $0.contains("/.npm/")
@@ -114,7 +130,7 @@ struct PiAgentUpdateService {
         }
         let currentVersion = installed.version
         let resolvedPath = installed.resolvedPath
-        let installationSource = resolvedPath.map(PiInstallationSource.detect(piPath:)) ?? .other
+        let installationSource = resolvedPath.map { PiInstallationSource.detect(piPath: $0) } ?? .other
 
         let latestOfficialVersion: String
         do {
@@ -164,7 +180,7 @@ struct PiAgentUpdateService {
                     resolvedPath: resolvedPath
                 )
             }
-        case .other:
+        case .piDev, .other:
             latestSourceVersion = latestOfficialVersion
         }
 

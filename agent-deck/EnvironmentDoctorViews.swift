@@ -473,11 +473,17 @@ struct DoctorScreen: View {
             }
         case .idle, .succeeded:
             HStack(spacing: 8) {
-                DoctorCopyCommandButton(command: isUpdate ? piUpdateCommandHint : "npm install -g --ignore-scripts @earendil-works/pi-coding-agent")
+                DoctorCopyCommandButton(command: isUpdate ? piUpdateCommandHint : piInstallCommandHint)
                 Button(isUpdate ? "Update Pi" : "Install Pi") { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
                     .appPrimaryButton()
             }
         }
+    }
+
+    /// The official curl installer is the copyable all-machine fallback; the
+    /// in-app action still prefers npm, then pnpm, then Bun when available.
+    private var piInstallCommandHint: String {
+        "curl -fsSL https://pi.dev/install.sh | sh"
     }
 
     /// Method-aware hint: a brew-owned pi updates via brew, anything else via
@@ -506,7 +512,7 @@ struct DoctorScreen: View {
                 case false?:
                     break // the card shows the failure detail with retry + Terminal
                 case nil:
-                    // No Homebrew and no npm: Terminal runs Pi's official
+                    // No npm, pnpm, or Bun: Terminal runs Pi's official curl
                     // installer, which can also set up Node interactively.
                     viewModel.openPiInstallInTerminal()
                 }

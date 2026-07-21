@@ -4,27 +4,33 @@ import Foundation
 enum PiInstallMethod: Hashable {
     case homebrew
     case npm
+    case pnpm
+    case bun
     case piSelfUpdate
 
     var displayName: String {
         switch self {
         case .homebrew: "Homebrew"
         case .npm: "npm"
+        case .pnpm: "pnpm"
+        case .bun: "Bun"
         case .piSelfUpdate: "Pi's built-in updater"
         }
     }
+
+    /// Official package-manager install commands, in the deterministic order
+    /// used for a missing Pi. Homebrew is update-only compatibility support.
+    static let automaticInstallOrder: [PiInstallMethod] = [.npm, .pnpm, .bun]
 }
 
-/// Installs or updates the Pi CLI without leaving the app, using whatever
-/// non-interactive tool the machine already has (Homebrew, then npm). When
-/// neither exists, `install()` returns nil and the caller hands off to the
-/// Terminal flow (Pi's official installer, which can also set up Node).
+/// Installs or updates the Pi CLI without leaving the app using Pi's official
+/// package-manager methods (npm, then pnpm, then Bun). When none is available,
+/// `install()` returns nil and the caller hands off to Pi's official curl
+/// installer in Terminal.
 ///
-/// Updates are method-aware: a `pi` under /opt/homebrew belongs to Homebrew
-/// and updates via `brew upgrade`; any other origin (npm global, pi.dev
-/// installer, manual) updates itself via `pi update pi`. The two are never
-/// mixed, so Pi's self-updater can't rewrite files inside Homebrew's Cellar
-/// and Homebrew never clobbers an npm-owned install.
+/// Updates are method-aware: an existing Homebrew Pi remains supported through
+/// `brew upgrade`; every other origin updates itself with `pi update pi`. The
+/// two are never mixed, so Pi's self-updater can't rewrite Homebrew's Cellar.
 @MainActor
 @Observable
 final class PiAutoInstaller {
@@ -52,8 +58,8 @@ final class PiAutoInstaller {
 
     /// Silent install. Returns true when Pi is installed and verified, false
     /// when an attempt ran and failed (`phase` carries the message), and nil
-    /// when neither Homebrew nor npm exists so an in-app install isn't
-    /// possible — the caller should open the Terminal flow instead.
+    /// when npm, pnpm, and Bun are all unavailable — the caller should open
+    /// the official curl installer in Terminal instead.
     func install() async -> Bool? {
         guard !isRunning else { return false }
         // Re-check first: the user may have installed Pi in Terminal moments
@@ -94,8 +100,11 @@ final class PiAutoInstaller {
     }
 
     private func detectInstallMethod() async -> PiInstallMethod? {
-        if await toolWorks("brew") { return .homebrew }
-        if await toolWorks("npm") { return .npm }
+        for method in PiInstallMethod.automaticInstallOrder {
+            if await toolWorks(method.displayName.lowercased()) {
+                return method
+            }
+        }
         return nil
     }
 
@@ -147,6 +156,22 @@ final class PiAutoInstaller {
                 result = try await commandRunner.run(
                     "npm",
                     arguments: ["install", "-g", "--ignore-scripts", "@earendil-works/pi-coding-agent"],
+                    currentDirectoryURL: nil,
+                    timeout: 420,
+                    environment: nil
+                )
+            case .pnpm:
+                result = try await commandRunner.run(
+                    "pnpm",
+                    arguments: ["add", "-g", "--ignore-scripts", "@earendil-works/pi-coding-agent"],
+                    currentDirectoryURL: nil,
+                    timeout: 420,
+                    environment: nil
+                )
+            case .bun:
+                result = try await commandRunner.run(
+                    "bun",
+                    arguments: ["add", "-g", "--ignore-scripts", "@earendil-works/pi-coding-agent"],
                     currentDirectoryURL: nil,
                     timeout: 420,
                     environment: nil

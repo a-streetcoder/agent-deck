@@ -3,8 +3,8 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/a-streetcoder/agent-deck/main/install.sh | bash
 #
-# Installs the Pi CLI if it's missing (Homebrew -> npm -> Pi's official
-# installer), then downloads the latest notarized Agent Deck DMG, verifies its
+# Installs the Pi CLI if it's missing (npm -> pnpm -> Bun -> Pi's official
+# curl installer), then downloads the latest notarized Agent Deck DMG, verifies its
 # SHA-256 checksum, and copies the app to /Applications.
 #
 # Flags:
@@ -15,9 +15,8 @@
 #     pi.dev, manual) is detected and respected.
 #   * Updates are method-aware: a brew-owned pi updates via brew, anything
 #     else via `pi update pi`. Never mixed.
-#   * Never installs Homebrew, and only installs Node through the tools the
-#     machine already has (brew's formula dependency, or Pi's own installer
-#     asking first).
+#   * Never installs through Homebrew. It uses only pi.dev's package-manager
+#     methods, or Pi's own installer when no package manager is available.
 
 set -euo pipefail
 
@@ -91,16 +90,20 @@ if command -v pi >/dev/null 2>&1; then
       [ "$FORCE" = 1 ] || note "Keeping Pi ${PI_VERSION}. Update later with \`${UPDATE_CMD}\`."
     fi
   fi
-elif command -v brew >/dev/null 2>&1; then
-  bold "Installing the Pi CLI with Homebrew (this can take a few minutes)…"
-  NONINTERACTIVE=1 brew install pi-coding-agent
-  PI_RESULT="installed via Homebrew"
 elif command -v npm >/dev/null 2>&1; then
   bold "Installing the Pi CLI with npm…"
   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
   PI_RESULT="installed via npm"
+elif command -v pnpm >/dev/null 2>&1; then
+  bold "Installing the Pi CLI with pnpm…"
+  pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent
+  PI_RESULT="installed via pnpm"
+elif command -v bun >/dev/null 2>&1; then
+  bold "Installing the Pi CLI with Bun…"
+  bun add -g --ignore-scripts @earendil-works/pi-coding-agent
+  PI_RESULT="installed via Bun"
 elif [ "$HAS_TTY" = 1 ]; then
-  # No brew, no npm: Pi's official installer can set up Node too. It is
+  # No npm, pnpm, or Bun: Pi's official installer can set up Node too. It is
   # interactive, so run it from a file with stdin pointed at the terminal
   # (our own stdin may be the curl pipe).
   bold "Installing the Pi CLI with Pi's official installer…"
@@ -113,7 +116,7 @@ elif [ "$HAS_TTY" = 1 ]; then
   fi
   rm -f "$PI_INSTALLER"
 else
-  PI_RESULT="NOT installed (no Homebrew or npm, and no interactive terminal; Agent Deck's Doctor will install it on first run)"
+  PI_RESULT="NOT installed (no npm, pnpm, or Bun, and no interactive terminal; Agent Deck's Doctor can install it on first run)"
 fi
 
 # ── Step 2: existing install ────────────────────────────────────────────────

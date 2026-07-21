@@ -19,6 +19,28 @@ final class PiAgentUpdateServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testInstallationSourceRecognizesPiDevAndCustomPackageManagerHomes() {
+        XCTAssertEqual(
+            PiInstallationSource.detect(piPath: "/Users/test/.pi/agent/bin/pi"),
+            .piDev
+        )
+        XCTAssertEqual(
+            PiInstallationSource.detect(
+                piPath: "/Users/test/tools/pnpm/pi",
+                environment: ["PNPM_HOME": "/Users/test/tools/pnpm"]
+            ),
+            .pnpm
+        )
+        XCTAssertEqual(
+            PiInstallationSource.detect(
+                piPath: "/Users/test/tools/bun-bin/pi",
+                environment: ["BUN_INSTALL_BIN": "/Users/test/tools/bun-bin"]
+            ),
+            .bun
+        )
+    }
+
+    @MainActor
     func testRuntimeStatusShowsWhenOfficialReleaseIsAheadOfInstallSource() {
         let status = PiAgentRuntimeStatus(
             isInstalled: true,
@@ -44,6 +66,45 @@ final class PiAgentUpdateServiceTests: XCTestCase {
         XCTAssertTrue(PiAgentUpdateService.isVersion("v0.80.6", atLeast: "0.80.6"))
         XCTAssertTrue(PiAgentUpdateService.isNewerVersion("0.80.6", than: "0.80.6-beta.1"))
         XCTAssertFalse(PiAgentUpdateService.isVersion("0.80.6-beta.1", atLeast: "0.80.6"))
+    }
+
+    @MainActor
+    func testInstallerSelectsNpmBeforeOtherAvailablePackageManagers() async throws {
+        let fixture = try PiInstallFixture(availableTools: ["npm", "pnpm", "bun"])
+        defer { fixture.remove() }
+
+        let installed = await PiAutoInstaller(commandRunner: fixture.runner, piResolver: fixture.resolver).install()
+        let command = await fixture.runner.installCommand()
+        XCTAssertTrue(installed ?? false)
+        XCTAssertEqual(command, "npm install -g --ignore-scripts @earendil-works/pi-coding-agent")
+    }
+
+    @MainActor
+    func testInstallerSelectsPnpmThenBunWithoutFallbackAfterSelection() async throws {
+        let pnpmFixture = try PiInstallFixture(availableTools: ["pnpm", "bun"])
+        defer { pnpmFixture.remove() }
+        let pnpmInstalled = await PiAutoInstaller(commandRunner: pnpmFixture.runner, piResolver: pnpmFixture.resolver).install()
+        let pnpmCommand = await pnpmFixture.runner.installCommand()
+        XCTAssertTrue(pnpmInstalled ?? false)
+        XCTAssertEqual(pnpmCommand, "pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent")
+
+        let bunFixture = try PiInstallFixture(availableTools: ["bun"])
+        defer { bunFixture.remove() }
+        let bunInstalled = await PiAutoInstaller(commandRunner: bunFixture.runner, piResolver: bunFixture.resolver).install()
+        let bunCommand = await bunFixture.runner.installCommand()
+        XCTAssertTrue(bunInstalled ?? false)
+        XCTAssertEqual(bunCommand, "bun add -g --ignore-scripts @earendil-works/pi-coding-agent")
+    }
+
+    @MainActor
+    func testInstallerDoesNotFallThroughAfterPackageManagerFailure() async throws {
+        let fixture = try PiInstallFixture(availableTools: ["npm", "pnpm", "bun"], failingInstallTool: "npm")
+        defer { fixture.remove() }
+
+        let installed = await PiAutoInstaller(commandRunner: fixture.runner, piResolver: fixture.resolver).install()
+        let commands = await fixture.runner.installCommands()
+        XCTAssertFalse(installed ?? true)
+        XCTAssertEqual(commands, ["npm install -g --ignore-scripts @earendil-works/pi-coding-agent"])
     }
 
     @MainActor
@@ -98,6 +159,68 @@ private struct PiUpdateFixture {
 
     func remove() {
         try? FileManager.default.removeItem(at: executableURL)
+    }
+}
+
+private struct PiInstallFixture {
+    let executableURL: URL
+    let runner: FakePiInstallCommandRunner
+    let resolver: PiExecutableResolver
+
+    init(availableTools: Set<String>, failingInstallTool: String? = nil) throws {
+        let fakeExecutableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-deck-fake-pi-install-\(UUID().uuidString)")
+        try "#!/bin/sh\nexit 0\n".write(to: fakeExecutableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeExecutableURL.path)
+        executableURL = fakeExecutableURL
+        runner = FakePiInstallCommandRunner(availableTools: availableTools, failingInstallTool: failingInstallTool)
+        resolver = PiExecutableResolver(
+            candidatesProvider: { [fakeExecutableURL] },
+            defaultPathDirectories: { [] },
+            cacheResults: false
+        )
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: executableURL)
+    }
+}
+
+private actor FakePiInstallCommandRunner: CommandRunning {
+    private let availableTools: Set<String>
+    private let failingInstallTool: String?
+    private var recordedInstallCommands: [String] = []
+    private var isPiInstalled = false
+
+    init(availableTools: Set<String>, failingInstallTool: String?) {
+        self.availableTools = availableTools
+        self.failingInstallTool = failingInstallTool
+    }
+
+    func installCommand() -> String? { recordedInstallCommands.last }
+    func installCommands() -> [String] { recordedInstallCommands }
+
+    func run(
+        _ command: String,
+        arguments: [String],
+        currentDirectoryURL: URL?,
+        timeout: TimeInterval?,
+        environment: [String: String]?
+    ) async throws -> CommandResult {
+        if arguments == ["--version"] {
+            return CommandResult(stdout: "", stderr: "", exitCode: availableTools.contains(command) ? 0 : 1)
+        }
+        if arguments == ["--help"] {
+            return CommandResult(stdout: isPiInstalled ? "Pi help" : "", stderr: "", exitCode: isPiInstalled ? 0 : 1)
+        }
+        recordedInstallCommands.append(([command] + arguments).joined(separator: " "))
+        let didFail = failingInstallTool == command
+        if !didFail { isPiInstalled = true }
+        return CommandResult(
+            stdout: didFail ? "" : "Installed",
+            stderr: didFail ? "Failed" : "",
+            exitCode: didFail ? 1 : 0
+        )
     }
 }
 

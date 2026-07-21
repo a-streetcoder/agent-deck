@@ -17,6 +17,9 @@ final class PiExecutableResolverTests: XCTestCase {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
         XCTAssertTrue(paths.contains("\(home)/.bun/bin/pi"), "Should include Bun global bin")
+        XCTAssertTrue(paths.contains("\(home)/Library/pnpm/pi"), "Should include pnpm's macOS home")
+        XCTAssertTrue(paths.contains("\(home)/Library/Application Support/pnpm/pi"), "Should include pnpm's Application Support home")
+        XCTAssertTrue(paths.contains("\(home)/.local/share/pnpm/pi"), "Should include pnpm's local-share home")
         XCTAssertTrue(paths.contains("\(home)/.pi/agent/bin/pi"), "Should include Pi agent bin")
         XCTAssertTrue(paths.contains("\(home)/.volta/bin/pi"), "Should include Volta")
         XCTAssertTrue(paths.contains("\(home)/.hermes/node/bin/pi"), "Should include Hermes npm prefix")
@@ -34,6 +37,16 @@ final class PiExecutableResolverTests: XCTestCase {
         defer { unsetenv("BUN_INSTALL_BIN") }
 
         XCTAssertTrue(PiExecutableResolver.commonPiCandidates().map(\.path).contains("\(customBin)/pi"))
+    }
+
+    func testCommonCandidatesIncludesConfiguredPNPMHome() {
+        let customHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("custom-pnpm-home-\(UUID().uuidString)")
+            .path
+        setenv("PNPM_HOME", customHome, 1)
+        defer { unsetenv("PNPM_HOME") }
+
+        XCTAssertTrue(PiExecutableResolver.commonPiCandidates().map(\.path).contains("\(customHome)/pi"))
     }
 
     func testExecutableResolutionFromEnvVar() {

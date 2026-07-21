@@ -644,8 +644,8 @@ struct SetupChecklistView: View {
             case false?:
                 break // the row shows the failure detail with retry + Terminal
             case nil:
-                // No Homebrew and no npm: Terminal runs Pi's official installer,
-                // which can also set up Node interactively.
+                // No npm, pnpm, or Bun: Terminal runs Pi's official curl
+                // installer, which can also set up Node interactively.
                 viewModel.openPiInstallInTerminal()
             }
         }
