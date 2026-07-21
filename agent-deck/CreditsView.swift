@@ -199,7 +199,7 @@ struct AboutView: View {
                     HStack(spacing: 3) {
                         Text("github.com/\(author.login)")
                         Image(systemName: "arrow.up.right")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                     }
                 }
                 .font(.caption)
@@ -260,7 +260,7 @@ struct AboutView: View {
                         HStack(spacing: 3) {
                             Text(display)
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                         }
                     }
                     .font(.caption)

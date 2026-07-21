@@ -251,10 +251,10 @@ struct LoopBankScreen: View {
             AppCard(title: "Loop Bank") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("No saved loops yet.")
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.Font.sectionTitle)
                         .fontWidth(.expanded)
                     Text("Use the + button in the toolbar to create a new saved loop.")
-                        .font(AppTheme.Font.body)
+                        .font(AppTheme.Font.primary)
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -268,7 +268,7 @@ struct LoopBankScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if definition.source == .builtin {
                         Text("Built-in templates are read-only. Duplicate to create an editable user copy.")
-                            .font(AppTheme.Font.caption)
+                            .font(AppTheme.Font.metadata)
                             .foregroundStyle(AppTheme.mutedText)
                             .padding(.bottom, 12)
                         Divider()

@@ -126,7 +126,7 @@ struct GitHubIssueRowContent: View {
             // meta line below always lands in the same place; titles longer than
             // two lines truncate with an ellipsis.
             Text(item.title)
-                .font(.headline)
+                .font(AppTheme.Font.sectionTitle)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
                 .lineLimit(2, reservesSpace: true)
@@ -163,7 +163,7 @@ struct GitHubIssueRowContent: View {
             }
             Spacer(minLength: 0)
         }
-        .font(.footnote)
+        .font(AppTheme.Font.metadata)
         .foregroundStyle(AppTheme.mutedText)
     }
 
@@ -245,7 +245,7 @@ struct GitHubIssueDetailView: View {
                         .controlSize(.small)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Loading issue")
-                            .font(.headline)
+                            .font(AppTheme.Font.sectionTitle)
                         Text("Fetching the description and comments.")
                             .foregroundStyle(AppTheme.mutedText)
                     }

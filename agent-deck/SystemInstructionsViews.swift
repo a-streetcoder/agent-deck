@@ -317,7 +317,7 @@ private struct SystemPromptFileRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(file.title)
-                        .font(.headline)
+                        .font(AppTheme.Font.sectionTitle)
                         .fontWidth(.expanded)
                         .lineLimit(1)
                     if isDirty {
@@ -329,7 +329,7 @@ private struct SystemPromptFileRowView: View {
                 }
 
                 Text(file.displayPath)
-                    .font(.caption.monospaced())
+                    .font(AppTheme.Font.metadata.monospaced())
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
                     .truncationMode(.middle)

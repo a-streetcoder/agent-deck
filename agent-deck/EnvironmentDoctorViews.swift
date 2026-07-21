@@ -48,7 +48,7 @@ struct EnvironmentScreen: View {
             AppCard(title: "Environment Keys") {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Agent Deck reads and writes global keys in `~/.pi/agent/.env`. Values stay hidden until revealed; new Pi sessions pick up saved changes automatically.")
-                        .font(.caption)
+                        .font(AppTheme.Font.supporting)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -87,9 +87,9 @@ struct EnvironmentScreen: View {
     private var emptyEnvironmentState: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("No environment keys yet", systemImage: "key")
-                .font(.body.weight(.semibold))
+                .font(AppTheme.Font.primary.weight(.semibold))
             Text("Use the toolbar’s New Key button to add credentials like EXA_API_KEY. Agent Deck stores them in `~/.pi/agent/.env`.")
-                .font(.caption)
+                .font(AppTheme.Font.supporting)
                 .foregroundStyle(AppTheme.mutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -107,10 +107,10 @@ struct EnvironmentScreen: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(record.key)
-                            .font(.body.monospaced().weight(.semibold))
+                            .font(AppTheme.Font.primary.monospaced().weight(.semibold))
                             .textSelection(.enabled)
                         Text(record.source.path)
-                            .font(.caption)
+                            .font(AppTheme.Font.metadata.monospaced())
                             .foregroundStyle(AppTheme.mutedText)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -1126,6 +1126,7 @@ struct DoctorScreen: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                     Text("All checks passed.")
+                        .font(AppTheme.Font.primary)
                         .foregroundStyle(AppTheme.mutedText)
                 }
             } else {
@@ -1136,7 +1137,7 @@ struct DoctorScreen: View {
                                 .foregroundStyle(.orange)
                                 .frame(width: 20)
                             Text(warning.message)
-                                .font(.body)
+                                .font(AppTheme.Font.primary)
                                 .textSelection(.enabled)
                         }
                         .padding(.vertical, 8)
@@ -1154,13 +1155,14 @@ private func warningSection(title: String, warnings: [DiagnosticWarning]) -> som
     if !warnings.isEmpty {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.headline)
+                .font(AppTheme.Font.sectionTitle)
                 .fontWidth(.expanded)
             ForEach(warnings) { warning in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Text(warning.message)
+                        .font(AppTheme.Font.primary)
                         .textSelection(.enabled)
                 }
             }

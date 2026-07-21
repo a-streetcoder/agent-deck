@@ -4070,7 +4070,7 @@ private struct PiAgentSessionGroupHeader: View {
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(AppTheme.mutedText)
                                 .frame(width: 11, height: 11, alignment: .center)
                                 .rotationEffect(.degrees(section.isCollapsed ? 0 : 90))

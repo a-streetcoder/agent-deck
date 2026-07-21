@@ -753,13 +753,13 @@ private struct PromptListRowView: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 5) {
                 Text(prompt.name)
-                    .font(.headline)
+                    .font(AppTheme.Font.sectionTitle)
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
                     .strikethrough(isDisabled, color: AppTheme.mutedText)
                     .lineLimit(1)
                 Text(prompt.description)
-                    .font(.caption)
+                    .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
             }

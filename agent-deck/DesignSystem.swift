@@ -33,38 +33,46 @@ enum AppTheme {
 
     // MARK: Typography
     //
-    // Fixed-size font tokens for the chat / transcript UI. macOS semantic
-    // styles (.body = 13pt, .caption = 10pt, .caption2 = 9pt) render too small
-    // for comfortable reading in a conversation thread. These tokens bump every
-    // tier up ~1pt so body text lands at 14pt, captions at 11–12pt — matching
-    // aligned with Apple HIG guidance to avoid
-    // sub-11pt readable text.
-    //
-    // Non-chat views (settings, management, sidebar) can keep using semantic
-    // styles directly — those contexts have native control sizing that already
-    // reads well.
+    // macOS uses fixed type sizes rather than Dynamic Type. Keep readable content
+    // on this explicit hierarchy so SwiftUI, AppKit, and web markdown share the
+    // same baseline: titles 20, sections 15, prose 14, supporting text 13,
+    // footnotes 12, metadata 11, and nonessential micro labels 10 points.
     enum Font {
         static let titleSize: CGFloat = 20
-        static let headlineSize: CGFloat = 14
-        static let subheadlineSize: CGFloat = 13
-        static let bodySize: CGFloat = 14
-        static let calloutSize: CGFloat = 13
+        static let sectionTitleSize: CGFloat = 15
+        static let primarySize: CGFloat = 14
+        static let supportingSize: CGFloat = 13
         static let footnoteSize: CGFloat = 12
-        static let captionSize: CGFloat = 11
-        static let caption2Size: CGFloat = 10
+        static let metadataSize: CGFloat = 11
+        static let microSize: CGFloat = 10
         static let codeSize: CGFloat = 13
-        static let smallLabelSize: CGFloat = 9
 
-        static let title = SwiftUI.Font.system(size: titleSize)
-        static let headline = SwiftUI.Font.system(size: headlineSize, weight: .semibold)
-        static let subheadline = SwiftUI.Font.system(size: subheadlineSize)
-        static let body = SwiftUI.Font.system(size: bodySize)
-        static let callout = SwiftUI.Font.system(size: calloutSize)
+        static let title = SwiftUI.Font.system(size: titleSize, weight: .semibold)
+        static let sectionTitle = SwiftUI.Font.system(size: sectionTitleSize, weight: .semibold)
+        static let primary = SwiftUI.Font.system(size: primarySize)
+        static let supporting = SwiftUI.Font.system(size: supportingSize)
         static let footnote = SwiftUI.Font.system(size: footnoteSize)
-        static let caption = SwiftUI.Font.system(size: captionSize)
-        static let caption2 = SwiftUI.Font.system(size: caption2Size)
+        static let metadata = SwiftUI.Font.system(size: metadataSize)
+        static let micro = SwiftUI.Font.system(size: microSize)
         static let code = SwiftUI.Font.system(size: codeSize, design: .monospaced)
-        static let smallLabel = SwiftUI.Font.system(size: smallLabelSize, weight: .bold, design: .monospaced)
+
+        // Compatibility names retain the existing role-based call sites while
+        // resolving to the fixed hierarchy above.
+        static let headline = sectionTitle
+        static let subheadline = supporting
+        static let body = primary
+        static let callout = supporting
+        static let caption = metadata
+        static let caption2 = micro
+        static let smallLabel = SwiftUI.Font.system(size: microSize, weight: .bold, design: .monospaced)
+
+        static let headlineSize = sectionTitleSize
+        static let subheadlineSize = supportingSize
+        static let bodySize = primarySize
+        static let calloutSize = supportingSize
+        static let captionSize = metadataSize
+        static let caption2Size = microSize
+        static let smallLabelSize = microSize
     }
 
     // MARK: Identifier label
@@ -688,7 +696,7 @@ struct AppTextField: View {
     @Binding var text: String
     let placeholder: String
     var prompt: Text? = nil
-    var font: Font = .body
+    var font: Font = AppTheme.Font.primary
     var axis: Axis = .horizontal
     var onSubmit: (() -> Void)? = nil
     var cornerRadius: CGFloat = 6
@@ -1196,7 +1204,7 @@ struct AppCard<Content: View, Trailing: View>: View {
                         HStack(alignment: .center) {
                             if let title {
                                 Text(title)
-                                    .font(.headline)
+                                    .font(AppTheme.Font.sectionTitle)
                                     .fontWidth(.expanded)
                             }
                             if let info {
@@ -1239,7 +1247,7 @@ struct AppSheetHeader<Trailing: View>: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.headline)
+                        .font(AppTheme.Font.sectionTitle)
                         .fontWidth(.expanded)
                     if let subtitle {
                         Text(subtitle)
@@ -1337,7 +1345,7 @@ struct AppListSectionHeader: View {
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
             Text(title)
-                .font(.headline)
+                .font(AppTheme.Font.sectionTitle)
                 .fontWidth(.expanded)
                 .foregroundStyle(tint.map { AnyShapeStyle($0.gradient) } ?? AnyShapeStyle(.primary))
                 .textCase(nil)

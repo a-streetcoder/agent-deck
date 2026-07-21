@@ -355,7 +355,7 @@ final class PiAgentNativeSupervisorCardView: NSView, PiAgentNativeRowContent {
         titleIcon.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = NSFont.preferredFont(forTextStyle: .headline)
+        titleLabel.font = NativeTranscriptFont.sectionTitle()
         titleLabel.textColor = AppTheme.ns(AppTheme.roleTool)
         titleLabel.lineBreakMode = .byTruncatingTail
 

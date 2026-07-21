@@ -476,7 +476,7 @@ private struct AgentListRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(agent.name)
-                        .font(.headline)
+                        .font(AppTheme.Font.sectionTitle)
                         .fontWidth(.expanded)
                         .foregroundStyle(.primary)
                         .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
@@ -502,7 +502,7 @@ private struct AgentListRow: View {
                 }
 
                 Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
-                    .font(.caption)
+                    .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
             }

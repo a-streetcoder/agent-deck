@@ -55,7 +55,7 @@ struct ExtensionsScreen: View {
                 .labelsHidden()
 
                 Text(mode.settingsDescription)
-                    .font(.caption)
+                    .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -91,7 +91,7 @@ struct ExtensionsScreen: View {
         AppCard(title: "Agent Deck bridges") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Agent Deck's own extensions. They take priority over yours if a tool name clashes. State below reflects your current settings.")
-                    .font(.caption)
+                    .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -113,10 +113,10 @@ struct ExtensionsScreen: View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(bridge.displayName)
-                    .font(.body.weight(.semibold))
+                    .font(AppTheme.Font.primary.weight(.semibold))
                     .fontWidth(.expanded)
                 Text(bridge.summary)
-                    .font(.caption)
+                    .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(bridge.toolNames.joined(separator: ", "))

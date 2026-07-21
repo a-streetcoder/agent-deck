@@ -5,31 +5,35 @@ import AppKit
 /// SwiftUI's `.weight(.semibold)` is the SF semibold face — NOT NSFontManager's
 /// `.boldFontMask` (heavier, `.bold`); use these for parity.
 enum NativeTranscriptFont {
-    static let bodySize = AppTheme.Font.bodySize
-    static let calloutSize = AppTheme.Font.calloutSize
+    static let titleSize = AppTheme.Font.titleSize
+    static let sectionTitleSize = AppTheme.Font.sectionTitleSize
+    static let bodySize = AppTheme.Font.primarySize
+    static let calloutSize = AppTheme.Font.supportingSize
     static let footnoteSize = AppTheme.Font.footnoteSize
-    static let captionSize = AppTheme.Font.captionSize
-    static let caption2Size = AppTheme.Font.caption2Size
+    static let captionSize = AppTheme.Font.metadataSize
+    static let caption2Size = AppTheme.Font.microSize
+    static let codeSize = AppTheme.Font.codeSize
 
+    static func title(_ weight: NSFont.Weight = .semibold) -> NSFont { .systemFont(ofSize: titleSize, weight: weight) }
+    static func sectionTitle(_ weight: NSFont.Weight = .semibold) -> NSFont { .systemFont(ofSize: sectionTitleSize, weight: weight) }
     static func body(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: bodySize, weight: weight) }
     static func callout(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: calloutSize, weight: weight) }
     static func footnote(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: footnoteSize, weight: weight) }
     static func caption(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: captionSize, weight: weight) }
     static func caption2(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: caption2Size, weight: weight) }
+    static func code(_ weight: NSFont.Weight = .regular) -> NSFont { .monospacedSystemFont(ofSize: codeSize, weight: weight) }
     static func captionMono(_ weight: NSFont.Weight = .regular) -> NSFont { .monospacedSystemFont(ofSize: captionSize, weight: weight) }
 
     // MARK: Shared card / bubble header
 
-    /// The one header title used by EVERY transcript row — message bubbles and
-    /// chrome cards alike: footnote-sized SF semibold, slightly width-expanded to
-    /// match SwiftUI's `.weight(.semibold)` header. Keep all card titles on this
-    /// so the transcript reads as a single scale rather than two competing ones.
+    /// Transcript card titles use the 13pt supporting role, distinct from 14pt
+    /// message prose and 11pt metadata.
     static let header: NSFont = {
-        let semibold = NSFont.systemFont(ofSize: footnoteSize, weight: .semibold)
+        let semibold = NSFont.systemFont(ofSize: calloutSize, weight: .semibold)
         let merged = semibold.fontDescriptor.addingAttributes([
             .traits: [NSFontDescriptor.TraitKey.width: 0.2]
         ])
-        return NSFont(descriptor: merged, size: footnoteSize) ?? semibold
+        return NSFont(descriptor: merged, size: calloutSize) ?? semibold
     }()
 
     /// Side length of the glyph box that sits beside `header` (matches the
@@ -365,13 +369,13 @@ final class PiAgentNativeStatusRowView: PiAgentNativeCardRowView {
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = NativeTranscriptFont.caption(.semibold)
+        titleLabel.font = NativeTranscriptFont.callout(.semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         titleLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailLabel.font = NativeTranscriptFont.caption()
+        detailLabel.font = NativeTranscriptFont.callout()
         detailLabel.textColor = AppTheme.ns(AppTheme.mutedText)
         detailLabel.lineBreakMode = .byTruncatingMiddle
         detailLabel.maximumNumberOfLines = 1
@@ -546,7 +550,7 @@ final class PiAgentNativeStatusDividerView: NSView, PiAgentNativeRowContent {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
 
-        labelField.font = NativeTranscriptFont.caption(.semibold)
+        labelField.font = NativeTranscriptFont.callout(.semibold)
         labelField.textColor = AppTheme.ns(AppTheme.mutedText)
         labelField.lineBreakMode = .byTruncatingTail
         timeField.font = NativeTranscriptFont.caption2()
@@ -637,7 +641,7 @@ final class PiAgentNativeRetryRowView: PiAgentNativeCardRowView {
         NativeTranscriptFont.configureHeaderLabel(headlineLabel)
         headlineLabel.lineBreakMode = .byTruncatingTail
 
-        detailLabel.font = NativeTranscriptFont.caption()
+        detailLabel.font = NativeTranscriptFont.callout()
         detailLabel.textColor = AppTheme.ns(AppTheme.mutedText)
         detailLabel.lineBreakMode = .byWordWrapping
         detailLabel.maximumNumberOfLines = 0
@@ -751,7 +755,7 @@ final class PiAgentNativeErrorRowView: PiAgentNativeCardRowView {
         headlineLabel.lineBreakMode = .byTruncatingTail
         headlineLabel.textColor = .labelColor
 
-        detailLabel.font = NativeTranscriptFont.caption()
+        detailLabel.font = NativeTranscriptFont.callout()
         detailLabel.textColor = AppTheme.ns(AppTheme.mutedText)
         detailLabel.lineBreakMode = .byWordWrapping
         detailLabel.maximumNumberOfLines = 0
@@ -861,7 +865,7 @@ final class PiAgentNativeTextPopoverController: NSViewController {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 300))
 
         let titleLabel = NSTextField(labelWithString: titleText)
-        titleLabel.font = NSFont.preferredFont(forTextStyle: .headline)
+        titleLabel.font = NativeTranscriptFont.sectionTitle()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let scroll = NSScrollView()
@@ -872,7 +876,7 @@ final class PiAgentNativeTextPopoverController: NSViewController {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.font = .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
+        textView.font = NativeTranscriptFont.code()
         textView.string = bodyText
         textView.textContainerInset = NSSize(width: 4, height: 4)
         scroll.documentView = textView
@@ -1165,7 +1169,7 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
 
-        labelField.font = NativeTranscriptFont.caption(.semibold)
+        labelField.font = NativeTranscriptFont.callout(.semibold)
         labelField.textColor = AppTheme.ns(AppTheme.mutedText)
         outcomeField.font = NativeTranscriptFont.caption(.medium)
         outcomeField.textColor = AppTheme.ns(AppTheme.mutedText)

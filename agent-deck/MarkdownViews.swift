@@ -3,6 +3,26 @@ import SwiftUI
 import WebKit
 import os
 
+private enum NativeMarkdownFont {
+    static let title = NSFont.systemFont(ofSize: AppTheme.Font.titleSize, weight: .semibold)
+    static let heading2 = NSFont.systemFont(ofSize: 17, weight: .semibold)
+    static let section = NSFont.systemFont(ofSize: AppTheme.Font.sectionTitleSize, weight: .semibold)
+    static let body = NSFont.systemFont(ofSize: AppTheme.Font.primarySize, weight: .regular)
+    static let code = NSFont.monospacedSystemFont(ofSize: AppTheme.Font.codeSize, weight: .regular)
+    static func codeFont(_ weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: AppTheme.Font.codeSize, weight: weight)
+    }
+    static let frontmatter = NSFont.monospacedSystemFont(ofSize: AppTheme.Font.codeSize, weight: .regular)
+
+    static func heading(level: Int) -> NSFont {
+        switch level {
+        case ...1: title
+        case 2: heading2
+        default: section
+        }
+    }
+}
+
 private enum MarkdownSemanticStyler {
     private static let presentationIntentKey = NSAttributedString.Key("NSInlinePresentationIntent")
     private static let emphasis = 1
@@ -34,7 +54,7 @@ private enum MarkdownSemanticStyler {
     }
 
     static var quoteFont: NSFont {
-        let body = NSFont.preferredFont(forTextStyle: .body)
+        let body = NativeMarkdownFont.body
         guard ThemeManager.shared.markdownHighlightingEnabled else { return body }
         return NSFontManager.shared.convert(body, toHaveTrait: .italicFontMask)
     }
@@ -711,23 +731,16 @@ final class NativeMarkdownTextContainer: NSView {
     private static func textStyling(for kind: MarkdownBlock.Kind) -> (font: NSFont, color: NSColor, parseInlineMarkdown: Bool) {
         switch kind {
         case let .heading(level, _):
-            if level <= 1 {
-                let title3 = NSFont.preferredFont(forTextStyle: .title3)
-                return (NSFontManager.shared.convert(title3, toHaveTrait: .boldFontMask), MarkdownSemanticStyler.headingColor, true)
-            } else {
-                return (NSFont.preferredFont(forTextStyle: .headline), MarkdownSemanticStyler.headingColor, true)
-            }
+            return (NativeMarkdownFont.heading(level: level), MarkdownSemanticStyler.headingColor, true)
         case .paragraph, .bullet, .numbered:
-            return (NSFont.preferredFont(forTextStyle: .body), .labelColor, true)
+            return (NativeMarkdownFont.body, .labelColor, true)
         case .quote:
             return (MarkdownSemanticStyler.quoteFont, MarkdownSemanticStyler.quoteColor, true)
         case .code:
-            // Keep in sync with the code font in `view(for:)` — one style below body.
-            let size = NSFont.preferredFont(forTextStyle: .callout).pointSize
-            return (.monospacedSystemFont(ofSize: size, weight: .regular), MarkdownSemanticStyler.codeBlockColor, false)
+            return (NativeMarkdownFont.code, MarkdownSemanticStyler.codeBlockColor, false)
         case .table:
             // Unreachable (tables rebuild rather than restyle); kept for exhaustiveness.
-            return (NSFont.preferredFont(forTextStyle: .body), .labelColor, true)
+            return (NativeMarkdownFont.body, .labelColor, true)
         }
     }
 
@@ -894,7 +907,7 @@ final class NativeMarkdownTextContainer: NSView {
         if let frontmatter = document.frontmatter, !frontmatter.isEmpty {
             let frontmatterView = Self.paddedTextBlock(
                 frontmatter,
-                font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+                font: NativeMarkdownFont.frontmatter,
                 color: .secondaryLabelColor,
                 fill: AppTheme.nsCodeBlockFill,
                 cornerRadius: AppTheme.Chat.chipCornerRadius,
@@ -1010,17 +1023,7 @@ final class NativeMarkdownTextContainer: NSView {
     private static func view(for block: MarkdownBlock) -> NSView {
         switch block.kind {
         case let .heading(level, text):
-            // Match SwiftUI `.title3.weight(.bold)` for level<=1 and `.headline.weight(.semibold)`
-            // for level>=2. `NSFont.preferredFont(forTextStyle:)` returns the dynamic-type
-            // size, so the headings track the user's text-size setting just like SwiftUI.
-            let baseFont: NSFont
-            if level <= 1 {
-                let title3 = NSFont.preferredFont(forTextStyle: .title3)
-                baseFont = NSFontManager.shared.convert(title3, toHaveTrait: .boldFontMask)
-            } else {
-                // `.headline` on macOS is semibold by default — same as SwiftUI's `.headline.weight(.semibold)`.
-                baseFont = NSFont.preferredFont(forTextStyle: .headline)
-            }
+            let baseFont = NativeMarkdownFont.heading(level: level)
             let view = textView(text, font: baseFont, color: MarkdownSemanticStyler.headingColor)
             if level == 1, ThemeManager.shared.markdownHighlightingEnabled, let storage = view.textStorage {
                 storage.addAttribute(
@@ -1032,7 +1035,7 @@ final class NativeMarkdownTextContainer: NSView {
             view.setContentHuggingPriority(.required, for: .vertical)
             return paddedBlock(view, padding: NSEdgeInsets(top: level <= 2 ? 4 : 2, left: 0, bottom: 0, right: 0))
         case let .paragraph(text):
-            return textView(text, font: NSFont.preferredFont(forTextStyle: .body), color: .labelColor)
+            return textView(text, font: NativeMarkdownFont.body, color: .labelColor)
         case let .bullet(text, indentLevel):
             return listRow(marker: bulletMarker(for: indentLevel), text: text, indentLevel: indentLevel, markerWidth: 18)
         case let .numbered(number, text, indentLevel):
@@ -1048,9 +1051,7 @@ final class NativeMarkdownTextContainer: NSView {
         case let .code(text):
             return paddedTextBlock(
                 text,
-                // Code renders one text style below body — the GitHub/Notion
-                // convention. Reads as code and fits more per line (fewer wraps).
-                font: .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular),
+                font: NativeMarkdownFont.code,
                 color: MarkdownSemanticStyler.codeBlockColor,
                 fill: AppTheme.nsCodeBlockFill,
                 border: AppTheme.nsCodeBlockBorder,
@@ -1069,7 +1070,7 @@ final class NativeMarkdownTextContainer: NSView {
     /// so cells stacked into one tall column — manual layout
     /// is what actually wraps cells into proper columns.
     private static func tableBlock(_ table: MarkdownTable) -> NSView {
-        let bodyFont = NSFont.preferredFont(forTextStyle: .body)
+        let bodyFont = NativeMarkdownFont.body
         let headerFont = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
 
         func cellAttr(_ text: String, isHeader: Bool, alignment: MarkdownTableAlignment) -> NSAttributedString {
@@ -1122,7 +1123,7 @@ final class NativeMarkdownTextContainer: NSView {
         // there is no separate marker view to misalign. Wrapped lines align under the
         // text (headIndent), not under the marker. This is the standard TextKit list
         // layout and removes the baseline/constraint guesswork entirely.
-        let tv = textView("", font: NSFont.preferredFont(forTextStyle: .body), color: .labelColor)
+        let tv = textView("", font: NativeMarkdownFont.body, color: .labelColor)
         tv.applyContent(
             listAttributedString(
                 marker: marker,
@@ -1145,7 +1146,7 @@ final class NativeMarkdownTextContainer: NSView {
         markerWidth: CGFloat,
         markerColor: NSColor = MarkdownSemanticStyler.listMarkerColor
     ) -> NSAttributedString {
-        let bodyFont = NSFont.preferredFont(forTextStyle: .body)
+        let bodyFont = NativeMarkdownFont.body
         // Numbered lists use monospaced digits in SwiftUI (`.body.monospacedDigit().weight(.semibold)`).
         let isNumberedMarker = marker.last == "." && marker.dropLast().allSatisfy(\.isNumber)
         let markerFont = isNumberedMarker
@@ -1344,19 +1345,28 @@ final class NativeMarkdownTextContainer: NSView {
     private static func applyBaseFont(_ baseFont: NSFont, preservingInlineTraitsIn attributed: NSMutableAttributedString) {
         let manager = NSFontManager.shared
         let fullRange = NSRange(location: 0, length: attributed.length)
-        attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
-            var replacement = baseFont
-            if let current = value as? NSFont {
-                let traits = manager.traits(of: current)
-                if traits.contains(.boldFontMask) {
-                    replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
-                }
-                if traits.contains(.italicFontMask) {
-                    replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
-                }
+        attributed.enumerateAttributes(in: fullRange) { attributes, range, _ in
+            let current = attributes[.font] as? NSFont
+            let traits = current.map(manager.traits(of:)) ?? []
+            let isBold = traits.contains(.boldFontMask)
+            let isItalic = traits.contains(.italicFontMask)
+            let inlineIntent = (attributes[NSAttributedString.Key("NSInlinePresentationIntent")] as? NSNumber)?.intValue ?? 0
+            let isCode = (current.map(Self.isMonospaced) ?? false) || (inlineIntent & 4 != 0)
+
+            var replacement = isCode
+                ? NativeMarkdownFont.codeFont(isBold ? .semibold : .regular)
+                : baseFont
+            if isItalic {
+                replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
+            } else if !isCode && isBold {
+                replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
             }
             attributed.addAttribute(.font, value: replacement, range: range)
         }
+    }
+
+    private static func isMonospaced(_ font: NSFont) -> Bool {
+        font.fontDescriptor.symbolicTraits.contains(.monoSpace) || font.fontName.contains("Mono")
     }
 
     private static func bulletMarker(for level: Int) -> String {
@@ -2006,7 +2016,7 @@ private final class PassthroughWKWebView: WKWebView {
     }
 }
 
-private struct MarkdownWebView: NSViewRepresentable {
+struct MarkdownWebView: NSViewRepresentable {
     let content: String
     @Binding var contentHeight: CGFloat
     @Environment(\.colorScheme) private var colorScheme
@@ -2227,7 +2237,7 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     /// The base stylesheet is the pre-highlighting appearance. Enabling Markdown
     /// highlighting appends semantic overrides derived from the active app theme.
-    private static var css: String {
+    static var css: String {
         let base = cssTemplate.replacingOccurrences(
             of: "__ACCENT_HEX__",
             with: ThemeManager.shared.activeTheme.accent.hexString
@@ -2263,8 +2273,8 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     body {
         font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-        font-size: 16px;
-        line-height: 1.6;
+        font-size: 14px;
+        line-height: 1.5;
         width: 100%;
         max-width: 100%;
         margin: 0;
@@ -2331,10 +2341,9 @@ private struct MarkdownWebView: NSViewRepresentable {
         margin-top: 0;
     }
 
-    h1 { font-size: 2em; }
-    h2 { font-size: 1.5em; }
-    h3 { font-size: 1.25em; }
-    h4 { font-size: 1.1em; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 17px; }
+    h3, h4, h5, h6 { font-size: 15px; }
 
     p {
         margin-bottom: 1em;
@@ -2350,7 +2359,7 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     code {
         font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
-        font-size: 0.85em;
+        font-size: 13px;
         background-color: #F0F0F0;
         color: #CC3333;
         padding: 0.15em 0.35em;
@@ -2371,7 +2380,7 @@ private struct MarkdownWebView: NSViewRepresentable {
         background: none;
         color: inherit;
         padding: 0;
-        font-size: 0.85em;
+        font-size: 13px;
     }
 
     blockquote {
@@ -2460,7 +2469,7 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     pre.frontmatter {
         font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
+        font-size: 13px;
         line-height: 1.5;
         color: #333333;
         background-color: #F0F0F0;
@@ -2654,7 +2663,7 @@ private enum TranscriptAttributedStringCache {
         lines.append(widths.map { String(repeating: "─", count: $0) }.joined(separator: "  "))
         lines.append(contentsOf: table.rows.map(format))
 
-        let font = NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
+        let font = NativeMarkdownFont.code
         return NSAttributedString(
             string: lines.joined(separator: "\n"),
             attributes: [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: NSMutableParagraphStyle()]
@@ -2664,11 +2673,7 @@ private enum TranscriptAttributedStringCache {
     // MARK: per-kind rendering — mirrors MarkdownTextView.blockView
 
     private static func headingString(level: Int, text: String, isFirst: Bool) -> NSAttributedString {
-        // SwiftUI: level<=1 → .title3.weight(.bold); else → .headline.weight(.semibold).
-        // `.headline` on macOS is already semibold; `.title3.bold` we synthesize.
-        let baseFont: NSFont = level <= 1
-            ? boldVariant(of: NSFont.preferredFont(forTextStyle: .title3))
-            : NSFont.preferredFont(forTextStyle: .headline)
+        let baseFont = NativeMarkdownFont.heading(level: level)
         let paragraph = NSMutableParagraphStyle()
         // SwiftUI applies .padding(.top, level <= 2 ? 4 : 2). Block separator already
         // contributes the inter-block gap; the heading itself adds this extra top.
@@ -2693,7 +2698,7 @@ private enum TranscriptAttributedStringCache {
         let paragraph = NSMutableParagraphStyle()
         paragraph.paragraphSpacing = 0
         return inlineAttributedString(for: text, baseAttributes: [
-            .font: NSFont.preferredFont(forTextStyle: .body),
+            .font: NativeMarkdownFont.body,
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph
         ])
@@ -2713,7 +2718,7 @@ private enum TranscriptAttributedStringCache {
         paragraph.defaultTabInterval = leading + markerColumnWidth + markerToTextGap
         paragraph.paragraphSpacing = 0
 
-        let baseFont = NSFont.preferredFont(forTextStyle: .body)
+        let baseFont = NativeMarkdownFont.body
         let markerAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask),
             .foregroundColor: MarkdownSemanticStyler.listMarkerColor,
@@ -2742,7 +2747,7 @@ private enum TranscriptAttributedStringCache {
         paragraph.defaultTabInterval = leading + markerColumnWidth + markerToTextGap
         paragraph.paragraphSpacing = 0
 
-        let baseFont = NSFont.preferredFont(forTextStyle: .body)
+        let baseFont = NativeMarkdownFont.body
         let monoNumberFont = NSFont.monospacedDigitSystemFont(ofSize: baseFont.pointSize, weight: .semibold)
         let numberAttrs: [NSAttributedString.Key: Any] = [
             .font: monoNumberFont,
@@ -2781,9 +2786,8 @@ private enum TranscriptAttributedStringCache {
         paragraph.firstLineHeadIndent = 0
         paragraph.headIndent = 0
         paragraph.paragraphSpacing = 0
-        let bodyFontSize = NSFont.preferredFont(forTextStyle: .body).pointSize
         return NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: bodyFontSize, weight: .regular),
+            .font: NativeMarkdownFont.code,
             .foregroundColor: MarkdownSemanticStyler.codeBlockColor,
             .paragraphStyle: paragraph
         ])
@@ -2814,27 +2818,28 @@ private enum TranscriptAttributedStringCache {
     private static func applyBaseFontPreservingInlineTraits(_ baseFont: NSFont, in attributed: NSMutableAttributedString) {
         let manager = NSFontManager.shared
         let fullRange = NSRange(location: 0, length: attributed.length)
-        attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
-            var replacement = baseFont
-            var keepMono = false
-            if let current = value as? NSFont {
-                let traits = manager.traits(of: current)
-                if traits.contains(.boldFontMask) {
-                    replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
-                }
-                if traits.contains(.italicFontMask) {
-                    replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
-                }
-                if current.fontDescriptor.symbolicTraits.contains(.monoSpace) || current.fontName.contains("Mono") {
-                    keepMono = true
-                }
-            }
-            if keepMono {
-                let weight: NSFont.Weight = manager.traits(of: replacement).contains(.boldFontMask) ? .semibold : .regular
-                replacement = NSFont.monospacedSystemFont(ofSize: replacement.pointSize, weight: weight)
+        attributed.enumerateAttributes(in: fullRange) { attributes, range, _ in
+            let current = attributes[.font] as? NSFont
+            let traits = current.map(manager.traits(of:)) ?? []
+            let isBold = traits.contains(.boldFontMask)
+            let isItalic = traits.contains(.italicFontMask)
+            let inlineIntent = (attributes[NSAttributedString.Key("NSInlinePresentationIntent")] as? NSNumber)?.intValue ?? 0
+            let isCode = (current.map(Self.isMonospaced) ?? false) || (inlineIntent & 4 != 0)
+
+            var replacement = isCode
+                ? NativeMarkdownFont.codeFont(isBold ? .semibold : .regular)
+                : baseFont
+            if isItalic {
+                replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
+            } else if !isCode && isBold {
+                replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
             }
             attributed.addAttribute(.font, value: replacement, range: range)
         }
+    }
+
+    private static func isMonospaced(_ font: NSFont) -> Bool {
+        font.fontDescriptor.symbolicTraits.contains(.monoSpace) || font.fontName.contains("Mono")
     }
 
     private static func boldVariant(of font: NSFont) -> NSFont {

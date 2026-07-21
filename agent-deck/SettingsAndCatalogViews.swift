@@ -214,7 +214,7 @@ struct ModelsScreen: View {
         HStack(alignment: .center, spacing: 12) {
             HStack(spacing: 8) {
                 Text(agent.name)
-                    .font(.headline)
+                    .font(AppTheme.Font.sectionTitle)
                     .fontWidth(.expanded)
                     .lineLimit(1)
 

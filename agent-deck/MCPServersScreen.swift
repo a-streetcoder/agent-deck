@@ -237,9 +237,9 @@ struct MCPServersScreen: View {
     private var detailPlaceholder: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Select a server")
-                .font(.title3.weight(.semibold))
+                .font(AppTheme.Font.sectionTitle)
             Text("Pick a server on the left to see its tools, test the connection, and assign it to projects.")
-                .font(.callout).foregroundStyle(AppTheme.mutedText)
+                .font(AppTheme.Font.supporting).foregroundStyle(AppTheme.mutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -317,11 +317,11 @@ struct MCPServersScreen: View {
                 detailRow(icon: "doc", text: sourceLabel(entry))
                 if let diagnostic = entry.availabilityDiagnostic ?? entry.diagnostic {
                     Label(diagnostic, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        .font(AppTheme.Font.supporting).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 if case let .failed(message) = statusByServer[entry.name] {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        .font(AppTheme.Font.supporting).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -384,15 +384,15 @@ struct MCPServersScreen: View {
         return AppCard(title: tools.isEmpty ? "Tools" : "Tools (\(tools.count))") {
             if tools.isEmpty {
                 Text(emptyToolsMessage(for: entry))
-                    .font(.caption).foregroundStyle(AppTheme.mutedText)
+                    .font(AppTheme.Font.supporting).foregroundStyle(AppTheme.mutedText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(tools.enumerated()), id: \.element.id) { index, tool in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(tool.name).font(.callout.monospaced().weight(.medium))
+                            Text(tool.name).font(AppTheme.Font.code.weight(.medium))
                             if let description = tool.description, !description.isEmpty {
-                                Text(description).font(.caption).foregroundStyle(AppTheme.mutedText)
+                                Text(description).font(AppTheme.Font.supporting).foregroundStyle(AppTheme.mutedText)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }

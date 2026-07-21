@@ -512,7 +512,7 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         let textView = DropSafeNSTextView()
         textView.delegate = context.coordinator
         textView.string = text
-        textView.font = NSFont.preferredFont(forTextStyle: .body)
+        textView.font = NativeTranscriptFont.body()
         textView.backgroundColor = .clear
         textView.drawsBackground = false
         textView.isRichText = false
@@ -543,6 +543,7 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
             textView.string = text
         }
         textView.isEditable = !isDisabled
+        textView.font = NativeTranscriptFont.body()
         textView.dropHandler = context.coordinator
         textView.keyHandler = context.coordinator
     }

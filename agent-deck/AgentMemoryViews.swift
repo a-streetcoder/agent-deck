@@ -231,12 +231,12 @@ struct MemoryScreen: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 5) {
                 Text(record.title.isEmpty ? "Untitled Memory" : record.title)
-                    .font(.headline)
+                    .font(AppTheme.Font.sectionTitle)
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(record.summary.isEmpty ? "No summary provided." : record.summary)
-                    .font(.caption)
+                    .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
             }

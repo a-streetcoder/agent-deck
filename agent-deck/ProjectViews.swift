@@ -32,9 +32,9 @@ struct ProjectAssignmentToggleRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(project.name)
-                    .font(.body.weight(.semibold))
+                    .font(AppTheme.Font.primary.weight(.semibold))
                 Text(project.repositoryName ?? project.path)
-                    .font(.caption)
+                    .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -71,9 +71,9 @@ struct AllProjectsAssignmentRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("All Projects")
-                    .font(.body.weight(.semibold))
+                    .font(AppTheme.Font.primary.weight(.semibold))
                 Text(subtitle)
-                    .font(.caption)
+                    .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
                     .truncationMode(.middle)

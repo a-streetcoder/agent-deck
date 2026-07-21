@@ -157,7 +157,7 @@ final class NativeDiffPreviewView: NSView {
     override func accessibilityChildren() -> [Any]? { lineAccessibilityElements }
 
     private static func monospaceFont(weight: NSFont.Weight) -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: weight)
+        NativeTranscriptFont.code(weight)
     }
 
     private var lineHeight: CGFloat {

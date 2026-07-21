@@ -10,7 +10,7 @@ struct SidebarNavigationRow: View {
         Label {
             HStack(spacing: 6) {
                 Text(item.rawValue)
-                    .font(.callout.weight(.medium))
+                    .font(AppTheme.Font.primary.weight(.medium))
                 if showsNewFeatureBadge {
                     SidebarNewFeatureBadge(isSelected: isSelected)
                 }
@@ -180,7 +180,7 @@ struct ProjectToolbarSelector: View {
                     Text("Select Project")
                 }
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
         }
@@ -323,11 +323,11 @@ struct ProjectSidebarRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppTheme.Font.supporting.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(AppTheme.Font.micro)
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(1)
                 }

@@ -919,7 +919,7 @@ final class PiAgentNativeKeyValuePopover: NSViewController {
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
 
         let title = NSTextField(labelWithString: titleText)
-        title.font = NSFont.preferredFont(forTextStyle: .headline)
+        title.font = NativeTranscriptFont.sectionTitle()
         stack.addArrangedSubview(title)
 
         for (k, v) in rows {
