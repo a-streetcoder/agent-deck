@@ -520,9 +520,8 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerLabel.font = Self.headerFont
+        NativeTranscriptFont.configureHeaderLabel(headerLabel)
         headerLabel.lineBreakMode = .byTruncatingTail
-        headerLabel.maximumNumberOfLines = 1
         headerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         prefixLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -608,8 +607,8 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             cardView.bottomAnchor.constraint(equalTo: bottomAnchor),
             cardWidthC,
             iconLeadingC, iconTopC,
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
+            iconView.widthAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
+            iconView.heightAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
             headerLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 7),
             headerLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             headerTrailingC,
@@ -822,7 +821,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     }
 
     private func headerRowHeight() -> CGFloat {
-        max(16, ceil(headerLabel.intrinsicContentSize.height))
+        NativeTranscriptFont.headerIconSize
     }
 
     private enum ContentBlock {

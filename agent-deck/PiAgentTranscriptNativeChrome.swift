@@ -174,10 +174,9 @@ final class PiAgentNativeForkOriginCardView: NSView, PiAgentNativeRowContent {
         glyph.imageScaling = .scaleProportionallyDown
         glyph.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(titleLabel)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingMiddle
-        titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         subtitleLabel.font = NativeTranscriptFont.caption()
@@ -518,10 +517,9 @@ final class PiAgentNativeStateCardView: NSView, PiAgentNativeRowContent {
         glyph.contentTintColor = AppTheme.ns(AppTheme.mutedText)
         glyph.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(titleLabel)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
 
         subtitleLabel.font = NativeTranscriptFont.footnote()
         subtitleLabel.textColor = AppTheme.ns(AppTheme.mutedText)

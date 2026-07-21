@@ -683,6 +683,12 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         return f
     }
 
+    private static func headerLabel(_ text: String) -> NSTextField {
+        let field = label(text, font: NativeTranscriptFont.header)
+        NativeTranscriptFont.configureHeaderLabel(field)
+        return field
+    }
+
     // MARK: MCP card
 
     private func buildMCPCard(_ mcp: NativeToolGroupModel.MCP) -> NSView {
@@ -700,7 +706,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.spacing = 8
         header.alignment = .centerY
         header.addArrangedSubview(Self.headerGlyph(AppSymbols.mcp, isAsset: true, tint: mcp.hasErrors ? AppTheme.ns(AppTheme.roleError) : Self.muted))
-        header.addArrangedSubview(Self.label("MCP", font: NativeTranscriptFont.header))
+        header.addArrangedSubview(Self.headerLabel("MCP"))
         stack.addArrangedSubview(header)
 
         for row in mcp.rows {
@@ -840,7 +846,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.alignment = .centerY
         header.spacing = 7
         header.addArrangedSubview(Self.headerGlyph("photo", tint: Self.muted))
-        header.addArrangedSubview(Self.label("Images", font: NativeTranscriptFont.caption(.semibold), color: .labelColor, wraps: false))
+        header.addArrangedSubview(Self.headerLabel("Images"))
         header.addArrangedSubview(Self.label(images.references.count == 1 ? "1 image" : "\(images.references.count) images", font: NativeTranscriptFont.caption2(), color: .secondaryLabelColor, wraps: false))
         if images.hiddenCount > 0 {
             header.addArrangedSubview(Self.label("+\(images.hiddenCount) more", font: NativeTranscriptFont.caption2(), color: .tertiaryLabelColor, wraps: false))
@@ -902,7 +908,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.alignment = .centerY
         let globe = Self.headerGlyph("globe", tint: web.hasErrors ? AppTheme.ns(AppTheme.roleError) : Self.muted)
         header.addArrangedSubview(globe)
-        header.addArrangedSubview(Self.label(web.title, font: NativeTranscriptFont.header))
+        header.addArrangedSubview(Self.headerLabel(web.title))
         stack.addArrangedSubview(header)
 
         for row in web.rows {
@@ -1019,7 +1025,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.spacing = 8
         header.alignment = .centerY
         header.addArrangedSubview(Self.headerGlyph("plusminus", tint: Self.muted))
-        header.addArrangedSubview(Self.label("Changes", font: NativeTranscriptFont.header))
+        header.addArrangedSubview(Self.headerLabel("Changes"))
         stack.addArrangedSubview(header)
 
         for row in diff.rows {

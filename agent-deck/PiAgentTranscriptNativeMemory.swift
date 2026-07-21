@@ -148,10 +148,9 @@ final class PiAgentNativeMemoryCardView: NSView, PiAgentNativeRowContent {
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(titleLabel)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         fallbackLabel.translatesAutoresizingMaskIntoConstraints = false

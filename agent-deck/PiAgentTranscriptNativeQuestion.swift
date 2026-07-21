@@ -754,9 +754,8 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
         iconView.contentTintColor = .labelColor
 
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerLabel.font = PiAgentNativeQuestionView.headerFont
+        NativeTranscriptFont.configureHeaderLabel(headerLabel)
         headerLabel.textColor = .labelColor
-        headerLabel.maximumNumberOfLines = 1
 
         chipRow.translatesAutoresizingMaskIntoConstraints = false
         markdown.translatesAutoresizingMaskIntoConstraints = false
@@ -824,15 +823,6 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
 
             headerLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 7),
             headerLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            // Explicit height so the title is deterministic from the FIRST layout
-            // pass. With only a centerY pin the label's height floats on its
-            // intrinsic content size, which AppKit's solver doesn't always honor
-            // on the first solve of a freshly-sent card — it transiently assigns
-            // an over-tall frame (observed ~84pt for a ~16pt label) and NSTextField
-            // draws "You" at the TOP of it (header sits high vs the icon) until a
-            // later relayout collapses it. Pinning to the icon-box height matches
-            // the settled geometry exactly and removes the ambiguity.
-            headerLabel.heightAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
             headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: cardView.trailingAnchor, constant: -hPad),
 
             divider.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: hPad),

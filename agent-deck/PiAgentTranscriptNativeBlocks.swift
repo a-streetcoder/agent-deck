@@ -36,6 +36,15 @@ enum NativeTranscriptFont {
     /// message bubbles' 16pt icon).
     static let headerIconSize: CGFloat = 16
 
+    /// Applies the shared title geometry used beside transcript header icons.
+    /// A deterministic height keeps AppKit from giving a fresh label an over-tall
+    /// first-layout frame, which paints the text above the centered glyph.
+    static func configureHeaderLabel(_ label: NSTextField) {
+        label.font = header
+        label.maximumNumberOfLines = 1
+        label.heightAnchor.constraint(equalToConstant: headerIconSize).isActive = true
+    }
+
     /// A header glyph rendered at its natural ~15pt size (never upscaled to fill
     /// the box) at the shared `AppTheme.cardSymbolScale`. Returned as a template
     /// image so the caller flat-tints it to match its container's color.
@@ -625,7 +634,7 @@ final class PiAgentNativeRetryRowView: PiAgentNativeCardRowView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
-        headlineLabel.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(headlineLabel)
         headlineLabel.lineBreakMode = .byTruncatingTail
 
         detailLabel.font = NativeTranscriptFont.caption()
@@ -738,9 +747,8 @@ final class PiAgentNativeErrorRowView: PiAgentNativeCardRowView {
         iconView.setContentHuggingPriority(.required, for: .horizontal)
         iconView.image = NativeTranscriptFont.headerIcon("exclamationmark.triangle.fill")
 
-        headlineLabel.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(headlineLabel)
         headlineLabel.lineBreakMode = .byTruncatingTail
-        headlineLabel.maximumNumberOfLines = 1
         headlineLabel.textColor = .labelColor
 
         detailLabel.font = NativeTranscriptFont.caption()
@@ -1153,10 +1161,9 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(titleLabel)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
 
         labelField.font = NativeTranscriptFont.caption(.semibold)
         labelField.textColor = AppTheme.ns(AppTheme.mutedText)
@@ -1456,7 +1463,7 @@ final class PiAgentNativeLoopRunCardView: NSView, PiAgentNativeRowContent {
         iconView.contentTintColor = AppTheme.ns(AppTheme.brandAccent)
 
         titleField.translatesAutoresizingMaskIntoConstraints = false
-        titleField.font = NativeTranscriptFont.header
+        NativeTranscriptFont.configureHeaderLabel(titleField)
         titleField.textColor = .labelColor
         titleField.lineBreakMode = .byTruncatingTail
         statusField.translatesAutoresizingMaskIntoConstraints = false
@@ -1519,8 +1526,8 @@ final class PiAgentNativeLoopRunCardView: NSView, PiAgentNativeRowContent {
             cardWidthC,
             card.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             card.bottomAnchor.constraint(equalTo: bottomAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
+            iconView.widthAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
+            iconView.heightAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
             header.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: AppTheme.Chat.bubbleHPadding),
             header.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -AppTheme.Chat.bubbleHPadding),
             header.topAnchor.constraint(equalTo: card.topAnchor, constant: AppTheme.Chat.bubbleVPadding),
