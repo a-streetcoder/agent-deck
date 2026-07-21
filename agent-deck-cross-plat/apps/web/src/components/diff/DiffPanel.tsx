@@ -1,14 +1,41 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, X } from "lucide-react";
-import { Virtuoso } from "react-virtuoso";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, MessageSquarePlus, Pencil, Trash2, X } from "lucide-react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/cn";
 import { summarizeDiffStats } from "@/lib/changedFilesTree";
 import { parseUnifiedDiff, type DiffLine } from "@/lib/unifiedDiff";
+import {
+  buildLineReviewComment,
+  findAnchoredLineIndex,
+  isCommentableLine,
+  type PendingReviewComment,
+} from "@/lib/reviewComments";
 import { fetchFileDiff } from "../../state/wsBridge.ts";
 import { useAppStore } from "../../state/store.ts";
 import { ChangedFilesTree } from "./ChangedFilesTree.tsx";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel.tsx";
 import { OpenInPicker, editorLabel, useOpenInEditor } from "./OpenInPicker.tsx";
+
+/** Monotonic ids for pending review comments (never rendered — anchor is
+ * side+line — so a plain counter is enough and avoids secure-context reliance
+ * on crypto.randomUUID). */
+let reviewCommentSeq = 0;
+function nextReviewCommentId(): string {
+  reviewCommentSeq += 1;
+  return `review-${reviewCommentSeq}`;
+}
+
+/** Which diff row (if any) has its inline comment editor open, and whether it is
+ * adding a fresh comment or editing an existing one. */
+interface CommentBoxState {
+  rowIndex: number;
+  mode: "add" | "edit";
+  commentId?: string;
+  initialText: string;
+}
+
+/** Stable empty reference so the selector never returns a fresh array. */
+const EMPTY_COMMENTS: readonly PendingReviewComment[] = [];
 
 /**
  * The changed-files / diff panel (Slice 10): a right-hand aside on the chat
@@ -67,23 +94,174 @@ const LINE_STYLE: Record<DiffLine["kind"], { row?: string; text?: string }> = {
   context: { text: "text-text-secondary" },
 };
 
-function DiffLineRow({ line }: { line: DiffLine }) {
-  const style = LINE_STYLE[line.kind];
+/** The inline comment editor rendered beneath a diff row (Slice 12). */
+function InlineCommentEditor(props: {
+  initialText: string;
+  mode: "add" | "edit";
+  onSubmit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(props.initialText);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
   return (
     <div
-      className={cn("flex items-start font-mono text-[11px] leading-[1.5]", style.row)}
-      data-testid="diff-line"
-      data-kind={line.kind}
+      className="border-y border-border-subtle bg-surface-elevated px-3 py-2"
+      data-testid="diff-comment-box"
     >
-      <span className="w-9 shrink-0 select-none pr-1 text-right tabular-nums text-text-muted/70 text-[10px] leading-[1.65]">
-        {line.oldLine ?? ""}
+      <textarea
+        ref={ref}
+        data-testid="diff-comment-input"
+        className="block max-h-40 min-h-[3.5rem] w-full resize-y rounded-md border border-border-strong bg-surface px-2 py-1.5 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
+        placeholder="Leave a comment on this line…"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancel();
+            return;
+          }
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            if (text.trim().length > 0) props.onSubmit(text);
+          }
+        }}
+      />
+      <div className="mt-1.5 flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          data-testid="diff-comment-cancel"
+          className="rounded-md px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
+          onClick={props.onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          data-testid="diff-comment-save"
+          disabled={text.trim().length === 0}
+          className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-foreground)] transition-opacity hover:opacity-90 disabled:opacity-40"
+          onClick={() => props.onSubmit(text)}
+        >
+          {props.mode === "edit" ? "Save" : "Comment"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A committed pending comment shown inline under its anchored row. */
+function InlineCommentCard(props: {
+  comment: PendingReviewComment;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className="flex items-start gap-2 border-y border-border-subtle bg-[color-mix(in_srgb,var(--color-accent)_7%,var(--color-surface-elevated))] px-3 py-1.5"
+      data-testid="diff-inline-comment"
+    >
+      <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-text-secondary">
+        {props.comment.text}
       </span>
-      <span className="w-9 shrink-0 select-none pr-2 text-right tabular-nums text-text-muted/70 text-[10px] leading-[1.65]">
-        {line.newLine ?? ""}
-      </span>
-      <span className={cn("min-w-0 flex-1 whitespace-pre-wrap break-all pr-2", style.text)}>
-        {line.text.length > 0 ? line.text : " "}
-      </span>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          data-testid="diff-inline-comment-edit"
+          className="rounded p-0.5 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
+          title="Edit comment"
+          aria-label="Edit comment"
+          onClick={props.onEdit}
+        >
+          <Pencil className="h-3 w-3" aria-hidden />
+        </button>
+        <button
+          type="button"
+          data-testid="diff-inline-comment-remove"
+          className="rounded p-0.5 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-[var(--color-role-error)]"
+          title="Delete comment"
+          aria-label="Delete comment"
+          onClick={props.onRemove}
+        >
+          <Trash2 className="h-3 w-3" aria-hidden />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DiffLineRow(props: {
+  line: DiffLine;
+  commentable: boolean;
+  comments: readonly PendingReviewComment[];
+  boxOpen: boolean;
+  boxMode: "add" | "edit" | undefined;
+  boxCommentId: string | undefined;
+  boxInitialText: string;
+  onAddComment: () => void;
+  onEditComment: (comment: PendingReviewComment) => void;
+  onRemoveComment: (commentId: string) => void;
+  onSubmit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const { line } = props;
+  const style = LINE_STYLE[line.kind];
+  return (
+    <div>
+      <div
+        className={cn(
+          "group/diffrow flex items-start font-mono text-[11px] leading-[1.5]",
+          style.row,
+        )}
+        data-testid="diff-line"
+        data-kind={line.kind}
+      >
+        <span className="w-9 shrink-0 select-none pr-1 text-right tabular-nums text-text-muted/70 text-[10px] leading-[1.65]">
+          {line.oldLine ?? ""}
+        </span>
+        <span className="w-9 shrink-0 select-none pr-2 text-right tabular-nums text-text-muted/70 text-[10px] leading-[1.65]">
+          {line.newLine ?? ""}
+        </span>
+        <span className={cn("min-w-0 flex-1 whitespace-pre-wrap break-all pr-2", style.text)}>
+          {line.text.length > 0 ? line.text : " "}
+        </span>
+        {/* Hover-revealed add-comment affordance (hidden at rest so the resting
+            panel layout — and the diff-panel visual baseline — is unchanged). */}
+        {props.commentable && !props.boxOpen && (
+          <button
+            type="button"
+            data-testid="diff-comment-add"
+            className="mr-1 hidden shrink-0 rounded p-0.5 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-accent group-focus-within/diffrow:flex group-hover/diffrow:flex"
+            title="Comment on this line"
+            aria-label="Comment on this line"
+            onClick={props.onAddComment}
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        )}
+      </div>
+      {props.comments.map((comment) =>
+        props.boxOpen && props.boxMode === "edit" && props.boxCommentId === comment.id ? null : (
+          <InlineCommentCard
+            key={comment.id}
+            comment={comment}
+            onEdit={() => props.onEditComment(comment)}
+            onRemove={() => props.onRemoveComment(comment.id)}
+          />
+        ),
+      )}
+      {props.boxOpen && props.boxMode !== undefined && (
+        <InlineCommentEditor
+          key={`${props.boxMode}:${props.boxCommentId ?? "new"}`}
+          initialText={props.boxInitialText}
+          mode={props.boxMode}
+          onSubmit={props.onSubmit}
+          onCancel={props.onCancel}
+        />
+      )}
     </div>
   );
 }
@@ -126,6 +304,68 @@ export function DiffPanel() {
   // affordances (file-header picker, tree-row hover action) are hover-revealed
   // so the resting panel layout — and the visual baseline — stay unchanged.
   const editorPicker = useOpenInEditor();
+
+  // Slice 12: review comments for the current session + the jump-to-diff
+  // request a pending composer card raises. The panel is the capture surface
+  // (add/edit/delete inline on rows) and the jump target.
+  const pendingComments = useAppStore((state) =>
+    sessionId ? (state.pendingReviewComments[sessionId] ?? EMPTY_COMMENTS) : EMPTY_COMMENTS,
+  );
+  const addReviewComment = useAppStore((state) => state.addReviewComment);
+  const updateReviewComment = useAppStore((state) => state.updateReviewComment);
+  const removeReviewComment = useAppStore((state) => state.removeReviewComment);
+  const diffJumpRequest = useAppStore((state) => state.diffJumpRequest);
+  const clearDiffJump = useAppStore((state) => state.clearDiffJump);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [commentBox, setCommentBox] = useState<CommentBoxState | null>(null);
+
+  // A jump request naming a different file selects it first; the scroll happens
+  // once that file's patch has loaded (the effect below). A request whose file
+  // has left the changed set (reverted/committed while its composer card stayed
+  // clickable) is DROPPED, not selected: selecting a path the guard effect
+  // below immediately nulls out would ping-pong gone.txt -> null -> gone.txt
+  // forever ("Maximum update depth exceeded"), since the scroll effect that
+  // normally clears the request never fires for a file whose fetch is aborted.
+  useEffect(() => {
+    if (diffJumpRequest === null) return;
+    if (!files.some((file) => file.path === diffJumpRequest.path)) {
+      clearDiffJump();
+      return;
+    }
+    if (diffJumpRequest.path !== selectedPath) {
+      setSelectedPath(diffJumpRequest.path);
+    }
+  }, [diffJumpRequest, selectedPath, files, clearDiffJump]);
+
+  // Scroll to the anchored row once the requested file's patch is loaded, then
+  // drop the request. Matched by side+line (never a stale index) so an edit
+  // above the anchor doesn't misdirect the jump; a vanished line just no-ops.
+  useEffect(() => {
+    if (
+      diffJumpRequest === null ||
+      diffJumpRequest.path !== selectedPath ||
+      fileDiff === null ||
+      fileDiff.status !== "loaded" ||
+      fileDiff.path !== selectedPath
+    ) {
+      return;
+    }
+    const index = findAnchoredLineIndex(fileDiff.lines, diffJumpRequest);
+    if (index >= 0) {
+      virtuosoRef.current?.scrollToIndex({ index, align: "center" });
+    }
+    clearDiffJump();
+  }, [diffJumpRequest, selectedPath, fileDiff, clearDiffJump]);
+
+  // A closed editor whose row no longer exists (file switched) is dropped; an
+  // OPEN editor is also dropped when the same file's patch refreshes (diff_push
+  // rebuilds `fileDiff.lines`). The box anchors by captured rowIndex, so a
+  // survivor would silently re-anchor to — and serialize the excerpt of —
+  // whatever content now sits at that index (e.g. a hunk that landed above),
+  // with no staleness signal. Closing it is the honest signal.
+  useEffect(() => {
+    setCommentBox(null);
+  }, [selectedPath, sessionId, fileDiff]);
 
   const summaryStat = useMemo(() => summarizeDiffStats(files), [files]);
   const selectedEntry = selectedPath
@@ -213,6 +453,47 @@ export function DiffPanel() {
       ? activeDiff.lines.find((line) => line.kind === "add" || line.kind === "del")
       : undefined;
   const openAtLine = firstChanged?.newLine ?? firstChanged?.oldLine ?? undefined;
+
+  // Pending comments anchored to the OPEN file, mapped to their rendered row
+  // (by side+line — the same rule the composer-card jump uses). Comments whose
+  // line no longer exists in the refreshed patch simply don't anchor (they
+  // still ride the composer).
+  const commentsForFile =
+    selectedPath !== null
+      ? pendingComments.filter((comment) => comment.filePath === selectedPath)
+      : EMPTY_COMMENTS;
+  const commentsByRow = new Map<number, PendingReviewComment[]>();
+  if (activeDiff !== null && activeDiff.status === "loaded") {
+    for (const comment of commentsForFile) {
+      const index = findAnchoredLineIndex(activeDiff.lines, comment);
+      if (index < 0) continue;
+      const bucket = commentsByRow.get(index);
+      if (bucket) bucket.push(comment);
+      else commentsByRow.set(index, [comment]);
+    }
+  }
+
+  const submitComment = (rowIndex: number, text: string): void => {
+    const trimmed = text.trim();
+    if (commentBox?.mode === "edit" && commentBox.commentId !== undefined) {
+      if (trimmed.length > 0) updateReviewComment(sessionId, commentBox.commentId, trimmed);
+      setCommentBox(null);
+      return;
+    }
+    if (trimmed.length === 0 || activeDiff === null || selectedPath === null) {
+      setCommentBox(null);
+      return;
+    }
+    const comment = buildLineReviewComment({
+      id: nextReviewCommentId(),
+      filePath: selectedPath,
+      lines: activeDiff.lines,
+      lineIndex: rowIndex,
+      text: trimmed,
+    });
+    if (comment !== null) addReviewComment(sessionId, comment);
+    setCommentBox(null);
+  };
 
   return (
     <aside
@@ -370,9 +651,39 @@ export function DiffPanel() {
                would anchor to the chat layer and swallow clicks panel-wide. */
             <div className="relative min-h-0 flex-1" data-testid="diff-lines">
               <Virtuoso
+                ref={virtuosoRef}
                 style={{ height: "100%" }}
                 totalCount={activeDiff.lines.length}
-                itemContent={(index) => <DiffLineRow line={activeDiff.lines[index]!} />}
+                itemContent={(index) => {
+                  const line = activeDiff.lines[index]!;
+                  const rowComments = commentsByRow.get(index) ?? EMPTY_COMMENTS;
+                  const boxOpen = commentBox?.rowIndex === index;
+                  return (
+                    <DiffLineRow
+                      line={line}
+                      commentable={isCommentableLine(line)}
+                      comments={rowComments}
+                      boxOpen={boxOpen}
+                      boxMode={boxOpen ? commentBox?.mode : undefined}
+                      boxCommentId={boxOpen ? commentBox?.commentId : undefined}
+                      boxInitialText={boxOpen ? (commentBox?.initialText ?? "") : ""}
+                      onAddComment={() =>
+                        setCommentBox({ rowIndex: index, mode: "add", initialText: "" })
+                      }
+                      onEditComment={(comment) =>
+                        setCommentBox({
+                          rowIndex: index,
+                          mode: "edit",
+                          commentId: comment.id,
+                          initialText: comment.text,
+                        })
+                      }
+                      onRemoveComment={(commentId) => removeReviewComment(sessionId, commentId)}
+                      onSubmit={(text) => submitComment(index, text)}
+                      onCancel={() => setCommentBox(null)}
+                    />
+                  );
+                }}
               />
             </div>
           )}

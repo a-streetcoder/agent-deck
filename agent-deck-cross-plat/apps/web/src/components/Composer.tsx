@@ -23,11 +23,17 @@ import {
 } from "./composer/pickers.tsx";
 import { SuggestionPanel } from "./composer/SuggestionPanel.tsx";
 import { useSuggestions } from "./composer/useSuggestions.ts";
+import { ComposerPendingReviewComments } from "./composer/ComposerPendingReviewComments.tsx";
+import { appendReviewCommentsToPrompt, type PendingReviewComment } from "../lib/reviewComments.ts";
 
 interface PendingImage extends ImageAttachment {
   id: string;
   name: string;
 }
+
+/** Stable empty reference so the pending-comments selector never returns a
+ * fresh array (which would re-render the composer every store change). */
+const EMPTY_COMMENTS: readonly PendingReviewComment[] = [];
 
 async function fileToImage(file: File): Promise<PendingImage | null> {
   if (!file.type.startsWith("image/")) return null;
@@ -65,6 +71,18 @@ export function Composer() {
   const connection = useAppStore((state) => state.connection);
   const session = useAppStore((state) => state.session);
   const currentAgentName = useAppStore((state) => state.currentAgentName);
+  // Pending review comments (Slice 12) for the CURRENT session: captured on
+  // diff rows, shown as cards above the editor, serialized into the next send.
+  const sessionIdForComments = session?.id ?? null;
+  const pendingComments = useAppStore((state) =>
+    sessionIdForComments
+      ? (state.pendingReviewComments[sessionIdForComments] ?? EMPTY_COMMENTS)
+      : EMPTY_COMMENTS,
+  );
+  const removeReviewComment = useAppStore((state) => state.removeReviewComment);
+  const clearReviewComments = useAppStore((state) => state.clearReviewComments);
+  const requestDiffJump = useAppStore((state) => state.requestDiffJump);
+  const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
   const agents = useAgents();
   const running = agentStatus === "running";
   const pickableAgents = agents.filter((agent) => !agent.shadowed && !agent.disabled);
@@ -97,6 +115,8 @@ export function Composer() {
   // Previous values so stats refresh only on genuine transitions (a turn
   // completing / a compaction), never on the fresh/initial session state.
   const prevAgentStatusRef = useRef<"idle" | "running" | null>(null);
+  /** Blocks a same-frame double-submit (see submit(); reset on the next tick). */
+  const sendLockRef = useRef(false);
   const prevContextRevisionRef = useRef(0);
 
   const refreshPiState = useCallback(async (): Promise<void> => {
@@ -258,14 +278,40 @@ export function Composer() {
   );
 
   const submit = (): void => {
+    // Same-frame re-entry guard: `running` only disables the send control after
+    // an async WS echo, so two click events dispatched in one frame (fast
+    // double-click, or Enter+click) both pass the `running` check against the
+    // same render-scope closures and send TWICE — duplicating the turn AND its
+    // serialized review comments (which the first call clears but the second
+    // still sees pre-re-render). The synchronous ref blocks the second; a
+    // microtask reset reopens it next tick (legitimate rapid sends still work).
+    if (sendLockRef.current) return;
     const message = draft.trim();
-    if ((!message && images.length === 0) || connection !== "open" || running) return;
+    // A send is valid with just pending review comments (a comments-only turn),
+    // matching the donor's append-and-send when the composer text is empty.
+    if (
+      (!message && images.length === 0 && pendingComments.length === 0) ||
+      connection !== "open" ||
+      running
+    )
+      return;
+    sendLockRef.current = true;
+    queueMicrotask(() => {
+      sendLockRef.current = false;
+    });
+    // Prepend/attach the pending comments as the donor serializes them (one
+    // structured <review_comment> block per comment) and clear the set — they
+    // ride this single prompt turn to pi, not a new server op.
+    const outgoing = appendReviewCommentsToPrompt(message, pendingComments);
     sendPrompt(
-      message,
+      outgoing,
       images.length > 0
         ? images.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
         : undefined,
     );
+    if (pendingComments.length > 0 && sessionIdForComments) {
+      clearReviewComments(sessionIdForComments);
+    }
     setDraft("");
     setImages([]);
     suggestions.close();
@@ -287,6 +333,17 @@ export function Composer() {
             testid={suggestions.mode === "slash" ? "slash-panel" : "file-panel"}
           />
         ) : null}
+
+        <ComposerPendingReviewComments
+          comments={pendingComments}
+          onRemove={(commentId) => {
+            if (sessionIdForComments) removeReviewComment(sessionIdForComments, commentId);
+          }}
+          onJump={(comment) => {
+            setDiffPanelOpen(true);
+            requestDiffJump({ path: comment.filePath, side: comment.side, line: comment.line });
+          }}
+        />
 
         {images.length > 0 ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3" data-testid="attachments">
@@ -480,7 +537,10 @@ export function Composer() {
           </label>
           <SendStopButton
             running={running}
-            disabled={(!draft.trim() && images.length === 0) || connection !== "open"}
+            disabled={
+              (!draft.trim() && images.length === 0 && pendingComments.length === 0) ||
+              connection !== "open"
+            }
             onSend={submit}
             onStop={sendAbort}
           />

@@ -1,6 +1,16 @@
 import type { DiffFileEntry, ProjectMeta, SessionMeta } from "@agent-deck/contracts";
 import { emptyTranscript, type TranscriptState } from "@agent-deck/domain";
 import { create } from "zustand";
+import type { PendingReviewComment, ReviewCommentSide } from "../lib/reviewComments.ts";
+
+/** A jump-to-diff request raised by a pending review-comment card (Slice 12). */
+export interface DiffJumpRequest {
+  path: string;
+  side: ReviewCommentSide;
+  line: number;
+  /** Distinguishes repeat jumps to the same anchor. */
+  token: number;
+}
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
@@ -74,6 +84,15 @@ export interface AppState {
   diffFiles: readonly DiffFileEntry[];
   /** True when the set was capped at the server's DIFF_MAX_FILES bound. */
   diffTruncated: boolean;
+  /**
+   * Pending review comments per SESSION id (Slice 12): captured on diff rows,
+   * shown above the composer, serialized into the next outgoing prompt and
+   * cleared by the send. Keyed by session so switching sessions keeps each
+   * set separate; page reload drops them (deliberate — see lib/reviewComments).
+   */
+  pendingReviewComments: Record<string, readonly PendingReviewComment[]>;
+  /** A jump-to-diff request from a pending card; consumed by the DiffPanel. */
+  diffJumpRequest: DiffJumpRequest | null;
   transcript: TranscriptState;
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
   lastSeq: number;
@@ -96,6 +115,18 @@ export interface AppState {
   setDiffState(state: { repo: boolean; files: readonly DiffFileEntry[]; truncated: boolean }): void;
   /** Drop the previous session's set on a session switch (panel stays open). */
   resetDiffState(): void;
+  /** Add a captured review comment to a session's pending set (Slice 12). */
+  addReviewComment(sessionId: string, comment: PendingReviewComment): void;
+  /** Edit a pending comment's body in place (anchor + excerpt unchanged). */
+  updateReviewComment(sessionId: string, commentId: string, text: string): void;
+  /** Drop one pending comment (inline card / composer card dismiss). */
+  removeReviewComment(sessionId: string, commentId: string): void;
+  /** Clear a session's whole pending set (the send that delivered them). */
+  clearReviewComments(sessionId: string): void;
+  /** Raise a jump-to-diff request from a pending card; the DiffPanel consumes it. */
+  requestDiffJump(request: Omit<DiffJumpRequest, "token">): void;
+  /** The DiffPanel drops the request once it has scrolled to the anchor. */
+  clearDiffJump(): void;
   upsertSessionMeta(session: SessionMeta): void;
   removeSession(sessionId: string): void;
   setSnapshot(state: TranscriptState, seq: number): void;
@@ -135,6 +166,8 @@ export const useAppStore = create<AppState>((set) => ({
   diffRepo: false,
   diffFiles: [],
   diffTruncated: false,
+  pendingReviewComments: {},
+  diffJumpRequest: null,
   transcript: emptyTranscript(),
   lastSeq: 0,
   error: null,
@@ -166,6 +199,49 @@ export const useAppStore = create<AppState>((set) => ({
   setDiffState: ({ repo, files, truncated }) =>
     set({ diffRepo: repo, diffFiles: files, diffTruncated: truncated }),
   resetDiffState: () => set({ diffRepo: false, diffFiles: [], diffTruncated: false }),
+  addReviewComment: (sessionId, comment) =>
+    set((state) => ({
+      pendingReviewComments: {
+        ...state.pendingReviewComments,
+        [sessionId]: [...(state.pendingReviewComments[sessionId] ?? []), comment],
+      },
+    })),
+  updateReviewComment: (sessionId, commentId, text) =>
+    set((state) => {
+      const existing = state.pendingReviewComments[sessionId];
+      if (existing === undefined) return {};
+      return {
+        pendingReviewComments: {
+          ...state.pendingReviewComments,
+          [sessionId]: existing.map((comment) =>
+            comment.id === commentId ? { ...comment, text: text.trim() } : comment,
+          ),
+        },
+      };
+    }),
+  removeReviewComment: (sessionId, commentId) =>
+    set((state) => {
+      const existing = state.pendingReviewComments[sessionId];
+      if (existing === undefined) return {};
+      return {
+        pendingReviewComments: {
+          ...state.pendingReviewComments,
+          [sessionId]: existing.filter((comment) => comment.id !== commentId),
+        },
+      };
+    }),
+  clearReviewComments: (sessionId) =>
+    set((state) => {
+      if (!(sessionId in state.pendingReviewComments)) return {};
+      const next = { ...state.pendingReviewComments };
+      delete next[sessionId];
+      return { pendingReviewComments: next };
+    }),
+  requestDiffJump: (request) =>
+    set((state) => ({
+      diffJumpRequest: { ...request, token: (state.diffJumpRequest?.token ?? 0) + 1 },
+    })),
+  clearDiffJump: () => set({ diffJumpRequest: null }),
   upsertSessionMeta: (session) =>
     set((state) => ({
       sessions: state.sessions.some((s) => s.id === session.id)
@@ -174,7 +250,18 @@ export const useAppStore = create<AppState>((set) => ({
       session: state.session?.id === session.id ? session : state.session,
     })),
   removeSession: (sessionId) =>
-    set((state) => ({ sessions: state.sessions.filter((s) => s.id !== sessionId) })),
+    set((state) => {
+      const pendingReviewComments =
+        sessionId in state.pendingReviewComments
+          ? Object.fromEntries(
+              Object.entries(state.pendingReviewComments).filter(([id]) => id !== sessionId),
+            )
+          : state.pendingReviewComments;
+      return {
+        sessions: state.sessions.filter((s) => s.id !== sessionId),
+        pendingReviewComments,
+      };
+    }),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),
   setTranscript: (transcript, lastSeq) => set({ transcript, lastSeq }),
   resetTranscript: () => set({ transcript: emptyTranscript(), lastSeq: 0 }),

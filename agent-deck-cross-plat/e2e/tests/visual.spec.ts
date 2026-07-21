@@ -255,3 +255,45 @@ test("visual: changed-files tree + open diff panel", async ({ page }) => {
     mask: [...dynamicChrome(page), page.locator('[data-tool="write"]')],
   });
 });
+
+test("visual: composer with pending review-comment cards", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(DIFF_REPO));
+  await expect(page.getByTestId("session-cwd")).toHaveText(DIFF_REPO);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  await page.getByTestId("composer-input").fill("please write the diff baseline file");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("diff-badge")).toHaveText("1", { timeout: 30_000 });
+
+  await page.getByTestId("diff-toggle").click();
+  await page.locator('[data-testid="diff-tree-file"][data-path="src/visual.txt"]').click();
+  await expect(page.getByTestId("diff-file-view")).toBeVisible();
+  await expect(page.getByTestId("diff-lines")).toContainText("+alpha one", { timeout: 15_000 });
+
+  // Two deterministic comments on two added lines → two pending composer cards.
+  const alphaRow = page.locator('[data-testid="diff-line"]', { hasText: "alpha one" });
+  await alphaRow.hover();
+  await alphaRow.getByTestId("diff-comment-add").click();
+  await page.getByTestId("diff-comment-input").fill("Rename alpha to first");
+  await page.getByTestId("diff-comment-save").click();
+  await expect(page.getByTestId("pending-comment-card")).toHaveCount(1);
+
+  const gammaRow = page.locator('[data-testid="diff-line"]', { hasText: "gamma three" });
+  await gammaRow.hover();
+  await gammaRow.getByTestId("diff-comment-add").click();
+  await page.getByTestId("diff-comment-input").fill("Add a test for gamma");
+  await page.getByTestId("diff-comment-save").click();
+  await expect(page.getByTestId("pending-comment-card")).toHaveCount(2);
+
+  // The pending-cards strip is the new chrome: relative file paths + fixed
+  // bodies make it byte-stable. Screenshot just that container.
+  await expect(page.getByTestId("composer-pending-comments")).toHaveScreenshot(
+    "composer-pending-comments.png",
+    SCREENSHOT_OPTS,
+  );
+});
