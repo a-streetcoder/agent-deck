@@ -64,7 +64,9 @@ export function FilesPanel() {
     defaultWidth: 190,
     min: 140,
     max: 460,
-    edge: "right",
+    // The tree sits on the FAR side (chat -> content -> tree), so its handle is
+    // on its LEFT edge: dragging left widens it.
+    edge: "left",
   });
 
   // A session switch drops the previous project's open file tabs.
@@ -135,11 +137,22 @@ export function FilesPanel() {
         </div>
       </div>
 
-      {/* Side-by-side [tree | content] with a draggable divider between them. */}
+      {/* Side-by-side layout, ordered chat -> CONTENT -> TREE (the content sits
+          next to the chat; the tree navigator is on the far edge). DOM order is
+          tree-then-content (navigation first, good for a11y); CSS `order` places
+          them visually content | handle | tree. */}
       <div className="flex min-h-0 flex-1">
+        {/* The tree is full-width until a file is open; once files open it
+            shrinks to its resizable width and the content slides in beside the
+            chat (content on the left via CSS order, tree on the far edge). */}
         <div
-          className="min-h-0 shrink-0 overflow-y-auto border-r border-border-subtle px-1.5 py-1.5"
-          style={{ width: `${tree.width}px` }}
+          className={cn(
+            "min-h-0 overflow-y-auto px-1.5 py-1.5",
+            openFiles.length > 0
+              ? "order-3 shrink-0 border-l border-border-subtle"
+              : "min-w-0 flex-1",
+          )}
+          style={openFiles.length > 0 ? { width: `${tree.width}px` } : undefined}
         >
           <FileTree
             controller={controller}
@@ -154,26 +167,20 @@ export function FilesPanel() {
           />
         </div>
 
-        <ResizeHandle
-          handleProps={tree.handleProps}
-          isDragging={tree.isDragging}
-          testId="files-tree-resize"
-          ariaLabel="Resize file tree"
-          width={tree.width}
-          min={tree.min}
-          max={tree.max}
-        />
+        {openFiles.length > 0 ? (
+          <>
+            <ResizeHandle
+              className="order-2"
+              handleProps={tree.handleProps}
+              isDragging={tree.isDragging}
+              testId="files-tree-resize"
+              ariaLabel="Resize file tree"
+              width={tree.width}
+              min={tree.min}
+              max={tree.max}
+            />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {openFiles.length === 0 ? (
-            <div
-              className="flex flex-1 items-center justify-center px-5 text-center text-xs text-text-muted"
-              data-testid="files-content-empty"
-            >
-              Select a file to preview.
-            </div>
-          ) : (
-            <>
+            <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col">
               {/* The open-file tab strip (mirrors BrowserPanel's page strip). */}
               <div
                 className="flex items-center gap-1 border-b border-border-subtle px-1.5 py-1"
@@ -256,9 +263,9 @@ export function FilesPanel() {
                   </div>
                 ))}
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );

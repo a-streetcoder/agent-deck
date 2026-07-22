@@ -64,13 +64,11 @@ test("side-by-side tree + multi-file tabs, syntax-highlighted text, image + bina
   const panel = page.getByTestId("files-panel");
   await expect(panel).toBeVisible();
 
-  // The tree column stays alongside a content column: the tree|content resize
-  // handle sits between them (Slice L4a — the draggable split). The handle is a
-  // zero-layout-width overlay (so it never shifts its neighbors), so assert it is
-  // present rather than "visible" (a 0px-wide box reads as hidden to Playwright).
-  await expect(page.getByTestId("files-tree-resize")).toBeAttached();
-  // Nothing open yet → the content column shows the empty state.
-  await expect(page.getByTestId("files-content-empty")).toBeVisible();
+  // Nothing open yet → TREE-ONLY (full width): the content column, its file-tab
+  // strip, and the tree|content resize handle only appear once a file is opened
+  // (the content slides in beside the chat; Slice L4a).
+  await expect(page.getByTestId("files-tree-resize")).toHaveCount(0);
+  await expect(page.getByTestId("files-tab-strip")).toHaveCount(0);
 
   // The root lists lazily: the `src` directory plus the root files (directories
   // first). The subdirectory's contents are NOT fetched yet.
@@ -92,6 +90,8 @@ test("side-by-side tree + multi-file tabs, syntax-highlighted text, image + bina
   // its content (syntax-highlighted — the .cm-editor mounts).
   await textRow.click();
   await expect(page.getByTestId("files-tab-strip")).toBeVisible();
+  // Opening a file slides in the content column → the split handle now exists.
+  await expect(page.getByTestId("files-tree-resize")).toBeAttached();
   await expect(page.getByTestId("files-tab-0")).toHaveText(/hello\.txt/);
   await expect(page.locator('[data-testid="file-preview-path"]:visible')).toHaveText(
     "src/hello.txt",
