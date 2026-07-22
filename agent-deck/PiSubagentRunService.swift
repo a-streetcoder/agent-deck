@@ -425,6 +425,7 @@ final class PiSubagentRunService {
         guard let client = clientsByRunID.removeValue(forKey: runID) else { return }
         parentSessionIDByRunID[runID] = nil
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        persistStreamingEntries(runID: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
         client.stop()
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
@@ -455,6 +456,9 @@ final class PiSubagentRunService {
         }
 
         for runID in Array(clientsByRunID.keys) {
+            if let parentSessionID = parentSessionIDByRunID[runID] {
+                persistStreamingEntries(runID: runID, parentSessionID: parentSessionID)
+            }
             clientsByRunID.removeValue(forKey: runID)?.stop()
             parentSessionIDByRunID[runID] = nil
             clearStreamingState(for: runID)
@@ -619,7 +623,7 @@ final class PiSubagentRunService {
         }
     }
 
-    private func flushStreamingEntries(runID: UUID, parentSessionID: UUID) {
+    private func flushStreamingEntries(runID: UUID, parentSessionID: UUID, persist: Bool = false) {
         if let thinkingEntryID = thinkingEntryIDsByRunID[runID],
            let thinkingText = thinkingTextByRunID[runID],
            !thinkingText.isEmpty {
@@ -630,7 +634,7 @@ final class PiSubagentRunService {
                 title: "Thinking",
                 text: thinkingText,
                 rawJSON: nil
-            ), runID: runID, parentSessionID: parentSessionID, before: assistantEntryIDsByRunID[runID])
+            ), runID: runID, parentSessionID: parentSessionID, before: assistantEntryIDsByRunID[runID], persist: persist)
         }
 
         if let assistantEntryID = assistantEntryIDsByRunID[runID],
@@ -642,8 +646,15 @@ final class PiSubagentRunService {
                 title: "Assistant",
                 text: assistantText,
                 rawJSON: nil
-            ), runID: runID, parentSessionID: parentSessionID)
+            ), runID: runID, parentSessionID: parentSessionID, persist: persist)
         }
+    }
+
+    /// Persists the latest in-memory streaming text before a terminal boundary
+    /// discards it. Ordinary 30 Hz flushes remain memory-only.
+    private func persistStreamingEntries(runID: UUID, parentSessionID: UUID) {
+        streamFlushTasksByRunID.removeValue(forKey: runID)?.cancel()
+        flushStreamingEntries(runID: runID, parentSessionID: parentSessionID, persist: true)
     }
 
     private func clearStreamingState(for runID: UUID) {
@@ -698,6 +709,7 @@ final class PiSubagentRunService {
         clientsByRunID[runID] = nil
         parentSessionIDByRunID[runID] = nil
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        persistStreamingEntries(runID: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
         if exitCode == 0 {
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
@@ -877,6 +889,7 @@ final class PiSubagentRunService {
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clientsByRunID[runID]?.stop()
         clientsByRunID[runID] = nil
+        persistStreamingEntries(runID: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
         if shouldAppend {
             if finalSummary.count > 1200 {
@@ -930,6 +943,7 @@ final class PiSubagentRunService {
         parentSessionIDByRunID[runID] = nil
         client?.stop()
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        persistStreamingEntries(runID: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             guard run.status.isActive else { return }

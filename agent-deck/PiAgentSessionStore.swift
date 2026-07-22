@@ -2775,7 +2775,7 @@ final class PiAgentSessionStore {
         touchSession(parentSessionID, bumpUpdatedAt: false)
     }
 
-    func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil) {
+    func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil, persist: Bool = true) {
         guard !deletedSessionIDs.contains(parentSessionID) else { return }
         let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
         var removedReferences: [PiAgentTranscriptImageReference] = []
@@ -2797,10 +2797,14 @@ final class PiAgentSessionStore {
         }
         removeUnreferencedTranscriptImages(removedReferences, parentSessionID: parentSessionID)
         scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: parentSessionID)
-        persistSubagentTranscript(runID)
+        if persist {
+            persistSubagentTranscript(runID)
+        }
         markSubagentTranscriptUsed(runID)
         evictTranscriptsIfNeeded()
-        touchSession(parentSessionID, bumpUpdatedAt: false)
+        if persist {
+            touchSession(parentSessionID, bumpUpdatedAt: false)
+        }
     }
 
     func upsertSupervisorRequest(_ request: PiSubagentSupervisorRequest) {

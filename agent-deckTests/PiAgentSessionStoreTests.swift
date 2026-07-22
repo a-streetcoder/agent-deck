@@ -364,6 +364,40 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(PiTestSupport.waitUntil { !FileManager.default.fileExists(atPath: sharedPath) }, "The image must be deleted after its final pending reference is removed and flushed.")
     }
 
+    func testVolatileSubagentStreamingUpsertsSkipCheckpointsUntilBoundaryPersistence() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: fileURL)
+        let session = store.createSession(kind: .project, title: "Streaming", project: try PiTestSupport.makeProject(), repository: nil)
+        let run = PiSubagentRunRecord.failedPlaceholder(parentSessionID: session.id, agentName: "Child", task: "Stream", error: "test")
+        store.upsertSubagentRun(run)
+        store.flushForTesting()
+
+        let entryID = UUID()
+        store.upsertSubagentTranscript(
+            .init(id: entryID, sessionID: session.id, role: .assistant, title: "Assistant", text: "volatile"),
+            runID: run.id,
+            parentSessionID: session.id,
+            persist: false
+        )
+        store.flushForTesting()
+
+        let beforeBoundary = PiAgentSessionStore(fileURL: fileURL)
+        await beforeBoundary.waitForLoadForTesting()
+        XCTAssertFalse(beforeBoundary.hasPersistedSubagentTranscript(for: run.id))
+
+        store.upsertSubagentTranscript(
+            .init(id: entryID, sessionID: session.id, role: .assistant, title: "Assistant", text: "final persisted text"),
+            runID: run.id,
+            parentSessionID: session.id
+        )
+        store.flushForTesting()
+
+        let reloaded = PiAgentSessionStore(fileURL: fileURL)
+        await reloaded.waitForLoadForTesting()
+        XCTAssertTrue(reloaded.hasPersistedSubagentTranscript(for: run.id))
+        XCTAssertEqual(reloaded.subagentTranscript(for: run.id).map(\.text), ["final persisted text"])
+    }
+
     func testMCPUpsertRemovesSupersededParentAndSubagentImages() async throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "MCP replacement", project: try PiTestSupport.makeProject(), repository: nil)

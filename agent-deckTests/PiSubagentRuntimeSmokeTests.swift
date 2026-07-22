@@ -621,6 +621,38 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertEqual(store.supervisorRequests(for: parent.id).first?.status, .answered)
     }
 
+    func testDelegatedStreamingPersistsLatestTextOnlyWhenStopped() async throws {
+        let harness = try PiTestSupport.makeBridgeHarness(event: [
+            "type": "message_update",
+            "assistantMessageEvent": ["type": "text_delta", "delta": "volatile delegated text"]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let stateFile = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: stateFile)
+        let parent = store.createSession(kind: .project, title: "Delegated streaming", project: try PiTestSupport.makeProject(), repository: nil)
+        let runner = PiSubagentRunService(store: store)
+        let run = try await runner.runSingle(parentSession: parent, agent: PiTestSupport.makeAgent(), snapshot: .empty, task: "Stream until stopped.")
+
+        let receivedVolatileText = await PiTestSupport.waitUntilAsync {
+            store.subagentTranscript(for: run.id).map(\.text) == ["volatile delegated text"]
+        }
+        XCTAssertTrue(receivedVolatileText)
+        store.flushForTesting()
+
+        let beforeStop = PiAgentSessionStore(fileURL: stateFile)
+        await beforeStop.waitForLoadForTesting()
+        XCTAssertFalse(beforeStop.hasPersistedSubagentTranscript(for: run.id))
+
+        runner.stop(runID: run.id, parentSessionID: parent.id)
+        store.flushForTesting()
+
+        let reloaded = PiAgentSessionStore(fileURL: stateFile)
+        await reloaded.waitForLoadForTesting()
+        XCTAssertTrue(reloaded.hasPersistedSubagentTranscript(for: run.id))
+        XCTAssertEqual(reloaded.subagentTranscript(for: run.id).map(\.text), ["volatile delegated text"])
+    }
+
     func testChildMCPStreamReattachesArgsScrubsImagesAndBuildsActivity() async throws {
         let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
         let harness = try PiTestSupport.makeBridgeHarness(events: [
