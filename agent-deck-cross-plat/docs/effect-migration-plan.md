@@ -482,10 +482,22 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
   persistence (NO SQLite — not needed at this scale, documented). Review minor fixed:
   crash-safe prune order (flush index before deleting files/refs). No web UI, no
   rollback — S18b.
-- **S18b (rollback + UI): IN PROGRESS.** checkpoint_rollback restores both halves via
-  the resume() path + safety-checkpoint-first + web rewind UI + destructive confirm; its
+- **S18b LANDED (2026-07-22, eae9278). PHASE 8 COMPLETE.** checkpoint_rollback restores
+  both halves via the resume() path (git-restore the worktree from the target's hidden
+  ref → copy the conversation snapshot back over pi's session file → relaunch), with the
+  physical restore run INSIDE the same per-session serialize lock that guards capture (no
+  forked idle capture can snapshot a half-restored worktree) and a FORCED safety
+  checkpoint of the pre-rollback state first (so the rollback is itself undoable). Abort
+  on git-failure: a target that HAS a ref but fails to restore relaunches from the
+  ORIGINAL session file and rejects with a clear error rather than leaving a
+  files-old/conversation-new half-state; a non-git target restores conversation only
+  (`filesRestored:false` → distinct info toast). Web CheckpointsPanel = right-hand rewind
+  timeline (newest first) + destructive confirm; idle-gated (Restore disabled while a
+  turn runs; an in-flight turn closes an open confirm); rejected rollback → error toast.
   e2e (2 turns write files → roll back to turn 1 → turn-2 file gone AND conversation
   truncated) is the END-TO-END guard for the "pi flushed before snapshot" invariant.
+  Review minors fixed inline: abort-on-git-failure (was swallowed as a benign
+  conversation-only rollback), idle-gate, error toast on rejection.
 
 ## Phase 9 — Agent Deck differentiators on the new substrate
 
