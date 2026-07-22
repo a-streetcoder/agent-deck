@@ -44,6 +44,20 @@ test("closes on Escape without running anything", async ({ page }) => {
   await expect(page.getByTestId("chat-layer")).toHaveAttribute("aria-hidden", "false");
 });
 
+test("traps Tab on the search input (arrow-key navigation model)", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await page.keyboard.press("ControlOrMeta+k");
+  const input = page.getByTestId("command-palette-input");
+  await expect(input).toBeFocused();
+  // The palette navigates by arrow keys (handler is on the input, selection is
+  // `highlight` state). Tab must stay on the input so it can't move DOM focus
+  // onto a command row and silence arrow navigation / split the selection.
+  await page.keyboard.press("Tab");
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(input).toBeFocused();
+});
+
 test("rebinds a command live through the editor", async ({ page }) => {
   await page.goto(harness.baseUrl);
 

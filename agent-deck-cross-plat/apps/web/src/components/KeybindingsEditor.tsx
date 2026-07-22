@@ -11,6 +11,7 @@ import {
 } from "@agent-deck/contracts";
 import { RotateCcw, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { detectPlatform } from "@/lib/platform";
 import { COMMAND_DEFINITIONS, commandLabel } from "../state/commands.ts";
 import { useAppStore } from "../state/store.ts";
 
@@ -49,7 +50,7 @@ export function KeybindingsEditor() {
   const pushToast = useAppStore((state) => state.pushToast);
 
   const [capturing, setCapturing] = useState<KeybindingCommand | null>(null);
-  const platform = navigator.platform;
+  const platform = detectPlatform();
 
   useEffect(() => {
     if (!open) setCapturing(null);

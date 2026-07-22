@@ -6,6 +6,7 @@ import {
 } from "@agent-deck/contracts";
 import { ArrowRight, Folder, MessageSquareText, Search, Zap } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { detectPlatform } from "@/lib/platform";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { COMMAND_DEFINITIONS } from "../state/commands.ts";
 import { useAppStore } from "../state/store.ts";
@@ -64,7 +65,7 @@ export function CommandPalette() {
   }, [open]);
 
   const items = useMemo<PaletteCommandItem[]>(() => {
-    const platform = navigator.platform;
+    const platform = detectPlatform();
     const resolved = resolveKeybindings(keybindings);
     const shortcutFor = (command: KeybindingCommand): string | null => {
       const chord = resolved.get(command);
@@ -153,6 +154,14 @@ export function CommandPalette() {
     } else if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
+    } else if (event.key === "Tab") {
+      // The palette is arrow-key driven: this keydown handler lives on the search
+      // input, and selection is tracked by `highlight` state (not DOM focus). The
+      // command rows ARE focusable buttons, so a bare Tab would move DOM focus off
+      // the input onto a row — which both silences arrow navigation (the handler
+      // is on the input) and splits selection between DOM focus and `highlight`.
+      // Trapping Tab on the input keeps the single, arrow-driven selection model.
+      event.preventDefault();
     }
   };
 

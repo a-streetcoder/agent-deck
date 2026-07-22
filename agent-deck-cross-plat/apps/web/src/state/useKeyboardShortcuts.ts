@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { commandForChordEvent, resolveKeybindings } from "@agent-deck/contracts";
+import { detectPlatform } from "../lib/platform.ts";
 import { isTerminalFocused } from "../lib/terminalFocus.ts";
 import { commandDefinition, runCommand } from "./commands.ts";
 import { useAppStore } from "./store.ts";
@@ -34,7 +35,7 @@ export function useKeyboardShortcuts(): void {
       if (store.keybindingsEditorOpen) return;
 
       const resolved = resolveKeybindings(store.keybindings);
-      const command = commandForChordEvent(event, resolved, navigator.platform);
+      const command = commandForChordEvent(event, resolved, detectPlatform());
       if (!command) return;
 
       // With the palette open, only its own toggle acts (to close it); other

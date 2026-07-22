@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { ExpandedImagePreview } from "../../lib/expandedImage.ts";
+import { useFocusTrap } from "../../lib/useFocusTrap.ts";
 
 /**
  * Slice 17 — full-size overlay for a pending composer image. Click the backdrop
@@ -18,6 +19,13 @@ export function ExpandedImageDialog({
   const [offset, setOffset] = useState(0);
   const count = preview.images.length;
   const index = (((preview.index + offset) % count) + count) % count;
+  // Trap focus inside the overlay (Tab wrap + restore on close); Escape / ←→
+  // stay in the effect below. Initial focus is directed at the VISIBLE close (x)
+  // button, not the DOM-first focusable — that is the full-bleed `inset-0`
+  // click-to-close backdrop, and focusing it would paint a viewport-wide focus
+  // ring AND arm a Space/Enter reflex that instantly dismisses the dialog.
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, closeButtonRef);
 
   const navigate = useCallback((direction: -1 | 1) => {
     setOffset((current) => current + direction);
@@ -49,6 +57,7 @@ export function ExpandedImageDialog({
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6"
       role="dialog"
       aria-modal="true"
@@ -57,6 +66,10 @@ export function ExpandedImageDialog({
     >
       <button
         type="button"
+        // A mouse-only click-to-close affordance: kept out of the tab order
+        // (tabIndex -1) and off keyboard focus, since it spans the whole viewport
+        // and the visible x button + Escape already cover keyboard close.
+        tabIndex={-1}
         className="absolute inset-0 z-0 cursor-zoom-out"
         aria-label="Close image preview"
         data-testid="expanded-image-backdrop"
@@ -74,6 +87,7 @@ export function ExpandedImageDialog({
       ) : null}
       <div className="relative isolate z-10 max-h-[92vh] max-w-[92vw]">
         <button
+          ref={closeButtonRef}
           type="button"
           className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white/90 hover:bg-black/60"
           onClick={onClose}
