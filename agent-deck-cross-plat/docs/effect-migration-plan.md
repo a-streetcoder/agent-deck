@@ -590,6 +590,26 @@ main` Merge commit) + diff-worktree-toolbar visual baseline (masked dynamic bran
 - Auto-update (electron-updater per their desktop app), native notifications on
   turn-complete / approval-needed, dock/taskbar badges.
 - Donor: `apps/desktop/` patterns; independent of all feature slices.
+- **Split after scoping (2026-07-22): S22a (buildable now) + S22b (parked).** The desktop
+  shell today (apps/desktop/main.js) imports only `app, BrowserWindow, dialog, ipcMain,
+Menu, shell` — no Notification/Tray/setBadgeCount, no focus tracking, and it spawns the
+  server via `pnpm --filter … dev` (a dev-checkout shell, NOT a packaged bundle). There is
+  no electron-builder/forge, no `.github` release automation, and no code-signing config.
+- **S22a — notifications + badges: IN PROGRESS (workflow).** Native OS notifications on the
+  active session's turn-complete (`agentStatus` running→idle, already detected at
+  Composer.tsx:246-248) and approval-needed (`openQuestion` non-null), plus a dock/taskbar
+  badge via `app.setBadgeCount`. Design: the web forwards semantic attention events over a
+  new `signalAttention` preload bridge; MAIN owns the `!isFocused()` gate + badge counter
+  (increment while unfocused, clear on focus) so it's testable via the `_electron`
+  `app.evaluate` spy pattern (desktop-electron.spec.ts). Scoped to the ACTIVE session
+  (agentStatus is active-session-only); background-session notifications deferred.
+- **S22b — auto-update + packaging/signing: PARKED (2026-07-22) pending USER/infra
+  decisions.** electron-updater needs three things the repo has zero of, and they are not
+  self-contained code tasks: (1) a packaging tool (electron-builder) AND a bundled-server
+  packaging story (main.js currently spawns `pnpm dev` — no bundle exists); (2) an update
+  feed (GitHub Releases vs S3 vs generic server); (3) Apple Developer ID + Windows
+  code-signing certificates (procurement + secrets — a cost/credential decision only the
+  user can make). Resume once the user decides the packaging/feed/signing story.
 
 ## Phase 12 — Final parity audit (goal completion gate)
 
