@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { isElectron } from "@/lib/native";
 import { useAppStore, type WorkspaceTabKind } from "../../state/store.ts";
 import { WORKSPACE_TAB_MENU_ORDER, WORKSPACE_TAB_META } from "./tabMeta.tsx";
 
@@ -20,6 +21,7 @@ import { WORKSPACE_TAB_MENU_ORDER, WORKSPACE_TAB_META } from "./tabMeta.tsx";
 
 const DISABLED_REASON: Partial<Record<WorkspaceTabKind, string>> = {
   diff: "Changes are only available for a git repository.",
+  browser: "Available in the desktop app.",
 };
 
 interface TabContextMenuState {
@@ -47,8 +49,13 @@ export function TabStrip(props: {
   const [contextMenu, setContextMenu] = useState<TabContextMenuState | null>(null);
   const addRef = useRef<HTMLDivElement>(null);
 
-  // Availability per kind for the "+" menu (only Diff is gated — it needs a repo).
-  const available = (kind: WorkspaceTabKind): boolean => (kind === "diff" ? diffRepo : true);
+  // Availability per kind for the "+" menu: Diff needs a git repo; Browser is a
+  // real Chromium guest (<webview>) that only exists in the desktop shell.
+  const available = (kind: WorkspaceTabKind): boolean => {
+    if (kind === "diff") return diffRepo;
+    if (kind === "browser") return isElectron();
+    return true;
+  };
 
   // Dismiss the "+" menu on outside click / Escape (the OpenInPicker idiom).
   useEffect(() => {

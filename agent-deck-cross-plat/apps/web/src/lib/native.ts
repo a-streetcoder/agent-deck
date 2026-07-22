@@ -28,6 +28,13 @@ export interface AgentDeckBridge {
   onMenu?(handler: (action: string) => void): () => void;
   /** Forward a semantic attention event; the main process owns the focus gate. */
   signalAttention?(payload: AttentionPayload): void;
+  /**
+   * Subscribe to browser popup requests (Slice L2): a target=_blank / window.open
+   * inside a `<webview>` guest, denied its native child window and forwarded by
+   * the main process for the browser panel to open as an internal page-tab.
+   * Returns an unsubscribe function.
+   */
+  onBrowserOpenPage?(handler: (url: string) => void): () => void;
 }
 
 declare global {
@@ -43,6 +50,20 @@ export function nativeBridge(): AgentDeckBridge | undefined {
 /** True when running inside the Electron shell (native folder picker available). */
 export function isElectron(): boolean {
   return nativeBridge()?.isElectron === true;
+}
+
+/**
+ * Subscribe to browser popup requests (Slice L2). No-op (returns a no-op
+ * unsubscribe) in a plain browser or against an older bridge without the method.
+ */
+export function onBrowserOpenPage(handler: (url: string) => void): () => void {
+  const bridge = nativeBridge();
+  if (!bridge?.onBrowserOpenPage) return () => {};
+  try {
+    return bridge.onBrowserOpenPage(handler);
+  } catch {
+    return () => {};
+  }
 }
 
 /**

@@ -55,7 +55,7 @@ export interface Toast {
  * "browser" is a purely additive change. The TERMINAL is intentionally NOT here:
  * it stays the bottom drawer (terminalOpen), never a tab.
  */
-export type WorkspaceTabKind = "diff" | "files" | "preview" | "checkpoints";
+export type WorkspaceTabKind = "diff" | "files" | "preview" | "checkpoints" | "browser";
 
 /** One session's open workspace tabs, in strip order, plus the active one. */
 export interface WorkspaceTabsState {

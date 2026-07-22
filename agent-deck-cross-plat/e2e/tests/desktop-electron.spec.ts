@@ -288,6 +288,59 @@ test("File → Edit Keybindings… opens the editor (palette-independent recover
   await expect(editor).toHaveCount(0);
 });
 
+test("the browser workspace tab mounts a real <webview> guest and navigates", async () => {
+  const window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+
+  // (a) The host BrowserWindow enables the <webview> tag (else the guest can't
+  // instantiate). getLastWebPreferences reflects the constructor webPreferences.
+  const webviewTagEnabled = await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    return win?.webContents.getLastWebPreferences()?.webviewTag ?? false;
+  });
+  expect(webviewTagEnabled).toBe(true);
+
+  // A chat session makes the desktop-only header browser toggle available.
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((i) => i.label === "File");
+    file?.submenu?.items.find((i) => i.label === "New Chat")?.click();
+  });
+  const browserToggle = window.getByTestId("browser-toggle");
+  await expect(browserToggle).toBeVisible({ timeout: 15_000 });
+
+  // (b) Toggling opens the browser tab: the workspace body, a real <webview>
+  // guest, and the toolbar (address input + back/forward) are all present.
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toBeVisible();
+  await expect(window.getByTestId("browser-url-input")).toBeVisible();
+  await expect(window.getByTestId("browser-back")).toBeVisible();
+  await expect(window.getByTestId("browser-forward")).toBeVisible();
+  // One live guest for the single starting page.
+  await expect(window.locator("webview")).toHaveCount(1);
+
+  // (c) Drive a navigation via the address bar to a data: URL (no network in CI)
+  // and assert the nav state (title from page-title-updated, url from
+  // did-navigate) flows into the panel.
+  const dataUrl = "data:text/html,<title>L2%20Browser</title><h1>hi</h1>";
+  const input = window.getByTestId("browser-url-input");
+  await input.click();
+  await input.fill(dataUrl);
+  await input.press("Enter");
+  await expect(window.getByTestId("browser-page-title")).toHaveText("L2 Browser", {
+    timeout: 15_000,
+  });
+  await expect(input).toHaveValue(/^data:text\/html/);
+
+  // (d) Opening a new internal page-tab yields a SECOND <webview> — the first
+  // guest stays mounted (keep-alive), so both live at once.
+  await window.getByTestId("browser-new-page").click();
+  await expect(window.locator("webview")).toHaveCount(2);
+
+  // Leave the workspace clean for the following tests: close the browser tab.
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toHaveCount(0);
+});
+
 test("attention events notify + badge while unfocused, and focus clears the badge", async () => {
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");

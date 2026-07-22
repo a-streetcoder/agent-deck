@@ -41,4 +41,17 @@ contextBridge.exposeInMainWorld("agentDeck", {
     ipcRenderer.on("menu", listener);
     return () => ipcRenderer.removeListener("menu", listener);
   },
+  /**
+   * Subscribe to browser popup requests (Slice L2). A target=_blank / window.open
+   * inside a <webview> guest is denied its native child window by the main
+   * process, which forwards the http(s) target here; the browser panel opens it
+   * as a new internal page-tab. Returns an unsubscribe function.
+   * @param {(url: string) => void} handler
+   * @returns {() => void}
+   */
+  onBrowserOpenPage: (handler) => {
+    const listener = (_event, url) => handler(url);
+    ipcRenderer.on("browser:open-page", listener);
+    return () => ipcRenderer.removeListener("browser:open-page", listener);
+  },
 });

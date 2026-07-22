@@ -166,6 +166,11 @@ function createWindow(port) {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
+      // Enable the <webview> tag so the Slice L2 general-purpose browser can
+      // mount a REAL Chromium guest (not an iframe). The guest's own security
+      // posture is force-hardened in the web-contents-created handler below —
+      // enabling the tag here does NOT weaken this window.
+      webviewTag: true,
     },
   });
 
@@ -369,6 +374,87 @@ async function bootstrap() {
   Menu.setApplicationMenu(buildAppMenu());
   createWindow(serverPort);
 }
+
+// Slice L2 — the general-purpose browser mounts a REAL Chromium <webview> guest.
+// Every guest gets (a) force-hardened webPreferences at attach time and (b) its
+// OWN navigation/popup policy, independent of the main window's loopback-only
+// policy above (which is left untouched).
+app.on("web-contents-created", (_event, contents) => {
+  // (a) Defense-in-depth: pin the guest's security-critical webPreferences so the
+  // <webview> tag's attributes can NEVER weaken them. The guest browses arbitrary
+  // sites, so it must stay sandboxed + context-isolated with no Node access and
+  // no inherited preload. (Ported from the t3code will-attach-webview idea, but
+  // with contextIsolation TRUE — we have no picker preload that needs to share
+  // globalThis, so the guest keeps the strongest posture.)
+  contents.on("will-attach-webview", (_attachEvent, webPreferences) => {
+    webPreferences.sandbox = true;
+    webPreferences.contextIsolation = true;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.webviewTag = false;
+    // The guest must not inherit the host preload (the agentDeck bridge). Any
+    // preload the tag tried to set is dropped here.
+    delete webPreferences.preload;
+    delete webPreferences.preloadURL;
+  });
+
+  // (b) Guest-only policy for the in-app browser, which loads ARBITRARY UNTRUSTED
+  // web content. Two clamps:
+  //
+  //   Popups (target=_blank / window.open): never spawn a raw child BrowserWindow.
+  //   Modern Electron removed the <webview> `new-window` DOM event, so we
+  //   intercept here — deny the native popup and forward ONLY an http(s) target
+  //   to the renderer (which opens it as a new internal page-tab). Non-http(s)
+  //   targets are DROPPED, never handed to shell.openExternal: forwarding an
+  //   attacker-chosen scheme (file: / smb: / ms-msdt: / any custom handler) to
+  //   the OS is the canonical Electron shell.openExternal RCE/exfil vector.
+  //
+  //   Navigation: a general browser navigates http(s) freely, but must not reach
+  //   privileged schemes (file:, etc.) or this app's own control-plane origin
+  //   (the agent-deck server on 127.0.0.1:serverPort), which has no CSRF/Origin
+  //   guard on its REST routes — untrusted page JS must not be able to drive it.
+  //   Other loopback origins (the user's own dev servers) stay reachable.
+  if (contents.getType() === "webview") {
+    const isControlPlane = (parsed) =>
+      serverPort !== null &&
+      (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") &&
+      parsed.port === String(serverPort);
+
+    contents.setWindowOpenHandler(({ url }) => {
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return { action: "deny" };
+      }
+      // Only http(s) popups (and never the app's own control plane) become an
+      // internal page-tab; everything else — including all non-http(s) schemes —
+      // is dropped.
+      if (
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        !isControlPlane(parsed)
+      ) {
+        mainWindow?.webContents.send("browser:open-page", url);
+      }
+      return { action: "deny" };
+    });
+
+    contents.on("will-navigate", (event, url) => {
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return; // an unparseable target won't navigate a webContents anyway
+      }
+      // Deny only the genuinely dangerous top-level targets: file: (local-file
+      // read) and this app's own control-plane origin (unguarded REST → CSRF).
+      // http(s) browses freely (incl. the user's OWN other localhost dev
+      // servers), and benign schemes (about:blank, data:) are left alone so the
+      // blank new-tab and in-page renders work.
+      if (parsed.protocol === "file:" || isControlPlane(parsed)) event.preventDefault();
+    });
+  }
+});
 
 app.whenReady().then(bootstrap);
 

@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { useAppStore, type WorkspaceTabKind } from "../../state/store.ts";
+import { BrowserPanel } from "../browser/BrowserPanel.tsx";
 import { CheckpointsPanel } from "../CheckpointsPanel.tsx";
 import { DiffPanel } from "../diff/DiffPanel.tsx";
 import { FilesPanel } from "../files/FilesPanel.tsx";
@@ -82,5 +83,7 @@ function TabBody({ kind }: { kind: WorkspaceTabKind }) {
       return <PreviewPanel />;
     case "checkpoints":
       return <CheckpointsPanel />;
+    case "browser":
+      return <BrowserPanel />;
   }
 }

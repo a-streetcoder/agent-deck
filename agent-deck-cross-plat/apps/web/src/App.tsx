@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { FolderTree, GitCompareArrows, History, MonitorPlay, SquareTerminal } from "lucide-react";
+import {
+  FolderTree,
+  GitCompareArrows,
+  Globe,
+  History,
+  MonitorPlay,
+  SquareTerminal,
+} from "lucide-react";
 import type { KeybindingBinding } from "@agent-deck/contracts";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
@@ -29,7 +36,7 @@ import { ProvidersScreen } from "./screens/ProvidersScreen.tsx";
 import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { cn } from "@/lib/cn";
-import { hasIntegratedDesktopChrome, isMacDesktop } from "@/lib/native";
+import { hasIntegratedDesktopChrome, isElectron, isMacDesktop } from "@/lib/native";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { refreshCheckpoints } from "./state/wsBridge.ts";
 import { useAppStore } from "./state/store.ts";
@@ -298,6 +305,28 @@ export function App() {
                       {checkpointCount}
                     </span>
                   ) : null}
+                </button>
+              ) : null}
+              {/* Browser toggle (Slice L2): a real general-purpose Chromium guest
+                  (<webview>) as a workspace tab. Desktop-only — the <webview> tag
+                  only instantiates in the Electron shell, so the header button is
+                  never rendered in the web build (the "+" menu still lists it, but
+                  disabled with an "Available in the desktop app." reason). */}
+              {session && isChat && isElectron() ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
+                    openTabs?.includes("browser") ? "text-accent" : "text-text-muted",
+                    macDesktop && "[-webkit-app-region:no-drag]",
+                  )}
+                  title="Toggle browser"
+                  aria-label="Toggle browser"
+                  aria-pressed={openTabs?.includes("browser") ?? false}
+                  data-testid="browser-toggle"
+                  onClick={() => toggleWorkspaceTab(session.id, "browser")}
+                >
+                  <Globe className="h-4 w-4" />
                 </button>
               ) : null}
               {session && isChat ? (
