@@ -12,6 +12,7 @@ import { reduceTranscript } from "@agent-deck/domain";
 import type {
   FileListResult,
   FileReadResult,
+  FileWriteResult,
   ScriptRunResult,
   TerminalOpenResult,
 } from "@agent-deck/client-runtime";
@@ -392,6 +393,23 @@ export async function fetchFileRead(path: string): Promise<FileReadResult | null
   const sessionId = currentSessionId;
   if (!sessionId) return null;
   return await transport.fileRead(sessionId, path);
+}
+
+/**
+ * Overwrite one existing file of the CURRENT session's project (Slice L4b —
+ * debounced autosave). `baseVersion` is the token from the read this buffer
+ * descends from; the result's `outcome` is `written` (new token to adopt) or
+ * `conflict` (the on-disk version drifted — the write was refused). Null when no
+ * session is subscribed (dropped by the caller's stale guard).
+ */
+export async function fetchFileWrite(
+  path: string,
+  content: string,
+  baseVersion: string,
+): Promise<FileWriteResult | null> {
+  const sessionId = currentSessionId;
+  if (!sessionId) return null;
+  return await transport.fileWrite(sessionId, path, content, baseVersion);
 }
 
 /** (Re)connect subscribed to `sessionId` — the single entry point that keeps

@@ -68,6 +68,46 @@ export interface WorkspaceTabsState {
 /** Shared empty reference so selectors never return a fresh object per call. */
 export const EMPTY_WORKSPACE_TABS: WorkspaceTabsState = { tabs: [], activeTab: null };
 
+/**
+ * One browser page-tab's SERIALIZABLE state (Slice L4b persistence). The live
+ * `<webview>` guest is NOT here — it is recreated on re-mount and re-navigated to
+ * {@link url}; nav flags (canGoBack/loading/…) re-derive from guest events. Only
+ * id/url/title survive a workspace-tab toggle so the page strip restores.
+ */
+export interface WorkspaceBrowserPage {
+  readonly id: string;
+  readonly url: string;
+  readonly title: string;
+}
+
+/** One session's persisted browser page strip (Slice L4b). */
+export interface WorkspaceBrowserState {
+  readonly pages: readonly WorkspaceBrowserPage[];
+  readonly activePageId: string | null;
+}
+
+/** Shared empty reference (selectors never mint a fresh object per call). */
+export const EMPTY_WORKSPACE_BROWSER: WorkspaceBrowserState = { pages: [], activePageId: null };
+
+/**
+ * One open file tab's SERIALIZABLE state (Slice L4b persistence). The fetched
+ * content + CodeMirror view are NOT here — FilePreview refetches on re-mount.
+ * Only id/path survive a workspace-tab toggle so the file strip restores.
+ */
+export interface WorkspaceFileEntry {
+  readonly id: string;
+  readonly path: string;
+}
+
+/** One session's persisted open-files strip (Slice L4b). */
+export interface WorkspaceFilesState {
+  readonly openFiles: readonly WorkspaceFileEntry[];
+  readonly activeFileId: string | null;
+}
+
+/** Shared empty reference (selectors never mint a fresh object per call). */
+export const EMPTY_WORKSPACE_FILES: WorkspaceFilesState = { openFiles: [], activeFileId: null };
+
 /** Remove `kind` from a session's tabs, falling the active selection back to the
  * neighbor (the tab that slides into its slot, else the new last) — the t3code
  * closeSurface fallback, adapted to our singleton-kind strip. */
@@ -142,6 +182,23 @@ export interface AppState {
    * deleted or its strip empties.
    */
   workspaceTabs: Record<string, WorkspaceTabsState>;
+  /**
+   * Per-SESSION browser page-tab state (Slice L4b persistence). Keyed by session
+   * id (mirrors workspaceTabs): the BrowserPanel's page strip lifts here so
+   * toggling the Browser workspace tab OFF (which unmounts the panel) then ON
+   * RESTORES the pages — only the serializable {id,url,title} + activePageId are
+   * kept; the live guests are recreated on re-mount and re-navigated to the
+   * stored URLs. In-memory only; pruned on session delete.
+   */
+  workspaceBrowserState: Record<string, WorkspaceBrowserState>;
+  /**
+   * Per-SESSION open-files state (Slice L4b persistence). Keyed by session id
+   * (mirrors workspaceTabs): the FilesPanel's open-file strip lifts here so
+   * toggling the Files workspace tab OFF then ON RESTORES the open tabs — only
+   * the serializable {id,path} + activeFileId are kept; FilePreview refetches
+   * each file's content on re-mount. In-memory only; pruned on session delete.
+   */
+  workspaceFilesState: Record<string, WorkspaceFilesState>;
   /**
    * The current session's captured checkpoints (Slice 18b), oldest capture
    * first — refreshed on subscribe + after each turn reaches idle + after a
@@ -222,6 +279,10 @@ export interface AppState {
   closeWorkspaceTabsToRight(sessionId: string, kind: WorkspaceTabKind): void;
   /** Context menu: close the whole strip for the session. */
   closeAllWorkspaceTabs(sessionId: string): void;
+  /** Replace a session's persisted browser page strip (Slice L4b). */
+  setWorkspaceBrowserState(sessionId: string, state: WorkspaceBrowserState): void;
+  /** Replace a session's persisted open-files strip (Slice L4b). */
+  setWorkspaceFilesState(sessionId: string, state: WorkspaceFilesState): void;
   /** Replace the current session's checkpoint list (a checkpoints_list fetch). */
   setCheckpoints(checkpoints: readonly CheckpointInfo[]): void;
   /** Replace the changed-file set (a diff_push or a diff_files fetch). */
@@ -282,6 +343,8 @@ export const useAppStore = create<AppState>((set) => ({
   pendingComposerText: null,
   terminalOpen: false,
   workspaceTabs: {},
+  workspaceBrowserState: {},
+  workspaceFilesState: {},
   checkpoints: [],
   diffRepo: false,
   diffFiles: [],
@@ -378,6 +441,14 @@ export const useAppStore = create<AppState>((set) => ({
       workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) =>
         current.tabs.length === 0 ? current : EMPTY_WORKSPACE_TABS,
       ),
+    })),
+  setWorkspaceBrowserState: (sessionId, state) =>
+    set((prev) => ({
+      workspaceBrowserState: { ...prev.workspaceBrowserState, [sessionId]: state },
+    })),
+  setWorkspaceFilesState: (sessionId, state) =>
+    set((prev) => ({
+      workspaceFilesState: { ...prev.workspaceFilesState, [sessionId]: state },
     })),
   setCheckpoints: (checkpoints) => set({ checkpoints }),
   setDiffState: ({ repo, files, truncated }) =>
@@ -478,11 +549,25 @@ export const useAppStore = create<AppState>((set) => ({
               Object.entries(state.workspaceTabs).filter(([id]) => id !== sessionId),
             )
           : state.workspaceTabs;
+      const workspaceBrowserState =
+        sessionId in state.workspaceBrowserState
+          ? Object.fromEntries(
+              Object.entries(state.workspaceBrowserState).filter(([id]) => id !== sessionId),
+            )
+          : state.workspaceBrowserState;
+      const workspaceFilesState =
+        sessionId in state.workspaceFilesState
+          ? Object.fromEntries(
+              Object.entries(state.workspaceFilesState).filter(([id]) => id !== sessionId),
+            )
+          : state.workspaceFilesState;
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         pendingReviewComments,
         pendingElementContexts,
         workspaceTabs,
+        workspaceBrowserState,
+        workspaceFilesState,
       };
     }),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),

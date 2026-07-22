@@ -290,7 +290,13 @@ function makeEditorLauncher() {
 // --- Fake file service (Slice 13a): scripted listings/reads, no filesystem ---
 
 function makeFileService() {
-  const calls: Array<{ op: string; cwd: string; path?: string }> = [];
+  const calls: Array<{
+    op: string;
+    cwd: string;
+    path?: string;
+    content?: string;
+    baseVersion?: string;
+  }> = [];
   const listResult = {
     path: "src",
     entries: [
@@ -306,7 +312,17 @@ function makeFileService() {
     },
     readFile: async (cwd, path) => {
       calls.push({ op: "readFile", cwd, path });
-      return { contentKind: "text", content: `// ${path}\n`, byteLength: 8, truncated: false };
+      return {
+        contentKind: "text",
+        content: `// ${path}\n`,
+        byteLength: 8,
+        truncated: false,
+        version: "111:8",
+      };
+    },
+    writeFile: async (cwd, path, content, baseVersion) => {
+      calls.push({ op: "writeFile", cwd, path, content, baseVersion });
+      return { outcome: "written", version: `222:${Buffer.byteLength(content)}` };
     },
   };
   return { service, calls, listResult };
@@ -1114,9 +1130,31 @@ describe("createRpcConnection file ops (Slice 13a)", () => {
         content: "// src/a.ts\n",
         byteLength: 8,
         truncated: false,
+        version: "111:8",
       },
     ]);
     expect(files.calls).toEqual([{ op: "readFile", cwd: "/tmp", path: "src/a.ts" }]);
+  });
+
+  it("file_write answers file_write_ok, threading the base version through", async () => {
+    const { session } = makeSession("s1");
+    const files = makeFileService();
+    const { conn, frames } = withFiles({ s1: session }, files.service);
+    await conn.handleMessage(
+      frame(8, {
+        type: "file_write",
+        sessionId: "s1",
+        path: "src/a.ts",
+        content: "next\n",
+        baseVersion: "111:8",
+      }),
+    );
+    expect(frames).toEqual([
+      { kind: "file_write_ok", id: 8, path: "src/a.ts", outcome: "written", version: "222:5" },
+    ]);
+    expect(files.calls).toEqual([
+      { op: "writeFile", cwd: "/tmp", path: "src/a.ts", content: "next\n", baseVersion: "111:8" },
+    ]);
   });
 
   it("file ops on an unknown session reply with an error (ownership gate)", async () => {
@@ -1138,6 +1176,9 @@ describe("createRpcConnection file ops (Slice 13a)", () => {
         throw new Error("path escapes the session directory");
       },
       readFile: async () => {
+        throw new Error("file not found");
+      },
+      writeFile: async () => {
         throw new Error("file not found");
       },
     };

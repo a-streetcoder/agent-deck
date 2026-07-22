@@ -479,7 +479,11 @@ export function createRpcConnection(deps: {
     // diff/editor ops; the cwd is resolved server-side from the session's meta
     // (worktree-aware) and the path stays within it (containment in
     // services/files.ts, the SAME gate editorLauncher uses).
-    if (request.type === "file_list" || request.type === "file_read") {
+    if (
+      request.type === "file_list" ||
+      request.type === "file_read" ||
+      request.type === "file_write"
+    ) {
       const session = sessions.get(request.sessionId);
       if (!session) {
         replyError("unknown session");
@@ -495,7 +499,7 @@ export function createRpcConnection(deps: {
             entries: result.entries,
             truncated: result.truncated,
           });
-        } else {
+        } else if (request.type === "file_read") {
           const result = await files.readFile(session.meta.cwd, request.path);
           send({
             kind: "file_read_ok",
@@ -505,6 +509,24 @@ export function createRpcConnection(deps: {
             content: result.content,
             byteLength: result.byteLength,
             truncated: result.truncated,
+            version: result.version,
+          });
+        } else {
+          // file_write (Slice L4b): overwrite an existing file atomically, with
+          // the on-disk version conflict guard. cwd is server-side meta; the
+          // path stays within it (same containment gate as read).
+          const result = await files.writeFile(
+            session.meta.cwd,
+            request.path,
+            request.content,
+            request.baseVersion,
+          );
+          send({
+            kind: "file_write_ok",
+            id,
+            path: request.path,
+            outcome: result.outcome,
+            version: result.version,
           });
         }
       } catch (error) {

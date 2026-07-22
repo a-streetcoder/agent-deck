@@ -142,6 +142,18 @@ export interface FileReadResult {
   readonly content: string;
   readonly byteLength: number;
   readonly truncated: boolean;
+  /** The version token (Slice L4b) — carried back on a write as `baseVersion`. */
+  readonly version: string;
+}
+
+/** The reply to a `file_write` request (Slice L4b): the write outcome.
+ * `written` — the atomic replace landed, `version` is the file's NEW token
+ * (adopt as the next `baseVersion`). `conflict` — the on-disk version drifted
+ * since read, the write was REFUSED, `version` is the CURRENT on-disk token. */
+export interface FileWriteResult {
+  readonly path: string;
+  readonly outcome: "written" | "conflict";
+  readonly version: string;
 }
 
 /** The reply to a `scripts_list` request (Slice 15b): the session project's
@@ -181,6 +193,7 @@ type RequestSettled =
   | { readonly kind: "editors"; readonly editors: readonly EditorId[] }
   | { readonly kind: "file_list"; readonly result: FileListResult }
   | { readonly kind: "file_read"; readonly result: FileReadResult }
+  | { readonly kind: "file_write"; readonly result: FileWriteResult }
   | { readonly kind: "scripts_list"; readonly result: ScriptsListResult }
   | { readonly kind: "script_run"; readonly result: ScriptRunResult }
   | { readonly kind: "checkpoints_list"; readonly checkpoints: readonly CheckpointInfo[] }
@@ -389,7 +402,18 @@ export class RpcTransport {
             content: frame.content,
             byteLength: frame.byteLength,
             truncated: frame.truncated,
+            version: frame.version,
           },
+        });
+        return;
+      }
+      case "file_write_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "file_write",
+          result: { path: frame.path, outcome: frame.outcome, version: frame.version },
         });
         return;
       }
@@ -596,6 +620,33 @@ export class RpcTransport {
     const settled = await this.sendRequest({ type: "file_read", sessionId, path });
     if (settled.kind !== "file_read") {
       throw new Error("file_read settled without a file_read_ok reply");
+    }
+    return settled.result;
+  }
+
+  /**
+   * Overwrite one existing text file of the session's project (Slice L4b —
+   * debounced autosave). `baseVersion` is the token from the read this buffer
+   * descends from; the result's `outcome` is `written` (with the file's new
+   * token) or `conflict` (the on-disk version drifted — the write was refused).
+   * Rejects on a hard server failure reply (unknown session, path escapes the
+   * cwd, file not found) or while disconnected.
+   */
+  async fileWrite(
+    sessionId: string,
+    path: string,
+    content: string,
+    baseVersion: string,
+  ): Promise<FileWriteResult> {
+    const settled = await this.sendRequest({
+      type: "file_write",
+      sessionId,
+      path,
+      content,
+      baseVersion,
+    });
+    if (settled.kind !== "file_write") {
+      throw new Error("file_write settled without a file_write_ok reply");
     }
     return settled.result;
   }

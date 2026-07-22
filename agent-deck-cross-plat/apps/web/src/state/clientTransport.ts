@@ -6,6 +6,7 @@ import {
   type DiffFilesResult,
   type FileListResult,
   type FileReadResult,
+  type FileWriteResult,
   type ScriptRunResult,
   type ScriptsListResult,
   type TerminalOpenResult,
@@ -92,6 +93,13 @@ export interface ClientTransport {
   fileList(sessionId: string, path?: string): Promise<FileListResult>;
   /** Read one file of the session's project, bounded (Slice 13b); rejects offline. */
   fileRead(sessionId: string, path: string): Promise<FileReadResult>;
+  /** Overwrite one existing file, with the on-disk conflict guard (Slice L4b). */
+  fileWrite(
+    sessionId: string,
+    path: string,
+    content: string,
+    baseVersion: string,
+  ): Promise<FileWriteResult>;
   /** List the session project's declared package.json scripts (Slice 15b). */
   scriptsList(sessionId: string): Promise<ScriptsListResult>;
   /** Start a declared dev/build script as a managed run (Slice 15b). */
@@ -296,6 +304,19 @@ export class RpcClientTransport implements ClientTransport {
       return Promise.reject(new Error("transport not connected"));
     }
     return transport.fileRead(sessionId, path);
+  }
+
+  fileWrite(
+    sessionId: string,
+    path: string,
+    content: string,
+    baseVersion: string,
+  ): Promise<FileWriteResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.fileWrite(sessionId, path, content, baseVersion);
   }
 
   scriptsList(sessionId: string): Promise<ScriptsListResult> {

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isElectron, onBrowserOpenPage } from "@/lib/native";
-import { useAppStore } from "../../state/store.ts";
+import { useAppStore, type WorkspaceBrowserPage } from "../../state/store.ts";
 import { buildPendingElementContext, newElementContextId } from "../../lib/elementContext.ts";
 import { sanitizeHttpUrl } from "../../lib/loopback.ts";
 import { PICKER_CODE, PICKER_TEARDOWN_CODE, parsePickResult } from "./picker.ts";
@@ -100,6 +100,31 @@ function newPage(initialSrc: string = BLANK_URL): BrowserPage {
 }
 
 /**
+ * Rebuild a live BrowserPage from its persisted {id,url,title} (Slice L4b) — the
+ * guest is created with the stored URL as its `initialSrc` so it re-navigates
+ * there on mount; the transient nav flags reset (they re-derive from the guest's
+ * own load/navigate events). The page id is PRESERVED so a restore is stable.
+ */
+function restorePage(stored: WorkspaceBrowserPage): BrowserPage {
+  const initialSrc = stored.url ? stored.url : BLANK_URL;
+  return {
+    id: stored.id,
+    initialSrc,
+    url: stored.url,
+    title: stored.title,
+    loading: false,
+    canGoBack: false,
+    canGoForward: false,
+    error: null,
+  };
+}
+
+/** The persisted projection of a live page (only id/url/title survive a toggle). */
+function serializePage(page: BrowserPage): WorkspaceBrowserPage {
+  return { id: page.id, url: page.url, title: page.title };
+}
+
+/**
  * Normalize raw address-bar input to a navigable URL. A scheme-qualified URL is
  * used verbatim; a bare host/`host:port`/`host/path` becomes https:// (http://
  * for localhost); anything else becomes a Google search. Returns null for empty.
@@ -150,8 +175,48 @@ function BrowserPlaceholder(): ReactElement {
 }
 
 function DesktopBrowser(): ReactElement {
-  const [pages, setPages] = useState<BrowserPage[]>(() => [newPage()]);
-  const [activePageId, setActivePageId] = useState<string>(() => pages[0]!.id);
+  const sessionId = useAppStore((state) => state.session?.id ?? null);
+  const setWorkspaceBrowserState = useAppStore((state) => state.setWorkspaceBrowserState);
+
+  // Restore the persisted page strip for the current session (Slice L4b) — else
+  // seed one blank page. Read via getState() (NOT a reactive selector) so the
+  // store is write-through + read-on-seed only; the live `pages` state below
+  // drives rendering, which avoids a store→render feedback loop.
+  const buildInitial = useCallback(
+    (
+      forSession: string | null,
+    ): {
+      pages: BrowserPage[];
+      activePageId: string;
+    } => {
+      const stored = forSession
+        ? useAppStore.getState().workspaceBrowserState[forSession]
+        : undefined;
+      if (stored && stored.pages.length > 0) {
+        const restored = stored.pages.map(restorePage);
+        const activePageId =
+          stored.activePageId && restored.some((p) => p.id === stored.activePageId)
+            ? stored.activePageId
+            : restored[0]!.id;
+        return { pages: restored, activePageId };
+      }
+      const page = newPage();
+      return { pages: [page], activePageId: page.id };
+    },
+    [],
+  );
+
+  // Seed local state ONCE per mount (a ref-guarded lazy init so StrictMode's
+  // double render doesn't reseed with a second blank page).
+  const seededSessionRef = useRef<string | null>(null);
+  const initialRef = useRef<{ pages: BrowserPage[]; activePageId: string } | null>(null);
+  if (initialRef.current === null) {
+    initialRef.current = buildInitial(sessionId);
+    seededSessionRef.current = sessionId;
+  }
+
+  const [pages, setPages] = useState<BrowserPage[]>(initialRef.current.pages);
+  const [activePageId, setActivePageId] = useState<string>(initialRef.current.activePageId);
   // Address-bar draft + focus, reseeded from the active page's URL (donor idiom).
   const [draft, setDraft] = useState("");
   const [addressFocused, setAddressFocused] = useState(false);
@@ -161,48 +226,112 @@ function DesktopBrowser(): ReactElement {
 
   const activePage = pages.find((p) => p.id === activePageId) ?? pages[0]!;
 
-  const patchPage = useCallback((id: string, patch: Partial<BrowserPage>) => {
-    setPages((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  }, []);
+  // Live mirrors so open/close/patch read the freshest values and keep their
+  // state updaters PURE (create pages OUTSIDE the updater — StrictMode). Each
+  // mutator writes these refs SYNCHRONOUSLY before setState, so a burst of
+  // nav events in one tick (did-navigate then page-title) never clobbers each
+  // other by reading a pre-commit array (a plain functional-updater equivalent).
+  const pagesRef = useRef<BrowserPage[]>(pages);
+  pagesRef.current = pages;
+  const activePageIdRef = useRef<string>(activePageId);
+  activePageIdRef.current = activePageId;
+  const sessionIdRef = useRef<string | null>(sessionId);
+  sessionIdRef.current = sessionId;
+
+  // Write the SERIALIZABLE subset ({id,url,title} + activePageId) through to the
+  // store for the current session, so a Browser-tab close+reopen restores it.
+  const syncToStore = useCallback(
+    (nextPages: readonly BrowserPage[], nextActive: string) => {
+      const id = sessionIdRef.current;
+      if (!id) return;
+      setWorkspaceBrowserState(id, {
+        pages: nextPages.map(serializePage),
+        activePageId: nextActive,
+      });
+    },
+    [setWorkspaceBrowserState],
+  );
+
+  // Commit a new page array + active id to BOTH the refs (synchronously, so the
+  // next mutator in the same tick reads them) and React state, then optionally
+  // persist the serializable projection.
+  const commitPages = useCallback(
+    (nextPages: BrowserPage[], nextActive: string, persist: boolean) => {
+      pagesRef.current = nextPages;
+      activePageIdRef.current = nextActive;
+      setPages(nextPages);
+      setActivePageId(nextActive);
+      if (persist) syncToStore(nextPages, nextActive);
+    },
+    [syncToStore],
+  );
+
+  // On a SESSION switch (the panel instance is reused, no key), rebuild the page
+  // strip from the new session's persisted state (or a fresh blank page). The
+  // initial mount already seeded via initialRef, so skip it here. No persist —
+  // this only REFLECTS the store (it must not write the seed back as a change).
+  useEffect(() => {
+    if (seededSessionRef.current === sessionId) return;
+    seededSessionRef.current = sessionId;
+    webviewRefs.current.clear();
+    const next = buildInitial(sessionId);
+    commitPages(next.pages, next.activePageId, false);
+  }, [sessionId, buildInitial, commitPages]);
+
+  const patchPage = useCallback(
+    (id: string, patch: Partial<BrowserPage>) => {
+      const next = pagesRef.current.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      // Only a url/title change alters the PERSISTED projection — nav-flag-only
+      // patches (loading/canGoBack/…) update state but never touch the store.
+      commitPages(next, activePageIdRef.current, "url" in patch || "title" in patch);
+    },
+    [commitPages],
+  );
 
   const setWebviewEl = useCallback((id: string, el: ElectronWebviewElement | null) => {
     if (el) webviewRefs.current.set(id, el);
     else webviewRefs.current.delete(id);
   }, []);
 
-  // A render-synced mirror of `pages` so open/close can read the live array and
-  // keep their state updaters PURE (no newPage()/setActivePageId side effects
-  // inside a setPages updater, which React StrictMode double-invokes).
-  const pagesRef = useRef<BrowserPage[]>(pages);
-  pagesRef.current = pages;
+  const activatePage = useCallback(
+    (id: string) => {
+      commitPages(pagesRef.current, id, true);
+    },
+    [commitPages],
+  );
 
-  const openPage = useCallback((initialSrc?: string) => {
-    if (pagesRef.current.length >= MAX_PAGES) {
-      console.warn(`[browser] page cap (${MAX_PAGES}) reached — ignoring new tab`);
-      return;
-    }
-    const page = newPage(initialSrc); // created ONCE, outside the updater
-    setPages((prev) => [...prev, page]);
-    setActivePageId(page.id);
-  }, []);
+  const openPage = useCallback(
+    (initialSrc?: string) => {
+      if (pagesRef.current.length >= MAX_PAGES) {
+        console.warn(`[browser] page cap (${MAX_PAGES}) reached — ignoring new tab`);
+        return;
+      }
+      const page = newPage(initialSrc); // created ONCE, outside the updater
+      commitPages([...pagesRef.current, page], page.id, true);
+    },
+    [commitPages],
+  );
 
-  const closePage = useCallback((id: string) => {
-    const prev = pagesRef.current;
-    webviewRefs.current.delete(id);
-    if (prev.length <= 1) {
-      // Never leave zero pages: reset the sole page to a fresh blank tab.
-      const page = newPage();
-      setPages([page]);
-      setActivePageId(page.id);
-      return;
-    }
-    const index = prev.findIndex((p) => p.id === id);
-    const next = prev.filter((p) => p.id !== id);
-    setPages(next);
-    setActivePageId((current) =>
-      current === id ? next[Math.min(Math.max(index, 0), next.length - 1)]!.id : current,
-    );
-  }, []);
+  const closePage = useCallback(
+    (id: string) => {
+      const prev = pagesRef.current;
+      webviewRefs.current.delete(id);
+      if (prev.length <= 1) {
+        // Never leave zero pages: reset the sole page to a fresh blank tab.
+        const page = newPage();
+        commitPages([page], page.id, true);
+        return;
+      }
+      const index = prev.findIndex((p) => p.id === id);
+      const next = prev.filter((p) => p.id !== id);
+      const nextActive =
+        activePageIdRef.current === id
+          ? next[Math.min(Math.max(index, 0), next.length - 1)]!.id
+          : activePageIdRef.current;
+      commitPages(next, nextActive, true);
+    },
+    [commitPages],
+  );
 
   // Reseed the address draft whenever the active page changes or navigates,
   // unless the user is mid-edit (focused).
@@ -255,7 +384,6 @@ function DesktopBrowser(): ReactElement {
   // unmount all cancel + tear the guest picker down (no leaked listeners). The
   // injection is executeJavaScript-ONLY — no guest preload, no contextIsolation
   // change (L2's hardening is preserved).
-  const sessionId = useAppStore((state) => state.session?.id ?? null);
   const addElementContext = useAppStore((state) => state.addElementContext);
   const pushToast = useAppStore((state) => state.pushToast);
 
@@ -390,7 +518,7 @@ function DesktopBrowser(): ReactElement {
                   data-testid="browser-page-tab"
                   data-active={active}
                   title={pageLabel(page)}
-                  onClick={() => setActivePageId(page.id)}
+                  onClick={() => activatePage(page.id)}
                 >
                   {page.loading ? (
                     <RotateCw className="h-3 w-3 shrink-0 animate-spin" aria-hidden />

@@ -1,5 +1,14 @@
 import type { Dirent } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
 import nodePath from "node:path";
 import {
   FILE_IMAGE_MAX_BYTES,
@@ -58,6 +67,17 @@ export interface FileReadResult {
   readonly byteLength: number;
   /** True when a text file was capped at the read bound. */
   readonly truncated: boolean;
+  /** The version token (`${mtimeMs}:${byteLength}`) — the conflict guard's base. */
+  readonly version: string;
+}
+
+/** One file's write outcome (the `file_write_ok` payload). `conflict` means the
+ * on-disk version drifted since read — the write was REFUSED (the buffer is
+ * kept client-side) and `version` is the CURRENT on-disk token. `written` means
+ * the atomic replace landed and `version` is the file's NEW token. */
+export interface FileWriteResult {
+  readonly outcome: "written" | "conflict";
+  readonly version: string;
 }
 
 export interface FileService {
@@ -65,6 +85,19 @@ export interface FileService {
   readonly listDirectory: (cwd: string, relPath?: string) => Promise<FileListResult>;
   /** Read one file of the session's project, bounded (text/image/binary). */
   readonly readFile: (cwd: string, relPath: string) => Promise<FileReadResult>;
+  /**
+   * Overwrite one EXISTING text file (Slice L4b). Rejects a path that escapes
+   * the cwd or does not exist (same containment as {@link readFile}); when the
+   * on-disk version differs from `baseVersion` returns a `conflict` WITHOUT
+   * writing; otherwise writes atomically (temp + rename) and returns `written`
+   * with the file's new version token.
+   */
+  readonly writeFile: (
+    cwd: string,
+    relPath: string,
+    content: string,
+    baseVersion: string,
+  ) => Promise<FileWriteResult>;
 }
 
 export interface FileServiceOptions {
@@ -176,6 +209,7 @@ export function createFileService(options: FileServiceOptions = {}): FileService
     const fileStat = await stat(abs);
     if (!fileStat.isFile()) throw new Error("not a file");
     const byteLength = fileStat.size;
+    const version = versionToken(fileStat);
     const mime = imageMimeFor(nodePath.basename(abs));
 
     const handle = await open(abs, "r");
@@ -184,12 +218,12 @@ export function createFileService(options: FileServiceOptions = {}): FileService
       // Over the cap it can't be previewed inline, so it degrades to binary.
       if (mime !== undefined) {
         if (byteLength > maxImageBytes) {
-          return { contentKind: "binary", content: "", byteLength, truncated: false };
+          return { contentKind: "binary", content: "", byteLength, truncated: false, version };
         }
         const buffer = Buffer.alloc(byteLength);
         await handle.read(buffer, 0, byteLength, 0);
         const content = `data:${mime};base64,${buffer.toString("base64")}`;
-        return { contentKind: "image", content, byteLength, truncated: false };
+        return { contentKind: "image", content, byteLength, truncated: false, version };
       }
 
       // Otherwise read a bounded prefix and sniff for binary (a NUL byte,
@@ -199,18 +233,96 @@ export function createFileService(options: FileServiceOptions = {}): FileService
       const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0);
       const bytes = buffer.subarray(0, bytesRead);
       if (bytes.includes(0)) {
-        return { contentKind: "binary", content: "", byteLength, truncated: false };
+        return { contentKind: "binary", content: "", byteLength, truncated: false, version };
       }
       return {
         contentKind: "text",
         content: new TextDecoder("utf-8").decode(bytes),
         byteLength,
         truncated: byteLength > maxReadBytes,
+        version,
       };
     } finally {
       await handle.close();
     }
   };
 
-  return { listDirectory, readFile };
+  const writeFile = async (
+    cwd: string,
+    relPath: string,
+    content: string,
+    baseVersion: string,
+  ): Promise<FileWriteResult> => {
+    // Same containment gate as a read (existing target, no create, no escape).
+    const abs = resolveContainedPath(cwd, relPath);
+    const before = await stat(abs);
+    if (!before.isFile()) throw new Error("not a file");
+
+    // The conflict guard: re-stat and compare JUST before the write. If the pi
+    // agent (or an external editor) touched the file since the client read it,
+    // its version token has drifted — refuse the write and report the current
+    // token so the client keeps its buffer and offers a reload. A small TOCTOU
+    // window between this compare and the rename is accepted (the requirement).
+    const currentVersion = versionToken(before);
+    if (currentVersion !== baseVersion) {
+      return { outcome: "conflict", version: currentVersion };
+    }
+
+    await writeFileStringAtomically(abs, content, before.mode);
+    const after = await stat(abs);
+    return { outcome: "written", version: versionToken(after) };
+  };
+
+  return { listDirectory, readFile, writeFile };
+}
+
+/** The opaque version token: mtime + ctime + size. Any content change bumps
+ * mtime/size; ctime (inode change time) also moves on an in-place rewrite, so a
+ * same-length edit in the same mtime tick on a coarse-mtime FS still drifts. */
+function versionToken(s: { mtimeMs: number; ctimeMs: number; size: number }): string {
+  return `${s.mtimeMs}:${s.ctimeMs}:${s.size}`;
+}
+
+/**
+ * Atomic file replace (ported from t3code's `writeFileStringAtomically`, plain
+ * fs — no Effect): write the full content to a sibling temp file, then `rename`
+ * it over the target. `rename` within a directory is atomic on POSIX and best-
+ * effort on Windows, so a concurrent reader never sees a half-written file.
+ */
+async function writeFileStringAtomically(
+  targetPath: string,
+  contents: string,
+  originalMode?: number,
+): Promise<void> {
+  const dir = nodePath.dirname(targetPath);
+  await mkdir(dir, { recursive: true });
+  // A unique sibling temp (same directory, so the rename stays on one volume).
+  const tempPath = nodePath.join(
+    dir,
+    `.${nodePath.basename(targetPath)}.${process.pid}.${Date.now()}.${Math.random()
+      .toString(36)
+      .slice(2, 8)}.tmp`,
+  );
+  await fsWriteFile(tempPath, contents, "utf-8");
+  // Preserve the original file's permission bits (a fresh temp otherwise gets
+  // default umask perms — e.g. an executable script would lose its +x).
+  // Best-effort: chmod is a no-op / unsupported on some platforms (Windows).
+  if (originalMode !== undefined) {
+    try {
+      await chmod(tempPath, originalMode);
+    } catch {
+      /* best-effort */
+    }
+  }
+  try {
+    await rename(tempPath, targetPath);
+  } catch (error) {
+    // Never leave the sibling .tmp behind (it would also surface in file_list).
+    try {
+      await unlink(tempPath);
+    } catch {
+      /* already gone */
+    }
+    throw error;
+  }
 }

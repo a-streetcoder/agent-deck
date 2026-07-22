@@ -49,7 +49,9 @@ const tokenTheme = EditorView.theme({
   },
   ".cm-activeLine": { backgroundColor: "transparent" },
   ".cm-activeLineGutter": { backgroundColor: "transparent" },
-  ".cm-cursor": { display: "none" },
+  // A visible caret for edit mode (a read-only view is non-editable, so it never
+  // shows one anyway). L4a hid it entirely, which broke L4b editing.
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-text-primary)" },
   ".cm-selectionBackground, ::selection": {
     backgroundColor: "var(--color-selection-fill)",
   },
@@ -128,6 +130,10 @@ export default function CodeMirrorView(props: CodeMirrorViewProps) {
     <CodeMirror
       value={value}
       extensions={extensions}
+      // Disable @uiw/react-codemirror's DEFAULT (light) theme — it paints a white
+      // background that ignores the app theme. With "none", our transparent
+      // tokenTheme + oneDark highlight style show over the app's dark surface.
+      theme="none"
       onChange={readOnly ? undefined : onChange}
       onCreateEditor={(view) => {
         viewRef.current = view;

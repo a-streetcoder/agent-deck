@@ -1,10 +1,11 @@
-import { Suspense, lazy, useEffect, useState } from "react";
-import { Code2, Eye } from "lucide-react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, Code2, Eye, Loader2 } from "lucide-react";
 import type { EditorId } from "@agent-deck/contracts";
 import type { FileContentKind } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
+import { FileSaveCoordinator } from "../../lib/fileSaveCoordinator.ts";
 import { MarkdownDocument } from "../../design-system/markdown/MarkdownDocument.tsx";
-import { fetchFileRead } from "../../state/wsBridge.ts";
+import { fetchFileRead, fetchFileWrite } from "../../state/wsBridge.ts";
 import { OpenInPicker } from "../diff/OpenInPicker.tsx";
 import { isMarkdownPreviewFile } from "./filePreviewMode.ts";
 
@@ -33,6 +34,9 @@ import { isMarkdownPreviewFile } from "./filePreviewMode.ts";
 
 const CodeMirrorView = lazy(() => import("./CodeMirrorView.tsx"));
 
+/** Debounce (ms) after the last keystroke before an edit autosaves (Slice L4b). */
+const AUTOSAVE_DEBOUNCE_MS = 700;
+
 interface PreviewState {
   path: string;
   sessionId: string;
@@ -41,8 +45,14 @@ interface PreviewState {
   content: string;
   byteLength: number;
   truncated: boolean;
+  /** The version token from the read — the autosave conflict guard's base. */
+  version: string;
   error?: string;
 }
+
+/** The autosave status surfaced in the file header chip (Slice L4b). `idle`
+ * hides the chip; `conflict` also offers a reload affordance. */
+type SaveStatus = "idle" | "saving" | "saved" | "failed" | "conflict";
 
 /** Human-readable file size (kB/MB with one decimal past 1 kB). */
 function formatBytes(bytes: number): string {
@@ -95,7 +105,17 @@ export function FilePreview(props: {
   // default for a .md; the Code2/Eye toggle flips to the raw CodeMirror view.
   const [markdownMode, setMarkdownMode] = useState<"preview" | "raw">("preview");
 
-  useEffect(() => {
+  // Autosave (Slice L4b). versionRef is the conflict guard's base token: set on
+  // each (re)load and advanced to the returned token after every successful
+  // write. saveStatus drives the header chip. The coordinator debounces edits.
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const versionRef = useRef<string>("");
+  const coordinatorRef = useRef<FileSaveCoordinator | null>(null);
+
+  // (Re)load the file's bounded content + version token. Shared by the mount
+  // fetch and the conflict "reload" affordance. A stale guard drops a response
+  // that resolves after the file/session changed underneath it.
+  const load = useCallback(() => {
     let stale = false;
     setState({
       path,
@@ -105,10 +125,12 @@ export function FilePreview(props: {
       content: "",
       byteLength: 0,
       truncated: false,
+      version: "",
     });
     void fetchFileRead(path)
       .then((result) => {
         if (stale || result === null) return;
+        versionRef.current = result.version;
         setState({
           path,
           sessionId,
@@ -117,6 +139,7 @@ export function FilePreview(props: {
           content: result.content,
           byteLength: result.byteLength,
           truncated: result.truncated,
+          version: result.version,
         });
       })
       .catch((error: unknown) => {
@@ -129,6 +152,7 @@ export function FilePreview(props: {
           content: "",
           byteLength: 0,
           truncated: false,
+          version: "",
           error: error instanceof Error ? error.message : String(error),
         });
       });
@@ -136,6 +160,70 @@ export function FilePreview(props: {
       stale = true;
     };
   }, [path, sessionId]);
+
+  useEffect(() => load(), [load]);
+
+  // Persist the latest buffer through the conflict-guarded file_write. Returns
+  // true on a landed write (advancing the base token); false on failure or an
+  // on-disk conflict (the buffer is KEPT and the chip surfaces the reason).
+  const persist = useCallback(
+    async (contents: string): Promise<boolean> => {
+      setSaveStatus("saving");
+      try {
+        const result = await fetchFileWrite(path, contents, versionRef.current);
+        if (result === null) {
+          setSaveStatus("failed");
+          return false;
+        }
+        if (result.outcome === "conflict") {
+          // Do NOT adopt the on-disk token — keep the user's buffer and let them
+          // reload; a subsequent write would keep conflicting until they do.
+          setSaveStatus("conflict");
+          return false;
+        }
+        versionRef.current = result.version;
+        setSaveStatus("saved");
+        return true;
+      } catch {
+        setSaveStatus("failed");
+        return false;
+      }
+    },
+    [path],
+  );
+
+  // One coordinator per open file (recreated only if `persist` changes, i.e. the
+  // path changes). Dispose on unmount / file-switch FLUSHES any pending edit so
+  // a close never drops the last keystrokes.
+  useEffect(() => {
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: AUTOSAVE_DEBOUNCE_MS,
+      persist,
+      // As soon as an edit is queued (before the debounce fires) reflect it in
+      // the chip, so it never shows a stale "Saved" while the buffer is dirty.
+      // The `false` (confirmed) transition is owned by `persist` → "saved".
+      onPendingChange: (pending) => {
+        if (pending) setSaveStatus("saving");
+      },
+      onConfirmed: () => {},
+    });
+    coordinatorRef.current = coordinator;
+    return () => {
+      coordinator.dispose();
+      coordinatorRef.current = null;
+    };
+  }, [persist]);
+
+  const handleEditorChange = useCallback((value: string) => {
+    coordinatorRef.current?.change(value);
+  }, []);
+
+  const reload = useCallback(() => {
+    // Discard the losing buffer's pending write (never flush it) and refetch.
+    coordinatorRef.current?.cancel();
+    setSaveStatus("idle");
+    load();
+  }, [load]);
 
   // Only render content whose tag matches the currently-requested file (guards
   // the frame between selecting a new file and the fetch effect replacing state).
@@ -145,10 +233,13 @@ export function FilePreview(props: {
   const isMarkdown = isMarkdownPreviewFile(path);
   const isTextLoaded = active?.status === "loaded" && active.contentKind === "text";
   const showMarkdownToggle = isMarkdown && isTextLoaded;
+  // Editable = a loaded, non-truncated text file. Binary/image never reach the
+  // editor; a TRUNCATED read stays read-only (saving it would drop the tail).
+  const editable = isTextLoaded && active !== null && !active.truncated;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="file-preview">
-      {/* File header: path + open-in-editor + (for .md) the raw/preview toggle.
+      {/* File header: path + save-status chip + open-in-editor + (.md) toggle.
           The picker reveals on header hover/focus so the resting layout is
           unchanged; the md toggle is always visible when applicable. */}
       <div className="group/fileheader flex items-center gap-2 border-b border-border-subtle bg-surface px-3 py-1.5">
@@ -159,6 +250,7 @@ export function FilePreview(props: {
         >
           {path}
         </span>
+        {editable && <SaveStatusChip status={saveStatus} onReload={reload} />}
         {showMarkdownToggle && (
           <div
             className="flex shrink-0 items-center rounded-md border border-border-subtle"
@@ -214,8 +306,53 @@ export function FilePreview(props: {
         isVisible={isVisible}
         isMarkdown={isMarkdown}
         markdownMode={markdownMode}
+        editable={editable}
+        onEditorChange={handleEditorChange}
       />
     </div>
+  );
+}
+
+/** The header save-status chip (Slice L4b). Hidden at idle; on a conflict it
+ * offers a reload button that refetches the on-disk version + content. */
+function SaveStatusChip({ status, onReload }: { status: SaveStatus; onReload: () => void }) {
+  if (status === "idle") return null;
+  const label =
+    status === "saving"
+      ? "Saving…"
+      : status === "saved"
+        ? "Saved"
+        : status === "failed"
+          ? "Save failed"
+          : "Changed on disk";
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+        status === "saved" && "text-text-muted",
+        status === "saving" && "text-text-muted",
+        (status === "failed" || status === "conflict") && "text-[var(--color-role-error)]",
+      )}
+      data-testid="file-save-status"
+      data-status={status}
+    >
+      {status === "saving" && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}
+      {status === "saved" && <Check className="h-3 w-3" aria-hidden />}
+      {(status === "failed" || status === "conflict") && (
+        <AlertTriangle className="h-3 w-3" aria-hidden />
+      )}
+      <span>{label}</span>
+      {status === "conflict" && (
+        <button
+          type="button"
+          className="ml-0.5 rounded px-1 underline underline-offset-2 hover:text-text-primary"
+          data-testid="file-save-reload"
+          onClick={onReload}
+        >
+          reload
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -225,8 +362,10 @@ function FilePreviewBody(props: {
   isVisible: boolean;
   isMarkdown: boolean;
   markdownMode: "preview" | "raw";
+  editable: boolean;
+  onEditorChange: (value: string) => void;
 }) {
-  const { active, path, isVisible, isMarkdown, markdownMode } = props;
+  const { active, path, isVisible, isMarkdown, markdownMode, editable, onEditorChange } = props;
 
   if (active === null || active.status === "loading") {
     return <CenteredState testId="file-preview-loading">Loading file…</CenteredState>;
@@ -285,7 +424,13 @@ function FilePreviewBody(props: {
               </pre>
             }
           >
-            <CodeMirrorView value={active.content} filename={path} visible={isVisible} />
+            <CodeMirrorView
+              value={active.content}
+              filename={path}
+              visible={isVisible}
+              readOnly={!editable}
+              onChange={onEditorChange}
+            />
           </Suspense>
         </div>
       )}

@@ -15,6 +15,7 @@ import {
   FileContentKind,
   FileDirPath,
   FileListEntry,
+  FileVersion,
 } from "./files.ts";
 import { ClientMessage, ServerMessage, SessionMeta } from "./protocol.ts";
 import {
@@ -251,8 +252,33 @@ export const RpcFileReadOkFrame = Schema.Struct({
   ),
   /** True when a text file was capped at FILE_READ_MAX_BYTES. */
   truncated: Schema.Boolean,
+  /**
+   * The file's version token (Slice L4b) — `${mtimeMs}:${byteLength}`, captured
+   * server-side at read time and carried back on a `file_write` as `baseVersion`
+   * so the write can reject an out-of-band edit (the conflict guard).
+   */
+  version: FileVersion,
 });
 export type RpcFileReadOkFrame = typeof RpcFileReadOkFrame.Type;
+
+/**
+ * server → client: the reply to a `file_write` request (Slice L4b — debounced
+ * autosave). `outcome` discriminates the two normal answers: `written` (the
+ * atomic temp+rename succeeded; `version` is the file's NEW token, which the
+ * client adopts as its next `baseVersion`) or `conflict` (the on-disk version
+ * drifted from the client's `baseVersion` since read — the write was REFUSED and
+ * `version` is the CURRENT on-disk token; the user's buffer is kept and the UI
+ * surfaces "changed on disk — reload"). A hard failure (containment, missing
+ * file) still comes back as a plain `reply` (`ok: false`).
+ */
+export const RpcFileWriteOkFrame = Schema.Struct({
+  kind: Schema.Literal("file_write_ok"),
+  id: RequestId,
+  path: DiffPath,
+  outcome: Schema.Literal("written", "conflict"),
+  version: FileVersion,
+});
+export type RpcFileWriteOkFrame = typeof RpcFileWriteOkFrame.Type;
 
 /**
  * server → client: the reply to a `scripts_list` request (Slice 15a) — the
@@ -341,6 +367,7 @@ export const RpcServerFrame = Schema.Union(
   RpcEditorsOkFrame,
   RpcFileListOkFrame,
   RpcFileReadOkFrame,
+  RpcFileWriteOkFrame,
   RpcScriptsListOkFrame,
   RpcScriptRunOkFrame,
   RpcScriptPushFrame,

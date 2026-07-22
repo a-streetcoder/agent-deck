@@ -86,6 +86,16 @@ export type FileContentKind = typeof FileContentKind.Type;
 // Client → server file requests (ride RpcClientFrame alongside ClientMessage)
 // ---------------------------------------------------------------------------
 
+/**
+ * A file's version token (Slice L4b) — an opaque `${mtimeMs}:${byteLength}`
+ * string captured on read and echoed back on write. The server re-stats just
+ * before writing and rejects the write when the current token differs (the pi
+ * agent, or an external editor, changed the file since it was read), so a
+ * debounced autosave never blindly clobbers an out-of-band edit.
+ */
+export const FileVersion = Schema.String.pipe(Schema.maxLength(128));
+export type FileVersion = typeof FileVersion.Type;
+
 export const FileClientRequest = Schema.Union(
   Schema.Struct({
     /** List one directory within the session's project (omit `path` = root). */
@@ -100,6 +110,24 @@ export const FileClientRequest = Schema.Union(
     sessionId: Schema.String,
     /** Repo-relative file path; resolved INSIDE the session cwd server-side. */
     path: DiffPath,
+  }),
+  Schema.Struct({
+    /**
+     * Overwrite one EXISTING text file of the session's project (Slice L4b —
+     * debounced autosave). The path is resolved INSIDE the session cwd
+     * server-side (same containment gate as read; creation is NOT permitted —
+     * the target must already exist). `baseVersion` is the token from the read
+     * this buffer descends from: the server re-stats and rejects with a distinct
+     * conflict result if the on-disk version has drifted since (never clobbers).
+     */
+    type: Schema.Literal("file_write"),
+    sessionId: Schema.String,
+    /** Repo-relative file path; resolved INSIDE the session cwd server-side. */
+    path: DiffPath,
+    /** The full new text content (capped like a read's content field). */
+    content: Schema.String.pipe(Schema.maxLength(FILE_CONTENT_MAX_CHARS)),
+    /** The version token captured when this buffer's content was read. */
+    baseVersion: FileVersion,
   }),
 );
 export type FileClientRequest = typeof FileClientRequest.Type;

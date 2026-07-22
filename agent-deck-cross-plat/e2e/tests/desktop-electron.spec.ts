@@ -346,6 +346,56 @@ test("the browser workspace tab mounts a real <webview> guest and navigates", as
   await expect(window.getByTestId("workspace-body-browser")).toHaveCount(0);
 });
 
+test("closing + reopening the browser tab restores the page strip (L4b persist)", async () => {
+  const window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+
+  // A fresh session (browser state is per-session).
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((item) => item.label === "File");
+    file?.submenu?.items.find((i) => i.label === "New Chat")?.click();
+  });
+  const browserToggle = window.getByTestId("browser-toggle");
+  await expect(browserToggle).toBeVisible({ timeout: 15_000 });
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toBeVisible();
+
+  // Navigate page 0 to a data: URL with a known title (no network in CI).
+  const dataUrl = "data:text/html,<title>Restored</title><h1>persisted</h1>";
+  const input = window.getByTestId("browser-url-input");
+  await input.click();
+  await input.fill(dataUrl);
+  await input.press("Enter");
+  await expect(window.getByTestId("browser-page-title")).toHaveText("Restored", {
+    timeout: 15_000,
+  });
+
+  // Open a SECOND page (two live guests), then re-activate page 0 so it is the
+  // active page that a restore brings back to the front.
+  await window.getByTestId("browser-new-page").click();
+  await expect(window.locator("webview")).toHaveCount(2);
+  await window.getByTestId("browser-page-tab").first().click();
+
+  // Close the browser workspace tab — the panel (and both guests) unmount.
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toHaveCount(0);
+  await expect(window.locator("webview")).toHaveCount(0);
+
+  // Reopen: the page strip is RESTORED from the store — BOTH pages come back as
+  // live guests, and page 0 re-navigates to its stored data: URL (title + URL).
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toBeVisible();
+  await expect(window.locator("webview")).toHaveCount(2);
+  await expect(window.getByTestId("browser-page-title")).toHaveText("Restored", {
+    timeout: 15_000,
+  });
+  await expect(window.getByTestId("browser-url-input")).toHaveValue(/^data:text\/html/);
+
+  // Clean up.
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toHaveCount(0);
+});
+
 test("the browser element picker captures a clicked element as composer context (L3)", async () => {
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");

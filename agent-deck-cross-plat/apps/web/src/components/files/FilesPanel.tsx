@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useAppStore } from "../../state/store.ts";
+import { EMPTY_WORKSPACE_FILES, useAppStore, type WorkspaceFilesState } from "../../state/store.ts";
 import { ResizeHandle, useResizable } from "../common/Resizable.tsx";
 import { editorLabel, useOpenInEditor } from "../diff/OpenInPicker.tsx";
 import { FilePreview } from "./FilePreview.tsx";
@@ -14,16 +14,18 @@ import { useFileTree } from "./useFileTree.ts";
  * over a single preview with a back button) is gone; instead the tree stays on
  * the left and MULTIPLE files open as Chrome-style page-tabs on the right,
  * mirroring the L2 BrowserPanel page-tabs model EXACTLY:
- *   - `openFiles[]` + `activeFileId` (component-local, like BrowserPanel pages);
+ *   - `openFiles[]` + `activeFileId` (Slice L4b: lifted into the zustand store,
+ *     keyed by session, so closing + re-opening the Files workspace tab RESTORES
+ *     the open file strip — FilePreview refetches each file's content on mount);
  *   - a render-synced `openFilesRef` so open/close updaters stay PURE
- *     (StrictMode-safe — create the tab OUTSIDE the setState updater);
+ *     (StrictMode-safe — create the tab OUTSIDE the store write);
  *   - dedupe by path: re-opening an already-open file just focuses its tab;
  *   - KEEP-ALIVE — one FilePreview per open file, inactive ones hidden via
  *     display:none so each file keeps its scroll / CodeMirror / md-mode state.
  *
  * The tree|content split has a draggable divider (persisted width). The whole
- * panel is one workspace tab body; it unmounts (resetting open files) only when
- * the Files tab is closed.
+ * panel is one workspace tab body; closing the Files tab unmounts it, but the
+ * open-file strip survives in the store (per session) so a re-open restores it.
  */
 
 /** Cap on simultaneously-open file tabs (mirrors BrowserPanel's page cap). */
@@ -53,11 +55,32 @@ export function FilesPanel() {
   const controller = useFileTree(sessionId);
   const editorPicker = useOpenInEditor();
 
-  const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
-  const [activeFileId, setActiveFileId] = useState<string | null>(null);
-  // Render-synced mirror so open/close read the live array (pure updaters).
-  const openFilesRef = useRef<OpenFile[]>(openFiles);
+  // Open-file strip lifted into the store (Slice L4b), keyed by session — so a
+  // Files-tab close+reopen restores it. The panel keys writes on the current
+  // session id; a null session can't open a file (the panel early-returns).
+  const filesState =
+    useAppStore((state) => (sessionId ? state.workspaceFilesState[sessionId] : undefined)) ??
+    EMPTY_WORKSPACE_FILES;
+  const setWorkspaceFilesState = useAppStore((state) => state.setWorkspaceFilesState);
+  const openFiles = filesState.openFiles;
+  const activeFileId = filesState.activeFileId;
+
+  // Render-synced mirrors so open/close/activate read the live values and keep
+  // their store writes PURE (create the tab OUTSIDE the write, StrictMode-safe).
+  const openFilesRef = useRef<readonly OpenFile[]>(openFiles);
   openFilesRef.current = openFiles;
+  const activeFileIdRef = useRef<string | null>(activeFileId);
+  activeFileIdRef.current = activeFileId;
+  const sessionIdRef = useRef<string | null>(sessionId);
+  sessionIdRef.current = sessionId;
+
+  const commitFiles = useCallback(
+    (next: WorkspaceFilesState) => {
+      const id = sessionIdRef.current;
+      if (id) setWorkspaceFilesState(id, next);
+    },
+    [setWorkspaceFilesState],
+  );
 
   const tree = useResizable({
     storageKey: TREE_WIDTH_KEY,
@@ -69,38 +92,44 @@ export function FilesPanel() {
     edge: "left",
   });
 
-  // A session switch drops the previous project's open file tabs.
-  useEffect(() => {
-    setOpenFiles([]);
-    setActiveFileId(null);
-  }, [sessionId]);
+  const activateFile = useCallback(
+    (id: string) => {
+      commitFiles({ openFiles: openFilesRef.current, activeFileId: id });
+    },
+    [commitFiles],
+  );
 
-  const openFile = useCallback((path: string) => {
-    const existing = openFilesRef.current.find((file) => file.path === path);
-    if (existing) {
-      setActiveFileId(existing.id);
-      return;
-    }
-    if (openFilesRef.current.length >= MAX_FILES) {
-      console.warn(`[files] tab cap (${MAX_FILES}) reached — close a file to open another`);
-      return;
-    }
-    const file = newOpenFile(path); // created ONCE, outside the updater
-    setOpenFiles((prev) => [...prev, file]);
-    setActiveFileId(file.id);
-  }, []);
+  const openFile = useCallback(
+    (path: string) => {
+      const existing = openFilesRef.current.find((file) => file.path === path);
+      if (existing) {
+        commitFiles({ openFiles: openFilesRef.current, activeFileId: existing.id });
+        return;
+      }
+      if (openFilesRef.current.length >= MAX_FILES) {
+        console.warn(`[files] tab cap (${MAX_FILES}) reached — close a file to open another`);
+        return;
+      }
+      const file = newOpenFile(path); // created ONCE, outside the store write
+      commitFiles({ openFiles: [...openFilesRef.current, file], activeFileId: file.id });
+    },
+    [commitFiles],
+  );
 
-  const closeFile = useCallback((id: string) => {
-    const prev = openFilesRef.current;
-    const index = prev.findIndex((file) => file.id === id);
-    const next = prev.filter((file) => file.id !== id);
-    setOpenFiles(next);
-    setActiveFileId((current) => {
-      if (current !== id) return current;
-      if (next.length === 0) return null;
-      return next[Math.min(Math.max(index, 0), next.length - 1)]!.id;
-    });
-  }, []);
+  const closeFile = useCallback(
+    (id: string) => {
+      const prev = openFilesRef.current;
+      const index = prev.findIndex((file) => file.id === id);
+      const next = prev.filter((file) => file.id !== id);
+      let activeId = activeFileIdRef.current;
+      if (activeId === id) {
+        activeId =
+          next.length === 0 ? null : next[Math.min(Math.max(index, 0), next.length - 1)]!.id;
+      }
+      commitFiles({ openFiles: next, activeFileId: activeId });
+    },
+    [commitFiles],
+  );
 
   if (sessionId === null) return null;
 
@@ -212,7 +241,7 @@ export function FilesPanel() {
                           data-active={isActive}
                           data-path={file.path}
                           title={file.path}
-                          onClick={() => setActiveFileId(file.id)}
+                          onClick={() => activateFile(file.id)}
                         >
                           <span className="truncate font-mono">{label}</span>
                         </button>

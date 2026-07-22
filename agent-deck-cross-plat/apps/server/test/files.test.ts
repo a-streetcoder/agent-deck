@@ -126,12 +126,15 @@ describe("createFileService: readFile", () => {
     const cwd = makeProject();
     const files = createFileService();
     const result = await files.readFile(cwd, "src/a.ts");
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       contentKind: "text",
       content: "export const a = 1;\n",
       byteLength: 20,
       truncated: false,
     });
+    // The version token is `${mtimeMs}:${ctimeMs}:${size}` — opaque but ends in
+    // the byte size (20 here).
+    expect(result.version).toMatch(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?:20$/);
   });
 
   it("caps a huge text file and flags truncation (byteLength stays the true size)", async () => {
@@ -150,12 +153,13 @@ describe("createFileService: readFile", () => {
     const cwd = makeProject();
     const files = createFileService();
     const result = await files.readFile(cwd, "bin.dat");
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       contentKind: "binary",
       content: "",
       byteLength: 5,
       truncated: false,
     });
+    expect(result.version).toMatch(/:5$/);
   });
 
   it("returns a recognised image as a data URI", async () => {
@@ -181,7 +185,7 @@ describe("createFileService: readFile", () => {
     writeFileSync(nodePath.join(cwd, "big.png"), Buffer.alloc(4_096, 7));
     const files = createFileService({ maxImageBytes: 1_024 });
     const result = await files.readFile(cwd, "big.png");
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       contentKind: "binary",
       content: "",
       byteLength: 4_096,
@@ -225,5 +229,62 @@ describe("createFileService: readFile", () => {
     }
     const files = createFileService();
     await expect(files.readFile(cwd, "link.txt")).rejects.toThrow(/escapes/);
+  });
+});
+
+describe("createFileService: writeFile (Slice L4b)", () => {
+  it("atomically replaces an existing file when the base version matches", async () => {
+    const cwd = makeProject();
+    const files = createFileService();
+    const read = await files.readFile(cwd, "src/a.ts");
+    const next = "export const a = 42;\n";
+    const result = await files.writeFile(cwd, "src/a.ts", next, read.version);
+    expect(result.outcome).toBe("written");
+    // The new version reflects the new byte length and is different from the base.
+    expect(result.version).toMatch(new RegExp(`:${Buffer.byteLength(next)}$`));
+    expect(result.version).not.toBe(read.version);
+    // The bytes on disk are the new content.
+    const reread = await files.readFile(cwd, "src/a.ts");
+    expect(reread.content).toBe(next);
+    expect(reread.version).toBe(result.version);
+  });
+
+  it("refuses to write (conflict) when the on-disk version drifted since read", async () => {
+    const cwd = makeProject();
+    const files = createFileService();
+    const read = await files.readFile(cwd, "src/a.ts");
+    // Simulate the pi agent (or an external editor) rewriting the file with a
+    // DIFFERENT length so the token is guaranteed to change even at coarse mtime.
+    writeFileSync(nodePath.join(cwd, "src", "a.ts"), "export const a = 999999;\n");
+    const result = await files.writeFile(cwd, "src/a.ts", "clobber\n", read.version);
+    expect(result.outcome).toBe("conflict");
+    // The buffer was NOT written — the out-of-band content is intact.
+    const reread = await files.readFile(cwd, "src/a.ts");
+    expect(reread.content).toBe("export const a = 999999;\n");
+    // The reported version is the CURRENT on-disk token (what a reload would get).
+    expect(result.version).toBe(reread.version);
+  });
+
+  it("rejects a path that escapes the project (same containment as read)", async () => {
+    const cwd = makeProject();
+    const files = createFileService();
+    await expect(files.writeFile(cwd, "../outside.txt", "x", "0:0")).rejects.toThrow(/escapes/);
+    await expect(
+      files.writeFile(cwd, nodePath.resolve(cwd, "src/a.ts"), "x", "0:0"),
+    ).rejects.toThrow(/must be relative/);
+  });
+
+  it("refuses a path that does not exist (no create in L4b)", async () => {
+    const cwd = makeProject();
+    const files = createFileService();
+    await expect(files.writeFile(cwd, "src/new-file.ts", "x", "0:0")).rejects.toThrow(/not found/);
+  });
+
+  it("rejects writing a directory as a file", async () => {
+    const cwd = makeProject();
+    const files = createFileService();
+    await expect(files.writeFile(cwd, "src", "x", "0:0")).rejects.toThrow(
+      /not a directory|not a file|escapes/,
+    );
   });
 });
