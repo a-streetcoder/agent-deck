@@ -10,6 +10,7 @@ import type { DiffGateway } from "./diffGateway.ts";
 import type { EditorLauncher } from "./editorLauncher.ts";
 import type { OpenedScript, ScriptRunnerGateway } from "./scriptRunnerGateway.ts";
 import type { ManagedSession, SessionManager } from "./SessionManager.ts";
+import type { CheckpointServiceShape } from "./services/checkpoints.ts";
 import type { FileService } from "./services/files.ts";
 import type { ScriptEvent } from "./services/scriptRunner.ts";
 import type { TerminalEvent } from "./services/terminal.ts";
@@ -67,11 +68,12 @@ export function createRpcConnection(deps: {
   editors: EditorLauncher;
   files: FileService;
   scripts: ScriptRunnerGateway;
+  checkpoints: CheckpointServiceShape;
   send: (frame: RpcServerFrame) => void;
   /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
   bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, terminals, diffs, editors, files, scripts, send } = deps;
+  const { sessions, terminals, diffs, editors, files, scripts, checkpoints, send } = deps;
   const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
@@ -601,6 +603,24 @@ export function createRpcConnection(deps: {
       replyOk();
       return;
     }
+    // Checkpoint ops (Slice 18a) — session-ownership validated like the diff/
+    // file ops. Read-only here (capture happens server-side at the idle
+    // boundary); the cwd is never taken from the wire — checkpoint records carry
+    // their own captured cwd.
+    if (request.type === "checkpoints_list") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      try {
+        const list = await checkpoints.list(session.meta.id);
+        send({ kind: "checkpoints_list_ok", id, checkpoints: list });
+      } catch (error) {
+        replyError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -696,8 +716,9 @@ export function setupRpcEndpoint(deps: {
   editors: EditorLauncher;
   files: FileService;
   scripts: ScriptRunnerGateway;
+  checkpoints: CheckpointServiceShape;
 }): RpcEndpoint {
-  const { sessions, terminals, diffs, editors, files, scripts } = deps;
+  const { sessions, terminals, diffs, editors, files, scripts, checkpoints } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -721,6 +742,7 @@ export function setupRpcEndpoint(deps: {
       editors,
       files,
       scripts,
+      checkpoints,
       send: (frame) => sendTo(socket, frame),
       // Terminal push backpressure reads the real socket send-buffer depth.
       bufferedAmount: () => socket.bufferedAmount,

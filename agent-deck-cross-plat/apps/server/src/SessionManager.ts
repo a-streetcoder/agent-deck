@@ -292,6 +292,14 @@ export class SessionManager {
      * refresh (+ push/receipt) here. Best-effort — failures are swallowed.
      */
     private readonly onTurnIdle?: (meta: SessionMeta) => Promise<void>,
+    /**
+     * Checkpoint-capture hook (Slice 18a): called at each turn boundary AFTER
+     * the session-file handle is flushed, with the session's live meta and the
+     * turn's first user message (the checkpoint label). server.ts wires the
+     * checkpoint service's per-turn capture here. Best-effort — failures are
+     * swallowed and never surface (capture is inert until S18b restores).
+     */
+    private readonly onCheckpointCapture?: (meta: SessionMeta, label: string) => Promise<void>,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -536,6 +544,20 @@ export class SessionManager {
                 // Best-effort: a diff-refresh failure must never surface.
               }
             }),
+          }
+        : {}),
+      // Slice 18a checkpoint capture as a never-failing per-label Effect (forked
+      // fire-and-forget after the session-file flush at each idle).
+      ...(this.onCheckpointCapture !== undefined
+        ? {
+            captureCheckpoint: (label: string) =>
+              Effect.promise(async () => {
+                try {
+                  await this.onCheckpointCapture?.(meta, label);
+                } catch {
+                  // Best-effort: a capture failure must never surface.
+                }
+              }),
           }
         : {}),
     };

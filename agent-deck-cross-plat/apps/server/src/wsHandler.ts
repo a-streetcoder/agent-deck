@@ -7,6 +7,7 @@ import type { EditorLauncher } from "./editorLauncher.ts";
 import { setupRpcEndpoint } from "./rpcHandler.ts";
 import type { ScriptRunnerGateway } from "./scriptRunnerGateway.ts";
 import type { SessionManager } from "./SessionManager.ts";
+import type { CheckpointServiceShape } from "./services/checkpoints.ts";
 import type { FileService } from "./services/files.ts";
 import type { TerminalGateway } from "./terminalGateway.ts";
 
@@ -33,12 +34,21 @@ export function setupWebSocket(deps: {
   editors: EditorLauncher;
   files: FileService;
   scripts: ScriptRunnerGateway;
+  checkpoints: CheckpointServiceShape;
 }): WebSocketLayer {
-  const { fastify, sessions, terminals, diffs, editors, files, scripts } = deps;
+  const { fastify, sessions, terminals, diffs, editors, files, scripts, checkpoints } = deps;
 
   // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
   // subscribe/replay, and broadcast — all sharing the SessionManager facade.
-  const rpc = setupRpcEndpoint({ sessions, terminals, diffs, editors, files, scripts });
+  const rpc = setupRpcEndpoint({
+    sessions,
+    terminals,
+    diffs,
+    editors,
+    files,
+    scripts,
+    checkpoints,
+  });
 
   // Browsers may open cross-origin WebSockets to localhost services; only
   // accept upgrades from local origins (or non-browser clients, which send

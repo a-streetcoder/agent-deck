@@ -296,6 +296,52 @@ describe("SessionManager Effect service (services/sessionManager.ts)", () => {
     );
   }, 15_000);
 
+  it("forks the checkpoint hook once per turn without disturbing receipt timing (Slice 18a)", async () => {
+    const { piHost } = makeFakePiHost();
+    const emitted: string[] = [];
+    class RecordingReceipts extends ReceiptBus {
+      override emit(name: ReceiptName, sessionId: string): void {
+        emitted.push(name);
+        super.emit(name, sessionId);
+      }
+    }
+    // The checkpoint hook is chained AFTER captureSessionFile in the SAME fiber
+    // (so it sees a resolved session-file handle); assert both effects ran, in
+    // that order, without the idle receipt waiting on either. The label is empty
+    // under the fake pi (which emits no user cell — the real-pi test asserts the
+    // populated label); here the label's TYPE and the hook cardinality matter.
+    const labels: string[] = [];
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const rt = yield* makeManagedSessionRuntime(
+            piHost,
+            buses,
+            makeParams({
+              receipts: new RecordingReceipts(true),
+              captureCheckpoint: (label) =>
+                Effect.sync(() => {
+                  labels.push(label);
+                }),
+            }),
+          );
+          yield* Effect.forkDaemon(rt.ingest);
+          yield* rt.prompt("say-hello");
+          yield* waitUntil(() => labels.length >= 1);
+          // The idle receipt fired BEFORE the fire-and-forget checkpoint hook —
+          // capture must never delay receipt emission (the e2e suite pins it).
+          expect(emitted.filter((n) => n === "idle")).toHaveLength(1);
+          expect(typeof labels[0]).toBe("string");
+          yield* rt.prompt("say-hello");
+          yield* waitUntil(() => labels.length >= 2);
+          // Exactly one capture per turn boundary.
+          expect(labels).toHaveLength(2);
+          expect(emitted.filter((n) => n === "idle")).toHaveLength(2);
+        }),
+      ),
+    );
+  }, 15_000);
+
   it("forks the title fiber into the session Scope: scope close reaps an in-flight title helper pi", async () => {
     const { piHost, pids } = makeFakePiHost();
     const out = await Effect.runPromise(

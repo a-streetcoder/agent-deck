@@ -43,6 +43,7 @@ import { registerDeckBridgeTools } from "./bridgeTools.ts";
 import { createDiffGateway } from "./diffGateway.ts";
 import { createEditorLauncher } from "./editorLauncher.ts";
 import { createScriptRunnerGateway } from "./scriptRunnerGateway.ts";
+import { makeCheckpointService } from "./services/checkpoints.ts";
 import { createFileService } from "./services/files.ts";
 import { LoopEngine } from "./loopEngine.ts";
 import {
@@ -278,6 +279,12 @@ async function initServer(
   // Slice 9: per-session changed-file tracking + on-demand diffs, resolved
   // through the runtime's SessionDiff service (see services/diff.ts).
   const diffs = createDiffGateway(effectRuntime);
+  // Slice 18a: per-turn checkpoint capture (conversation-file snapshot + hidden
+  // git-ref of the worktree) + the checkpoints_list op. Config-bound to the data
+  // dir, so built directly here (not a runtime layer) — see services/checkpoints.ts.
+  const checkpoints = makeCheckpointService({
+    dataDir: options.dataDir ?? defaultDataDir(),
+  });
 
   const sessions = new SessionManager(
     effectRuntime,
@@ -405,6 +412,21 @@ async function initServer(
         truncated: set.truncated,
       });
       receipts.emit("diff_refreshed", meta.id);
+    },
+    // Slice 18a checkpoint-capture hook: at each turn boundary (after the
+    // session-file handle is flushed) snapshot the conversation + capture the
+    // worktree as a hidden git ref. Runs in its OWN forked fiber, separate from
+    // the diff refresh above, so it never perturbs the idle / diff_refreshed
+    // receipt timing. Best-effort — a capture failure is swallowed by the
+    // facade; the receipt lets tests synchronize on the capture attempt.
+    async (meta, label) => {
+      await checkpoints.capture({
+        sessionId: meta.id,
+        cwd: meta.worktreePath ?? meta.cwd,
+        sessionFile: meta.piSessionFile,
+        label,
+      });
+      receipts.emit("checkpoint_captured", meta.id);
     },
   );
   // Loop run engine (native single-agent loop). Each run's agent executor is
@@ -597,6 +619,7 @@ async function initServer(
     editors,
     files,
     scripts,
+    checkpoints,
   });
   broadcast = wsBroadcast;
   broadcastDiff = wsBroadcastDiff;

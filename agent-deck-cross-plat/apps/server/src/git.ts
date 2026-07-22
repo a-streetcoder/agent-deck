@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 
 /**
@@ -33,6 +35,18 @@ function gitBin(): string {
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(gitBin(), args, {
     cwd,
+    timeout: 15_000,
+    maxBuffer: 8_000_000,
+  });
+  return stdout;
+}
+
+/** As {@link runGit}, but with extra environment (checkpoint capture threads a
+ * throwaway `GIT_INDEX_FILE` + author/committer identity through here). */
+async function runGitEnv(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+  const { stdout } = await execFileAsync(gitBin(), args, {
+    cwd,
+    env,
     timeout: 15_000,
     maxBuffer: 8_000_000,
   });
@@ -607,6 +621,108 @@ export function gitErrorText(error: unknown): string {
   const stderr = (error as { stderr?: string }).stderr;
   if (typeof stderr === "string" && stderr.trim()) return stderr.trim();
   return error instanceof Error ? error.message : String(error);
+}
+
+// ---------------------------------------------------------------------------
+// Hidden-ref checkpoint capture (Slice 18a) — port of t3code's
+// GitVcsDriver.captureCheckpoint (MIT). Snapshots the working tree as a
+// checkpoint COMMIT stored at a hidden ref (refs/agent-deck/checkpoints/...),
+// WITHOUT touching the user's real index or working tree: the tree is written
+// through a THROWAWAY `GIT_INDEX_FILE` (seeded from HEAD so unchanged entries
+// keep their mode), committed detached (`commit-tree`, no parent), and the ref
+// is repointed. The real `.git/index`, the working tree, and HEAD are never
+// read for staging nor mutated, so a session's staged state survives capture.
+// ---------------------------------------------------------------------------
+
+/** The absolute git common dir (worktree-aware — the shared `.git` of a linked
+ * worktree), where the throwaway checkpoint index is written. */
+export async function gitCommonDir(cwd: string): Promise<string> {
+  const raw = (await runGit(cwd, ["rev-parse", "--git-common-dir"])).trim();
+  return path.isAbsolute(raw) ? raw : path.resolve(cwd, raw);
+}
+
+/** Whether HEAD resolves to a commit (false in a fresh repo with no commits). */
+async function gitHasHead(cwd: string): Promise<boolean> {
+  try {
+    await runGit(cwd, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Capture the working tree of `cwd` as a hidden checkpoint commit at `ref`,
+ * returning the commit oid. Uses a throwaway `GIT_INDEX_FILE` so the user's
+ * real index / working tree / staged state are UNDISTURBED. `.gitignore` is
+ * honored (ignored files — node_modules etc. — stay out of the snapshot); every
+ * other tracked-or-untracked file is captured. `commit-tree` gets no parent so
+ * the checkpoint commit is a detached snapshot, not history the user sees.
+ */
+export async function gitCaptureCheckpoint(cwd: string, ref: string): Promise<string> {
+  const commonDir = await gitCommonDir(cwd);
+  const tempIndex = path.join(commonDir, `agent-deck-checkpoint-index-${randomUUID()}`);
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_INDEX_FILE: tempIndex,
+    GIT_AUTHOR_NAME: "Agent Deck",
+    GIT_AUTHOR_EMAIL: "agent-deck@users.noreply.github.com",
+    GIT_COMMITTER_NAME: "Agent Deck",
+    GIT_COMMITTER_EMAIL: "agent-deck@users.noreply.github.com",
+  };
+  try {
+    // Seed the THROWAWAY index from HEAD (when there is one) so unchanged
+    // entries keep their blob+mode, then stage the whole worktree into it.
+    if (await gitHasHead(cwd)) {
+      await runGitEnv(cwd, ["read-tree", "HEAD"], env);
+    }
+    await runGitEnv(cwd, ["add", "-A", "--", "."], env);
+    const tree = (await runGitEnv(cwd, ["write-tree"], env)).trim();
+    if (tree.length === 0) throw new Error("git write-tree returned an empty tree");
+    const commit = (
+      await runGitEnv(cwd, ["commit-tree", tree, "-m", `agent-deck checkpoint ${ref}`], env)
+    ).trim();
+    if (commit.length === 0) throw new Error("git commit-tree returned an empty commit");
+    // update-ref needs no temp index (it touches refs, not the index).
+    await runGit(cwd, ["update-ref", ref, commit]);
+    return commit;
+  } finally {
+    // Best-effort: the throwaway index is inside the git common dir.
+    await rm(tempIndex, { force: true }).catch(() => {});
+  }
+}
+
+/** The commit oid a checkpoint ref points at, or null when the ref is absent. */
+export async function gitRefCommit(cwd: string, ref: string): Promise<string | null> {
+  try {
+    const out = (await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])).trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The tree oid of a commit/ref (for verifying a checkpoint's captured tree),
+ * or null when the rev is absent. */
+export async function gitTreeOf(cwd: string, rev: string): Promise<string | null> {
+  try {
+    const out = (await runGit(cwd, ["rev-parse", "--verify", "--quiet", `${rev}^{tree}`])).trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Delete hidden checkpoint refs (best-effort; a missing ref is not an error) —
+ * the prune-beyond-cap path and S18b's rollback truncation. */
+export async function gitDeleteRefs(cwd: string, refs: readonly string[]): Promise<void> {
+  for (const ref of refs) {
+    try {
+      await runGit(cwd, ["update-ref", "-d", ref]);
+    } catch {
+      // Already gone / never created — tolerated.
+    }
+  }
 }
 
 /**

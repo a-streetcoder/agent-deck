@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { CHECKPOINT_MAX_RETAINED, CheckpointClientRequest, CheckpointInfo } from "./checkpoints.ts";
 import {
   DIFF_MAX_PATCH_CHARS,
   DiffClientRequest,
@@ -92,6 +93,7 @@ export const RpcClientFrame = Schema.Struct({
     EditorClientRequest,
     FileClientRequest,
     ScriptClientRequest,
+    CheckpointClientRequest,
   ),
 });
 export type RpcClientFrame = typeof RpcClientFrame.Type;
@@ -295,6 +297,21 @@ export const RpcScriptPushFrame = Schema.Struct({
 });
 export type RpcScriptPushFrame = typeof RpcScriptPushFrame.Type;
 
+/**
+ * server → client: the reply to a `checkpoints_list` request (Slice 18a) — a
+ * session's captured checkpoints, oldest capture first, bounded (see
+ * checkpoints.ts CHECKPOINT_MAX_RETAINED). An empty array is the clean answer
+ * for a session with no captures yet; it is never an error.
+ */
+export const RpcCheckpointsListOkFrame = Schema.Struct({
+  kind: Schema.Literal("checkpoints_list_ok"),
+  id: RequestId,
+  // Decode-side cap (defense-in-depth, parity with DiffPush's maxItems): the
+  // producer already prunes to CHECKPOINT_MAX_RETAINED per session.
+  checkpoints: Schema.Array(CheckpointInfo).pipe(Schema.maxItems(CHECKPOINT_MAX_RETAINED)),
+});
+export type RpcCheckpointsListOkFrame = typeof RpcCheckpointsListOkFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
 export const RpcServerFrame = Schema.Union(
   RpcReplyFrame,
@@ -311,6 +328,7 @@ export const RpcServerFrame = Schema.Union(
   RpcScriptsListOkFrame,
   RpcScriptRunOkFrame,
   RpcScriptPushFrame,
+  RpcCheckpointsListOkFrame,
 );
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 

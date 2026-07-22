@@ -7,6 +7,8 @@ import type { EditorLauncher, EditorOpenInput } from "../src/editorLauncher.ts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
 import type { OpenedScript, ScriptRunnerGateway } from "../src/scriptRunnerGateway.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
+import type { CheckpointInfo } from "@agent-deck/contracts";
+import type { CheckpointRecord, CheckpointServiceShape } from "../src/services/checkpoints.ts";
 import type { FileService } from "../src/services/files.ts";
 import type { StampedEvent } from "../src/services/pushBus.ts";
 import type { ScriptEvent } from "../src/services/scriptRunner.ts";
@@ -309,6 +311,21 @@ function makeFileService() {
   return { service, calls, listResult };
 }
 
+// --- Fake checkpoint service (Slice 18a): scripted list, recorded calls ---
+
+function makeCheckpointService(checkpoints: CheckpointInfo[] = []) {
+  const calls: Array<{ op: string; sessionId: string }> = [];
+  const service: CheckpointServiceShape = {
+    capture: async () => null,
+    list: async (sessionId) => {
+      calls.push({ op: "list", sessionId });
+      return checkpoints;
+    },
+    records: async () => [] as CheckpointRecord[],
+  };
+  return { service, calls };
+}
+
 function harness(
   manager: SessionManager,
   terminals?: TerminalGateway,
@@ -317,6 +334,7 @@ function harness(
   editors?: EditorLauncher,
   files?: FileService,
   scripts?: ScriptRunnerGateway,
+  checkpoints?: CheckpointServiceShape,
 ) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
@@ -326,6 +344,7 @@ function harness(
     editors: editors ?? makeEditorLauncher().launcher,
     files: files ?? makeFileService().service,
     scripts: scripts ?? makeScriptGateway().gateway,
+    checkpoints: checkpoints ?? makeCheckpointService().service,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
@@ -797,6 +816,64 @@ describe("createRpcConnection diff ops (Slice 9)", () => {
     const { conn, frames } = harness(makeManager({ s1: session }), undefined, undefined, throwing);
     await conn.handleMessage(frame(5, { type: "diff_files", sessionId: "s1" }));
     expect(frames).toEqual([{ kind: "reply", id: 5, ok: false, error: "Error: git exploded" }]);
+  });
+});
+
+describe("createRpcConnection checkpoint ops (Slice 18a)", () => {
+  const withCheckpoints = (
+    sessions: Record<string, ManagedSession>,
+    checkpoints: CheckpointServiceShape,
+  ) =>
+    harness(
+      makeManager(sessions),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      checkpoints,
+    );
+
+  it("checkpoints_list answers checkpoints_list_ok with the session's checkpoints", async () => {
+    const { session } = makeSession("s1");
+    const list: CheckpointInfo[] = [
+      { turnIndex: 0, createdAt: "2026-01-01T00:00:00.000Z", label: "first turn", hasFiles: true },
+      {
+        turnIndex: 1,
+        createdAt: "2026-01-01T00:01:00.000Z",
+        label: "second turn",
+        hasFiles: false,
+      },
+    ];
+    const checkpoints = makeCheckpointService(list);
+    const { conn, frames } = withCheckpoints({ s1: session }, checkpoints.service);
+    await conn.handleMessage(frame(1, { type: "checkpoints_list", sessionId: "s1" }));
+    expect(frames).toEqual([{ kind: "checkpoints_list_ok", id: 1, checkpoints: list }]);
+    // Ownership-gated by the session's own id (server-side), never the wire.
+    expect(checkpoints.calls).toEqual([{ op: "list", sessionId: "s1" }]);
+  });
+
+  it("checkpoints_list on an unknown session replies with an error (ownership gate)", async () => {
+    const checkpoints = makeCheckpointService();
+    const { conn, frames } = withCheckpoints({}, checkpoints.service);
+    await conn.handleMessage(frame(2, { type: "checkpoints_list", sessionId: "nope" }));
+    expect(frames).toEqual([{ kind: "reply", id: 2, ok: false, error: "unknown session" }]);
+    expect(checkpoints.calls).toEqual([]);
+  });
+
+  it("a throwing checkpoint service surfaces as a typed failure reply, not a crash", async () => {
+    const { session } = makeSession("s1");
+    const throwing: CheckpointServiceShape = {
+      capture: async () => null,
+      list: async () => {
+        throw new Error("index unreadable");
+      },
+      records: async () => [],
+    };
+    const { conn, frames } = withCheckpoints({ s1: session }, throwing);
+    await conn.handleMessage(frame(3, { type: "checkpoints_list", sessionId: "s1" }));
+    expect(frames).toEqual([{ kind: "reply", id: 3, ok: false, error: "index unreadable" }]);
   });
 });
 

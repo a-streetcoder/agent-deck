@@ -154,6 +154,15 @@ export interface SpawnSessionParams {
    * catch). Used for the diff engine's changed-file refresh.
    */
   readonly onIdle?: Effect.Effect<void>;
+  /**
+   * Checkpoint-capture hook (Slice 18a): forked at each agent-idle AFTER the
+   * session-file handle is flushed (chained after captureSessionFile, so
+   * `meta.piSessionFile` is resolved by the time it runs — the design doc pins
+   * this ordering). Receives the turn's first user message as a short label.
+   * Like {@link onIdle} it must never fail or die (the facade wraps it in a
+   * catch); it is fire-and-forget so it never perturbs the idle receipt timing.
+   */
+  readonly captureCheckpoint?: (label: string) => Effect.Effect<void>;
 }
 
 /** Inputs for a one-shot pi helper launch (native commit-message / release notes). */
@@ -272,6 +281,16 @@ function normalizeTitle(raw: string): string {
       .replace(/^["'"']|["'"']$/g, "") ?? "";
   return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
 }
+
+/** The text of the LAST user cell in a transcript — the message that started
+ * the just-finished turn, used as a checkpoint's short label. Empty when none. */
+const lastUserText = (transcript: TranscriptState): string => {
+  for (let i = transcript.cells.length - 1; i >= 0; i -= 1) {
+    const cell = transcript.cells[i];
+    if (cell && cell.kind === "user") return cell.text;
+  }
+  return "";
+};
 
 const isPiEvent = (item: PiStreamItem): item is PiStreamItem & { _tag: "PiEvent" } =>
   item._tag === "PiEvent";
@@ -443,7 +462,20 @@ export const makeManagedSessionRuntime = (
           // still-running title/session-file work, so an in-flight title helper
           // pi can never be orphaned. `forkIn` auto-removes each fiber's scope
           // finalizer when it completes, so repeated idles don't accumulate.
-          Effect.runFork(Effect.forkIn(captureSessionFile, sessionScope));
+          // Slice 18a: the checkpoint capture must see a RESOLVED session-file
+          // handle, so it is chained AFTER captureSessionFile (which sets
+          // meta.piSessionFile on the first idle) in the same fiber — not a
+          // sibling fork that would race it. The label is read at run time (the
+          // turn's last user cell) via Effect.suspend. When no capture hook is
+          // wired, captureSessionFile forks alone exactly as before.
+          const sessionFileFiber = params.captureCheckpoint
+            ? captureSessionFile.pipe(
+                Effect.andThen(
+                  Effect.suspend(() => params.captureCheckpoint!(lastUserText(transcript))),
+                ),
+              )
+            : captureSessionFile;
+          Effect.runFork(Effect.forkIn(sessionFileFiber, sessionScope));
           if (autoTitle()) Effect.runFork(Effect.forkIn(generateTitle, sessionScope));
           // Slice 9: refresh the session's changed-file set at the turn
           // boundary — forked like the title fiber, so it never perturbs the

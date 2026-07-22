@@ -261,6 +261,80 @@ export const makeJsonArrayStoreHandle = <T extends { id: string }>(
   });
 
 /**
+ * A JSON store keyed by string → array of records (Slice 18a: the per-session
+ * checkpoint index, `{ [sessionId]: CheckpointRecord[] }`). Reads the file on
+ * construction (missing or corrupt → empty), keeps the map in closure-scoped
+ * state, and flushes with the SAME atomic tmp + rename write as the array store.
+ * A sibling to {@link makeJsonArrayStoreHandle} for records that are grouped by
+ * an owner key rather than carrying their own `id`.
+ */
+export interface KeyedJsonStoreHandle<T> {
+  /** All records under `key` (empty when the key is absent). */
+  readonly get: (key: string) => Effect.Effect<T[]>;
+  /** The full map (a snapshot copy — safe for the caller to iterate). */
+  readonly all: Effect.Effect<Record<string, T[]>>;
+  /** Replace every record under `key`, then atomically flush. An empty array
+   * removes the key entirely so the file never accretes empty buckets. */
+  readonly set: (key: string, values: T[]) => Effect.Effect<void>;
+  /** Drop a key entirely; resolves to whether anything was removed. */
+  readonly deleteKey: (key: string) => Effect.Effect<boolean>;
+}
+
+/**
+ * Build one keyed JSON-record store handle at `path.join(dataDir, ...relPath)`,
+ * creating the containing directory. `relPath` is a segment list so callers can
+ * nest the store (the checkpoint index lives at `checkpoints/index.json`).
+ */
+export const makeKeyedJsonStoreHandle = <T>(
+  dataDir: string,
+  relPath: readonly string[],
+): Effect.Effect<KeyedJsonStoreHandle<T>> =>
+  Effect.sync(() => {
+    const file = path.join(dataDir, ...relPath);
+    mkdirSync(path.dirname(file), { recursive: true });
+    let map: Record<string, T[]> = {};
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        map = {};
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          if (Array.isArray(value)) map[key] = value as T[];
+        }
+      }
+    } catch {
+      // Missing or corrupt index — start fresh.
+    }
+
+    const flush = (): void => {
+      const tmp = `${file}.tmp`;
+      writeFileSync(tmp, JSON.stringify(map, null, 2));
+      renameSync(tmp, file);
+    };
+
+    return {
+      get: (key) => Effect.sync(() => (map[key] ? [...map[key]] : [])),
+      all: Effect.sync(() => {
+        const copy: Record<string, T[]> = {};
+        for (const [key, value] of Object.entries(map)) copy[key] = [...value];
+        return copy;
+      }),
+      set: (key, values) =>
+        Effect.sync(() => {
+          if (values.length === 0) delete map[key];
+          else map[key] = [...values];
+          flush();
+        }),
+      deleteKey: (key) =>
+        Effect.sync(() => {
+          if (!(key in map)) return false;
+          delete map[key];
+          flush();
+          return true;
+        }),
+    } satisfies KeyedJsonStoreHandle<T>;
+  });
+
+/**
  * Build the app-settings store handle. The per-field load validation, the
  * default seed, the atomic membership ops, and the tmp + rename flush are all
  * byte-identical to the legacy `SettingsStore` — only the surface is now
