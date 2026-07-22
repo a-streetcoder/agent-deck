@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
-import { ArrowLeft, ArrowRight, Globe, Plus, RotateCw, Square, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Globe,
+  MousePointerClick,
+  Plus,
+  RotateCw,
+  Square,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isElectron, onBrowserOpenPage } from "@/lib/native";
+import { useAppStore } from "../../state/store.ts";
+import { buildPendingElementContext, newElementContextId } from "../../lib/elementContext.ts";
+import { sanitizeHttpUrl } from "../../lib/loopback.ts";
+import { PICKER_CODE, PICKER_TEARDOWN_CODE, parsePickResult } from "./picker.ts";
 import type { ElectronWebviewElement } from "./electron-webview";
 
 /**
@@ -26,10 +39,12 @@ import type { ElectronWebviewElement } from "./electron-webview";
  * guard dropped (any http(s) is allowed) and back/forward added (now possible
  * with a real guest).
  *
- * L3 PREP: the ACTIVE page's current URL is always in state (fed by did-navigate)
- * and surfaced as `data-browser-url` on the root — L3 will inject a click-to-
- * select overlay into the guest and route picks through addElementContext using
- * this same current-URL path. No store change is needed for L2.
+ * L3 (landed): a click-to-select element picker (the "pick" toolbar toggle) is
+ * injected into the guest purely via `executeJavaScript` — NO guest preload, NO
+ * contextIsolation change (L2's hardening is preserved). The pick resolves to a
+ * CSS selector routed through addElementContext (see picker.ts + the pick logic
+ * in DesktopBrowser). The ACTIVE page's current URL, always in state (fed by
+ * did-navigate) and surfaced as `data-browser-url`, rides onto the context.
  */
 
 /** Cap on live guests. Each page is a full Chromium renderer; N live guests is
@@ -231,6 +246,117 @@ function DesktopBrowser(): ReactElement {
     [activePageId],
   );
 
+  // ── L3: click-to-select element picker ────────────────────────────────────
+  // The user toggles pick mode, hovers the guest (elements highlight), and
+  // clicks one; that element's CSS selector + page URL become a pending element
+  // context on the CURRENT session's composer (existing lib/elementContext +
+  // store path — the Composer already drains + serializes it). SINGLE-SHOT: one
+  // click captures and deactivates; toggling off, Escape, page-tab switch, or
+  // unmount all cancel + tear the guest picker down (no leaked listeners). The
+  // injection is executeJavaScript-ONLY — no guest preload, no contextIsolation
+  // change (L2's hardening is preserved).
+  const sessionId = useAppStore((state) => state.session?.id ?? null);
+  const addElementContext = useAppStore((state) => state.addElementContext);
+  const pushToast = useAppStore((state) => state.pushToast);
+
+  const [picking, setPicking] = useState(false);
+  // The page id a picker is currently installed in (for targeted teardown).
+  const pickingPageIdRef = useRef<string | null>(null);
+  // Monotonic token; a bump invalidates any in-flight pick resolution so a late
+  // guest click after cancel/page-switch is ignored.
+  const pickTokenRef = useRef(0);
+
+  const teardownPick = useCallback(() => {
+    const id = pickingPageIdRef.current;
+    pickingPageIdRef.current = null;
+    if (!id) return;
+    const el = webviewRefs.current.get(id);
+    if (!el) return;
+    try {
+      void el.executeJavaScript(PICKER_TEARDOWN_CODE, false).catch(() => {});
+    } catch {
+      // Guest gone / method unavailable — nothing to tear down.
+    }
+  }, []);
+
+  const deactivatePick = useCallback(() => {
+    pickTokenRef.current += 1; // invalidate any in-flight resolve
+    teardownPick();
+    setPicking(false);
+  }, [teardownPick]);
+
+  const startPick = useCallback(() => {
+    const pageId = activePageId;
+    const el = webviewRefs.current.get(pageId);
+    if (!el) return;
+    const token = (pickTokenRef.current += 1);
+    pickingPageIdRef.current = pageId;
+    setPicking(true);
+    let promise: Promise<unknown>;
+    try {
+      promise = el.executeJavaScript(PICKER_CODE, true);
+    } catch {
+      pickingPageIdRef.current = null;
+      setPicking(false);
+      return;
+    }
+    void promise
+      .then((raw) => {
+        // Superseded (toggled off / page switched / re-picked) — ignore.
+        if (pickTokenRef.current !== token) return;
+        pickingPageIdRef.current = null;
+        setPicking(false);
+        const result = parsePickResult(raw);
+        if (!result) return; // Escape / non-element / cancel
+        if (sessionId === null) return; // no session → nothing to attach to
+        let pageUrl = "";
+        try {
+          pageUrl = el.getURL();
+        } catch {
+          pageUrl = "";
+        }
+        const context = buildPendingElementContext({
+          id: newElementContextId(),
+          pageUrl,
+          selector: result.selector,
+          // The real tag from the picker (an #id selector can't derive it), and
+          // the element's visible text as the note so the agent has both.
+          tagName: result.tagName,
+          note: result.text,
+          // The general browser captures ANY site's URL (not loopback-only).
+          sanitizeUrl: sanitizeHttpUrl,
+        });
+        if (!context) return;
+        addElementContext(sessionId, context);
+        pushToast({ kind: "success", message: `Captured <${result.tagName}> for context` });
+      })
+      .catch(() => {
+        // Guest navigated away mid-pick (executeJavaScript rejects) — no-op.
+        if (pickTokenRef.current !== token) return;
+        pickingPageIdRef.current = null;
+        setPicking(false);
+      });
+  }, [activePageId, sessionId, addElementContext, pushToast]);
+
+  const togglePick = useCallback(() => {
+    if (picking) deactivatePick();
+    else startPick();
+  }, [picking, deactivatePick, startPick]);
+
+  // Cancel an in-flight pick if the user switches page-tabs (the picker lives in
+  // the previously-active guest; don't leak its listeners there).
+  useEffect(() => {
+    if (picking && pickingPageIdRef.current && pickingPageIdRef.current !== activePageId) {
+      deactivatePick();
+    }
+  }, [activePageId, picking, deactivatePick]);
+
+  // Tear the guest picker down on unmount (closing the browser tab).
+  useEffect(() => () => deactivatePick(), [deactivatePick]);
+
+  // Pick is pointless on a blank tab with no navigable URL.
+  const canPick = Boolean(activePage.url);
+
   return (
     <div
       className="flex min-h-0 flex-1 flex-col"
@@ -346,6 +472,24 @@ function DesktopBrowser(): ReactElement {
           ) : (
             <RotateCw className="h-3.5 w-3.5" />
           )}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "shrink-0 rounded p-1 transition-colors disabled:cursor-not-allowed disabled:opacity-30",
+            picking
+              ? "bg-accent text-[var(--color-accent-foreground)]"
+              : "text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary",
+          )}
+          title="Pick an element for context"
+          aria-label="Pick an element for context"
+          aria-pressed={picking}
+          data-testid="browser-pick"
+          data-active={picking}
+          disabled={!canPick}
+          onClick={togglePick}
+        >
+          <MousePointerClick className="h-3.5 w-3.5" />
         </button>
         <input
           ref={inputRef}

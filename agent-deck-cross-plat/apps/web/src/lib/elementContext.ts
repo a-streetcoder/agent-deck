@@ -110,21 +110,30 @@ export function buildPendingElementContext(input: {
   pageUrl: string;
   selector: string | null;
   note: string;
+  /**
+   * The URL sanitizer. Defaults to {@link sanitizeLoopbackUrl} (the loopback
+   * preview, where the URL is derived from untrusted dev-script stdout). The
+   * general desktop browser passes {@link sanitizeHttpUrl} so a real non-loopback
+   * page URL isn't silently dropped (still injection-safe — see loopback.ts).
+   */
+  sanitizeUrl?: (raw: string) => string;
+  /** Explicit tag (the browser picker knows the real tag); falls back to
+   * deriving it from the selector when omitted (the manual-capture path). */
+  tagName?: string;
 }): PendingElementContext | null {
   const selector = input.selector?.trim() || null;
   const note = input.note.trim();
-  // The pageUrl is the ONE field with non-user provenance — for a discovered
-  // server it comes from parsing an untrusted repo's dev-script stdout — and it
-  // rides into the prompt sent to pi. Sanitize to a normalized loopback URL (or
-  // "", which omits the `url:` line): a hostile URL can neither smuggle a
-  // non-loopback origin nor inject newlines that break the block structure.
-  const pageUrl = sanitizeLoopbackUrl(input.pageUrl);
+  // The pageUrl is the ONE field with non-user provenance — sanitized to a
+  // normalized URL (or "", which omits the `url:` line) so a hostile URL can
+  // neither inject newlines that break the block nor (for the loopback default)
+  // smuggle a non-loopback origin.
+  const pageUrl = (input.sanitizeUrl ?? sanitizeLoopbackUrl)(input.pageUrl);
   if (selector === null && note.length === 0) return null;
   return {
     id: input.id,
     pageUrl,
     selector: selector === null ? null : truncate(selector, SELECTOR_LIMIT),
-    tagName: deriveTagName(selector),
+    tagName: input.tagName?.trim() ? input.tagName.trim().toLowerCase() : deriveTagName(selector),
     note: truncate(note, NOTE_LIMIT),
   };
 }

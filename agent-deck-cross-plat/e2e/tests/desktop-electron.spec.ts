@@ -341,6 +341,79 @@ test("the browser workspace tab mounts a real <webview> guest and navigates", as
   await expect(window.getByTestId("workspace-body-browser")).toHaveCount(0);
 });
 
+test("the browser element picker captures a clicked element as composer context (L3)", async () => {
+  const window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+
+  // A session is required for the pick to attach to a composer, and to expose
+  // the header browser toggle.
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((item) => item.label === "File");
+    file?.submenu?.items.find((i) => i.label === "New Chat")?.click();
+  });
+  const browserToggle = window.getByTestId("browser-toggle");
+  await expect(browserToggle).toBeVisible({ timeout: 15_000 });
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toBeVisible();
+
+  // The pick button starts DISABLED on a blank (about:blank) tab — nothing to pick.
+  const pick = window.getByTestId("browser-pick");
+  await expect(pick).toBeVisible();
+  await expect(pick).toBeDisabled();
+
+  // Navigate to a data: URL with a known element (no network in CI).
+  const dataUrl = "data:text/html,<title>L3</title><button id=%22go%22>Hi there</button>";
+  const input = window.getByTestId("browser-url-input");
+  await input.click();
+  await input.fill(dataUrl);
+  await input.press("Enter");
+  await expect(window.getByTestId("browser-page-title")).toHaveText("L3", { timeout: 15_000 });
+
+  // With a navigable page the pick button enables; activating it toggles state.
+  await expect(pick).toBeEnabled();
+  await pick.click();
+  await expect(pick).toHaveAttribute("data-active", "true");
+
+  // Drive the pick from the guest side: dispatch a real capture-phase click on
+  // the #go button via the guest webContents (the picker's listener resolves the
+  // Promise the renderer is awaiting). Poll until the guest is found + clicked,
+  // since the picker script installs asynchronously after pick.click().
+  await expect
+    .poll(
+      async () =>
+        app.evaluate(async ({ webContents }) => {
+          const guest = webContents
+            .getAllWebContents()
+            .find((wc) => wc.getType() === "webview" && wc.getURL().startsWith("data:text/html"));
+          if (!guest) return false;
+          return guest.executeJavaScript(
+            `(() => {
+               const overlay = document.getElementById("__agentdeck_pick_overlay__");
+               const el = document.getElementById("go");
+               if (!overlay || !el) return false;
+               el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+               return true;
+             })()`,
+            true,
+          );
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+
+  // The pick resolves → a pending element-context chip appears in the composer,
+  // carrying the computed #go selector, and pick mode auto-deactivates.
+  const card = window.getByTestId("pending-element-card").first();
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  await expect(card).toHaveAttribute("data-selector", "#go");
+  await expect(pick).toHaveAttribute("data-active", "false");
+
+  // Clean up: remove the chip and close the browser tab.
+  await window.getByTestId("pending-element-remove").first().click();
+  await browserToggle.click();
+  await expect(window.getByTestId("workspace-body-browser")).toHaveCount(0);
+});
+
 test("attention events notify + badge while unfocused, and focus clears the badge", async () => {
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");

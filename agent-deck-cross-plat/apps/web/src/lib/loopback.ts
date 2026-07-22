@@ -42,3 +42,23 @@ export function parseLoopbackHttpUrl(raw: string): URL | null {
 export function sanitizeLoopbackUrl(raw: string): string {
   return parseLoopbackHttpUrl(raw)?.toString() ?? "";
 }
+
+/**
+ * Any http(s) URL in NORMALIZED form (`URL.toString()` — percent-encoded, so
+ * control chars / newlines can't survive), or "" for a non-http(s) or malformed
+ * input. Unlike {@link sanitizeLoopbackUrl} this does NOT restrict the origin —
+ * it's for the GENERAL desktop browser (Slice L2/L3), which legitimately
+ * captures any site's URL; the injection-safety (no newline/`<` break-out of the
+ * prompt block) still holds because a parsed URL's string form is encoded.
+ */
+export function sanitizeHttpUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return "";
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
