@@ -571,6 +571,17 @@ machinery — this is where "their chrome, our core" pays off.
 - Option (b), only if (a) proves insufficient: port their `relay/` + `packages/ssh` /
   `packages/tailscale` stack. **Project-sized — treat as its own plan.**
 - Mobile app: explicitly out of scope for this plan; revisit after Phase 10.
+- **PARKED (2026-07-22) pending a USER decision — the one security-sensitive slice.**
+  The server currently binds loopback-only (server.ts:710 `host ?? "127.0.0.1"`) with NO
+  general WS/REST auth or CORS (only the pi-bridge token exists). S21 opens a real remote
+  attack surface, and the correct design depends on the user's deployment model, which only
+  they can supply. Questions to resolve before building: (1) deployment model — tailscale
+  serve (server stays loopback, tailscale terminates), a bound LAN address with a token, or
+  both? (2) token delivery/storage — env var, generated-and-shown-once in settings, or a
+  settings-file secret? (3) default posture — keep loopback-only default and make remote
+  strictly opt-in (recommended)? (4) CORS — same-origin only, or an allowlist? Per the
+  standing goal, S21 is parked and the loop CONTINUES with the independent S22 (desktop
+  polish) first; S21 resumes once the user answers.
 
 ## Phase 11 — Desktop & distribution polish
 
