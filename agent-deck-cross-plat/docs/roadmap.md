@@ -26,17 +26,30 @@ Do these right after L4b lands. Small, mostly local, high polish/security value.
 1. **CodeMirror dark theme** — the editor content ignores the app theme
    (CodeMirror's default light theme paints white). Set `theme="none"` so our
    dark surface/tokens show, restore the edit cursor, add a light-mode token
-   palette, and a soft-wrap toggle. _(quick)_
-2. **Server REST origin/CSRF guard** — the WS upgrade has a local-origin guard
+   palette, and a soft-wrap toggle. Languages are fine — 143 via
+   `@codemirror/language-data` incl. TypeScript (`.ts`); the white theme just made
+   code look broken. Verify `.ts` renders + highlights after the fix. _(quick)_
+2. **Preview panel renders nothing for frame-blocking dev servers** — the preview
+   uses a sandboxed `<iframe>`, so a dev server that sends `X-Frame-Options` /
+   CSP `frame-ancestors` (Next.js, many others) refuses to be framed → white,
+   even on loopback (`localhost:3000`). In the desktop build, switch the preview
+   embed to a `<webview>` (like the L2 browser, which isn't iframe-limited) so
+   localhost dev servers render; keep the iframe fallback for the web build.
+   **Workaround today:** open `localhost:3000` in the **Browser** tab. _(small)_
+3. **Server REST origin/CSRF guard** — the WS upgrade has a local-origin guard
    but the REST mutating routes don't; the in-app browser (L2) makes that
    reachable from arbitrary web content. Mirror the WS guard onto REST. _(small —
    do early; it's the one open security item)_
-3. **S20 branch-vs-base diff** — the diff shows working-tree-vs-HEAD only, so a
+4. **S20 branch-vs-base diff** — the diff shows working-tree-vs-HEAD only, so a
    worktree's _committed_ changes (agent/terminal `git commit` inside the
    worktree) merge but aren't shown in review. Add a `sourceBranch...worktreeBranch`
    diff base. _(small–medium)_
-4. **S19 image-dialog focus e2e** — the deferred a11y test for the expanded-image
+5. **S19 image-dialog focus e2e** — the deferred a11y test for the expanded-image
    dialog. _(tiny)_
+6. **Repo cleanup** — archive the now-superseded `docs/checkpoints-design.md`
+   (S18 shipped) and verify the migration's transitional "legacy oracle"
+   references are history-comments, not dead code. Keep git history; just tidy.
+   _(tiny; run after L4b so it doesn't collide)_
 
 ---
 
