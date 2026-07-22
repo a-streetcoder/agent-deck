@@ -46,10 +46,10 @@ Do these right after L4b lands. Small, mostly local, high polish/security value.
    diff base. _(small–medium)_
 5. **S19 image-dialog focus e2e** — the deferred a11y test for the expanded-image
    dialog. _(tiny)_
-6. **Repo cleanup** — archive the now-superseded `docs/checkpoints-design.md`
-   (S18 shipped) and verify the migration's transitional "legacy oracle"
-   references are history-comments, not dead code. Keep git history; just tidy.
-   _(tiny; run after L4b so it doesn't collide)_
+6. ~~**Repo cleanup**~~ — **DONE** (2026-07-22): archived
+   `docs/checkpoints-design.md` → `docs/archive/`; verified the "legacy oracle"
+   references are documentation/parity comments, not dead code (no `*legacy*.ts`
+   files exist).
 
 ---
 

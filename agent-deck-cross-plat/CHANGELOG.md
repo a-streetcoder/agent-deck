@@ -88,10 +88,12 @@ New workspace features requested after the parity audit.
   **multi-file tabs**, **resizable** panels (sidebar / workspace pane /
   tree–content, persisted widths), **CodeMirror** syntax highlighting (a lazy
   chunk), and a markdown **raw/preview** toggle.
-- **File editing + autosave (L4b, in progress)** — editable files with debounced
-  **autosave** (no save button) via a guarded `file_write` op (path-containment +
-  atomic write + on-disk conflict guard); **per-session persistence** of the
-  browser page-tabs and open files (survive toggling the tool off/on).
+- **File editing + autosave (L4b)** — editable files with debounced **autosave**
+  (no save button) via a guarded `file_write` op (path-containment + atomic write
+  that preserves file mode + an on-disk **conflict guard** so an agent edit
+  underneath you isn't clobbered); **per-session persistence** of the browser
+  page-tabs and open files (survive toggling the tool off/on). Editor now renders
+  on the app's dark theme.
 - Layout: content ordered **next to the chat** (chat → content → tree); the Files
   tab is **tree-only** until a file is opened.
 
