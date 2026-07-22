@@ -3658,7 +3658,9 @@ struct PiAgentTranscriptCard: View {
                     .font(AppTheme.Font.footnote.weight(.semibold))
                     .fontWidth(.expanded)
                     .foregroundStyle(headerColor)
-                Spacer(minLength: 0)
+                if !isUserBubble {
+                    Spacer(minLength: 0)
+                }
             }
 
             content
