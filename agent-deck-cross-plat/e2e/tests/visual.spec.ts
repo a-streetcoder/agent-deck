@@ -72,6 +72,13 @@ const FILES_PREVIEW_CONTENT = 'export const answer = 42;\nexport const greeting 
 // (nav buttons, frame borders, panel width) once the embed has settled.
 const PREVIEW_PROJECT = mkdtempSync(path.join(tmpdir(), "proj-preview-visual-"));
 
+// The worktree-merge-toolbar baseline's repo: a scratch git repo selected with
+// worktree isolation ON, so its session runs in an isolated worktree and the
+// diff panel shows the branch → source Merge toolbar (Slice 20). The worktree
+// branch name carries a random session suffix, so that span is MASKED; the
+// baseline guards the toolbar layout + the deterministic "Merge to main" button.
+const WORKTREE_REPO = mkdtempSync(path.join(tmpdir(), "proj-worktree-visual-"));
+
 let harness: E2eHarness;
 
 test.beforeAll(async () => {
@@ -94,6 +101,17 @@ test.beforeAll(async () => {
   writeFileSync(path.join(DIFF_REPO, "README.md"), "# scratch\n");
   git(["add", "-A"]);
   git(["commit", "-m", "init"]);
+
+  // The worktree-toolbar baseline's repo (same init recipe as DIFF_REPO).
+  const wtGit = (args: string[]): void => {
+    execFileSync("git", args, { cwd: WORKTREE_REPO, stdio: "ignore" });
+  };
+  wtGit(["init", "-b", "main"]);
+  wtGit(["config", "user.email", "t@example.com"]);
+  wtGit(["config", "user.name", "Test"]);
+  writeFileSync(path.join(WORKTREE_REPO, "README.md"), "# scratch\n");
+  wtGit(["add", "-A"]);
+  wtGit(["commit", "-m", "init"]);
 
   // The files-panel project's fixed tree: one subdirectory + a previewed file.
   mkdirSync(path.join(FILES_PROJECT, "src"));
@@ -137,7 +155,7 @@ test.beforeAll(async () => {
       };
     },
   });
-  for (const projectPath of [DIFF_REPO, FILES_PROJECT, PREVIEW_PROJECT]) {
+  for (const projectPath of [DIFF_REPO, FILES_PROJECT, PREVIEW_PROJECT, WORKTREE_REPO]) {
     const response = await fetch(`${harness.baseUrl}/projects`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -294,6 +312,43 @@ test("visual: changed-files tree + open diff panel", async ({ page }) => {
     ...SCREENSHOT_OPTS,
     mask: [...dynamicChrome(page), page.locator('[data-tool="write"]')],
   });
+});
+
+test("visual: diff panel worktree merge toolbar (Slice 20)", async ({ page }) => {
+  // Worktree isolation is a GLOBAL setting: flip it on only for this test's
+  // dedicated repo, then off in finally so the other baselines' projects keep
+  // running in their own roots (never a worktree).
+  await fetch(`${harness.baseUrl}/settings`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ worktreeIsolation: true }),
+  });
+  try {
+    await page.goto(harness.baseUrl);
+    await selectProject(page, path.basename(WORKTREE_REPO));
+    // The session runs in its own worktree (cwd != the repo root).
+    await expect(page.getByTestId("session-cwd")).not.toHaveText(WORKTREE_REPO);
+    await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+    // The toolbar renders on a CLEAN worktree (it gates on the worktree meta +
+    // gitAutomation, not on changed files) — deterministic without a file write.
+    await page.getByTestId("diff-toggle").click();
+    await expect(page.getByTestId("diff-worktree-toolbar")).toBeVisible();
+    await expect(page.getByTestId("diff-merge")).toContainText("Merge to main");
+
+    // Screenshot just the toolbar; mask the worktree branch span (random session
+    // suffix). The "→ main" source + the "Merge to main" button are stable.
+    await expect(page.getByTestId("diff-worktree-toolbar")).toHaveScreenshot(
+      "diff-worktree-toolbar.png",
+      { ...SCREENSHOT_OPTS, mask: [page.getByTestId("diff-worktree-branch")] },
+    );
+  } finally {
+    await fetch(`${harness.baseUrl}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ worktreeIsolation: false }),
+    });
+  }
 });
 
 test("visual: checkpoints rewind confirm dialog", async ({ page }) => {

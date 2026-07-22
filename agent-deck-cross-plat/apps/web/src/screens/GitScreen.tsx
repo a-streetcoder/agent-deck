@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { GitBranch, Sparkles, Tag } from "lucide-react";
 import { useAppStore } from "../state/store.ts";
+import { mergeWorktreeSession } from "../state/wsBridge.ts";
 
 /**
  * Git screen (native GitRepositoryService): the current project's working-tree
@@ -28,6 +29,11 @@ interface ReleasePreflight {
 export function GitScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const session = useAppStore((state) => state.session);
+  // Merging auto-commits ALL uncommitted worktree work before merging, so a
+  // mid-turn merge would push a half-written tree onto the source branch. Gate
+  // the merge on the agent being idle — same guard the diff-panel merge toolbar
+  // and the CheckpointsPanel Restore use.
+  const agentRunning = useAppStore((state) => state.transcript.agentStatus === "running");
   const pushToast = useAppStore((state) => state.pushToast);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
   const setError = useAppStore((state) => state.setError);
@@ -141,15 +147,14 @@ export function GitScreen() {
     setMerging(true);
     setError(null);
     try {
-      const response = await fetch(`/sessions/${encodeURIComponent(session.id)}/merge`, {
-        method: "POST",
+      const { sourceBranch, commits } = await mergeWorktreeSession(session.id);
+      pushToast({
+        kind: "success",
+        message: `Merged ${commits} commit${commits === 1 ? "" : "s"} into ${sourceBranch}`,
       });
-      if (!response.ok) throw new Error(await response.text());
-      const { sourceBranch } = (await response.json()) as { sourceBranch: string };
-      pushToast({ kind: "success", message: `Merged into ${sourceBranch}` });
       void load();
     } catch (err) {
-      setError(String(err));
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setMerging(false);
     }
@@ -381,7 +386,8 @@ export function GitScreen() {
                   "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
                 color: "var(--color-accent-foreground)",
               }}
-              disabled={merging}
+              disabled={merging || agentRunning}
+              title={agentRunning ? "Wait for the current turn to finish" : undefined}
               onClick={() => void merge()}
             >
               {merging ? "Merging…" : `Merge to ${session.worktreeSourceBranch}`}

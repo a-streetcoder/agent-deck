@@ -116,4 +116,14 @@ export interface ServerContext {
   rootsFor(projectId?: string): ResourceRoots;
   broadcast(message: ServerMessage): void;
   watchProject(projectPath: string): void;
+  /**
+   * Drop a session's cached changed-file set (the Slice-9 SessionDiff cache), so
+   * the next `diff_files` refetch recomputes from disk instead of replaying a
+   * stale set. HTTP routes that mutate the worktree out-of-band from the turn
+   * loop (e.g. the merge route, which auto-commits + merges all worktree work)
+   * call this so a resubscribe before the next turn boundary can't resurrect the
+   * pre-mutation diff. Mirrors the `diffs.drop` the session-meta hook already
+   * fires when a session ends.
+   */
+  dropDiffCache(sessionId: string): void;
 }

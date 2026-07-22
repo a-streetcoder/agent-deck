@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageSquarePlus, Pencil, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, MessageSquarePlus, Pencil, Trash2, X } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/cn";
 import { summarizeDiffStats } from "@/lib/changedFilesTree";
@@ -10,7 +10,7 @@ import {
   isCommentableLine,
   type PendingReviewComment,
 } from "@/lib/reviewComments";
-import { fetchFileDiff } from "../../state/wsBridge.ts";
+import { fetchFileDiff, mergeWorktreeSession } from "../../state/wsBridge.ts";
 import { useAppStore } from "../../state/store.ts";
 import { ChangedFilesTree } from "./ChangedFilesTree.tsx";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel.tsx";
@@ -288,6 +288,84 @@ function CenteredState({ children, testId }: { children: string; testId: string 
   );
 }
 
+/**
+ * Slice 20 branch toolbar: for a session running in an isolated worktree, the
+ * diff panel IS the review surface — its working-tree-vs-HEAD diff (Slice 9) is
+ * the full uncommitted branch delta, because worktree work stays uncommitted
+ * until merge. So the panel hosts the first-class review-then-merge affordance:
+ * the `worktreeBranch → sourceBranch` line plus a primary Merge button. The
+ * changed-FILE count already in the subheader is the "ready to merge" signal;
+ * there is deliberately no commits-ahead count (the work is uncommitted
+ * pre-merge, so gitCommitsAhead is 0 until the merge route commits it).
+ */
+function WorktreeMergeToolbar(props: {
+  sessionId: string;
+  worktreeBranch: string;
+  worktreeSourceBranch: string;
+}) {
+  const pushToast = useAppStore((state) => state.pushToast);
+  const setError = useAppStore((state) => state.setError);
+  // Idle-gate the merge (same rule as the checkpoints panel's Restore): merging
+  // while a turn is still writing to the worktree would auto-commit a
+  // half-written tree. Disabled while a turn runs.
+  const running = useAppStore((state) => state.transcript.agentStatus === "running");
+  const [merging, setMerging] = useState(false);
+
+  const merge = async (): Promise<void> => {
+    setMerging(true);
+    setError(null);
+    try {
+      const { sourceBranch, commits } = await mergeWorktreeSession(props.sessionId);
+      // mergeWorktreeSession refreshes the (now-empty) changed-file set for us —
+      // the working-tree diff clears once the work is committed + merged.
+      pushToast({
+        kind: "success",
+        message: `Merged ${commits} commit${commits === 1 ? "" : "s"} into ${sourceBranch}`,
+      });
+    } catch (error) {
+      // 400 "Nothing to merge" and 409 "Merge failed: <conflict>" both arrive as
+      // the thrown Error's message — surface it verbatim.
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex items-center justify-between gap-2 border-b border-border-subtle bg-surface px-3 py-2"
+      data-testid="diff-worktree-toolbar"
+    >
+      <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-text-secondary">
+        <span
+          className="truncate text-text-primary"
+          title={props.worktreeBranch}
+          data-testid="diff-worktree-branch"
+        >
+          {props.worktreeBranch}
+        </span>
+        <ArrowRight className="h-3 w-3 shrink-0 text-text-muted" aria-hidden />
+        <span className="shrink-0 text-text-primary">{props.worktreeSourceBranch}</span>
+      </div>
+      <button
+        type="button"
+        data-testid="diff-merge"
+        className="shrink-0 rounded-capsule px-3 py-1 text-[11px] font-medium shadow-capsule disabled:opacity-40"
+        style={{
+          background:
+            "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+          color: "var(--color-accent-foreground)",
+        }}
+        disabled={merging || running}
+        title={running ? "Wait for the current turn to finish" : undefined}
+        onClick={() => void merge()}
+      >
+        {merging ? "Merging…" : `Merge to ${props.worktreeSourceBranch}`}
+      </button>
+    </div>
+  );
+}
+
 export function DiffPanel() {
   const open = useAppStore((state) => state.diffPanelOpen);
   const setOpen = useAppStore((state) => state.setDiffPanelOpen);
@@ -295,6 +373,25 @@ export function DiffPanel() {
   const repo = useAppStore((state) => state.diffRepo);
   const files = useAppStore((state) => state.diffFiles);
   const truncatedSet = useAppStore((state) => state.diffTruncated);
+
+  // Slice 20: a worktree session is identified by the presence of these meta
+  // fields (there is no isWorktree boolean). When set, the panel shows the
+  // branch → source toolbar with the primary Merge action.
+  const worktreeBranch = useAppStore((state) => state.session?.worktreeBranch ?? null);
+  const worktreeSourceBranch = useAppStore((state) => state.session?.worktreeSourceBranch ?? null);
+  // The gitAutomation setting gates the Merge toolbar, matching the Git screen's
+  // Merge banner (one consistent merge gate). `null` until it loads so the
+  // toolbar never flashes before the gate is known. Read once on mount (the
+  // setting doesn't change within a run without a Preferences round-trip).
+  const [gitAutomation, setGitAutomation] = useState<boolean | null>(null);
+  useEffect(() => {
+    void fetch("/settings")
+      .then((response) => response.json())
+      .then((data: { settings: { gitAutomation: boolean } }) =>
+        setGitAutomation(data.settings.gitAutomation),
+      )
+      .catch(() => {});
+  }, []);
 
   const [allDirectoriesExpanded, setAllDirectoriesExpanded] = useState(true);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -545,6 +642,14 @@ export function DiffPanel() {
           </button>
         </div>
       </div>
+
+      {gitAutomation === true && worktreeBranch !== null && worktreeSourceBranch !== null && (
+        <WorktreeMergeToolbar
+          sessionId={sessionId}
+          worktreeBranch={worktreeBranch}
+          worktreeSourceBranch={worktreeSourceBranch}
+        />
+      )}
 
       {truncatedSet && (
         <NoticeBar>The changed-file list was truncated at the server limit.</NoticeBar>

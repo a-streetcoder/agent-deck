@@ -279,6 +279,54 @@ export async function rollbackToCheckpoint(turnIndex: number): Promise<{ filesRe
 }
 
 // ---------------------------------------------------------------------------
+// Worktree merge action (Slice 20) — an isolated worktree session's work stays
+// UNCOMMITTED on its branch until merge; the server's merge route auto-commits
+// it, merges --no-ff into the source branch, and reports the merged branch
+// names + commit count. Both the Git screen banner and the diff-panel branch
+// toolbar drive THIS one path (no duplicated fetch).
+// ---------------------------------------------------------------------------
+
+/** The parsed success reply of POST /sessions/:id/merge. */
+export interface MergeResult {
+  ok: boolean;
+  branch: string;
+  sourceBranch: string;
+  commits: number;
+}
+
+/**
+ * Merge `sessionId`'s isolated worktree back into its source branch (native
+ * Merge, POST /sessions/:id/merge). Returns the merged branch names + commit
+ * count on success; THROWS an Error carrying the server's `{ error }` message on
+ * a refusal — 400 "Nothing to merge", 409 "Merge failed: <conflict>", or 404 —
+ * so callers can surface it verbatim.
+ *
+ * On success the merge route auto-commits ALL uncommitted worktree work (git add
+ * -A) before merging, so the session's working-tree-vs-HEAD diff (the review
+ * surface) is now provably EMPTY. We reflect that immediately by clearing the
+ * store's changed-file set (repo stays true so the panel shows its "no changes"
+ * state, not hidden) — reusing the same `setDiffState` the diff_push / subscribe
+ * refresh drive, rather than inventing a new push. The merge route also drops the
+ * server-side per-session diff cache (ctx.dropDiffCache), so a resubscribe before
+ * the next turn boundary recomputes the now-empty set instead of replaying the
+ * stale pre-merge one — the optimistic clear and the server invalidation agree.
+ */
+export async function mergeWorktreeSession(sessionId: string): Promise<MergeResult> {
+  const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/merge`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `Merge failed (${response.status}).`);
+  }
+  const result = (await response.json()) as MergeResult;
+  if (sessionId === currentSessionId) {
+    useAppStore.getState().setDiffState({ repo: true, files: [], truncated: false });
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Open-in-editor surface (Slice 11) — the diff panel / changed-files tree open
 // a file in one of the editors the SERVER detected on its machine.
 // ---------------------------------------------------------------------------

@@ -691,6 +691,7 @@ async function initServer(
     rootsFor,
     broadcast,
     watchProject,
+    dropDiffCache: (sessionId) => diffs.drop(sessionId),
   };
 
   // Route modules. Fastify's router matches on method + path (never on

@@ -51,6 +51,7 @@ export function registerSessionRoutes(ctx: ServerContext): void {
     rootsFor,
     resolveNamedAgent,
     enabledExtensionPaths,
+    dropDiffCache,
   } = ctx;
 
   // Live pi session state (model, thinking level, streaming flags) and the
@@ -290,6 +291,11 @@ export function registerSessionRoutes(ctx: ServerContext): void {
     } catch (error) {
       return reply.status(409).send({ error: `Merge failed: ${gitErrorText(error)}` });
     }
+    // The merge auto-committed + merged all worktree work, so the session's
+    // working-tree-vs-HEAD diff is now empty. Drop the cached changed-file set so
+    // a resubscribe before the next turn boundary recomputes it (empty) instead
+    // of replaying the pre-merge set and re-offering a merge that now 400s.
+    dropDiffCache(id);
     return { ok: true, branch: worktreeBranch, sourceBranch: worktreeSourceBranch, commits: ahead };
   });
 
