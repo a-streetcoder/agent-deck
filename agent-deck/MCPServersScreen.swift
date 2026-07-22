@@ -931,7 +931,7 @@ private struct MCPServerEditorSheet: View {
                 if !importCandidates.isEmpty {
                     HStack(alignment: .center, spacing: 12) {
                         Text(importCandidateSummary)
-                            .font(.caption2)
+                            .font(AppTheme.Font.micro)
                             .foregroundStyle(AppTheme.mutedText)
                         Spacer(minLength: 0)
                         Button("Select All") { selectedImportIDs = importCandidateIDs }
@@ -981,11 +981,11 @@ private struct MCPServerEditorSheet: View {
             ProviderLogoImage(provider: "openai-codex", size: 12)
         } else if normalized.contains("project") {
             Image(systemName: "folder")
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .imageScale(.small)
         } else {
             Image(systemName: "doc.text")
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .imageScale(.small)
         }
     }
@@ -999,18 +999,14 @@ private struct MCPServerEditorSheet: View {
             }
         )
 
-        return HStack(alignment: .center, spacing: 12) {
-            Toggle("", isOn: isSelected)
-                .appCheckbox()
-                .labelsHidden()
-                .frame(width: 18)
-                .allowsHitTesting(false)
-            VStack(alignment: .leading, spacing: 3) {
+        return Toggle(isOn: isSelected) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(candidate.name)
                         .font(.callout.weight(.semibold))
                     Text(candidate.config.resolvedTransport == .stdio ? "Local" : "Remote")
-                        .font(.caption2.weight(.semibold))
+                        .font(AppTheme.Font.micro.weight(.semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -1019,15 +1015,16 @@ private struct MCPServerEditorSheet: View {
                 HStack(spacing: 4) {
                     sourceIcon(candidate.sourceName)
                     Text(candidate.sourceName)
-                        .font(.caption2.weight(.medium))
+                        .font(AppTheme.Font.micro.weight(.medium))
                 }
                 .foregroundStyle(AppTheme.mutedText)
                 .lineLimit(1)
             }
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { isSelected.wrappedValue.toggle() }
+        .appCheckbox()
+        .accessibilityLabel("Toggle MCP server \(candidate.name)")
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
     }

@@ -41,7 +41,7 @@ struct GitHubConnectionCard: View {
 
                 if let lastCheckedAt = viewModel.githubLastStatusCheckAt {
                     Text(timeFormatter.string(from: lastCheckedAt))
-                        .font(.caption2)
+                        .font(AppTheme.Font.micro)
                         .foregroundStyle(AppTheme.mutedText)
                         .monospacedDigit()
                 }

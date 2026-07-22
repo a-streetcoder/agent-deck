@@ -149,11 +149,11 @@ struct EnvEditorSheet: View {
     private func legendRow(_ label: String, _ path: String) -> some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
                 .frame(width: 50, alignment: .leading)
             Text(abbreviate(path))
-                .font(.caption2.monospaced())
+                .font(AppTheme.Font.micro.monospaced())
                 .foregroundStyle(AppTheme.mutedText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1091,6 +1091,8 @@ struct AgentEditorSheet: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(value)")
+                            .help("Remove \(value)")
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)

@@ -120,13 +120,13 @@ struct ExtensionsScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(bridge.toolNames.joined(separator: ", "))
-                    .font(.caption2.monospaced())
+                    .font(AppTheme.Font.micro.monospaced())
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let condition = bridge.condition {
                     Text(condition)
-                        .font(.caption2)
+                        .font(AppTheme.Font.micro)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

@@ -439,7 +439,7 @@ struct SkillsScreen: View {
     private var skillWarningStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("WARNINGS")
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .tracking(0.6)
                 .foregroundStyle(.orange)
                 .padding(.horizontal, 18)
@@ -737,8 +737,14 @@ struct SkillsScreen: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onTapGesture {
+        .simultaneousGesture(TapGesture().onEnded { selectMissingSkillWarning(warning) })
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Resolve missing skill \(warning.missingSkill)")
+        .accessibilityAction { selectMissingSkillWarning(warning) }
+        .focusable()
+        .onKeyPress(.space) {
             selectMissingSkillWarning(warning)
+            return .handled
         }
         .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.orange.opacity(0.25), lineWidth: 1))
@@ -1106,14 +1112,14 @@ struct SkillsScreen: View {
                                 Label(collection.name, systemImage: "folder.badge.gearshape")
                                     .font(.subheadline.weight(.semibold))
                                 Text("\(cachedLayout.collectionMembersByID[collection.id]?.count ?? 0) skills")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(AppTheme.Font.micro.weight(.semibold))
                                     .foregroundStyle(AppTheme.mutedText)
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 2)
                                     .background(.secondary.opacity(0.12), in: Capsule())
                                 if let sourceLabel = collection.sourceLabel {
                                     Text(sourceLabel)
-                                        .font(.caption2)
+                                        .font(AppTheme.Font.micro)
                                         .foregroundStyle(AppTheme.mutedText)
                                         .lineLimit(1)
                                 }
@@ -1883,8 +1889,9 @@ struct SkillsScreen: View {
                     isSkillNameFocused = true
                 }
         } else {
-            HStack(alignment: .center, spacing: 6) {
-                Text(skill.name)
+            Button { beginSkillRename(for: skill) } label: {
+                HStack(alignment: .center, spacing: 6) {
+                    Text(skill.name)
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
                     .lineLimit(1)
@@ -1894,11 +1901,14 @@ struct SkillsScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .opacity(isSkillNameHovered ? 0.85 : 0)
                 }
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
             .onHover { isSkillNameHovered = $0 }
-            .onTapGesture { beginSkillRename(for: skill) }
             .help(viewModel.canRenameSkill(skill) ? "Rename skill" : "")
+            .accessibilityLabel("Rename skill \(skill.name)")
+            .disabled(!viewModel.canRenameSkill(skill))
         }
     }
 
@@ -2065,7 +2075,7 @@ struct SkillsScreen: View {
                                 .font(.callout.weight(.medium))
                             if !viewModel.canDeleteSkill(skill) {
                                 Text("Protected")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(AppTheme.Font.micro.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 2)
@@ -2172,18 +2182,9 @@ private struct AgentAssignmentToggleRow: View {
             }
         )
 
-        return HStack(alignment: .center, spacing: 12) {
-            Toggle("", isOn: toggleBinding)
-                .appCheckbox()
-                .labelsHidden()
-                .controlSize(.regular)
-                .frame(width: 18)
-                // Visual indicator only; the row's `.onTapGesture` is the sole
-                // tap handler. Letting the checkbox also handle clicks fires
-                // the toggle twice when the box itself is clicked.
-                .allowsHitTesting(false)
-
-            ZStack {
+        return Toggle(isOn: toggleBinding) {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(agentIconFill)
                     .overlay {
@@ -2215,16 +2216,16 @@ private struct AgentAssignmentToggleRow: View {
                     .truncationMode(.tail)
             }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
         }
+        .appCheckbox()
+        .controlSize(.regular)
+        .accessibilityLabel("Toggle agent \(agent.name)")
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
         .opacity(isInactive ? 0.62 : 1)
         .saturation(isInactive ? 0.25 : 1)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            toggleBinding.wrappedValue.toggle()
-        }
         .onChange(of: isOn) { _, _ in
             // External state has caught up — drop the optimistic override so
             // the snapshot value is authoritative again.
@@ -2410,7 +2411,7 @@ private struct CollectionListRowView: View {
                     Label("\(memberCount) skill\(memberCount == 1 ? "" : "s")", systemImage: "wand.and.stars")
                         .lineLimit(1)
                 }
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
                 .help(collection.sourceLabel.map { "Synced from GitHub · \($0)" } ?? "Skill collection")
             }
@@ -2545,7 +2546,7 @@ private struct SkillListRowView: View {
                                 .truncationMode(.tail)
                         }
                     }
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
                     .help(repositoryDisplayName.map { "Synced from GitHub · \($0)" } ?? "Member of a skill collection")
                 }
@@ -2772,7 +2773,7 @@ private struct SkillCollectionEditorSheet: View {
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
                 Text("\(skillCount) skill\(skillCount == 1 ? "" : "s")")
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
             }
             Spacer(minLength: 0)

@@ -1079,7 +1079,7 @@ struct LoopInlineInfoButton: View {
             Image(systemName: "info.circle")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
-                .frame(width: 18, height: 18)
+                .appActionTarget()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Explain \(title)")

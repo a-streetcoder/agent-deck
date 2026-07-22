@@ -182,7 +182,7 @@ final class PiAgentAttachmentPopoverController: NSViewController {
         let container = roundedContainer()
         let code = NSTextField(labelWithString: "/\(name)")
         code.translatesAutoresizingMaskIntoConstraints = false
-        code.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        code.font = .monospacedSystemFont(ofSize: AppTheme.Font.codeSize, weight: .regular)
         code.textColor = .labelColor
         code.isSelectable = true
         container.addSubview(code)
@@ -209,11 +209,11 @@ final class PiAgentAttachmentPopoverController: NSViewController {
     /// Read-only, selectable, scrolling monospaced text — sized to content up to
     /// the body height cap.
     private func codeScroll(_ text: String) -> NSView {
-        textScroll(text, font: .monospacedSystemFont(ofSize: 11, weight: .regular))
+        textScroll(text, font: .monospacedSystemFont(ofSize: AppTheme.Font.codeSize, weight: .regular))
     }
 
     private func infoScroll(_ text: String) -> NSView {
-        textScroll(text, font: .systemFont(ofSize: 12))
+        textScroll(text, font: .systemFont(ofSize: AppTheme.Font.supportingSize))
     }
 
     private func textScroll(_ text: String, font: NSFont) -> NSView {

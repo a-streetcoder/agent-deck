@@ -65,6 +65,81 @@ enum NativeTranscriptFont {
 // with an optional hover-revealed glass copy button floating in the gutter and
 // self-measuring height. Subclasses supply only the card's inner content.
 
+// MARK: - Accessible native pressable
+
+/// Shared keyboard- and VoiceOver-operable pressable surface for transcript
+/// content that intentionally retains custom AppKit/Liquid Glass chrome. It
+/// keeps the visual treatment while exposing the same button contract as an
+/// `NSButton`: focus, Return/Space activation, role, label, and help.
+class NativeAccessiblePressableView: NSView {
+    enum Role { case button, staticText }
+
+    var pressAction: (() -> Void)?
+    var pressRole: Role = .button { didSet { updateAccessibilityAndFocus() } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        updateAccessibilityAndFocus()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var acceptsFirstResponder: Bool { pressRole == .button && pressAction != nil }
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder else { return false }
+        updateAccessibilityAndFocus()
+        return true
+    }
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        updateAccessibilityAndFocus()
+        return result
+    }
+    /// Custom pressables often contain labels and image views. Make the whole
+    /// surface own hit testing so a click anywhere follows the same path as
+    /// keyboard and VoiceOver activation.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard pressRole == .button, pressAction != nil, bounds.contains(point) else { return nil }
+        return self
+    }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+    }
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { activate() }
+    }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 49 { // Return or Space
+            activate()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+    override func resetCursorRects() {
+        if pressRole == .button, pressAction != nil { addCursorRect(bounds, cursor: .pointingHand) }
+    }
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        pressRole == .button ? .button : .staticText
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard pressRole == .button, pressAction != nil else { return false }
+        activate()
+        return true
+    }
+
+    private func activate() {
+        guard pressRole == .button else { return }
+        pressAction?()
+    }
+
+    private func updateAccessibilityAndFocus() {
+        setAccessibilityRole(pressRole == .button ? .button : .staticText)
+        layer?.borderWidth = window?.firstResponder === self ? 2 : 0
+        layer?.borderColor = AppTheme.ns(AppTheme.brandAccent).cgColor
+        layer?.cornerRadius = 4
+    }
+}
+
 // MARK: - Rounded card surface
 
 /// A layer-backed rounded-rect surface (fill + 1pt stroke) that recolors itself
@@ -273,10 +348,19 @@ class PiAgentNativeCardRowView: NSView, PiAgentNativeRowContent {
         copyIcon.imageScaling = .scaleNone
         copyIcon.toolTip = "Copy message"
         copyGlass.contentView = copyIcon
-        copyGlass.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(copyTapped)))
+        let copyPress = NSButton(title: "", target: self, action: #selector(copyTapped))
+        copyPress.translatesAutoresizingMaskIntoConstraints = false
+        copyPress.isBordered = false
+        copyPress.toolTip = "Copy message"
+        copyPress.setAccessibilityLabel("Copy message")
+        copyGlass.addSubview(copyPress)
         copyGlass.isHidden = true
         addSubview(copyGlass)
         NSLayoutConstraint.activate([
+            copyPress.leadingAnchor.constraint(equalTo: copyGlass.leadingAnchor),
+            copyPress.trailingAnchor.constraint(equalTo: copyGlass.trailingAnchor),
+            copyPress.topAnchor.constraint(equalTo: copyGlass.topAnchor),
+            copyPress.bottomAnchor.constraint(equalTo: copyGlass.bottomAnchor),
             copyGlass.widthAnchor.constraint(equalToConstant: 28),
             copyGlass.heightAnchor.constraint(equalToConstant: 28),
             copyIcon.widthAnchor.constraint(equalToConstant: 28),
@@ -422,7 +506,36 @@ final class PiAgentNativeStatusRowView: PiAgentNativeCardRowView {
             cardContent.topAnchor.constraint(equalTo: iconView.topAnchor).withPriority(250)
         ])
 
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(rowTapped)))
+    }
+
+    override var acceptsFirstResponder: Bool { errorPopoverText != nil }
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        updateFocusAppearance()
+        return true
+    }
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        updateFocusAppearance()
+        return result
+    }
+    override func mouseUp(with event: NSEvent) {
+        // Audit controls are real child NSButtons. Let their own target/action
+        // handle the click; only the remaining card surface opens error detail.
+        let auditPoint = auditStack.convert(event.locationInWindow, from: nil)
+        guard !auditStack.bounds.contains(auditPoint) else { return }
+        if errorPopoverText != nil {
+            window?.makeFirstResponder(self)
+            rowTapped()
+        }
+    }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 49 { rowTapped() } else { super.keyDown(with: event) }
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard errorPopoverText != nil else { return false }
+        rowTapped()
+        return true
     }
 
     func configure(payload: NativeStatusPayload, width rowWidth: CGFloat) {
@@ -434,6 +547,10 @@ final class PiAgentNativeStatusRowView: PiAgentNativeCardRowView {
         timeLabel.stringValue = payload.timeText
         errorPopoverText = payload.errorPopoverText
         errorPopoverTitle = payload.title
+        setAccessibilityRole(payload.errorPopoverText == nil ? .staticText : .button)
+        setAccessibilityLabel(payload.errorPopoverText == nil ? payload.title : "Show details for \(payload.title)")
+        setAccessibilityHelp(payload.errorPopoverText == nil ? nil : "Press Return or Space to show details.")
+        updateFocusAppearance()
 
         auditActions = payload.auditActions
         auditStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -446,8 +563,9 @@ final class PiAgentNativeStatusRowView: PiAgentNativeCardRowView {
             btn.tag = i
             btn.contentTintColor = AppTheme.ns(AppTheme.mutedText)
             btn.toolTip = action.help
-            btn.widthAnchor.constraint(equalToConstant: 22).isActive = true
-            btn.heightAnchor.constraint(equalToConstant: 20).isActive = true
+            btn.widthAnchor.constraint(equalToConstant: AppTheme.Control.regularActionTarget).isActive = true
+            btn.heightAnchor.constraint(equalToConstant: AppTheme.Control.regularActionTarget).isActive = true
+            btn.setAccessibilityLabel(action.help)
             auditStack.addArrangedSubview(btn)
         }
 
@@ -466,6 +584,13 @@ final class PiAgentNativeStatusRowView: PiAgentNativeCardRowView {
     override func contentHeight(forInnerWidth innerWidth: CGFloat) -> CGFloat {
         // Single-line row; height is the tallest of the caption labels.
         max(14, ceil(titleLabel.intrinsicContentSize.height))
+    }
+
+    private func updateFocusAppearance() {
+        wantsLayer = true
+        layer?.borderWidth = window?.firstResponder === self ? 2 : 0
+        layer?.borderColor = AppTheme.ns(AppTheme.brandAccent).cgColor
+        layer?.cornerRadius = 6
     }
 
     @objc private func rowTapped() {

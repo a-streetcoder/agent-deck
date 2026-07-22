@@ -460,7 +460,7 @@ private struct AppListSectionHeaderView: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .tracking(0.6)
                 .foregroundStyle(AppTheme.mutedText)
             if let info {

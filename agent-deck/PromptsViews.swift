@@ -157,7 +157,7 @@ struct PromptsScreen: View {
     private var promptWarningStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("WARNINGS")
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .tracking(0.6)
                 .foregroundStyle(.orange)
                 .padding(.horizontal, 18)
@@ -401,7 +401,7 @@ struct PromptsScreen: View {
 
     private func nativePill(_ text: String, symbol: String, color: Color) -> some View {
         Label(text, systemImage: symbol)
-            .font(.caption2.weight(.semibold))
+            .font(AppTheme.Font.micro.weight(.semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
@@ -607,8 +607,9 @@ struct PromptsScreen: View {
                     isPromptNameFocused = true
                 }
         } else {
-            HStack(alignment: .center, spacing: 6) {
-                Text(prompt.name)
+            Button { beginPromptRename(for: prompt) } label: {
+                HStack(alignment: .center, spacing: 6) {
+                    Text(prompt.name)
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
                     .lineLimit(1)
@@ -618,11 +619,14 @@ struct PromptsScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .opacity(isPromptNameHovered ? 0.85 : 0)
                 }
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
             .onHover { isPromptNameHovered = $0 }
-            .onTapGesture { beginPromptRename(for: prompt) }
             .help(viewModel.canRenamePrompt(prompt) ? "Rename prompt" : "")
+            .accessibilityLabel("Rename prompt \(prompt.name)")
+            .disabled(!viewModel.canRenamePrompt(prompt))
         }
     }
 

@@ -16,38 +16,27 @@ struct ProjectAssignmentToggleRow: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Toggle("", isOn: $isOn)
-                .appCheckbox()
-                .labelsHidden()
-                .controlSize(.regular)
-                .frame(width: 18)
-                // The whole row is the tap target (`.onTapGesture` below). The
-                // checkbox is a visual indicator only — if it also handled
-                // clicks, clicking the box itself would fire both handlers and
-                // toggle twice (the "selected then unselected" flicker).
-                .allowsHitTesting(false)
+        Toggle(isOn: $isOn) {
+            HStack(alignment: .center, spacing: 12) {
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30, assetName: project.projectType.assetName)
 
-            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30, assetName: project.projectType.assetName)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(project.name)
+                        .font(AppTheme.Font.primary.weight(.semibold))
+                    Text(project.repositoryName ?? project.path)
+                        .font(AppTheme.Font.metadata)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(project.name)
-                    .font(AppTheme.Font.primary.weight(.semibold))
-                Text(project.repositoryName ?? project.path)
-                    .font(AppTheme.Font.metadata)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
         }
+        .appCheckbox()
+        .controlSize(.regular)
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            isOn.toggle()
-        }
     }
 }
 
@@ -59,34 +48,27 @@ struct AllProjectsAssignmentRow: View {
     var subtitle: String = "Enable this agent for every project"
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Toggle("", isOn: $isOn)
-                .appCheckbox()
-                .labelsHidden()
-                .controlSize(.regular)
-                .frame(width: 18)
-                .allowsHitTesting(false)
+        Toggle(isOn: $isOn) {
+            HStack(alignment: .center, spacing: 12) {
+                ProjectIconView(imageURL: nil, symbolName: "square.grid.2x2", size: 30)
 
-            ProjectIconView(imageURL: nil, symbolName: "square.grid.2x2", size: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("All Projects")
+                        .font(AppTheme.Font.primary.weight(.semibold))
+                    Text(subtitle)
+                        .font(AppTheme.Font.metadata)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("All Projects")
-                    .font(AppTheme.Font.primary.weight(.semibold))
-                Text(subtitle)
-                    .font(AppTheme.Font.metadata)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
         }
+        .appCheckbox()
+        .controlSize(.regular)
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            isOn.toggle()
-        }
     }
 }
 
@@ -537,22 +519,24 @@ struct ProjectsScreen: View {
             } label: {
                 Image(systemName: "paperplane")
                     .foregroundStyle(hasAgentAssignments ? AppTheme.mutedText : AppTheme.mutedText.opacity(0.35))
-                    .frame(width: 20, height: 20)
+                    .appActionTarget()
             }
             .buttonStyle(.plain)
             .disabled(!hasAgentAssignments)
             .help(hasAgentAssignments ? "Show agents for this project" : "No agents assigned to this project")
+            .accessibilityLabel("Show agents for \(project.repositoryDisplayName)")
 
             Button {
                 skillsRecapProject = project
             } label: {
                 Image(systemName: "wand.and.stars")
                     .foregroundStyle(hasSkillAssignments ? AppTheme.mutedText : AppTheme.mutedText.opacity(0.35))
-                    .frame(width: 20, height: 20)
+                    .appActionTarget()
             }
             .buttonStyle(.plain)
             .disabled(!hasSkillAssignments)
             .help(hasSkillAssignments ? "Show skills for this project" : "No skills assigned to this project")
+            .accessibilityLabel("Show skills for \(project.repositoryDisplayName)")
 
             Button {
                 mcpRecapProject = project
@@ -563,31 +547,34 @@ struct ProjectsScreen: View {
                     .aspectRatio(contentMode: .fit)
                     .foregroundStyle(hasMcpAssignments ? AppTheme.mutedText : AppTheme.mutedText.opacity(0.35))
                     .frame(width: 16, height: 16)
-                    .frame(width: 20, height: 20)
+                    .appActionTarget()
             }
             .buttonStyle(.plain)
             .disabled(!hasMcpAssignments)
             .help(hasMcpAssignments ? "Show MCP servers for this project" : "No MCP servers assigned to this project")
+            .accessibilityLabel("Show MCP servers for \(project.repositoryDisplayName)")
 
             Button {
                 showProjectInFinder(project)
             } label: {
                 Image(systemName: "folder")
                     .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
+                    .appActionTarget()
             }
             .buttonStyle(.plain)
             .help("Show in Finder")
+            .accessibilityLabel("Show \(project.repositoryDisplayName) in Finder")
 
             Button(role: .destructive) {
                 showProjectRemovalConfirmation(for: project)
             } label: {
                 Image(systemName: "eye.slash")
                     .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
+                    .appActionTarget()
             }
             .buttonStyle(.plain)
             .help("Hide from \(AppBrand.displayName)")
+            .accessibilityLabel("Hide \(project.repositoryDisplayName) from \(AppBrand.displayName)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1112,7 +1099,7 @@ private struct ProjectMcpServersRecapSheet: View {
                             .font(.caption.weight(.semibold))
                         Spacer(minLength: 0)
                         Text("not in mcp.json")
-                            .font(.caption2)
+                            .font(AppTheme.Font.micro)
                             .foregroundStyle(AppTheme.mutedText)
                     }
                 }

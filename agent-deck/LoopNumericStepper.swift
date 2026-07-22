@@ -14,28 +14,20 @@ struct LoopNumericStepper: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             TextField("", text: $text)
-                .font(AppTheme.Font.body.monospacedDigit())
+                .font(AppTheme.Font.primary.monospacedDigit())
                 .multilineTextAlignment(.center)
                 .textFieldStyle(.plain)
-                .frame(width: 34)
+                .frame(width: 34, height: AppTheme.Control.regularActionTarget)
                 .focused($isTextFieldFocused)
                 .foregroundStyle(.primary)
                 .onSubmit(commitText)
 
-            Divider()
-                .frame(height: 24)
-
-            VStack(spacing: 0) {
-                stepButton(systemName: "chevron.up", delta: 1)
-                Divider()
-                    .frame(width: 18)
-                stepButton(systemName: "chevron.down", delta: -1)
-            }
-            .frame(width: 24)
+            stepButton(systemName: "chevron.down", delta: -1, label: "Decrease value")
+            stepButton(systemName: "chevron.up", delta: 1, label: "Increase value")
         }
-        .frame(height: 28)
+        .frame(height: AppTheme.Control.regularActionTarget)
         .background(AppTheme.textContentFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -64,18 +56,22 @@ struct LoopNumericStepper: View {
         .accessibilityValue(String(value))
     }
 
-    private func stepButton(systemName: String, delta: Int) -> some View {
-        Button {
+    private func stepButton(systemName: String, delta: Int, label: String) -> some View {
+        let isDisabled = delta > 0 ? value >= range.upperBound : value <= range.lowerBound
+        return Button {
             setValue(value + delta)
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: 8, weight: .bold))
-                .frame(width: 24, height: 13)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
-        .opacity((delta > 0 ? value >= range.upperBound : value <= range.lowerBound) ? 0.35 : 1)
-        .disabled(delta > 0 ? value >= range.upperBound : value <= range.lowerBound)
+        .opacity(isDisabled ? 0.35 : 1)
+        .disabled(isDisabled)
+        .accessibilityLabel(label)
+        .help(label)
     }
 
     private func updateValue(from newValue: String) {

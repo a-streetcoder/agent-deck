@@ -165,13 +165,13 @@ struct PiAgentStartupResourcesPopover: View {
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)
                 Text(server.advertisedToolCount == 1 ? "1 tool" : "\(server.advertisedToolCount) tools")
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
             }
 
             if server.calledTools.isEmpty {
                 Text("No tools called yet")
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.leading, 26)
             } else {
@@ -179,19 +179,19 @@ struct PiAgentStartupResourcesPopover: View {
                     ForEach(server.calledTools) { tool in
                         HStack(spacing: 7) {
                             Image(systemName: tool.errorCount > 0 ? "exclamationmark.triangle" : "bolt.horizontal")
-                                .font(.caption2)
+                                .font(AppTheme.Font.micro)
                                 .foregroundStyle(tool.errorCount > 0 ? AppTheme.roleError : AppTheme.mutedText)
                                 .frame(width: 13)
                             Text(tool.name)
-                                .font(.caption2.weight(.medium))
+                                .font(AppTheme.Font.micro.weight(.medium))
                                 .foregroundStyle(.primary)
                             Spacer(minLength: 8)
                             Text("\(tool.callCount)")
-                                .font(.caption2.monospacedDigit())
+                                .font(AppTheme.Font.micro.monospacedDigit())
                                 .foregroundStyle(AppTheme.mutedText)
                             if tool.errorCount > 0 {
                                 Text("\(tool.errorCount)")
-                                    .font(.caption2.monospacedDigit())
+                                    .font(AppTheme.Font.micro.monospacedDigit())
                                     .foregroundStyle(AppTheme.roleError)
                             }
                         }
@@ -436,7 +436,7 @@ struct PiAgentStartupResourcesPopover: View {
                     .foregroundStyle(.primary)
                 if showsDetail, let detail = item.detail, !detail.isEmpty {
                     Text(detail)
-                        .font(.caption2)
+                        .font(AppTheme.Font.micro)
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(3)
                         .truncationMode(.tail)
@@ -771,6 +771,9 @@ struct PiAgentSessionSubagentPickerCard: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Collapse Deck agents" : "Expand Deck agents")
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                .help(isExpanded ? "Collapse Deck agents" : "Expand Deck agents")
             }
         }
     }
@@ -871,7 +874,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
             Text(compactDelegationPolicyDescription)
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
                 .lineLimit(1)
                 .transaction { transaction in
@@ -1546,10 +1549,10 @@ private struct PiAgentPickerLaunchControls: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(AppTheme.Font.caption2.weight(.bold))
+                    .font(AppTheme.Font.metadata.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
             }
-            .font(AppTheme.Font.caption2.weight(.semibold))
+            .font(AppTheme.Font.metadata.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .frame(minHeight: Self.chipMinHeight, alignment: .leading)
@@ -1573,10 +1576,10 @@ private struct PiAgentPickerLaunchControls: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(AppTheme.Font.caption2.weight(.bold))
+                    .font(AppTheme.Font.metadata.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
             }
-            .font(AppTheme.Font.caption2.weight(.semibold))
+            .font(AppTheme.Font.metadata.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .frame(minHeight: Self.chipMinHeight, alignment: .leading)
@@ -1729,7 +1732,7 @@ private struct PiAgentPickerModelChip: View {
 
     var body: some View {
         Text(label)
-            .font(AppTheme.Font.caption2.weight(.semibold))
+            .font(AppTheme.Font.metadata.weight(.semibold))
             .foregroundStyle(AppTheme.mutedText)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -1887,6 +1890,8 @@ struct PiAgentAddAgentsSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear agent search")
+                .help("Clear agent search")
             }
         }
         .padding(.horizontal, 10)

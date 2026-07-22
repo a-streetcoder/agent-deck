@@ -133,7 +133,7 @@ struct GitHubIssueRowContent: View {
             Spacer(minLength: 4)
             if showsKindBadge {
                 Text(item.kindShortTitle)
-                    .font(.caption2.weight(.bold))
+                    .font(AppTheme.Font.micro.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)

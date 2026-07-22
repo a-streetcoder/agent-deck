@@ -484,7 +484,7 @@ private enum PiAgentChipThumbnailCache {
 /// A single capsule chip: a rounded surface with a leading icon (or thumbnail)
 /// and a single-line, middle-truncated label. Mirrors the SwiftUI
 /// `appSmallSecondaryButton` chip (caption2 label, photo thumbnail for images).
-private final class PiAgentNativeChipView: NSView {
+private final class PiAgentNativeChipView: NativeAccessiblePressableView {
     // Real Liquid Glass material, matching the SwiftUI chip's `.glass` capsule.
     private let glass = NSGlassEffectView()
     private let content = NSView()
@@ -538,7 +538,7 @@ private final class PiAgentNativeChipView: NSView {
         content.addSubview(thumbView)
 
         labelField.translatesAutoresizingMaskIntoConstraints = false
-        labelField.font = NativeTranscriptFont.caption2()
+        labelField.font = NativeTranscriptFont.caption()
         labelField.textColor = .labelColor
         labelField.lineBreakMode = .byTruncatingMiddle
         labelField.maximumNumberOfLines = 1
@@ -548,7 +548,7 @@ private final class PiAgentNativeChipView: NSView {
         glass.contentView = content
         addSubview(glass)
 
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(clicked)))
+        pressAction = { [weak self] in self?.clicked() }
 
         iconLeadingC = iconView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.hInset)
         labelLeadingToIconC = labelField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Self.iconLabelGap)
@@ -595,6 +595,9 @@ private final class PiAgentNativeChipView: NSView {
 
         // The `+N more` overflow pill: bold, muted, icon-less, non-previewable.
         if chip.kind == .overflow {
+            pressAction = nil
+            pressRole = .staticText
+            setAccessibilityLabel(chip.label)
             toolTip = nil
             iconView.isHidden = true
             thumbView.isHidden = true
@@ -606,11 +609,15 @@ private final class PiAgentNativeChipView: NSView {
             return
         }
 
+        pressAction = { [weak self] in self?.clicked() }
+        pressRole = .button
         labelLeadingToContentC.isActive = false
         labelLeadingToIconC.isActive = true
-        labelField.font = NativeTranscriptFont.caption2()
+        labelField.font = NativeTranscriptFont.caption()
         labelField.textColor = .labelColor
         toolTip = "Preview \(chip.label)"
+        setAccessibilityLabel("Preview \(chip.label)")
+        setAccessibilityHelp("Press Return or Space to open the attachment preview.")
 
         // Image chips first paint with their normal photo glyph unless a cached
         // thumbnail is already available. Decode/draw happens off the configure
@@ -661,7 +668,7 @@ private final class PiAgentNativeChipView: NSView {
         widthC.constant = w
     }
 
-    @objc private func clicked() {
+    private func clicked() {
         guard attachment != nil else { return }
         onActivate?()
     }
@@ -1084,8 +1091,17 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
         icon.imageScaling = .scaleNone
         icon.toolTip = help
         glass.contentView = icon
-        glass.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: action))
+        let press = NSButton(title: "", target: self, action: action)
+        press.translatesAutoresizingMaskIntoConstraints = false
+        press.isBordered = false
+        press.toolTip = help
+        press.setAccessibilityLabel(help)
+        glass.addSubview(press)
         NSLayoutConstraint.activate([
+            press.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+            press.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+            press.topAnchor.constraint(equalTo: glass.topAnchor),
+            press.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
             glass.widthAnchor.constraint(equalToConstant: 28),
             glass.heightAnchor.constraint(equalToConstant: 28),
             icon.widthAnchor.constraint(equalToConstant: 28),

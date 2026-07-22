@@ -26,6 +26,13 @@ enum AppTheme {
     static let toolbarIconFrame = CGSize(width: 26, height: 20)
     static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
 
+    /// Shared action geometry. The glyph inside an action is intentionally sized
+    /// independently; these dimensions describe the interactive target.
+    enum Control {
+        static let regularActionTarget: CGFloat = 28
+        static let minimumActionTarget: CGFloat = 20
+    }
+
     /// SF Symbol scale for the glyphs inside transcript cards & bubbles — one knob
     /// so every header symbol renders at the same scale. The AppKit equivalent of
     /// SwiftUI's `.imageScale(.large)`.
@@ -977,6 +984,15 @@ extension View {
         frame(width: AppTheme.toolbarIconFrame.width, height: AppTheme.toolbarIconFrame.height)
     }
 
+    /// Gives compact icon actions a consistent 28pt target without changing the
+    /// glyph's point size. Use `minimum: true` only where space is genuinely
+    /// constrained; no interactive target should be smaller than 20pt.
+    func appActionTarget(minimum: Bool = false) -> some View {
+        let size = minimum ? AppTheme.Control.minimumActionTarget : AppTheme.Control.regularActionTarget
+        return frame(width: size, height: size)
+            .contentShape(Rectangle())
+    }
+
     // Canonical list style for all resource lists (agents, skills, prompts).
     func appListStyle() -> some View {
         listStyle(.inset)
@@ -1258,7 +1274,7 @@ struct AppSheetHeader<Trailing: View>: View {
                     }
                     if let metadata {
                         Text(metadata)
-                            .font(.caption2)
+                            .font(AppTheme.Font.micro)
                             .foregroundStyle(AppTheme.mutedText)
                     }
                 }
@@ -1573,7 +1589,7 @@ struct AppStepper: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 10) {
-                stepButton(icon: "minus", disabled: value <= range.lowerBound) {
+                stepButton(icon: "minus", accessibilityLabel: "Decrement \(label)", disabled: value <= range.lowerBound) {
                     value = max(range.lowerBound, value - step)
                 }
                 .keyboardShortcut(.downArrow, modifiers: [])
@@ -1582,7 +1598,7 @@ struct AppStepper: View {
                     .font(.body.weight(.semibold).monospacedDigit())
                     .frame(minWidth: 64)
 
-                stepButton(icon: "plus", disabled: value >= range.upperBound) {
+                stepButton(icon: "plus", accessibilityLabel: "Increment \(label)", disabled: value >= range.upperBound) {
                     value = min(range.upperBound, value + step)
                 }
                 .keyboardShortcut(.upArrow, modifiers: [])
@@ -1593,17 +1609,18 @@ struct AppStepper: View {
         .appContentSurface(cornerRadius: 12)
     }
 
-    private func stepButton(icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+    private func stepButton(icon: String, accessibilityLabel: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .bold))
-                .frame(width: 24, height: 24)
+                .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                 .contentShape(Circle())
         }
         .buttonStyle(.glass)
-        .controlSize(.small)
         .tint(disabled ? Color.secondary : AppTheme.brandAccent)
         .disabled(disabled)
+        .accessibilityLabel(accessibilityLabel)
+        .help(accessibilityLabel)
     }
 }
 

@@ -48,10 +48,12 @@ struct CodingAgentPanelHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("Sessions")
+            Button("Sessions", action: onToggle)
+                .buttonStyle(.plain)
                 .font(AppTheme.Font.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+                .help(isExpanded ? "Collapse sessions" : "Expand sessions")
 
             Spacer(minLength: 8)
 
@@ -67,8 +69,6 @@ struct CodingAgentPanelHeader<Trailing: View>: View {
             }
             .accessibilityLabel(isExpanded ? "Collapse sessions" : "Expand sessions")
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onToggle)
     }
 }
 

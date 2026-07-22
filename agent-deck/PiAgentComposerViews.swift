@@ -371,7 +371,7 @@ struct PiAgentComposerBox: View {
                         .scaledToFit()
                         .frame(width: 12, height: 12)
                         .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 24, height: 24)
+                        .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                         .appGlassCircle()
                 }
                 .buttonStyle(.plain)
@@ -394,7 +394,7 @@ struct PiAgentComposerBox: View {
                 Image(systemName: "paperclip")
                     .font(AppTheme.Font.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 24, height: 24)
+                    .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                     .appGlassCircle()
             }
             .buttonStyle(.plain)
@@ -1016,9 +1016,9 @@ struct PiAgentImageAttachmentThumbnail: View {
 
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(AppTheme.Font.caption2.weight(.bold))
+                    .font(AppTheme.Font.micro.weight(.bold))
                     .foregroundStyle(.white)
-                    .frame(width: 18, height: 18)
+                    .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                     .background(Circle().fill(.black.opacity(0.7)))
             }
             .buttonStyle(.plain)
@@ -1478,11 +1478,12 @@ struct PiAgentContextUsageMeter: View {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
                             .font(AppTheme.Font.caption.weight(.semibold))
                             .foregroundStyle(AppTheme.mutedText)
-                            .frame(width: 24, height: 24)
+                            .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                             .appGlassCircle()
                     }
                     .buttonStyle(.plain)
                     .help("Compact context")
+                    .accessibilityLabel("Compact context")
                 }
             }
             .fixedSize(horizontal: true, vertical: false)
@@ -1853,9 +1854,9 @@ struct PiAgentRuntimeFooter: View {
             }
         }
         if tappable, let aggregate {
-            chips
-                .contentShape(Rectangle())
-                .onTapGesture { isCostBreakdownPresented.toggle() }
+            Button { isCostBreakdownPresented.toggle() } label: { chips }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show token and cost breakdown")
                 .popover(isPresented: $isCostBreakdownPresented, arrowEdge: .bottom) {
                     PiAgentCostBreakdownPopover(aggregate: aggregate)
                 }

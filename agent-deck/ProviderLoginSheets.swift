@@ -64,7 +64,7 @@ private struct ProviderPickerRow: View {
                         .foregroundStyle(.green)
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.bold))
+                        .font(AppTheme.Font.micro.weight(.bold))
                         .foregroundStyle(AppTheme.mutedText)
                 }
             }
@@ -240,7 +240,7 @@ struct AddProviderFlowSheet: View {
         if !providers.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title.uppercased())
-                    .font(.caption2.weight(.bold))
+                    .font(AppTheme.Font.micro.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, AppListMetrics.rowHorizontalPadding)
                 VStack(spacing: AppListMetrics.rowSpacing) {
@@ -291,7 +291,7 @@ struct AddProviderFlowSheet: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.bold))
+                    .font(AppTheme.Font.micro.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
             }
             .padding(14)
@@ -460,7 +460,7 @@ struct ProviderLoginPhaseView: View {
                                 Text(option.label)
                                 Spacer(minLength: 0)
                                 Image(systemName: "chevron.right")
-                                    .font(.caption2.weight(.bold))
+                                    .font(AppTheme.Font.micro.weight(.bold))
                                     .foregroundStyle(AppTheme.mutedText)
                             }
                             .padding(.horizontal, 12)

@@ -2377,13 +2377,17 @@ struct PiAgentStatusTranscriptRow: View {
         if isDividerEntry {
             compactionDivider
         } else {
-            compactStatusRow
-                .contentShape(RoundedRectangle(cornerRadius: AppTheme.Chat.cardCornerRadius, style: .continuous))
-                .onTapGesture {
-                    guard showsErrorPopover else { return }
-                    isErrorPopoverPresented = true
-                }
-                .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
+            Button {
+                guard showsErrorPopover else { return }
+                isErrorPopoverPresented = true
+            } label: {
+                compactStatusRow
+                    .contentShape(RoundedRectangle(cornerRadius: AppTheme.Chat.cardCornerRadius, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!showsErrorPopover)
+            .accessibilityLabel(showsErrorPopover ? "Show error details" : entry.title)
+            .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
                     PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
                 }
                 .popover(isPresented: $isErrorPopoverPresented, arrowEdge: .bottom) {
@@ -2446,7 +2450,7 @@ struct PiAgentStatusTranscriptRow: View {
                 AppCopyIconButton(
                     text: errorClipboardText,
                     help: "Copy tool error",
-                    size: CGSize(width: 22, height: 22)
+                    size: CGSize(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                 )
             }
             ForEach(promptActions) { action in
@@ -2455,10 +2459,11 @@ struct PiAgentStatusTranscriptRow: View {
                 } label: {
                     Image(systemName: action.icon)
                         .font(AppTheme.Font.caption.weight(.semibold))
-                        .frame(width: 22, height: 22)
+                        .appActionTarget()
                 }
                 .buttonStyle(.borderless)
                 .help(action.help)
+                .accessibilityLabel(action.help)
                 .disabled(!action.isEnabled)
             }
         }

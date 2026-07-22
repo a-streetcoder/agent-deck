@@ -964,7 +964,7 @@ struct OnboardingPreferencesView: View {
 
                     HStack(spacing: 6) {
                         Image(systemName: "gearshape")
-                            .font(.caption2)
+                            .font(AppTheme.Font.micro)
                         Text("Every option here can be changed later in Settings.")
                             .font(.caption)
                     }
@@ -1243,7 +1243,7 @@ private struct OnboardingPreferenceRow<Control: View>: View {
                 if let disabledHint {
                     HStack(spacing: 6) {
                         Image(systemName: "lock.fill")
-                            .font(.caption2)
+                            .font(AppTheme.Font.micro)
                         Text(disabledHint)
                             .font(.caption.weight(.medium))
                         if let openSetup {

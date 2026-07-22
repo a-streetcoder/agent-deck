@@ -115,8 +115,7 @@ struct SidebarTitleBar: View {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.system(size: 17, weight: .regular))
                         .foregroundStyle(AppTheme.brandAccent)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+                        .appActionTarget()
                 }
                 .buttonStyle(.plain)
                 .help(updater.availableVersion.map { "Update to version \($0)" } ?? "Update available")
@@ -129,8 +128,7 @@ struct SidebarTitleBar: View {
                 Image(systemName: "arrow.clockwise")
                     .imageScale(.medium)
                     .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+                    .appActionTarget()
                     .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
             }
             .buttonStyle(.plain)
@@ -144,8 +142,7 @@ struct SidebarTitleBar: View {
                 Image(systemName: "gearshape")
                     .imageScale(.medium)
                     .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+                    .appActionTarget()
             }
             .buttonStyle(.plain)
             .help("Settings…")

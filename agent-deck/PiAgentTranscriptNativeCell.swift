@@ -221,7 +221,7 @@ struct NativeBubblePayload {
 /// Polished native image attachment used by assistant bubbles and MCP/tool rows.
 /// Keeps images session-owned (it only reads the materialized path), exposes the
 /// same preview/reveal/copy actions everywhere, and remains cheap to measure.
-final class PiAgentNativeTranscriptImageAttachmentView: NSView {
+final class PiAgentNativeTranscriptImageAttachmentView: NativeAccessiblePressableView {
     enum DisplayStyle { case inline, tile }
 
     private let container = NSView()
@@ -267,13 +267,15 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
         container.addSubview(placeholder)
 
         captionLabel.translatesAutoresizingMaskIntoConstraints = false
-        captionLabel.font = NativeTranscriptFont.caption2()
+        captionLabel.font = NativeTranscriptFont.caption()
         captionLabel.textColor = .secondaryLabelColor
         captionLabel.lineBreakMode = .byTruncatingMiddle
         captionLabel.maximumNumberOfLines = 1
         addSubview(captionLabel)
 
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openPreview)))
+        pressAction = { [weak self] in self?.openPreview() }
+        setAccessibilityLabel("Open image preview")
+        setAccessibilityHelp("Press Return or Space to preview this attachment.")
 
         imageHeightC = imageView.heightAnchor.constraint(equalToConstant: 120)
         imageWidthC = container.widthAnchor.constraint(equalToConstant: Self.maxImageWidth)
@@ -377,7 +379,7 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
         self.menu = menu
     }
 
-    @objc private func openPreview() {
+    private func openPreview() {
         guard let reference, reference.localPath != nil else { return }
         let popover = NSPopover()
         popover.behavior = .transient
@@ -969,8 +971,17 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         icon.imageScaling = .scaleNone
         icon.toolTip = help
         glass.contentView = icon
-        glass.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: action))
+        let press = NSButton(title: "", target: self, action: action)
+        press.translatesAutoresizingMaskIntoConstraints = false
+        press.isBordered = false
+        press.toolTip = help
+        press.setAccessibilityLabel(help)
+        glass.addSubview(press)
         NSLayoutConstraint.activate([
+            press.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+            press.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+            press.topAnchor.constraint(equalTo: glass.topAnchor),
+            press.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
             glass.widthAnchor.constraint(equalToConstant: 28),
             glass.heightAnchor.constraint(equalToConstant: 28),
             icon.widthAnchor.constraint(equalToConstant: 28),

@@ -361,7 +361,7 @@ struct MemoryInfoPopover: View {
                 .foregroundStyle(color)
                 .lineLimit(1)
             Text(title)
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

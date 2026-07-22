@@ -56,7 +56,7 @@ extension NativeMemoryCardPayload {
 
 /// One injected-memory line: title + trailing chevron, posts the open-memory
 /// notification when clicked. No action closure needed from the parent.
-private final class PiAgentNativeMemoryLinkRow: NSView {
+private final class PiAgentNativeMemoryLinkRow: NativeAccessiblePressableView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let chevron = NSImageView()
     private var memoryID: String = ""
@@ -89,7 +89,8 @@ private final class PiAgentNativeMemoryLinkRow: NSView {
             chevron.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)
         ])
 
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(rowTapped)))
+        pressAction = { [weak self] in self?.rowTapped() }
+        setAccessibilityHelp("Press Return or Space to open this memory.")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
@@ -97,13 +98,14 @@ private final class PiAgentNativeMemoryLinkRow: NSView {
     func configure(id: String, title: String) {
         memoryID = id
         titleLabel.stringValue = title.isEmpty ? "Untitled Memory" : title
+        setAccessibilityLabel("Open memory \(titleLabel.stringValue)")
     }
 
     func measuredHeight() -> CGFloat {
         max(ceil(titleLabel.intrinsicContentSize.height), 14)
     }
 
-    @objc private func rowTapped() {
+    private func rowTapped() {
         NotificationCenter.default.post(
             name: .agentDeckOpenMemoryRequested,
             object: nil,

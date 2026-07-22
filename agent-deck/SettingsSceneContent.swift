@@ -142,10 +142,10 @@ private struct SettingsTabButton: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .regular))
+                    .font(.system(size: 20, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(iconStyle)
-                    .frame(height: 22)
+                    .frame(height: 24)
                 // Constant weight across selected/unselected so the label's
                 // intrinsic width stays the same — switching tabs otherwise
                 // shifts adjacent tabs sideways as the bold metrics differ
@@ -288,7 +288,7 @@ private struct SettingsGroupHeader: View {
 
     var body: some View {
         Text(title.uppercased())
-            .font(.caption2.weight(.semibold))
+            .font(AppTheme.Font.micro.weight(.semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 2)
@@ -488,16 +488,20 @@ private struct ProjectsRootListRow: View {
                 revealInFinder(path)
             } label: {
                 Image(systemName: "arrow.up.right.square")
+                    .appActionTarget()
             }
             .buttonStyle(.borderless)
             .help("Reveal in Finder")
+            .accessibilityLabel("Reveal \(path) in Finder")
             Button {
                 viewModel.removeProjectsRootPath(path)
             } label: {
                 Image(systemName: "minus.circle")
+                    .appActionTarget()
             }
             .buttonStyle(.borderless)
             .help("Remove this folder")
+            .accessibilityLabel("Remove \(path) from project folders")
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
@@ -716,7 +720,7 @@ private struct AppearanceSettingsTab: View {
                         .stroke(AppTheme.hairlineStroke, lineWidth: 1)
                 )
             Text(label)
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(.secondary)
         }
     }
@@ -904,7 +908,7 @@ private struct AppearanceSettingsTab: View {
                                     lineWidth: isSelected ? 2 : 1)
                     )
                 Text(choice.displayName)
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(isSelected ? AppTheme.brandAccent : .secondary)
                     .fontWeight(isSelected ? .semibold : .regular)
             }
@@ -1433,7 +1437,7 @@ private struct CommandSettingsRow: View {
 
                 if let path = command.extensionPath {
                     Text(path)
-                        .font(.caption2.monospaced())
+                        .font(AppTheme.Font.micro.monospaced())
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -1455,7 +1459,7 @@ private struct CommandSettingsRow: View {
 
     private var sourcePill: some View {
         Label(command.source == .builtIn ? "Bundled" : "Imported", systemImage: command.source == .builtIn ? "shippingbox" : "square.and.arrow.down")
-            .font(.caption2.weight(.semibold))
+            .font(AppTheme.Font.micro.weight(.semibold))
             .foregroundStyle(command.source == .builtIn ? AppTheme.brandAccent : .blue)
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 7)

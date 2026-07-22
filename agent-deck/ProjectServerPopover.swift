@@ -202,7 +202,7 @@ struct ProjectServerPopover: View {
                 .foregroundStyle(.orange)
             if let port = predictedPort {
                 Text("Other running servers are using port \(port):")
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -216,7 +216,7 @@ struct ProjectServerPopover: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Text(server.command.label)
-                                .font(.caption2)
+                                .font(AppTheme.Font.micro)
                                 .foregroundStyle(AppTheme.mutedText)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -233,7 +233,7 @@ struct ProjectServerPopover: View {
     private func commandChip(_ command: ServerCommand) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "terminal")
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
             Text(command.label)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -262,7 +262,7 @@ struct ProjectServerPopover: View {
         Link(destination: url) {
             HStack(spacing: 6) {
                 Image(systemName: "globe")
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.Font.micro.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                 Text(url.absoluteString)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -271,7 +271,7 @@ struct ProjectServerPopover: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 6)
                 Image(systemName: "arrow.up.right")
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.Font.micro.weight(.semibold))
                     .foregroundStyle(isURLHovering ? AppTheme.brandAccent : AppTheme.mutedText)
             }
             .padding(.horizontal, 10)
@@ -306,7 +306,7 @@ struct ProjectServerPopover: View {
                 .fill(statusColor(status))
                 .frame(width: 7, height: 7)
             Text(statusText(status))
-                .font(.caption2.weight(.semibold))
+                .font(AppTheme.Font.micro.weight(.semibold))
                 .foregroundStyle(.primary)
         }
         .padding(.horizontal, 8)

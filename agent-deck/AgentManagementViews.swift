@@ -253,45 +253,33 @@ private struct AgentAvatarHoverActionButton: View {
     private var size: CGFloat { 52 }
 
     var body: some View {
-        ZStack {
-            AgentAvatarView(
-                imageURL: imageURL,
-                fallbackSystemImage: "paperplane",
-                color: color,
-                size: size
-            )
-
-            if isGenerating {
-                Circle().fill(Color.black.opacity(0.42))
-                AppSpinner()
-                    .controlSize(.small)
-                    .tint(.white)
-            } else if isHovering {
-                Circle().fill(Color.black.opacity(0.42))
-                Image(systemName: hasCustomImage ? "trash" : "photo.badge.plus")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 1)
-                    .transition(.scale.combined(with: .opacity))
+        Button {
+            if hasCustomImage { onRemove() } else { onEditImage() }
+        } label: {
+            ZStack {
+                AgentAvatarView(imageURL: imageURL, fallbackSystemImage: "paperplane", color: color, size: size)
+                if isGenerating {
+                    Circle().fill(Color.black.opacity(0.42))
+                    AppSpinner().controlSize(.small).tint(.white)
+                } else if isHovering {
+                    Circle().fill(Color.black.opacity(0.42))
+                    Image(systemName: hasCustomImage ? "trash" : "photo.badge.plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 1)
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .contentShape(Circle())
         }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .contentShape(Circle())
+        .buttonStyle(.plain)
         .scaleEffect(isHovering ? 1.03 : 1)
         .animation(.easeOut(duration: 0.16), value: isHovering)
-        .onHover { hovering in
-            isHovering = hovering
-        }
-        .onTapGesture {
-            guard !isGenerating else { return }
-            if hasCustomImage {
-                onRemove()
-            } else {
-                onEditImage()
-            }
-        }
+        .onHover { isHovering = $0 }
         .help(helpText)
+        .accessibilityLabel(helpText)
         .disabled(isGenerating)
     }
 
@@ -933,7 +921,7 @@ private struct AgentLibraryPane: View {
 
     private func capabilityPill(_ text: String, symbol: String, color: Color) -> some View {
         Label(text, systemImage: symbol)
-            .font(.caption2.weight(.semibold))
+            .font(AppTheme.Font.micro.weight(.semibold))
             .foregroundStyle(color)
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 7)
@@ -1160,7 +1148,8 @@ private struct AgentDetailView: View {
                     isAgentNameFocused = true
                 }
         } else {
-            HStack(alignment: .center, spacing: 6) {
+            Button(action: beginAgentRename) {
+                HStack(alignment: .center, spacing: 6) {
                 Text(agent.name)
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
@@ -1171,11 +1160,14 @@ private struct AgentDetailView: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .opacity(isAgentNameHovered ? 0.85 : 0)
                 }
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
             .onHover { isAgentNameHovered = $0 }
-            .onTapGesture { beginAgentRename() }
             .help(canRenameAgent(agent) ? "Rename agent" : "")
+            .accessibilityLabel("Rename agent \(agent.name)")
+            .disabled(!canRenameAgent(agent))
         }
     }
 
@@ -2346,6 +2338,8 @@ private struct AgentEditSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(value)")
+                        .help("Remove \(value)")
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)

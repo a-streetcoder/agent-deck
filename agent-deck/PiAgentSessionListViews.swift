@@ -22,6 +22,8 @@ struct PiAgentSessionSearchField: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear session search")
+                .help("Clear session search")
             }
         }
         .padding(.horizontal, 10)
@@ -451,7 +453,6 @@ struct PiAgentSessionRow: View, Equatable {
                     Text(agentName)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .minimumScaleFactor(0.8)
                 }
                 .font(AppTheme.Font.footnote)
                 .foregroundStyle(AppTheme.mutedText)
@@ -476,7 +477,6 @@ struct PiAgentSessionRow: View, Equatable {
                 Text(subtitle)
                     .lineLimit(1)
                     .truncationMode(.head)
-                    .minimumScaleFactor(0.8)
             }
             .font(AppTheme.Font.footnote)
             .foregroundStyle(AppTheme.mutedText)
@@ -500,7 +500,6 @@ struct PiAgentSessionRow: View, Equatable {
                     .font(AppTheme.Font.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
                 SessionGitActivityStrip(activity: gitActivity, isSelected: isSelected, hasLoop: hasActiveLoop)
             }
@@ -528,7 +527,15 @@ struct PiAgentSessionRow: View, Equatable {
             .animation(.easeInOut(duration: 0.15), value: isRowHovered)
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
+        .simultaneousGesture(TapGesture().onEnded(onSelect))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Open session \(sessionTitle)")
+        .accessibilityAction(named: Text("Open session"), onSelect)
+        .focusable()
+        .onKeyPress(.space) {
+            onSelect()
+            return .handled
+        }
         .onHover { isRowHovered = $0 }
         .help(statusHelp)
         .onAppear {
@@ -650,16 +657,20 @@ struct PiAgentSessionRow: View, Equatable {
                     isTitleFocused = true
                 }
         } else {
-            HStack(alignment: .center, spacing: 5) {
-                HoverMarqueeTitleText(text: sessionTitle, isHovering: isTitleHovered || isRowHovered)
+            Button(action: onBeginRename) {
+                HStack(alignment: .center, spacing: 5) {
+                    HoverMarqueeTitleText(text: sessionTitle, isHovering: isTitleHovered || isRowHovered)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
                     .layoutPriority(1)
+                }
+                .font(AppTheme.Font.footnote.weight(.medium))
+                .fontWidth(.expanded)
+                .foregroundStyle(.primary)
             }
-            .font(AppTheme.Font.footnote.weight(.medium))
-            .fontWidth(.expanded)
-            .foregroundStyle(.primary)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Rename session \(sessionTitle)")
             // Fixed (not min/max) so the row's height never depends on the title's
             // text layout. Measuring a wrapping title requires a full text layout
             // pass; with a single line in a stable box the row is cheap to measure,
@@ -668,9 +679,7 @@ struct PiAgentSessionRow: View, Equatable {
             // one line of the footnote title, so the row carries no dead space
             // above or below it.
             .frame(height: 18, alignment: .center)
-            .contentShape(Rectangle())
             .onHover { isTitleHovered = $0 }
-            .onTapGesture(perform: onBeginRename)
             .help("Rename session")
         }
     }

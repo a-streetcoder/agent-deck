@@ -252,7 +252,7 @@ struct SkillImportSheet: View {
                 sourceBadge(provider: "anthropic", label: "Claude")
                 sourceBadge(provider: "openai-codex", label: "Codex")
                 Label("Global / Project", systemImage: "folder.badge.gearshape")
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.Font.micro.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -270,7 +270,7 @@ struct SkillImportSheet: View {
             ProviderLogoImage(provider: provider, size: 12)
             Text(label)
         }
-        .font(.caption2.weight(.semibold))
+        .font(AppTheme.Font.micro.weight(.semibold))
         .foregroundStyle(AppTheme.mutedText)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -311,7 +311,7 @@ struct SkillImportSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                     if remoteContext.existingRepository != nil {
                         Text("Already synced — adds to it")
-                            .font(.caption2.weight(.semibold))
+                            .font(AppTheme.Font.micro.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
@@ -321,7 +321,7 @@ struct SkillImportSheet: View {
             }
 
             Text("Examples: github.com/owner/repo · owner/repo · skills.sh/owner/repo/skill")
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
         }
     }
@@ -400,7 +400,7 @@ struct SkillImportSheet: View {
                     .foregroundStyle(AppTheme.mutedText)
                 if let progress = localScanProgress {
                     Text("\(progress.directoriesScanned) folder\(progress.directoriesScanned == 1 ? "" : "s") scanned • \(progress.skillsFound) skill\(progress.skillsFound == 1 ? "" : "s") found")
-                        .font(.caption2)
+                        .font(AppTheme.Font.micro)
                         .foregroundStyle(AppTheme.mutedText)
                         .monospacedDigit()
                 }
@@ -494,7 +494,7 @@ struct SkillImportSheet: View {
             )
 
             Text(candidateCountSummary)
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
 
             collectionOptionsView
@@ -782,7 +782,7 @@ struct SkillImportSheet: View {
 
             HStack(spacing: 8) {
                 Text("Collection name")
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.Font.micro.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                 TextField("Collection name", text: Binding(
                     get: { collectionName },
@@ -807,7 +807,7 @@ struct SkillImportSheet: View {
             Text(importAsCollection
                  ? "Creates a reusable collection for the selected skills; skills are still imported as individual catalog entries."
                  : "Imports the selected skills as flat catalog entries only.")
-                .font(.caption2)
+                .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
         }
         .padding(10)
@@ -1165,7 +1165,7 @@ struct SkillImportSheet: View {
                                 .font(.body.weight(.semibold))
                             if let badge = candidate.badge {
                                 Text(badge)
-                                    .font(.caption2.weight(.semibold))
+                                    .font(AppTheme.Font.micro.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 2)
@@ -1178,7 +1178,7 @@ struct SkillImportSheet: View {
                         if let description = candidate.description {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Description")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(AppTheme.Font.micro.weight(.semibold))
                                     .foregroundStyle(AppTheme.mutedText)
                                 Text(description)
                                     .font(.caption)
@@ -1191,7 +1191,7 @@ struct SkillImportSheet: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(candidate.detailLabel)
-                                .font(.caption2.weight(.semibold))
+                                .font(AppTheme.Font.micro.weight(.semibold))
                                 .foregroundStyle(AppTheme.mutedText)
                             Text(candidate.detailValue)
                                 .font(.caption.monospaced())
@@ -1224,7 +1224,7 @@ struct SkillImportSheet: View {
                     }
                     Text(sourceLabel)
                 }
-                .font(.caption2.weight(.medium))
+                .font(AppTheme.Font.micro.weight(.medium))
                 .foregroundStyle(AppTheme.mutedText)
             }
         }
@@ -1248,7 +1248,7 @@ struct SkillImportSheet: View {
                         Text("AI summary")
                             .foregroundStyle(AppTheme.mutedText)
                     }
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.Font.micro.weight(.semibold))
                     Text(text)
                         .font(.caption)
                         .foregroundStyle(.primary)
@@ -1256,7 +1256,7 @@ struct SkillImportSheet: View {
                 }
             case let .failed(message):
                 Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
             case nil:

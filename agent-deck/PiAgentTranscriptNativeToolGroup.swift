@@ -1207,7 +1207,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
 /// One tappable web source: the page title, its domain (muted), and a trailing
 /// chevron. Highlights on hover; opens the URL on click. Carries its own leading
 /// inset so it aligns under the query title without a bullet marker.
-private final class PiAgentNativeWebSourceRow: NSView {
+private final class PiAgentNativeWebSourceRow: NativeAccessiblePressableView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let domainLabel = NSTextField(labelWithString: "")
     private let chevron = NSImageView()
@@ -1268,7 +1268,8 @@ private final class PiAgentNativeWebSourceRow: NSView {
             chevron.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor)
         ])
 
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openSource)))
+        pressAction = { [weak self] in self?.openSource() }
+        setAccessibilityHelp("Press Return or Space to open this web source.")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
@@ -1281,6 +1282,7 @@ private final class PiAgentNativeWebSourceRow: NSView {
         domainLabel.stringValue = (displayTitle == domain) ? "" : domain
         domainLabel.isHidden = domainLabel.stringValue.isEmpty
         toolTip = url
+        setAccessibilityLabel("Open web source \(displayTitle)")
     }
 
     override func updateTrackingAreas() {
@@ -1303,7 +1305,7 @@ private final class PiAgentNativeWebSourceRow: NSView {
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 
-    @objc private func openSource() {
+    private func openSource() {
         guard let link = URL(string: url) else { return }
         NSWorkspace.shared.open(link)
     }

@@ -4004,7 +4004,15 @@ private struct SessionListContent: View, Equatable {
                     onDelete: { onDelete(session.id) }
                 )
                 .equatable()
-                .onTapGesture { onSelect(session) }
+                .simultaneousGesture(TapGesture().onEnded { onSelect(session) })
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Open session \(session.displayTitle)")
+                .accessibilityAction { onSelect(session) }
+                .focusable()
+                .onKeyPress(.space) {
+                    onSelect(session)
+                    return .handled
+                }
             } else {
                 PiAgentSessionRow(
                     session: session,
@@ -5308,7 +5316,7 @@ struct PiAgentScreen: View {
                         .font(.title2.bold())
                         .fontWidth(.expanded)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                        .truncationMode(.tail)
                     Spacer()
                     if selectedSessionIDs.count > 1 {
                         Button(role: .destructive) {

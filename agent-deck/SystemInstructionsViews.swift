@@ -644,7 +644,7 @@ private struct PiPromptPreviewSectionView: View {
 
     private var roleChip: some View {
         Text(roleLabel)
-            .font(.caption2.weight(.semibold))
+            .font(AppTheme.Font.micro.weight(.semibold))
             .fontWidth(.expanded)
             .foregroundStyle(AppTheme.brandAccent)
             .padding(.horizontal, 7)
@@ -671,7 +671,7 @@ private struct PiPromptPreviewSectionView: View {
                     .fontWidth(.expanded)
                 Spacer(minLength: 8)
                 Text("Inserted at runtime")
-                    .font(.caption2)
+                    .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
             }
             Text(section.content)

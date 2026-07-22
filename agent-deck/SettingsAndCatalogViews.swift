@@ -220,7 +220,7 @@ struct ModelsScreen: View {
 
                 if agent.id.hasPrefix("builtin-model::") {
                     Text("Builtin")
-                        .font(.caption2.weight(.bold))
+                        .font(AppTheme.Font.micro.weight(.bold))
                         .fontWidth(.expanded)
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 7)

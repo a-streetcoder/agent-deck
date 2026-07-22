@@ -165,7 +165,7 @@ final class PiAgentNativeExpandableMarkdown: NSView {
     private let collapsedLabel = NSTextField(wrappingLabelWithString: "")
     private let container = NativeMarkdownTextContainer()
     private let applier = MarkdownSourceApplier()
-    private let toggle = NSTextField(labelWithString: "")
+    private let toggle = NSButton(title: "", target: nil, action: nil)
 
     private var wrapperHeightC: NSLayoutConstraint!
     private(set) var isExpanded = false
@@ -200,9 +200,14 @@ final class PiAgentNativeExpandableMarkdown: NSView {
         // padding that reads as extra bottom space below the card content).
         toggle.translatesAutoresizingMaskIntoConstraints = false
         toggle.font = NativeTranscriptFont.caption(.semibold)
-        toggle.textColor = AppTheme.ns(AppTheme.brandAccent)
+        toggle.contentTintColor = AppTheme.ns(AppTheme.brandAccent)
+        toggle.isBordered = false
+        toggle.alignment = .left
+        toggle.target = self
+        toggle.action = #selector(toggleTapped)
+        toggle.toolTip = "Show more or less task detail"
+        toggle.setAccessibilityLabel("Show more or less task detail")
         toggle.isHidden = true
-        toggle.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(toggleTapped)))
         addSubview(toggle)
 
         wrapperHeightC = wrapper.heightAnchor.constraint(equalToConstant: 0)
@@ -506,8 +511,9 @@ final class PiAgentNativeAgentBlockView: NSView {
             b.isEnabled = action.isEnabled
             b.contentTintColor = muted
             b.toolTip = action.help
-            b.widthAnchor.constraint(equalToConstant: 26).isActive = true
-            b.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            b.widthAnchor.constraint(equalToConstant: AppTheme.Control.regularActionTarget).isActive = true
+            b.heightAnchor.constraint(equalToConstant: AppTheme.Control.regularActionTarget).isActive = true
+            b.setAccessibilityLabel(action.help)
             buttonStack.addArrangedSubview(b)
         }
     }

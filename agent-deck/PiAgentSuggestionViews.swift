@@ -318,10 +318,11 @@ struct PiAgentSlashSuggestions: View {
                     Image(systemName: "chevron.left")
                         .font(AppTheme.Font.caption.weight(.semibold))
                         .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 18, height: 18)
+                        .appActionTarget()
                 }
                 .buttonStyle(.plain)
                 .help("Back")
+                .accessibilityLabel("Back")
             }
             Text(title)
                 .font(AppTheme.Font.caption2.weight(.semibold))

@@ -67,7 +67,7 @@ struct SkillCompareSheet: View {
                     .lineLimit(2)
                     .truncationMode(.middle)
                 Text(scope)
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.Font.micro.weight(.semibold))
                     .fontWidth(.expanded)
                     .foregroundStyle(AppTheme.mutedText)
             }
