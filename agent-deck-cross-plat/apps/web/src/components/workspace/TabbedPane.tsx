@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { useAppStore, type WorkspaceTabKind } from "../../state/store.ts";
+import { ResizeHandle, useResizable } from "../common/Resizable.tsx";
 import { BrowserPanel } from "../browser/BrowserPanel.tsx";
 import { CheckpointsPanel } from "../CheckpointsPanel.tsx";
 import { DiffPanel } from "../diff/DiffPanel.tsx";
@@ -7,6 +8,26 @@ import { FilesPanel } from "../files/FilesPanel.tsx";
 import { PreviewPanel } from "../preview/PreviewPanel.tsx";
 import { TabStrip } from "./TabStrip.tsx";
 import { WORKSPACE_TAB_META } from "./tabMeta.tsx";
+
+const WORKSPACE_WIDTH_KEY = "agentdeck:workspace-width";
+
+/** Evaluate a tabMeta width CSS string (`min(42vw, 560px)`, `300px`) to a px
+ * number, so the resizable pane can SEED its default from the per-kind width the
+ * L1 pane used to hard-code. `min(...)` takes the smallest term; a bare value is
+ * used as-is; vw is resolved against the current viewport. */
+function evalTabWidth(expr: string): number {
+  const vwUnit = (typeof window === "undefined" ? 1280 : window.innerWidth) / 100;
+  const terms: number[] = [];
+  const re = /([\d.]+)(px|vw)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(expr)) !== null) {
+    terms.push(
+      match[2] === "vw" ? Number.parseFloat(match[1]!) * vwUnit : Number.parseFloat(match[1]!),
+    );
+  }
+  if (terms.length === 0) return 560;
+  return expr.trim().startsWith("min") ? Math.min(...terms) : Math.max(...terms);
+}
 
 /**
  * The single right-side workspace pane (Slice L1). Replaces the four side-by-side
@@ -23,13 +44,11 @@ import { WORKSPACE_TAB_META } from "./tabMeta.tsx";
  * and likewise preserves the diff/files scroll position and selected-file view.
  * A tab only unmounts when it is CLOSED (removed from the strip).
  *
- * PANE WIDTH: the aside width follows the ACTIVE tab's kind via
- * WORKSPACE_TAB_META (preview ~640, diff/files ~560, checkpoints 300). Width is
- * chosen per-KIND, not per inner-expanded state, because the "expanded" flags
- * (diff's selected file, preview's running server) are component-local useState
- * the pane can't cheaply read; each kind's width is set to its EXPANDED value so
- * the wide diff file-view and the preview embed never regress (the only cost is a
- * slightly wider tree-only diff/files view, which is harmless).
+ * PANE WIDTH (Slice L4a): the aside is USER-RESIZABLE — a single width persisted
+ * via useResizable, seeded on first open from the active kind's WORKSPACE_TAB_META
+ * width (so the initial size matches the old L1 per-kind sizing) and drag-adjusted
+ * thereafter. A `maxWidth` viewport cap keeps it from overflowing + collapsing the
+ * chat column when the window shrinks below the persisted width.
  */
 export function TabbedPane() {
   const view = useAppStore((state) => state.view);
@@ -42,34 +61,61 @@ export function TabbedPane() {
   const tabs = tabsState?.tabs ?? [];
   const activeTab = tabsState?.activeTab ?? null;
 
+  // The pane width is now user-resizable (Slice L4a). A SINGLE persisted width
+  // subsumes the old per-kind fixed width; its default seeds from the active
+  // kind's tabMeta width (so a first open matches the previous L1 sizing), and
+  // the wider files split is the same drag mechanism. Called unconditionally
+  // (before any early return) to keep hook order stable.
+  const pane = useResizable({
+    storageKey: WORKSPACE_WIDTH_KEY,
+    defaultWidth: evalTabWidth(WORKSPACE_TAB_META[activeTab ?? tabs[0] ?? "files"]!.width),
+    min: 360,
+    max: Math.max(
+      720,
+      Math.round((typeof window === "undefined" ? 1600 : window.innerWidth) * 0.8),
+    ),
+    edge: "left",
+  });
+
   // The pane only exists on the chat surface for a session with >=1 open tab.
   if (view !== "chat" || sessionId === null || tabs.length === 0) return null;
 
-  const width = WORKSPACE_TAB_META[activeTab ?? tabs[0]!].width;
-
   return (
-    <aside
-      className="flex shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
-      style={{ width }}
-      data-testid="workspace-pane"
-    >
-      <TabStrip sessionId={sessionId} tabs={tabs} activeTab={activeTab} diffRepo={diffRepo} />
-      <div className="flex min-h-0 flex-1 flex-col">
-        {tabs.map((kind) => (
-          <div
-            key={kind}
-            role="tabpanel"
-            id={`ws-panel-${kind}`}
-            aria-labelledby={`ws-tab-${kind}`}
-            aria-hidden={kind !== activeTab}
-            data-testid={`workspace-body-${kind}`}
-            className={cn("min-h-0 flex-1 flex-col", kind === activeTab ? "flex" : "hidden")}
-          >
-            <TabBody kind={kind} />
-          </div>
-        ))}
-      </div>
-    </aside>
+    <>
+      <ResizeHandle
+        handleProps={pane.handleProps}
+        isDragging={pane.isDragging}
+        testId="workspace-resize"
+        ariaLabel="Resize workspace pane"
+        width={pane.width}
+        min={pane.min}
+        max={pane.max}
+      />
+      <aside
+        className="flex shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
+        // maxWidth caps the persisted px width to the viewport live, so a wide
+        // pane can't overflow + collapse the chat column when the window shrinks.
+        style={{ width: `${pane.width}px`, maxWidth: "85vw" }}
+        data-testid="workspace-pane"
+      >
+        <TabStrip sessionId={sessionId} tabs={tabs} activeTab={activeTab} diffRepo={diffRepo} />
+        <div className="flex min-h-0 flex-1 flex-col">
+          {tabs.map((kind) => (
+            <div
+              key={kind}
+              role="tabpanel"
+              id={`ws-panel-${kind}`}
+              aria-labelledby={`ws-tab-${kind}`}
+              aria-hidden={kind !== activeTab}
+              data-testid={`workspace-body-${kind}`}
+              className={cn("min-h-0 flex-1 flex-col", kind === activeTab ? "flex" : "hidden")}
+            >
+              <TabBody kind={kind} />
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
   );
 }
 

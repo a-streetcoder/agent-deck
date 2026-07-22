@@ -16,6 +16,7 @@ import { DeckPanel } from "./components/DeckPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { TabbedPane } from "./components/workspace/TabbedPane.tsx";
+import { ResizeHandle, useResizable } from "./components/common/Resizable.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { TerminalDrawer } from "./components/TerminalDrawer.tsx";
 import { Toaster } from "./components/Toaster.tsx";
@@ -102,6 +103,14 @@ function ChatColumn() {
 
 export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  // The left sidebar is drag-resizable (Slice L4a), persisted + clamped.
+  const sidebar = useResizable({
+    storageKey: "agentdeck:sidebar-width",
+    defaultWidth: 280,
+    min: 200,
+    max: 460,
+    edge: "right",
+  });
   const terminalOpen = useAppStore((state) => state.terminalOpen);
   const setTerminalOpen = useAppStore((state) => state.setTerminalOpen);
   const toggleWorkspaceTab = useAppStore((state) => state.toggleWorkspaceTab);
@@ -171,7 +180,20 @@ export function App() {
         className={cn("flex min-h-0 flex-1", integratedDesktopChrome && "bg-surface-elevated")}
         data-testid="workspace-row"
       >
-        {sidebarVisible ? <Sidebar /> : null}
+        {sidebarVisible ? (
+          <>
+            <Sidebar width={sidebar.width} />
+            <ResizeHandle
+              handleProps={sidebar.handleProps}
+              isDragging={sidebar.isDragging}
+              testId="sidebar-resize"
+              ariaLabel="Resize sidebar"
+              width={sidebar.width}
+              min={sidebar.min}
+              max={sidebar.max}
+            />
+          </>
+        ) : null}
         <div
           className={cn(
             "flex min-w-0 flex-1 flex-col",

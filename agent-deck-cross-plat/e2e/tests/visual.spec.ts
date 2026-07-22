@@ -532,15 +532,18 @@ test("visual: files panel with a text file previewed", async ({ page }) => {
   await page.getByTestId("new-chat").click();
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
 
-  // Open the panel, expand the fixed subdirectory, preview the fixed file:
-  // tree strip on top (names + byte sizes), line-numbered content below.
+  // Open the panel, expand the fixed subdirectory, open the fixed file: L4a is a
+  // side-by-side [tree | content] split with the file open as a tab and a
+  // syntax-highlighted, read-only CodeMirror view of its content.
   await page.getByTestId("files-toggle").click();
   await page.locator('[data-testid="file-tree-dir"][data-path="src"]').click();
   await page.locator('[data-testid="file-tree-file"][data-path="src/example.ts"]').click();
   await expect(page.getByTestId("file-preview")).toBeVisible();
-  await expect(page.getByTestId("file-preview-text")).toContainText("export const answer", {
-    timeout: 15_000,
-  });
+  const previewText = page.locator('[data-testid="file-preview-text"]:visible');
+  await expect(previewText).toContainText("export const answer", { timeout: 15_000 });
+  // Wait for the lazy CodeMirror chunk + TS grammar to mount so the screenshot
+  // captures the highlighted view (not the plain <pre> fallback).
+  await expect(previewText.locator(".cm-editor")).toBeVisible({ timeout: 15_000 });
 
   // Clip to the chat layer (the panel's mount), like the diff-panel baseline;
   // the sidebar's nondeterministic session list stays out of frame.

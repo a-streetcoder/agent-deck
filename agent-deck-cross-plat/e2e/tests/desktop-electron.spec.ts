@@ -296,7 +296,12 @@ test("the browser workspace tab mounts a real <webview> guest and navigates", as
   // instantiate). getLastWebPreferences reflects the constructor webPreferences.
   const webviewTagEnabled = await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
-    return win?.webContents.getLastWebPreferences()?.webviewTag ?? false;
+    // getLastWebPreferences() exists at runtime but is missing from the bundled
+    // WebContents type — cast to reach it.
+    const wc = win?.webContents as
+      | { getLastWebPreferences(): { webviewTag?: boolean } | null }
+      | undefined;
+    return wc?.getLastWebPreferences()?.webviewTag ?? false;
   });
   expect(webviewTagEnabled).toBe(true);
 

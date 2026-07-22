@@ -57,7 +57,7 @@ const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "doctor", label: "Doctor", icon: Stethoscope },
 ];
 
-export function Sidebar() {
+export function Sidebar({ width }: { width?: number }) {
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
   const panelExpanded = useAppStore((state) => state.panelExpanded);
@@ -84,9 +84,10 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex w-[280px] shrink-0 flex-col overflow-hidden bg-surface-elevated",
+        "flex shrink-0 flex-col overflow-hidden bg-surface-elevated",
         !integratedDesktopChrome && "border-r border-border-subtle",
       )}
+      style={{ width: `${width ?? 280}px` }}
       data-testid="sidebar"
     >
       {/* Brand title bar — the pixel wordmark's only appearance (native rule). */}
