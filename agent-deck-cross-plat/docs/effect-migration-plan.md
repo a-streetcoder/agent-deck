@@ -752,10 +752,33 @@ feature — web build falls back to a placeholder; "deal with the web later."
   non-http(s) popups and a guest will-navigate blocking file: + the control-plane
   origin. FOLLOW-UP (recommended, server-side): mirror the WS local-origin guard
   onto the REST mutating routes (defense-in-depth vs guest CSRF). desktop e2e 8/8.
-- **Slice L3 — Click-to-select element inspector: IN PROGRESS.** Inject a picker
-  into the browser webview (via `webview.executeJavaScript` returning a
-  click-resolved Promise — NO guest preload / NO contextIsolation weakening, so
-  L2's hardening is preserved) so clicking an element captures its selector + the
-  page URL into the EXISTING element-context path (buildPendingElementContext →
-  addElementContext) that feeds the composer. Restores the point-and-click
-  automation the sandboxed loopback iframe couldn't do (Slice 16's manual subset).
+- **Slice L3 — Click-to-select element inspector: LANDED (2026-07-22, 68116aa).** A
+  "pick element" mode in the browser: click the crosshair → hover-highlight → click an
+  element → its selector + tag + text + page URL become composer context via the EXISTING
+  element-context path (zero composer changes). Injection is `executeJavaScript`-ONLY (a
+  click-resolved Promise) — NO guest preload, NO contextIsolation change, so L2's hardening
+  is preserved. Security review caught + FIXED a PROMPT-INJECTION vector: the picker shares
+  the untrusted page's realm, so a poisoned getter could return a selector with newlines +
+  a forged `</element_context>` that breaks out of the prompt block and injects instructions
+  to pi — parsePickResult now strips control chars + `<` and clamps length at the trust
+  boundary (regression-tested). Also fixed: non-loopback page URLs were silently dropped
+  (added sanitizeHttpUrl + a sanitizeUrl param); the real tag/text are now carried.
+  desktop e2e 9/9 (incl. a real in-guest capture-phase click).
+
+### File-viewer / workspace upgrade (L4, scoped 2026-07-22, PENDING user go-ahead)
+
+User asks for the Files panel + layout: (1) multiple open files as TABS (like the L2
+browser page-tabs); (2) resizable panels — the LEFT sidebar, the RIGHT workspace pane,
+and the file-viewer TREE↔CONTENT split, each with a draggable divider (persisted widths);
+(3) syntax highlighting by language; (4) markdown preview (rendered, toggle raw/preview)
+for .md; (5) in-place file EDITING with save. Scoping findings: shiki is ALREADY installed
+(markdown renderer) — the "no highlighting" was a deliberate file-preview choice, not a
+missing dep; MarkdownDocument is drop-in reusable for the md preview; the drag primitive to
+port is TerminalDrawer's pointer-capture handle (→ vertical col-resize); t3code's save uses
+an atomic temp-write+rename (portable) + a debounced fileSaveCoordinator. Recommended lib:
+`@uiw/react-codemirror` (CodeMirror 6) — ONE component gives highlighted read-only view AND
+editing (covers 3+5), lazy-imported so closed tabs pay nothing. NEW server op needed:
+`file_write` (mirror the file_read chain: contract + rpc frame + services/files.ts write +
+rpcHandler branch + transport + wsBridge), guarded by the existing resolveContainedPath
+(rejects escape/symlink/absolute) + atomic write; DISABLE editing for truncated (>1MB) /
+binary / image files; widen the `files` tab width (currently min(42vw,560px)) for the split.
