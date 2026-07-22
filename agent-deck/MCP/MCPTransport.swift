@@ -1,4 +1,54 @@
+import AppKit
 import Foundation
+
+/// Validates the Xcode MCP bridge's required Xcode connection without starting any
+/// process. The running-app predicate is an argument so callers can test the policy
+/// deterministically.
+nonisolated enum MCPXcodeBridgeLaunchPreflight {
+    static func isXcodeBridge(command: String, arguments: [String]) -> Bool {
+        let executable = URL(fileURLWithPath: command).lastPathComponent
+        if executable == "mcpbridge" { return true }
+        guard executable == "xcrun" else { return false }
+
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                index += 1
+                break
+            }
+            guard argument.hasPrefix("-") else { break }
+            // `--find` looks like a bridge invocation but only queries xcrun; it
+            // never launches the bridge child that needs this availability check.
+            if ["--find", "-f"].contains(argument) { return false }
+            // These xcrun options consume their following argument. Other options
+            // are flags or use an equals form, so skipping just the option is safe.
+            if ["--sdk", "-sdk", "--toolchain", "-toolchain"].contains(argument) {
+                index += 1
+            }
+            index += 1
+        }
+        guard index < arguments.count else { return false }
+        return URL(fileURLWithPath: arguments[index]).lastPathComponent == "mcpbridge"
+    }
+
+    static func validate(command: String,
+                         arguments: [String],
+                         environment: [String: String],
+                         isXcodeRunning: @Sendable () -> Bool = isRunning) throws {
+        guard isXcodeBridge(command: command, arguments: arguments) else { return }
+        let hasXcodePID = !(environment["MCP_XCODE_PID"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        guard hasXcodePID || isXcodeRunning() else {
+            throw MCPError.transportFailed("Xcode MCP bridge requires a running Xcode instance. Open Xcode, or set MCP_XCODE_PID in the server environment.")
+        }
+    }
+
+    static func isRunning() -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dt.Xcode").isEmpty
+    }
+}
 
 /// A line-delimited duplex channel to an MCP server. v1 ships `MCPStdioTransport`
 /// (subprocess over stdio); HTTP/SSE conform later without touching `MCPConnection`.
@@ -46,11 +96,15 @@ actor MCPStdioTransport: MCPTransport {
     nonisolated var supportsDuplexServerRequests: Bool { true }
     private let config: MCPServerConfig
     private let homeDirectory: URL
+    private let isXcodeRunning: @Sendable () -> Bool
     private var process: PiAgentProcess?
 
-    init(config: MCPServerConfig, homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    init(config: MCPServerConfig,
+         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+         isXcodeRunning: @escaping @Sendable () -> Bool = MCPXcodeBridgeLaunchPreflight.isRunning) {
         self.config = config
         self.homeDirectory = homeDirectory
+        self.isXcodeRunning = isXcodeRunning
     }
 
     func start(onLine: @escaping @Sendable (String) -> Void,
@@ -67,6 +121,12 @@ actor MCPStdioTransport: MCPTransport {
         // expands placeholders such as ${AUTH_TOKEN} from the child environment.
         let args = config.args ?? []
         let childEnvironment = config.effectiveEnvironment(inherited: baseEnv, homeDirectory: homeDirectory)
+        try MCPXcodeBridgeLaunchPreflight.validate(
+            command: command,
+            arguments: args,
+            environment: childEnvironment,
+            isXcodeRunning: isXcodeRunning
+        )
         let cwd: URL = {
             if let raw = config.cwd, !raw.isEmpty {
                 return URL(fileURLWithPath: MCPConfigLoader.interpolate(raw, environment: baseEnv, homeDirectory: homeDirectory))
