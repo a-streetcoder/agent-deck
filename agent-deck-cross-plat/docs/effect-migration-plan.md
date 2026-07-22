@@ -473,6 +473,19 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - **Largest feature slice.** Depends on diff engine (Slice 9) and likely triggers the
   SQLite persistence follow-up from Slice 6. Needs a careful pi-side design: pi owns
   the session file; we own worktree state. Design doc before code.
+- Design: `docs/checkpoints-design.md`. Split into S18a (capture) + S18b (rollback + UI).
+- **S18a LANDED (2026-07-22, 68a1d49).** Per-turn capture at the idle boundary
+  (forked in session scope — idle receipt intact): conversation = wholesale copy of pi's
+  session file (never parsed); workspace = hidden git ref via a throwaway GIT_INDEX_FILE
+  tree-capture that provably does NOT disturb the user index/worktree (tested); non-git
+  cwd → conversation-only; retention-capped; `checkpoints_list` op; metadata in
+  persistence (NO SQLite — not needed at this scale, documented). Review minor fixed:
+  crash-safe prune order (flush index before deleting files/refs). No web UI, no
+  rollback — S18b.
+- **S18b (rollback + UI): IN PROGRESS.** checkpoint_rollback restores both halves via
+  the resume() path + safety-checkpoint-first + web rewind UI + destructive confirm; its
+  e2e (2 turns write files → roll back to turn 1 → turn-2 file gone AND conversation
+  truncated) is the END-TO-END guard for the "pi flushed before snapshot" invariant.
 
 ## Phase 9 — Agent Deck differentiators on the new substrate
 
