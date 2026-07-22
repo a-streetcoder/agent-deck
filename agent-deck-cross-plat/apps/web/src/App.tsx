@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { FolderTree, GitCompareArrows, MonitorPlay, SquareTerminal } from "lucide-react";
+import { FolderTree, GitCompareArrows, History, MonitorPlay, SquareTerminal } from "lucide-react";
 import type { KeybindingBinding } from "@agent-deck/contracts";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
+import { CheckpointsPanel } from "./components/CheckpointsPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { KeybindingsEditor } from "./components/KeybindingsEditor.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
@@ -33,6 +34,7 @@ import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { cn } from "@/lib/cn";
 import { hasIntegratedDesktopChrome, isMacDesktop } from "@/lib/native";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
+import { refreshCheckpoints } from "./state/wsBridge.ts";
 import { useAppStore } from "./state/store.ts";
 import { useKeyboardShortcuts } from "./state/useKeyboardShortcuts.ts";
 import { useMenuCommands } from "./state/useMenuCommands.ts";
@@ -88,6 +90,9 @@ function ChatColumn() {
         {/* The dev-server preview panel (Slice 15b): runs project scripts and
             embeds the discovered dev-server URL; renders null while closed. */}
         <PreviewPanel />
+        {/* The checkpoints / rewind timeline panel (Slice 18b): lists per-turn
+            checkpoints and rolls the session back; renders null while closed. */}
+        <CheckpointsPanel />
       </div>
       {/* The per-session terminal drawer (Slice 8b) spans the full chat surface
           bottom, like the donor's thread drawer. Renders null while closed. */}
@@ -106,6 +111,9 @@ export function App() {
   const setFilesPanelOpen = useAppStore((state) => state.setFilesPanelOpen);
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
+  const checkpointsPanelOpen = useAppStore((state) => state.checkpointsPanelOpen);
+  const setCheckpointsPanelOpen = useAppStore((state) => state.setCheckpointsPanelOpen);
+  const checkpointCount = useAppStore((state) => state.checkpoints.length);
   const diffRepo = useAppStore((state) => state.diffRepo);
   const diffFileCount = useAppStore((state) => state.diffFiles.length);
   const connection = useAppStore((state) => state.connection);
@@ -134,6 +142,13 @@ export function App() {
         // No overrides available — defaults apply.
       });
   }, [setKeybindings]);
+  // Slice 18b: refresh the checkpoint timeline whenever a turn settles back to
+  // idle (a new checkpoint was captured) for the current session. The subscribe
+  // path seeds the first list; this keeps it live turn-over-turn (and drives the
+  // header's available-checkpoints indicator) without a dedicated push.
+  useEffect(() => {
+    if (session && agentStatus !== "running") void refreshCheckpoints(session.id);
+  }, [session, agentStatus]);
   // The frameless macOS window needs a drag region across the top bar so the
   // window can be moved by its header (the sidebar strip is already draggable).
   const macDesktop = isMacDesktop();
@@ -261,6 +276,35 @@ export function App() {
                       data-testid="diff-badge"
                     >
                       {diffFileCount}
+                    </span>
+                  ) : null}
+                </button>
+              ) : null}
+              {/* Checkpoints toggle (Slice 18b): a per-turn rewind timeline.
+                  Ungated (every session captures per turn); the badge tracks the
+                  available-checkpoint count so a session with none shows nothing
+                  extra, one with captures shows a subtle indicator. */}
+              {session && isChat ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "relative rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
+                    checkpointsPanelOpen ? "text-accent" : "text-text-muted",
+                    macDesktop && "[-webkit-app-region:no-drag]",
+                  )}
+                  title="Toggle checkpoints"
+                  aria-label="Toggle checkpoints"
+                  aria-pressed={checkpointsPanelOpen}
+                  data-testid="checkpoints-toggle"
+                  onClick={() => setCheckpointsPanelOpen(!checkpointsPanelOpen)}
+                >
+                  <History className="h-4 w-4" />
+                  {checkpointCount > 0 ? (
+                    <span
+                      className="absolute -right-0.5 -top-0.5 rounded-capsule bg-accent px-1 text-[9px] font-semibold leading-[14px] text-[var(--color-accent-foreground)]"
+                      data-testid="checkpoints-badge"
+                    >
+                      {checkpointCount}
                     </span>
                   ) : null}
                 </button>

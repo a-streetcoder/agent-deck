@@ -713,6 +713,42 @@ export async function gitTreeOf(cwd: string, rev: string): Promise<string | null
   }
 }
 
+/**
+ * Restore the working tree of `cwd` to a hidden checkpoint `ref` (Slice 18b
+ * rollback) — port of t3code's GitVcsDriver.restoreCheckpoint (MIT). Returns
+ * `true` when the ref resolved and the worktree was restored, `false` when the
+ * ref is absent (nothing to restore).
+ *
+ * This DOES NOT move the branch pointer: the checkpoint is a PARENTLESS detached
+ * snapshot commit, so `git reset --hard <checkpoint>` would rewrite the current
+ * branch onto it and destroy history. Instead it rebuilds the worktree the way
+ * the donor does, WITHOUT touching HEAD:
+ *   1. `git restore --source <commit> --worktree --staged -- .` — overwrite every
+ *      path that EXISTS in the checkpoint tree with the captured version (staging
+ *      them so the next step can't clean them), covering the "a post-checkpoint
+ *      edit is reverted" and "a deleted file is brought back" cases.
+ *   2. `git clean -fd -- .` — remove files created AFTER the checkpoint (they are
+ *      not in its tree, so step 1 left them; they are untracked, so clean drops
+ *      them). Ignored files (node_modules etc.) are NOT removed (no `-x`), matching
+ *      the capture, which honored `.gitignore`.
+ *   3. `git reset --quiet -- .` (only when HEAD exists) — return the index to HEAD
+ *      so the session's staged state reflects reality again, not the checkpoint.
+ *
+ * The net effect: the worktree is byte-identical to the checkpoint's captured
+ * tree, uncommitted post-checkpoint work is DISCARDED (the point of a rollback —
+ * the UI confirms it), and committed history is untouched.
+ */
+export async function gitRestoreCheckpoint(cwd: string, ref: string): Promise<boolean> {
+  const commit = await gitRefCommit(cwd, ref);
+  if (commit === null) return false;
+  await runGit(cwd, ["restore", "--source", commit, "--worktree", "--staged", "--", "."]);
+  await runGit(cwd, ["clean", "-fd", "--", "."]);
+  if (await gitHasHead(cwd)) {
+    await runGit(cwd, ["reset", "--quiet", "--", "."]);
+  }
+  return true;
+}
+
 /** Delete hidden checkpoint refs (best-effort; a missing ref is not an error) —
  * the prune-beyond-cap path and S18b's rollback truncation. */
 export async function gitDeleteRefs(cwd: string, refs: readonly string[]): Promise<void> {

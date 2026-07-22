@@ -10,7 +10,8 @@ export type ReceiptName =
   | "session_created"
   | "title"
   | "diff_refreshed"
-  | "checkpoint_captured";
+  | "checkpoint_captured"
+  | "checkpoint_rolled_back";
 
 interface Waiter {
   name: ReceiptName;

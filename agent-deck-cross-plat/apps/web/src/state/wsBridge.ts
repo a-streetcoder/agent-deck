@@ -65,6 +65,7 @@ const transportHost: TransportHost = {
   // missed pushes while down).
   onSessionSubscribed: (sessionId) => {
     void refreshDiffFiles(sessionId);
+    void refreshCheckpoints(sessionId);
   },
 };
 
@@ -241,6 +242,43 @@ async function refreshDiffFiles(sessionId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Checkpoints surface (Slice 18b) — the session's captured checkpoints live in
+// the store, refreshed on (re)subscribe (onSessionSubscribed) + on each return
+// to idle (App wires that) + after a rollback. A rollback restores both halves
+// server-side and re-pushes a fresh transcript snapshot on the same connection,
+// so the transcript reloads without a client-driven reconnect.
+// ---------------------------------------------------------------------------
+
+/** Fetch `sessionId`'s checkpoint list into the store (if still current). */
+export async function refreshCheckpoints(sessionId: string): Promise<void> {
+  try {
+    const checkpoints = await transport.checkpointsList(sessionId);
+    if (sessionId !== currentSessionId) return; // switched away mid-flight
+    useAppStore.getState().setCheckpoints(checkpoints);
+  } catch {
+    // Offline or a torn-down session: the next subscription/idle refetches.
+  }
+}
+
+/**
+ * Roll the CURRENT session back to the checkpoint at `turnIndex` (DESTRUCTIVE —
+ * the caller confirmed). The server restores both halves, relaunches pi, and
+ * pushes a fresh transcript snapshot on this connection (so the transcript
+ * reloads to the restored state); we then refresh the sideband (changed-file
+ * set + the checkpoint timeline itself, now truncated + carrying the safety
+ * checkpoint). Returns whether the workspace files were restored. */
+export async function rollbackToCheckpoint(turnIndex: number): Promise<{ filesRestored: boolean }> {
+  const sessionId = currentSessionId;
+  if (!sessionId) throw new Error("no active session");
+  const result = await transport.checkpointRollback(sessionId, turnIndex);
+  if (sessionId === currentSessionId) {
+    await refreshDiffFiles(sessionId);
+    await refreshCheckpoints(sessionId);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Open-in-editor surface (Slice 11) — the diff panel / changed-files tree open
 // a file in one of the editors the SERVER detected on its machine.
 // ---------------------------------------------------------------------------
@@ -313,9 +351,10 @@ export async function fetchFileRead(path: string): Promise<FileReadResult | null
  * with the transport's subscription. */
 function connect(sessionId: string): void {
   currentSessionId = sessionId;
-  // The old session's changed-file set must not bleed into the new one; the
-  // fresh set arrives via onSessionSubscribed once the subscription settles.
+  // The old session's changed-file set + checkpoint list must not bleed into the
+  // new one; the fresh sets arrive via onSessionSubscribed once it settles.
   useAppStore.getState().resetDiffState();
+  useAppStore.getState().setCheckpoints([]);
   transport.connect(sessionId);
 }
 

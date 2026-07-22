@@ -6,6 +6,7 @@ import {
 } from "@agent-deck/contracts";
 import { Either, Schema } from "effect";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { CheckpointRollbackGateway } from "./checkpointRollback.ts";
 import type { DiffGateway } from "./diffGateway.ts";
 import type { EditorLauncher } from "./editorLauncher.ts";
 import type { OpenedScript, ScriptRunnerGateway } from "./scriptRunnerGateway.ts";
@@ -69,11 +70,12 @@ export function createRpcConnection(deps: {
   files: FileService;
   scripts: ScriptRunnerGateway;
   checkpoints: CheckpointServiceShape;
+  rollback: CheckpointRollbackGateway;
   send: (frame: RpcServerFrame) => void;
   /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
   bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, terminals, diffs, editors, files, scripts, checkpoints, send } = deps;
+  const { sessions, terminals, diffs, editors, files, scripts, checkpoints, rollback, send } = deps;
   const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
@@ -621,6 +623,35 @@ export function createRpcConnection(deps: {
       }
       return;
     }
+    // Checkpoint rollback (Slice 18b) — DESTRUCTIVE: restore both halves of a
+    // prior turn + relaunch pi. The client confirms first (a destructive-confirm
+    // dialog); the cwd + snapshot come from the captured record, never the wire.
+    if (request.type === "checkpoint_rollback") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      const sessionId = session.meta.id;
+      // Release THIS connection's subscription BEFORE the rollback stops pi, so
+      // the old session's pi-exit doesn't push a spurious `session_exit` error
+      // to this client mid-rollback. The fresh subscription below re-attaches to
+      // the relaunched session and pushes the restored transcript.
+      cleanups.get(sessionId)?.();
+      cleanups.delete(sessionId);
+      try {
+        const result = await rollback.rollback({ sessionId, turnIndex: request.turnIndex });
+        // Re-subscribe to the RELAUNCHED session: subscribe() pushes a fresh
+        // snapshot of the restored transcript (seq restarts on the new bus, so
+        // the stale client lastSeq falls back to a snapshot, which resets it).
+        const relaunched = sessions.get(sessionId);
+        if (relaunched) subscribe(relaunched);
+        send({ kind: "checkpoint_rollback_ok", id, filesRestored: result.filesRestored });
+      } catch (error) {
+        replyError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -717,8 +748,9 @@ export function setupRpcEndpoint(deps: {
   files: FileService;
   scripts: ScriptRunnerGateway;
   checkpoints: CheckpointServiceShape;
+  rollback: CheckpointRollbackGateway;
 }): RpcEndpoint {
-  const { sessions, terminals, diffs, editors, files, scripts, checkpoints } = deps;
+  const { sessions, terminals, diffs, editors, files, scripts, checkpoints, rollback } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -743,6 +775,7 @@ export function setupRpcEndpoint(deps: {
       files,
       scripts,
       checkpoints,
+      rollback,
       send: (frame) => sendTo(socket, frame),
       // Terminal push backpressure reads the real socket send-buffer depth.
       bufferedAmount: () => socket.bufferedAmount,

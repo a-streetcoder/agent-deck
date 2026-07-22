@@ -4,6 +4,7 @@ import { RpcServerFrame } from "@agent-deck/contracts";
 import type { DiscoveredServer, RpcServerFrame as Frame } from "@agent-deck/contracts";
 import type { DiffGateway } from "../src/diffGateway.ts";
 import type { EditorLauncher, EditorOpenInput } from "../src/editorLauncher.ts";
+import type { CheckpointRollbackGateway } from "../src/checkpointRollback.ts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
 import type { OpenedScript, ScriptRunnerGateway } from "../src/scriptRunnerGateway.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
@@ -322,8 +323,24 @@ function makeCheckpointService(checkpoints: CheckpointInfo[] = []) {
       return checkpoints;
     },
     records: async () => [] as CheckpointRecord[],
+    prepareRollback: async () => {
+      throw new Error("prepareRollback not scripted in this test");
+    },
   };
   return { service, calls };
+}
+
+// --- Fake rollback gateway (Slice 18b): records calls, scripted result ---
+
+function makeRollbackGateway(result: { filesRestored: boolean } = { filesRestored: true }) {
+  const calls: Array<{ sessionId: string; turnIndex: number }> = [];
+  const gateway: CheckpointRollbackGateway = {
+    rollback: async ({ sessionId, turnIndex }) => {
+      calls.push({ sessionId, turnIndex });
+      return result;
+    },
+  };
+  return { gateway, calls };
 }
 
 function harness(
@@ -335,6 +352,7 @@ function harness(
   files?: FileService,
   scripts?: ScriptRunnerGateway,
   checkpoints?: CheckpointServiceShape,
+  rollback?: CheckpointRollbackGateway,
 ) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
@@ -345,6 +363,7 @@ function harness(
     files: files ?? makeFileService().service,
     scripts: scripts ?? makeScriptGateway().gateway,
     checkpoints: checkpoints ?? makeCheckpointService().service,
+    rollback: rollback ?? makeRollbackGateway().gateway,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
@@ -870,10 +889,84 @@ describe("createRpcConnection checkpoint ops (Slice 18a)", () => {
         throw new Error("index unreadable");
       },
       records: async () => [],
+      prepareRollback: async () => {
+        throw new Error("prepareRollback not scripted in this test");
+      },
     };
     const { conn, frames } = withCheckpoints({ s1: session }, throwing);
     await conn.handleMessage(frame(3, { type: "checkpoints_list", sessionId: "s1" }));
     expect(frames).toEqual([{ kind: "reply", id: 3, ok: false, error: "index unreadable" }]);
+  });
+
+  // --- Rollback op (Slice 18b) ---
+
+  const withRollback = (
+    sessions: Record<string, ManagedSession>,
+    rollback: CheckpointRollbackGateway,
+  ) =>
+    harness(
+      makeManager(sessions),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      rollback,
+    );
+
+  it("checkpoint_rollback restores, re-subscribes (fresh snapshot), and acks with filesRestored", async () => {
+    const { session } = makeSession("s1", { snapshot: { seq: 2, state: { cells: ["restored"] } } });
+    const rollback = makeRollbackGateway({ filesRestored: true });
+    const { conn, frames } = withRollback({ s1: session }, rollback.gateway);
+    await conn.handleMessage(
+      frame(4, { type: "checkpoint_rollback", sessionId: "s1", turnIndex: 0 }),
+    );
+    expect(rollback.calls).toEqual([{ sessionId: "s1", turnIndex: 0 }]);
+    // The re-subscribe pushes a fresh snapshot of the restored transcript BEFORE
+    // the ok reply (so the client's transcript reloads, then the promise settles).
+    expect(frames).toEqual([
+      {
+        kind: "push",
+        message: { type: "snapshot", sessionId: "s1", seq: 2, state: { cells: ["restored"] } },
+      },
+      { kind: "checkpoint_rollback_ok", id: 4, filesRestored: true },
+    ]);
+  });
+
+  it("checkpoint_rollback carries filesRestored:false through (non-git session)", async () => {
+    const { session } = makeSession("s1", { snapshot: { seq: 1, state: { cells: [] } } });
+    const rollback = makeRollbackGateway({ filesRestored: false });
+    const { conn, frames } = withRollback({ s1: session }, rollback.gateway);
+    await conn.handleMessage(
+      frame(5, { type: "checkpoint_rollback", sessionId: "s1", turnIndex: 1 }),
+    );
+    expect(frames.at(-1)).toEqual({ kind: "checkpoint_rollback_ok", id: 5, filesRestored: false });
+  });
+
+  it("checkpoint_rollback on an unknown session errors and never calls the gateway", async () => {
+    const rollback = makeRollbackGateway();
+    const { conn, frames } = withRollback({}, rollback.gateway);
+    await conn.handleMessage(
+      frame(6, { type: "checkpoint_rollback", sessionId: "nope", turnIndex: 0 }),
+    );
+    expect(frames).toEqual([{ kind: "reply", id: 6, ok: false, error: "unknown session" }]);
+    expect(rollback.calls).toEqual([]);
+  });
+
+  it("a failing rollback surfaces as a typed failure reply, not a crash", async () => {
+    const { session } = makeSession("s1");
+    const failing: CheckpointRollbackGateway = {
+      rollback: async () => {
+        throw new Error("git restore failed");
+      },
+    };
+    const { conn, frames } = withRollback({ s1: session }, failing);
+    await conn.handleMessage(
+      frame(7, { type: "checkpoint_rollback", sessionId: "s1", turnIndex: 0 }),
+    );
+    expect(frames).toEqual([{ kind: "reply", id: 7, ok: false, error: "git restore failed" }]);
   });
 });
 

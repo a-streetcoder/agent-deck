@@ -272,6 +272,85 @@ describe("makeCheckpointService.capture", () => {
     ]);
   });
 
+  it("prepareRollback forces a safety checkpoint + truncates the future, keeping the target", async () => {
+    const repo = makeRepo();
+    const session = makeSessionFile();
+    const { service } = makeService();
+    const sessionId = "sess-RB";
+
+    // Three turns: worktree out.txt v0→v1→v2, the session file grows per turn.
+    const bodies = ["t0\n", "t0\nt1\n", "t0\nt1\nt2\n"];
+    for (let turn = 0; turn < 3; turn += 1) {
+      writeFileSync(path.join(repo, "out.txt"), `v${turn}\n`);
+      session.write(bodies[turn]!);
+      const record = await service.capture({
+        sessionId,
+        cwd: repo,
+        sessionFile: session.path,
+        label: `turn ${turn}`,
+      });
+      expect(record).not.toBeNull();
+    }
+    expect((await service.records(sessionId)).map((r) => r.turnIndex)).toEqual([0, 1, 2]);
+
+    // Roll back to turn 0 WITHOUT changing the session file: a plain capture
+    // would dedup (unchanged since turn 2), but prepareRollback FORCES a safety
+    // checkpoint of the current state as the new tip (turnIndex 3).
+    const { target, safety } = await service.prepareRollback({
+      sessionId,
+      cwd: repo,
+      sessionFile: session.path,
+      label: "before rollback",
+      turnIndex: 0,
+    });
+
+    // The target is turn 0's record (its ref/snapshot the caller restores TO).
+    expect(target.turnIndex).toBe(0);
+    expect(target.gitRef).toBe(`refs/agent-deck/checkpoints/${sessionId}/0`);
+    // The forced safety checkpoint captured the CURRENT state (v2 worktree, the
+    // full session file) as the newest record — the rollback's undo point.
+    expect(safety).not.toBeNull();
+    expect(safety!.turnIndex).toBe(3);
+    expect(git(repo, ["show", `${safety!.gitRef}:out.txt`])).toBe("v2\n");
+    expect(readFileSync(safety!.sessionSnapshotPath, "utf8")).toBe("t0\nt1\nt2\n");
+
+    // The list is truncated to [turn 0] + [the safety checkpoint]; the future
+    // (turns 1, 2) is gone.
+    const records = await service.records(sessionId);
+    expect(records.map((r) => r.turnIndex)).toEqual([0, 3]);
+
+    // The dropped turns' git refs are deleted; the kept ones (0 + the safety 3)
+    // survive — and never a branch.
+    expect(checkpointRefs(repo)).toEqual([
+      `refs/agent-deck/checkpoints/${sessionId}/0`,
+      `refs/agent-deck/checkpoints/${sessionId}/3`,
+    ]);
+    expect(git(repo, ["branch", "--list"]).trim()).toBe("* main");
+  });
+
+  it("prepareRollback rejects for an unknown turnIndex (nothing mutated)", async () => {
+    const repo = makeRepo();
+    const session = makeSessionFile();
+    const { service } = makeService();
+    const sessionId = "sess-RBX";
+
+    writeFileSync(path.join(repo, "out.txt"), "v0\n");
+    session.write("t0\n");
+    await service.capture({ sessionId, cwd: repo, sessionFile: session.path, label: "t0" });
+
+    await expect(
+      service.prepareRollback({
+        sessionId,
+        cwd: repo,
+        sessionFile: session.path,
+        label: "x",
+        turnIndex: 99,
+      }),
+    ).rejects.toThrow(/unknown checkpoint/);
+    // The single existing record is untouched.
+    expect((await service.records(sessionId)).map((r) => r.turnIndex)).toEqual([0]);
+  });
+
   it("list() projects records to the client-facing CheckpointInfo, oldest first", async () => {
     const repo = makeRepo();
     const session = makeSessionFile();

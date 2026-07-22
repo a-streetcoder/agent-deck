@@ -296,6 +296,46 @@ test("visual: changed-files tree + open diff panel", async ({ page }) => {
   });
 });
 
+test("visual: checkpoints rewind confirm dialog", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(DIFF_REPO));
+  await expect(page.getByTestId("session-cwd")).toHaveText(DIFF_REPO);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // One turn → one captured checkpoint whose label is the FIXED prompt text
+  // (deterministic — it is the turn's first user message).
+  await page.getByTestId("composer-input").fill("please write the diff baseline file");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle", {
+    timeout: 60_000,
+  });
+
+  await page.getByTestId("checkpoints-toggle").click();
+  await expect
+    .poll(
+      async () => {
+        await page.getByTestId("checkpoints-refresh").click();
+        return await page.getByTestId("checkpoint-row").count();
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(1);
+
+  // Open the destructive-confirm dialog — its box is byte-deterministic (fixed
+  // warning copy + the fixed checkpoint label; the row's capture time stays
+  // behind the overlay). Screenshot the dialog box only.
+  await page
+    .locator('[data-testid="checkpoint-row"][data-turn="0"]')
+    .getByTestId("checkpoint-restore")
+    .click();
+  await expect(page.getByTestId("rollback-confirm-dialog")).toBeVisible();
+  await expect(page.getByTestId("rollback-confirm-dialog")).toHaveScreenshot(
+    "checkpoints-rollback-confirm.png",
+    SCREENSHOT_OPTS,
+  );
+});
+
 test("visual: composer with pending review-comment cards", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await selectProject(page, path.basename(DIFF_REPO));

@@ -43,6 +43,7 @@ import { registerDeckBridgeTools } from "./bridgeTools.ts";
 import { createDiffGateway } from "./diffGateway.ts";
 import { createEditorLauncher } from "./editorLauncher.ts";
 import { createScriptRunnerGateway } from "./scriptRunnerGateway.ts";
+import { makeCheckpointRollback } from "./checkpointRollback.ts";
 import { makeCheckpointService } from "./services/checkpoints.ts";
 import { createFileService } from "./services/files.ts";
 import { LoopEngine } from "./loopEngine.ts";
@@ -607,6 +608,28 @@ async function initServer(
   // scope-owned through the runtime. Held here (like terminals) so close() can
   // run the awaited closeAll() sweep — run scopes are detached roots.
   const scripts = createScriptRunnerGateway(effectRuntime);
+  // Slice 18b: checkpoint rollback orchestrator. Its `reopen` relaunches an
+  // ended session EXACTLY as the POST /sessions/:id/resume route does (same
+  // env-derived fallback plan), so rollback reuses the one correct resume() path.
+  const rollback = makeCheckpointRollback({
+    sessions,
+    checkpoints,
+    receipts,
+    reopen: (meta) => {
+      const defaults = envDefaults();
+      return sessions.resume(
+        meta,
+        {
+          kind: "parent",
+          resumeSessionPath: meta.piSessionFile,
+          provider: defaults.provider,
+          model: defaults.model,
+          extensions: [...(defaults.extensions ?? []), ...(defaults.providerExtensions ?? [])],
+        },
+        defaults.env,
+      );
+    },
+  });
   const {
     close: closeWebSockets,
     broadcast: wsBroadcast,
@@ -620,6 +643,7 @@ async function initServer(
     files,
     scripts,
     checkpoints,
+    rollback,
   });
   broadcast = wsBroadcast;
   broadcastDiff = wsBroadcastDiff;

@@ -312,6 +312,22 @@ export const RpcCheckpointsListOkFrame = Schema.Struct({
 });
 export type RpcCheckpointsListOkFrame = typeof RpcCheckpointsListOkFrame.Type;
 
+/**
+ * server → client: the reply to a `checkpoint_rollback` request (Slice 18b).
+ * The rollback succeeded (pi was relaunched from the restored snapshot and a
+ * fresh transcript snapshot was already pushed on this connection); a failure
+ * comes back as a plain `reply` (`ok: false`). `filesRestored` is false when the
+ * target checkpoint had no git ref (a non-git session, or a git-failed capture)
+ * — the conversation was restored but the workspace files were NOT, which the UI
+ * surfaces so the user knows the file half was skipped.
+ */
+export const RpcCheckpointRollbackOkFrame = Schema.Struct({
+  kind: Schema.Literal("checkpoint_rollback_ok"),
+  id: RequestId,
+  filesRestored: Schema.Boolean,
+});
+export type RpcCheckpointRollbackOkFrame = typeof RpcCheckpointRollbackOkFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
 export const RpcServerFrame = Schema.Union(
   RpcReplyFrame,
@@ -329,6 +345,7 @@ export const RpcServerFrame = Schema.Union(
   RpcScriptRunOkFrame,
   RpcScriptPushFrame,
   RpcCheckpointsListOkFrame,
+  RpcCheckpointRollbackOkFrame,
 );
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 

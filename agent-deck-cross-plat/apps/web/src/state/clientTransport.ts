@@ -1,5 +1,6 @@
 import {
   RpcTransport,
+  type CheckpointRollbackResult,
   type ConnectionState,
   type DiffFileResult,
   type DiffFilesResult,
@@ -12,6 +13,7 @@ import {
 } from "@agent-deck/client-runtime";
 import { RPC_WS_PATH } from "@agent-deck/contracts";
 import type {
+  CheckpointInfo,
   ClientMessage,
   DiffPush,
   EditorId,
@@ -98,6 +100,10 @@ export interface ClientTransport {
   attachScript(runId: string): Promise<ScriptRunResult>;
   /** Stop a run: tree-kill the child process (Slice 15b); rejects offline. */
   stopScript(runId: string): Promise<void>;
+  /** List a session's captured checkpoints (Slice 18b); rejects offline. */
+  checkpointsList(sessionId: string): Promise<readonly CheckpointInfo[]>;
+  /** Roll a session back to a checkpoint (Slice 18b, destructive); rejects offline. */
+  checkpointRollback(sessionId: string, turnIndex: number): Promise<CheckpointRollbackResult>;
 }
 
 function socketUrl(pathSuffix: string): string {
@@ -322,5 +328,21 @@ export class RpcClientTransport implements ClientTransport {
       return Promise.reject(new Error("transport not connected"));
     }
     return transport.stopScript(runId);
+  }
+
+  checkpointsList(sessionId: string): Promise<readonly CheckpointInfo[]> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.checkpointsList(sessionId);
+  }
+
+  checkpointRollback(sessionId: string, turnIndex: number): Promise<CheckpointRollbackResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.checkpointRollback(sessionId, turnIndex);
   }
 }

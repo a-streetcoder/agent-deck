@@ -1,6 +1,8 @@
 import {
   RpcClientFrame,
   RpcServerFrame,
+  type CheckpointClientRequest,
+  type CheckpointInfo,
   type ClientMessage,
   type DiffClientRequest,
   type DiffFileEntry,
@@ -159,6 +161,14 @@ export interface ScriptRunResult {
   readonly server: DiscoveredServer | null;
 }
 
+/** The reply to a `checkpoint_rollback` request (Slice 18b): the rollback
+ * succeeded and a fresh transcript snapshot was already pushed on the same
+ * connection. `filesRestored` is false when the target checkpoint had no git
+ * ref (non-git session) — the conversation was restored but the files were not. */
+export interface CheckpointRollbackResult {
+  readonly filesRestored: boolean;
+}
+
 /** How one request settled: a plain ack, the hello session list, or a
  * terminal/diff/editor/file/script reply payload. Internal — the public methods
  * narrow it. */
@@ -172,7 +182,9 @@ type RequestSettled =
   | { readonly kind: "file_list"; readonly result: FileListResult }
   | { readonly kind: "file_read"; readonly result: FileReadResult }
   | { readonly kind: "scripts_list"; readonly result: ScriptsListResult }
-  | { readonly kind: "script_run"; readonly result: ScriptRunResult };
+  | { readonly kind: "script_run"; readonly result: ScriptRunResult }
+  | { readonly kind: "checkpoints_list"; readonly checkpoints: readonly CheckpointInfo[] }
+  | { readonly kind: "checkpoint_rollback"; readonly result: CheckpointRollbackResult };
 
 interface Pending {
   readonly resolve: (settled: RequestSettled) => void;
@@ -403,6 +415,23 @@ export class RpcTransport {
         });
         return;
       }
+      case "checkpoints_list_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({ kind: "checkpoints_list", checkpoints: frame.checkpoints });
+        return;
+      }
+      case "checkpoint_rollback_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "checkpoint_rollback",
+          result: { filesRestored: frame.filesRestored },
+        });
+        return;
+      }
       case "push":
         this.options.onPush?.(frame.message);
         return;
@@ -432,7 +461,8 @@ export class RpcTransport {
       | DiffClientRequest
       | EditorClientRequest
       | FileClientRequest
-      | ScriptClientRequest,
+      | ScriptClientRequest
+      | CheckpointClientRequest,
   ): Promise<RequestSettled> {
     if (this.state !== "connected" || !this.socket) {
       return Promise.reject(new Error("transport not connected"));
@@ -614,6 +644,36 @@ export class RpcTransport {
   /** Stop a run: tree-kill the child process (Slice 15b). Resolves on ack. */
   async stopScript(runId: string): Promise<void> {
     await this.sendRequest({ type: "script_stop", runId });
+  }
+
+  /**
+   * List a session's captured checkpoints (Slice 18b), oldest capture first. An
+   * empty list is the clean answer for a session with no captures; rejects on a
+   * server failure reply (unknown session) or while disconnected.
+   */
+  async checkpointsList(sessionId: string): Promise<readonly CheckpointInfo[]> {
+    const settled = await this.sendRequest({ type: "checkpoints_list", sessionId });
+    if (settled.kind !== "checkpoints_list") {
+      throw new Error("checkpoints_list settled without a checkpoints_list_ok reply");
+    }
+    return settled.checkpoints;
+  }
+
+  /**
+   * Roll a session back to the checkpoint at `turnIndex` (Slice 18b) —
+   * DESTRUCTIVE: the caller confirms first. On success the server has already
+   * pushed a fresh transcript snapshot on this connection; rejects on a server
+   * failure reply or while disconnected.
+   */
+  async checkpointRollback(
+    sessionId: string,
+    turnIndex: number,
+  ): Promise<CheckpointRollbackResult> {
+    const settled = await this.sendRequest({ type: "checkpoint_rollback", sessionId, turnIndex });
+    if (settled.kind !== "checkpoint_rollback") {
+      throw new Error("checkpoint_rollback settled without a checkpoint_rollback_ok reply");
+    }
+    return settled.result;
   }
 
   /** Convenience: the `hello` handshake, resolving with the session list. */

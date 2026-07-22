@@ -1,4 +1,5 @@
 import type {
+  CheckpointInfo,
   DiffFileEntry,
   KeybindingBinding,
   ProjectMeta,
@@ -98,6 +99,20 @@ export interface AppState {
    * that never opens it never spawns a dev server).
    */
   previewPanelOpen: boolean;
+  /**
+   * Whether the checkpoints/timeline panel is open (Slice 18b). Follows the
+   * terminalOpen / diffPanelOpen pattern: one global boolean, the panel always
+   * shows the CURRENT session's captured checkpoints and offers a destructive
+   * rollback to a prior turn. Ungated (any session captures per turn).
+   */
+  checkpointsPanelOpen: boolean;
+  /**
+   * The current session's captured checkpoints (Slice 18b), oldest capture
+   * first — refreshed on subscribe + after each turn reaches idle + after a
+   * rollback. Drives the header's "available checkpoints" indicator and the
+   * panel's timeline. Empty for a session with no captures yet.
+   */
+  checkpoints: readonly CheckpointInfo[];
   /** Whether the current session's cwd is a git work tree (diff surface gate).
    * False until the first diff_files fetch answers — the toggle stays hidden
    * for non-repo sessions and while the answer is in flight. */
@@ -158,6 +173,9 @@ export interface AppState {
   setDiffPanelOpen(open: boolean): void;
   setFilesPanelOpen(open: boolean): void;
   setPreviewPanelOpen(open: boolean): void;
+  setCheckpointsPanelOpen(open: boolean): void;
+  /** Replace the current session's checkpoint list (a checkpoints_list fetch). */
+  setCheckpoints(checkpoints: readonly CheckpointInfo[]): void;
   /** Replace the changed-file set (a diff_push or a diff_files fetch). */
   setDiffState(state: { repo: boolean; files: readonly DiffFileEntry[]; truncated: boolean }): void;
   /** Drop the previous session's set on a session switch (panel stays open). */
@@ -218,6 +236,8 @@ export const useAppStore = create<AppState>((set) => ({
   diffPanelOpen: false,
   filesPanelOpen: false,
   previewPanelOpen: false,
+  checkpointsPanelOpen: false,
+  checkpoints: [],
   diffRepo: false,
   diffFiles: [],
   diffTruncated: false,
@@ -260,6 +280,8 @@ export const useAppStore = create<AppState>((set) => ({
   setDiffPanelOpen: (diffPanelOpen) => set({ diffPanelOpen }),
   setFilesPanelOpen: (filesPanelOpen) => set({ filesPanelOpen }),
   setPreviewPanelOpen: (previewPanelOpen) => set({ previewPanelOpen }),
+  setCheckpointsPanelOpen: (checkpointsPanelOpen) => set({ checkpointsPanelOpen }),
+  setCheckpoints: (checkpoints) => set({ checkpoints }),
   setDiffState: ({ repo, files, truncated }) =>
     set({ diffRepo: repo, diffFiles: files, diffTruncated: truncated }),
   resetDiffState: () => set({ diffRepo: false, diffFiles: [], diffTruncated: false }),

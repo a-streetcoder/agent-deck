@@ -4,6 +4,7 @@ import type { DiffPush, ServerMessage } from "@agent-deck/contracts";
 import type { FastifyInstance } from "fastify";
 import type { DiffGateway } from "./diffGateway.ts";
 import type { EditorLauncher } from "./editorLauncher.ts";
+import type { CheckpointRollbackGateway } from "./checkpointRollback.ts";
 import { setupRpcEndpoint } from "./rpcHandler.ts";
 import type { ScriptRunnerGateway } from "./scriptRunnerGateway.ts";
 import type { SessionManager } from "./SessionManager.ts";
@@ -35,8 +36,10 @@ export function setupWebSocket(deps: {
   files: FileService;
   scripts: ScriptRunnerGateway;
   checkpoints: CheckpointServiceShape;
+  rollback: CheckpointRollbackGateway;
 }): WebSocketLayer {
-  const { fastify, sessions, terminals, diffs, editors, files, scripts, checkpoints } = deps;
+  const { fastify, sessions, terminals, diffs, editors, files, scripts, checkpoints, rollback } =
+    deps;
 
   // The Effect-RPC endpoint (rpcHandler.ts): per-connection frame dispatch,
   // subscribe/replay, and broadcast — all sharing the SessionManager facade.
@@ -48,6 +51,7 @@ export function setupWebSocket(deps: {
     files,
     scripts,
     checkpoints,
+    rollback,
   });
 
   // Browsers may open cross-origin WebSockets to localhost services; only

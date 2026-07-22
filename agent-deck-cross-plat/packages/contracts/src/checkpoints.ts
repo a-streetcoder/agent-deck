@@ -56,11 +56,28 @@ export type CheckpointInfo = typeof CheckpointInfo.Type;
 // Client → server checkpoint requests (ride RpcClientFrame alongside ClientMessage)
 // ---------------------------------------------------------------------------
 
+/** Integer with `Number.isInteger` semantics, reused for the rollback target. */
+const CheckpointTurnIndex = wireInt("the checkpoint's per-session capture index");
+
 export const CheckpointClientRequest = Schema.Union(
   Schema.Struct({
     /** List a session's captured checkpoints (newest capture last). */
     type: Schema.Literal("checkpoints_list"),
     sessionId: Schema.String,
+  }),
+  Schema.Struct({
+    /**
+     * Roll a session back to the checkpoint at `turnIndex` (Slice 18b) —
+     * DESTRUCTIVE: it discards conversation + uncommitted files after that turn.
+     * The client confirms first (a destructive-confirm dialog). The server
+     * captures a safety checkpoint of the current state, stops pi, restores both
+     * halves (worktree via the checkpoint's hidden git ref, conversation via the
+     * snapshot), relaunches pi through the resume() path, and re-pushes a fresh
+     * snapshot on the same connection so the transcript reloads.
+     */
+    type: Schema.Literal("checkpoint_rollback"),
+    sessionId: Schema.String,
+    turnIndex: CheckpointTurnIndex,
   }),
 );
 export type CheckpointClientRequest = typeof CheckpointClientRequest.Type;
