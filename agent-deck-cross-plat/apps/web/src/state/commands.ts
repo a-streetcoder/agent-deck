@@ -102,7 +102,11 @@ const ACTION_COMMANDS: readonly CommandDefinition[] = [
     keywords: ["diff", "review", "git", "changes"],
     run: () => {
       const store = useAppStore.getState();
-      store.setDiffPanelOpen(!store.diffPanelOpen);
+      // The diff tab opens on the chat surface for a git-repo session only
+      // (matches the header toggle's `&& diffRepo` gate).
+      if (store.view !== "chat" || !store.diffRepo) return;
+      const sessionId = store.session?.id;
+      if (sessionId) store.toggleWorkspaceTab(sessionId, "diff");
     },
   },
   {
@@ -112,7 +116,9 @@ const ACTION_COMMANDS: readonly CommandDefinition[] = [
     keywords: ["explorer", "tree", "browse"],
     run: () => {
       const store = useAppStore.getState();
-      store.setFilesPanelOpen(!store.filesPanelOpen);
+      if (store.view !== "chat") return;
+      const sessionId = store.session?.id;
+      if (sessionId) store.toggleWorkspaceTab(sessionId, "files");
     },
   },
   {
@@ -124,7 +130,8 @@ const ACTION_COMMANDS: readonly CommandDefinition[] = [
       const store = useAppStore.getState();
       // The preview lives on the chat surface only (matches the header toggle).
       if (store.view !== "chat") return;
-      store.setPreviewPanelOpen(!store.previewPanelOpen);
+      const sessionId = store.session?.id;
+      if (sessionId) store.toggleWorkspaceTab(sessionId, "preview");
     },
   },
   {

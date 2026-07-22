@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../../state/store.ts";
 import { OpenInPicker, editorLabel, useOpenInEditor } from "../diff/OpenInPicker.tsx";
@@ -24,8 +24,6 @@ import { useFileTree } from "./useFileTree.ts";
  * path is repo-relative and resolved inside the session cwd by editorLauncher).
  */
 export function FilesPanel() {
-  const open = useAppStore((state) => state.filesPanelOpen);
-  const setOpen = useAppStore((state) => state.setFilesPanelOpen);
   const sessionId = useAppStore((state) => state.session?.id ?? null);
 
   const controller = useFileTree(sessionId);
@@ -37,18 +35,15 @@ export function FilesPanel() {
     setSelectedPath(null);
   }, [sessionId]);
 
-  if (!open || sessionId === null) return null;
+  if (sessionId === null) return null;
 
   const inPreview = selectedPath !== null;
   const rootState = controller.dirs.get("");
 
   return (
-    <aside
-      className="flex shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
-      style={{ width: inPreview ? "min(42vw, 560px)" : "300px" }}
-      data-testid="files-panel"
-    >
-      {/* Subheader row (matches the diff panel's surface-subheader). */}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="files-panel">
+      {/* Subheader row (matches the diff panel's surface-subheader). The close X
+          moved to the tab; the refresh control stays. */}
       <div className="flex items-center justify-between gap-2 border-b border-border-subtle px-3 py-2">
         <span
           className="text-xs font-semibold uppercase tracking-wide text-text-muted"
@@ -68,16 +63,6 @@ export function FilesPanel() {
             <RefreshCw
               className={cn("h-3.5 w-3.5", rootState?.status === "loading" && "animate-spin")}
             />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-            title="Close files panel"
-            aria-label="Close files panel"
-            data-testid="files-close"
-            onClick={() => setOpen(false)}
-          >
-            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -137,6 +122,6 @@ export function FilesPanel() {
           <FilePreview path={selectedPath} sessionId={sessionId} />
         </div>
       )}
-    </aside>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, MessageSquarePlus, Pencil, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, MessageSquarePlus, Pencil, Trash2 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/cn";
 import { summarizeDiffStats } from "@/lib/changedFilesTree";
@@ -367,8 +367,6 @@ function WorktreeMergeToolbar(props: {
 }
 
 export function DiffPanel() {
-  const open = useAppStore((state) => state.diffPanelOpen);
-  const setOpen = useAppStore((state) => state.setDiffPanelOpen);
   const sessionId = useAppStore((state) => state.session?.id ?? null);
   const repo = useAppStore((state) => state.diffRepo);
   const files = useAppStore((state) => state.diffFiles);
@@ -481,7 +479,7 @@ export function DiffPanel() {
   // Fetch (and refetch after every diff_push — `files` identity changes) the
   // selected file's bounded unified diff.
   useEffect(() => {
-    if (!open || selectedPath === null || sessionId === null) return;
+    if (selectedPath === null || sessionId === null) return;
     let stale = false;
     setFileDiff((current) =>
       current &&
@@ -528,10 +526,23 @@ export function DiffPanel() {
     return () => {
       stale = true;
     };
-  }, [open, selectedPath, sessionId, files]);
+  }, [selectedPath, sessionId, files]);
 
-  // Hidden entirely for non-repo sessions (repo:false) and while closed.
-  if (!open || !repo || sessionId === null) return null;
+  if (sessionId === null) return null;
+  // The tab only opens for a git repo (the diffRepo gate lives on the header /
+  // "+" entry), so `!repo` here is almost always the brief window right after a
+  // session switch, before the first diff_files fetch re-confirms the repo. Show
+  // a muted placeholder rather than a blank tab body during that window.
+  if (!repo) {
+    return (
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-xs text-text-muted"
+        data-testid="diff-panel-pending"
+      >
+        No changes to show.
+      </div>
+    );
+  }
 
   const inDiffView = selectedPath !== null;
   // Only a diff fetched for the currently selected file (in the current
@@ -593,12 +604,9 @@ export function DiffPanel() {
   };
 
   return (
-    <aside
-      className="flex shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
-      style={{ width: inDiffView ? "min(42vw, 560px)" : "320px" }}
-      data-testid="diff-panel"
-    >
-      {/* Subheader row (the donor shell's surface-subheader). */}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="diff-panel">
+      {/* Subheader row (the donor shell's surface-subheader). The tool title +
+          count + secondary controls stay; the close X moved to the tab. */}
       <div className="flex items-center justify-between gap-2 border-b border-border-subtle px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
@@ -630,16 +638,6 @@ export function DiffPanel() {
               {allDirectoriesExpanded ? "Collapse all" : "Expand all"}
             </button>
           )}
-          <button
-            type="button"
-            className="rounded p-1 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-            title="Close changes panel"
-            aria-label="Close changes panel"
-            data-testid="diff-close"
-            onClick={() => setOpen(false)}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
 
@@ -794,6 +792,6 @@ export function DiffPanel() {
           )}
         </div>
       )}
-    </aside>
+    </div>
   );
 }

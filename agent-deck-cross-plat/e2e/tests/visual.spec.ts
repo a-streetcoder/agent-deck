@@ -566,6 +566,14 @@ test("visual: preview panel with an embedded dev server", async ({ page }) => {
   // no loading overlay is on screen — then only the port-bearing URL bar +
   // iframe body vary, and those are masked.
   await expect(page.getByTestId("preview-loading")).toHaveCount(0, { timeout: 30_000 });
+  // Settle the composer footer BEFORE the shot: the wide preview pane narrows the
+  // chat column enough that the chip row wraps once the async model id replaces
+  // its "model" placeholder, growing the chat-layer height ~11px. Waiting for the
+  // real model id makes the captured height deterministic (else --update grabs
+  // the pre-wrap frame and compare runs, which settle post-wrap, fail).
+  await expect(page.getByTestId("model-chip-label")).not.toHaveText("model", {
+    timeout: 15_000,
+  });
 
   // Clip to the chat layer (the panel's mount). Mask the URL input (carries the
   // ephemeral port) and the iframe (cross-origin content is nondeterministic);

@@ -3,15 +3,12 @@ import { FolderTree, GitCompareArrows, History, MonitorPlay, SquareTerminal } fr
 import type { KeybindingBinding } from "@agent-deck/contracts";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
-import { CheckpointsPanel } from "./components/CheckpointsPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { KeybindingsEditor } from "./components/KeybindingsEditor.tsx";
 import { DeckPanel } from "./components/DeckPanel.tsx";
-import { DiffPanel } from "./components/diff/DiffPanel.tsx";
-import { FilesPanel } from "./components/files/FilesPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
-import { PreviewPanel } from "./components/preview/PreviewPanel.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
+import { TabbedPane } from "./components/workspace/TabbedPane.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { TerminalDrawer } from "./components/TerminalDrawer.tsx";
 import { Toaster } from "./components/Toaster.tsx";
@@ -82,18 +79,12 @@ function ChatColumn() {
           <Composer />
         </div>
         <DeckPanel />
-        {/* The changed-files / diff panel (Slice 10): a right aside like the
-            deck; renders null while closed or for non-repo sessions. */}
-        <DiffPanel />
-        {/* The file-navigation panel (Slice 13b): a sibling right aside;
-            renders null while closed. Ungated by git (any session has a cwd). */}
-        <FilesPanel />
-        {/* The dev-server preview panel (Slice 15b): runs project scripts and
-            embeds the discovered dev-server URL; renders null while closed. */}
-        <PreviewPanel />
-        {/* The checkpoints / rewind timeline panel (Slice 18b): lists per-turn
-            checkpoints and rolls the session back; renders null while closed. */}
-        <CheckpointsPanel />
+        {/* The single right-side workspace pane (Slice L1): a Chrome-style tab
+            strip + one tool body. The diff / files / preview / checkpoints tools
+            open as TABS here instead of four side-by-side asides; renders null
+            when the current session has no open tab. The DeckPanel (above) stays
+            its own auto aside and the terminal (below) stays the bottom drawer. */}
+        <TabbedPane />
       </div>
       {/* The per-session terminal drawer (Slice 8b) spans the full chat surface
           bottom, like the donor's thread drawer. Renders null while closed. */}
@@ -106,14 +97,10 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const terminalOpen = useAppStore((state) => state.terminalOpen);
   const setTerminalOpen = useAppStore((state) => state.setTerminalOpen);
-  const diffPanelOpen = useAppStore((state) => state.diffPanelOpen);
-  const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
-  const filesPanelOpen = useAppStore((state) => state.filesPanelOpen);
-  const setFilesPanelOpen = useAppStore((state) => state.setFilesPanelOpen);
-  const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
-  const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
-  const checkpointsPanelOpen = useAppStore((state) => state.checkpointsPanelOpen);
-  const setCheckpointsPanelOpen = useAppStore((state) => state.setCheckpointsPanelOpen);
+  const toggleWorkspaceTab = useAppStore((state) => state.toggleWorkspaceTab);
+  const openTabs = useAppStore((state) =>
+    state.session ? state.workspaceTabs[state.session.id]?.tabs : undefined,
+  );
   const checkpointCount = useAppStore((state) => state.checkpoints.length);
   const diffRepo = useAppStore((state) => state.diffRepo);
   const diffFileCount = useAppStore((state) => state.diffFiles.length);
@@ -224,14 +211,14 @@ export function App() {
                   type="button"
                   className={cn(
                     "rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
-                    filesPanelOpen ? "text-accent" : "text-text-muted",
+                    openTabs?.includes("files") ? "text-accent" : "text-text-muted",
                     macDesktop && "[-webkit-app-region:no-drag]",
                   )}
                   title="Toggle files"
                   aria-label="Toggle files"
-                  aria-pressed={filesPanelOpen}
+                  aria-pressed={openTabs?.includes("files") ?? false}
                   data-testid="files-toggle"
-                  onClick={() => setFilesPanelOpen(!filesPanelOpen)}
+                  onClick={() => toggleWorkspaceTab(session.id, "files")}
                 >
                   <FolderTree className="h-4 w-4" />
                 </button>
@@ -244,14 +231,14 @@ export function App() {
                   type="button"
                   className={cn(
                     "rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
-                    previewPanelOpen ? "text-accent" : "text-text-muted",
+                    openTabs?.includes("preview") ? "text-accent" : "text-text-muted",
                     macDesktop && "[-webkit-app-region:no-drag]",
                   )}
                   title="Toggle preview"
                   aria-label="Toggle preview"
-                  aria-pressed={previewPanelOpen}
+                  aria-pressed={openTabs?.includes("preview") ?? false}
                   data-testid="preview-toggle"
-                  onClick={() => setPreviewPanelOpen(!previewPanelOpen)}
+                  onClick={() => toggleWorkspaceTab(session.id, "preview")}
                 >
                   <MonitorPlay className="h-4 w-4" />
                 </button>
@@ -264,14 +251,14 @@ export function App() {
                   type="button"
                   className={cn(
                     "relative rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
-                    diffPanelOpen ? "text-accent" : "text-text-muted",
+                    openTabs?.includes("diff") ? "text-accent" : "text-text-muted",
                     macDesktop && "[-webkit-app-region:no-drag]",
                   )}
                   title="Toggle changed files"
                   aria-label="Toggle changed files"
-                  aria-pressed={diffPanelOpen}
+                  aria-pressed={openTabs?.includes("diff") ?? false}
                   data-testid="diff-toggle"
-                  onClick={() => setDiffPanelOpen(!diffPanelOpen)}
+                  onClick={() => toggleWorkspaceTab(session.id, "diff")}
                 >
                   <GitCompareArrows className="h-4 w-4" />
                   {diffFileCount > 0 ? (
@@ -293,14 +280,14 @@ export function App() {
                   type="button"
                   className={cn(
                     "relative rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
-                    checkpointsPanelOpen ? "text-accent" : "text-text-muted",
+                    openTabs?.includes("checkpoints") ? "text-accent" : "text-text-muted",
                     macDesktop && "[-webkit-app-region:no-drag]",
                   )}
                   title="Toggle checkpoints"
                   aria-label="Toggle checkpoints"
-                  aria-pressed={checkpointsPanelOpen}
+                  aria-pressed={openTabs?.includes("checkpoints") ?? false}
                   data-testid="checkpoints-toggle"
-                  onClick={() => setCheckpointsPanelOpen(!checkpointsPanelOpen)}
+                  onClick={() => toggleWorkspaceTab(session.id, "checkpoints")}
                 >
                   <History className="h-4 w-4" />
                   {checkpointCount > 0 ? (

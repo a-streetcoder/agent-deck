@@ -48,10 +48,14 @@ test("browse the tree, preview a text file, and see image + binary states", asyn
   await page.getByTestId("new-chat").click();
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
 
-  // Open the panel: the toggle shows for any chat session (ungated by git).
+  // Open the panel: the toggle shows for any chat session (ungated by git). It
+  // opens as a TAB in the single right-side workspace pane (Slice L1) — the tab
+  // shows in the strip and its body renders.
   const toggle = page.getByTestId("files-toggle");
   await expect(toggle).toBeVisible();
   await toggle.click();
+  await expect(page.getByTestId("workspace-tab-strip")).toBeVisible();
+  await expect(page.getByTestId("workspace-tab-files")).toBeVisible();
   const panel = page.getByTestId("files-panel");
   await expect(panel).toBeVisible();
 
@@ -92,9 +96,11 @@ test("browse the tree, preview a text file, and see image + binary states", asyn
   await expect(page.getByTestId("file-preview-binary")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("file-preview-binary")).toContainText("Binary file");
 
-  // Back to the tree, then close the panel.
+  // Back to the tree, then close the tab from its strip X — the tab and its body
+  // both disappear (the pane empties, so it unmounts entirely).
   await page.getByTestId("file-back").click();
   await expect(page.getByTestId("file-preview")).toHaveCount(0);
-  await page.getByTestId("files-close").click();
+  await page.getByTestId("workspace-tab-close-files").click();
+  await expect(page.getByTestId("workspace-tab-files")).toHaveCount(0);
   await expect(panel).toHaveCount(0);
 });

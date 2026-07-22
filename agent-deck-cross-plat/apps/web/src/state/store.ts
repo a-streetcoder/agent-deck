@@ -47,6 +47,59 @@ export interface Toast {
   kind: ToastKind;
 }
 
+/**
+ * The tools that open as TABS in the right-side workspace pane (Slice L1). Each
+ * is a singleton surface for the current session. "browser" is a deliberate
+ * future extension point (a later slice): the whole tabs model — this union, the
+ * strip, the pane width table, the "+" menu — is keyed on this type, so adding
+ * "browser" is a purely additive change. The TERMINAL is intentionally NOT here:
+ * it stays the bottom drawer (terminalOpen), never a tab.
+ */
+export type WorkspaceTabKind = "diff" | "files" | "preview" | "checkpoints";
+
+/** One session's open workspace tabs, in strip order, plus the active one. */
+export interface WorkspaceTabsState {
+  /** Open tabs, left→right in the strip. Empty = the pane is not rendered. */
+  tabs: WorkspaceTabKind[];
+  /** The tab whose body is shown; null only when {@link tabs} is empty. */
+  activeTab: WorkspaceTabKind | null;
+}
+
+/** Shared empty reference so selectors never return a fresh object per call. */
+export const EMPTY_WORKSPACE_TABS: WorkspaceTabsState = { tabs: [], activeTab: null };
+
+/** Remove `kind` from a session's tabs, falling the active selection back to the
+ * neighbor (the tab that slides into its slot, else the new last) — the t3code
+ * closeSurface fallback, adapted to our singleton-kind strip. */
+function closeWorkspaceKind(
+  current: WorkspaceTabsState,
+  kind: WorkspaceTabKind,
+): WorkspaceTabsState {
+  const index = current.tabs.indexOf(kind);
+  if (index < 0) return current;
+  const tabs = current.tabs.filter((k) => k !== kind);
+  if (current.activeTab !== kind) return { tabs, activeTab: current.activeTab };
+  return { tabs, activeTab: tabs[Math.min(index, tabs.length - 1)] ?? null };
+}
+
+/** Apply `updater` to one session's tab state, pruning the map entry when a
+ * session's strip empties (mirrors the pendingReviewComments delete-on-empty). */
+function updateWorkspaceTabs(
+  map: Record<string, WorkspaceTabsState>,
+  sessionId: string,
+  updater: (current: WorkspaceTabsState) => WorkspaceTabsState,
+): Record<string, WorkspaceTabsState> {
+  const current = map[sessionId] ?? EMPTY_WORKSPACE_TABS;
+  const next = updater(current);
+  if (next === current) return map;
+  if (next.tabs.length === 0) {
+    if (!(sessionId in map)) return map;
+    const { [sessionId]: _removed, ...rest } = map;
+    return rest;
+  }
+  return { ...map, [sessionId]: next };
+}
+
 export interface AppState {
   connection: ConnectionStatus;
   view: AppView;
@@ -78,34 +131,17 @@ export interface AppState {
    */
   terminalOpen: boolean;
   /**
-   * Whether the changed-files / diff panel is open (Slice 10). Follows the
-   * terminalOpen pattern: one global boolean, the panel always shows the
-   * CURRENT session's changed-file set.
+   * Per-SESSION right-side workspace tabs (Slice L1). Keyed by session id
+   * (mirrors pendingReviewComments): each session owns its own strip of open
+   * tool tabs (diff / files / preview / checkpoints) plus the active one, so
+   * switching sessions swaps the whole pane. Replaces the four global
+   * diff/files/preview/checkpoints "panel open" booleans — the tools now open as
+   * Chrome-style tabs in ONE right pane instead of four side-by-side asides. The
+   * terminal drawer (terminalOpen) stays a separate bottom drawer. In-memory
+   * only (no persistence this slice); a session's entry is dropped when it is
+   * deleted or its strip empties.
    */
-  diffPanelOpen: boolean;
-  /**
-   * Whether the file-navigation panel is open (Slice 13b). Follows the
-   * terminalOpen / diffPanelOpen pattern: one global boolean, the panel always
-   * browses the CURRENT session's project tree. Ungated by repo (any session
-   * has a cwd), so the toggle shows for every chat session.
-   */
-  filesPanelOpen: boolean;
-  /**
-   * Whether the dev-server preview panel is open (Slice 15b). Follows the
-   * terminalOpen / filesPanelOpen pattern: one global boolean, the panel runs
-   * the CURRENT session's package.json scripts and embeds the discovered
-   * dev-server URL. Ungated (any session has a cwd + maybe scripts), so the
-   * toggle shows for every chat session; renders null while closed (a session
-   * that never opens it never spawns a dev server).
-   */
-  previewPanelOpen: boolean;
-  /**
-   * Whether the checkpoints/timeline panel is open (Slice 18b). Follows the
-   * terminalOpen / diffPanelOpen pattern: one global boolean, the panel always
-   * shows the CURRENT session's captured checkpoints and offers a destructive
-   * rollback to a prior turn. Ungated (any session captures per turn).
-   */
-  checkpointsPanelOpen: boolean;
+  workspaceTabs: Record<string, WorkspaceTabsState>;
   /**
    * The current session's captured checkpoints (Slice 18b), oldest capture
    * first — refreshed on subscribe + after each turn reaches idle + after a
@@ -170,10 +206,22 @@ export interface AppState {
   setCommandPaletteOpen(open: boolean): void;
   setKeybindingsEditorOpen(open: boolean): void;
   setTerminalOpen(open: boolean): void;
-  setDiffPanelOpen(open: boolean): void;
-  setFilesPanelOpen(open: boolean): void;
-  setPreviewPanelOpen(open: boolean): void;
-  setCheckpointsPanelOpen(open: boolean): void;
+  /** Open `kind` as a tab for `sessionId` (add if absent) and make it active. */
+  openWorkspaceTab(sessionId: string, kind: WorkspaceTabKind): void;
+  /** Header/palette toggle: active tab → close; background tab → activate;
+   * closed → open+activate. Keeps the header button's click-to-open,
+   * click-again-to-close feel. */
+  toggleWorkspaceTab(sessionId: string, kind: WorkspaceTabKind): void;
+  /** Bring an already-open tab to the front (no-op if it isn't open). */
+  activateWorkspaceTab(sessionId: string, kind: WorkspaceTabKind): void;
+  /** Close one tab; the active selection falls back to the neighbor. */
+  closeWorkspaceTab(sessionId: string, kind: WorkspaceTabKind): void;
+  /** Context menu: keep only `kind`. */
+  closeOtherWorkspaceTabs(sessionId: string, kind: WorkspaceTabKind): void;
+  /** Context menu: close every tab to the right of `kind`. */
+  closeWorkspaceTabsToRight(sessionId: string, kind: WorkspaceTabKind): void;
+  /** Context menu: close the whole strip for the session. */
+  closeAllWorkspaceTabs(sessionId: string): void;
   /** Replace the current session's checkpoint list (a checkpoints_list fetch). */
   setCheckpoints(checkpoints: readonly CheckpointInfo[]): void;
   /** Replace the changed-file set (a diff_push or a diff_files fetch). */
@@ -233,10 +281,7 @@ export const useAppStore = create<AppState>((set) => ({
   sessions: [],
   pendingComposerText: null,
   terminalOpen: false,
-  diffPanelOpen: false,
-  filesPanelOpen: false,
-  previewPanelOpen: false,
-  checkpointsPanelOpen: false,
+  workspaceTabs: {},
   checkpoints: [],
   diffRepo: false,
   diffFiles: [],
@@ -277,10 +322,63 @@ export const useAppStore = create<AppState>((set) => ({
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   setKeybindingsEditorOpen: (keybindingsEditorOpen) => set({ keybindingsEditorOpen }),
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
-  setDiffPanelOpen: (diffPanelOpen) => set({ diffPanelOpen }),
-  setFilesPanelOpen: (filesPanelOpen) => set({ filesPanelOpen }),
-  setPreviewPanelOpen: (previewPanelOpen) => set({ previewPanelOpen }),
-  setCheckpointsPanelOpen: (checkpointsPanelOpen) => set({ checkpointsPanelOpen }),
+  openWorkspaceTab: (sessionId, kind) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) => ({
+        tabs: current.tabs.includes(kind) ? current.tabs : [...current.tabs, kind],
+        activeTab: kind,
+      })),
+    })),
+  toggleWorkspaceTab: (sessionId, kind) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) => {
+        const isOpen = current.tabs.includes(kind);
+        if (isOpen && current.activeTab === kind) return closeWorkspaceKind(current, kind);
+        return {
+          tabs: isOpen ? current.tabs : [...current.tabs, kind],
+          activeTab: kind,
+        };
+      }),
+    })),
+  activateWorkspaceTab: (sessionId, kind) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) =>
+        current.tabs.includes(kind) && current.activeTab !== kind
+          ? { ...current, activeTab: kind }
+          : current,
+      ),
+    })),
+  closeWorkspaceTab: (sessionId, kind) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) =>
+        closeWorkspaceKind(current, kind),
+      ),
+    })),
+  closeOtherWorkspaceTabs: (sessionId, kind) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) =>
+        current.tabs.includes(kind) && current.tabs.length > 1
+          ? { tabs: [kind], activeTab: kind }
+          : current,
+      ),
+    })),
+  closeWorkspaceTabsToRight: (sessionId, kind) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) => {
+        const index = current.tabs.indexOf(kind);
+        if (index < 0 || index === current.tabs.length - 1) return current;
+        const tabs = current.tabs.slice(0, index + 1);
+        const activeTab =
+          current.activeTab !== null && tabs.includes(current.activeTab) ? current.activeTab : kind;
+        return { tabs, activeTab };
+      }),
+    })),
+  closeAllWorkspaceTabs: (sessionId) =>
+    set((state) => ({
+      workspaceTabs: updateWorkspaceTabs(state.workspaceTabs, sessionId, (current) =>
+        current.tabs.length === 0 ? current : EMPTY_WORKSPACE_TABS,
+      ),
+    })),
   setCheckpoints: (checkpoints) => set({ checkpoints }),
   setDiffState: ({ repo, files, truncated }) =>
     set({ diffRepo: repo, diffFiles: files, diffTruncated: truncated }),
@@ -374,10 +472,17 @@ export const useAppStore = create<AppState>((set) => ({
               Object.entries(state.pendingElementContexts).filter(([id]) => id !== sessionId),
             )
           : state.pendingElementContexts;
+      const workspaceTabs =
+        sessionId in state.workspaceTabs
+          ? Object.fromEntries(
+              Object.entries(state.workspaceTabs).filter(([id]) => id !== sessionId),
+            )
+          : state.workspaceTabs;
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         pendingReviewComments,
         pendingElementContexts,
+        workspaceTabs,
       };
     }),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileWarning, History, RefreshCw, RotateCcw, X } from "lucide-react";
+import { FileWarning, History, RefreshCw, RotateCcw } from "lucide-react";
 import type { CheckpointInfo } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
@@ -24,8 +24,6 @@ import { refreshCheckpoints, rollbackToCheckpoint } from "../state/wsBridge.ts";
  * with no checkpoints renders an empty hint, never an error.
  */
 export function CheckpointsPanel() {
-  const open = useAppStore((state) => state.checkpointsPanelOpen);
-  const setOpen = useAppStore((state) => state.setCheckpointsPanelOpen);
   const sessionId = useAppStore((state) => state.session?.id ?? null);
   const checkpoints = useAppStore((state) => state.checkpoints);
   // Rollback is only safe when the agent is idle: a checkpoint is captured at
@@ -39,10 +37,11 @@ export function CheckpointsPanel() {
   // True while a rollback is in flight (disables the controls, shows progress).
   const [rollingBack, setRollingBack] = useState(false);
 
-  // Fetch on open (the idle-refresh may not have run yet for this session).
+  // Fetch on mount / session change (the tab mounting IS the "open" event now;
+  // the idle-refresh may not have run yet for this session).
   useEffect(() => {
-    if (open && sessionId !== null) void refreshCheckpoints(sessionId);
-  }, [open, sessionId]);
+    if (sessionId !== null) void refreshCheckpoints(sessionId);
+  }, [sessionId]);
 
   // A session switch closes any open confirm dialog.
   useEffect(() => {
@@ -56,7 +55,7 @@ export function CheckpointsPanel() {
     if (running && !rollingBack) setConfirming(null);
   }, [running, rollingBack]);
 
-  if (!open || sessionId === null) return null;
+  if (sessionId === null) return null;
 
   // Newest capture first (the list arrives oldest-first).
   const ordered = [...checkpoints].reverse();
@@ -86,11 +85,9 @@ export function CheckpointsPanel() {
   };
 
   return (
-    <aside
-      className="flex w-[300px] shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
-      data-testid="checkpoints-panel"
-    >
-      {/* Subheader row (matches the diff / files panels). */}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="checkpoints-panel">
+      {/* Subheader row (matches the diff / files panels). The close X moved to the
+          tab; the refresh control stays. */}
       <div className="flex items-center justify-between gap-2 border-b border-border-subtle px-3 py-2">
         <span
           className="text-xs font-semibold uppercase tracking-wide text-text-muted"
@@ -108,16 +105,6 @@ export function CheckpointsPanel() {
             onClick={() => void refreshCheckpoints(sessionId)}
           >
             <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-            title="Close checkpoints panel"
-            aria-label="Close checkpoints panel"
-            data-testid="checkpoints-close"
-            onClick={() => setOpen(false)}
-          >
-            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -152,7 +139,7 @@ export function CheckpointsPanel() {
           onConfirm={() => void doRollback(confirmTarget.turnIndex)}
         />
       ) : null}
-    </aside>
+    </div>
   );
 }
 

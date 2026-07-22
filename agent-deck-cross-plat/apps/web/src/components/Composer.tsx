@@ -99,7 +99,7 @@ export function Composer() {
   const removeReviewComment = useAppStore((state) => state.removeReviewComment);
   const clearReviewComments = useAppStore((state) => state.clearReviewComments);
   const requestDiffJump = useAppStore((state) => state.requestDiffJump);
-  const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
+  const openWorkspaceTab = useAppStore((state) => state.openWorkspaceTab);
   // Pending preview element contexts (Slice 16) for the CURRENT session:
   // captured in the preview panel, shown as cards, serialized into the next send.
   const pendingElementContexts = useAppStore((state) =>
@@ -388,7 +388,9 @@ export function Composer() {
             if (sessionIdForComments) removeReviewComment(sessionIdForComments, commentId);
           }}
           onJump={(comment) => {
-            setDiffPanelOpen(true);
+            // Open (or bring to front) the diff tab for this session, then ask it
+            // to scroll to the anchored line.
+            if (sessionIdForComments) openWorkspaceTab(sessionIdForComments, "diff");
             requestDiffJump({ path: comment.filePath, side: comment.side, line: comment.line });
           }}
         />

@@ -7,7 +7,6 @@ import {
   RefreshCw,
   RotateCw,
   Square,
-  X,
 } from "lucide-react";
 import type { DiscoveredServer, ProjectScript } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
@@ -97,8 +96,6 @@ function toLoopbackEmbedUrl(raw: string): string | null {
 }
 
 export function PreviewPanel() {
-  const open = useAppStore((state) => state.previewPanelOpen);
-  const setOpen = useAppStore((state) => state.setPreviewPanelOpen);
   const sessionId = useAppStore((state) => state.session?.id ?? null);
   const connection = useAppStore((state) => state.connection);
   const connected = connection === "open";
@@ -155,11 +152,14 @@ export function PreviewPanel() {
     }
   }, []);
 
-  // On (open, session, connection) episode: reset, list scripts, and reattach to
+  // On (mount/session/connection) episode: reset, list scripts, and reattach to
   // any run this connection still owns for the session (scrollback + server
-  // replay). Reconnects re-run it — a drop killed the run server-side.
+  // replay). Reconnects re-run it — a drop killed the run server-side. The tab
+  // mounting IS the "open" event now; keep-alive keeps this effect from re-firing
+  // on tab switches (the preview body stays mounted, hidden), so the live
+  // dev-server iframe + local state survive switching away and back.
   useEffect(() => {
-    if (!open || !sessionId || !connected) return;
+    if (!sessionId || !connected) return;
     let cancelled = false;
 
     setScripts([]);
@@ -212,7 +212,7 @@ export function PreviewPanel() {
       cancelled = true;
       unsubscribe();
     };
-  }, [open, sessionId, connected, loadScripts]);
+  }, [sessionId, connected, loadScripts]);
 
   // Keep the log scrolled to the tail as output streams in.
   useEffect(() => {
@@ -245,22 +245,17 @@ export function PreviewPanel() {
     setRunning(false);
   }, [sessionId]);
 
-  if (!open || sessionId === null) return null;
+  if (sessionId === null) return null;
 
   const inPreview = previewUrl !== null;
 
   return (
-    <aside
-      className="flex shrink-0 flex-col overflow-hidden border-l border-border-subtle bg-surface-elevated"
-      style={{ width: inPreview ? "min(46vw, 640px)" : "320px" }}
-      data-testid="preview-panel"
-    >
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="preview-panel">
       {inPreview ? (
         <PreviewBrowser
           url={previewUrl}
           onNavigate={(next) => setPreviewUrl(next)}
           onBack={() => setPreviewUrl(null)}
-          onClose={() => setOpen(false)}
           onCaptureElement={captureElement}
         />
       ) : (
@@ -277,11 +272,10 @@ export function PreviewPanel() {
           onRun={() => void onRun()}
           onStop={onStop}
           onRefresh={() => void loadScripts()}
-          onClose={() => setOpen(false)}
           onOpenServer={(url) => setPreviewUrl(url)}
         />
       )}
-    </aside>
+    </div>
   );
 }
 
@@ -303,7 +297,6 @@ function ScriptsRunner(props: {
   onRun: () => void;
   onStop: () => void;
   onRefresh: () => void;
-  onClose: () => void;
   onOpenServer: (url: string) => void;
 }) {
   const {
@@ -319,7 +312,6 @@ function ScriptsRunner(props: {
     onRun,
     onStop,
     onRefresh,
-    onClose,
     onOpenServer,
   } = props;
   const hasScripts = scripts.length > 0;
@@ -344,16 +336,6 @@ function ScriptsRunner(props: {
             onClick={onRefresh}
           >
             <RefreshCw className={cn("h-3.5 w-3.5", scriptsLoading && "animate-spin")} />
-          </button>
-          <button
-            type="button"
-            className="rounded p-1 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-            title="Close preview panel"
-            aria-label="Close preview panel"
-            data-testid="preview-close"
-            onClick={onClose}
-          >
-            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -468,10 +450,9 @@ function PreviewBrowser(props: {
   url: string;
   onNavigate: (url: string) => void;
   onBack: () => void;
-  onClose: () => void;
   onCaptureElement: (input: { pageUrl: string; selector: string; note: string }) => boolean;
 }) {
-  const { url, onNavigate, onBack, onClose, onCaptureElement } = props;
+  const { url, onNavigate, onBack, onCaptureElement } = props;
   const [draft, setDraft] = useState(url);
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -589,16 +570,6 @@ function PreviewBrowser(props: {
           onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
         >
           <ExternalLink className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-          title="Close preview panel"
-          aria-label="Close preview panel"
-          data-testid="preview-close"
-          onClick={onClose}
-        >
-          <X className="h-3.5 w-3.5" />
         </button>
       </form>
 

@@ -88,8 +88,10 @@ test("a turn's file write flows into the tree, the diff panel, and live updates"
   });
   await expect(page.getByTestId("diff-badge")).toHaveText("1", { timeout: 30_000 });
 
-  // Open the panel: the tree groups the file under its directory with +3/-0.
+  // Open the panel: it opens as a tab ("Changes") in the single workspace pane
+  // (Slice L1), and the tree groups the file under its directory with +3/-0.
   await toggle.click();
+  await expect(page.getByTestId("workspace-tab-diff")).toBeVisible();
   const panel = page.getByTestId("diff-panel");
   await expect(panel).toBeVisible();
   await expect(page.getByTestId("diff-file-count")).toHaveText("1");
