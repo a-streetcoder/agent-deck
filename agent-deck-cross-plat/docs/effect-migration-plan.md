@@ -430,6 +430,18 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - Point at an element / annotate a screenshot in the preview; annotation becomes a
   structured composer context card sent to pi with the next turn.
 - This is a flagship "slick" feature — schedule demo time; it sells the migration.
+- **Status: LANDED (2026-07-22, 66b8a12).** Manual-subset port (documented +
+  justified): the donor's in-frame react-grab inspector needs an Electron webview
+  preload + ipcRenderer, impossible against our sandboxed cross-origin iframe — so
+  rather than a postMessage bridge (prompt-injection / pixel-leak surface), the user
+  names the element (selector/note), the preview URL auto-attaches, → the donor's
+  `<element_context>` card riding the next pi turn (S12 pattern). No page-derived DOM
+  captured, so the injection surface doesn't exist. Security minor fixed: pageUrl (the
+  one non-user-provenance field) sanitized through a shared lib/loopback.ts (extracted
+  from PreviewPanel). New visual baseline. **PHASE 7 COMPLETE** — preview browser +
+  element automation.
+  - Follow-up: the FULL point-and-click inspector could return in the Electron shell
+    (S22 desktop polish) via a webview preload, once the desktop bridge exposes one.
 
 ## Phase 8 — Session UX parity
 
