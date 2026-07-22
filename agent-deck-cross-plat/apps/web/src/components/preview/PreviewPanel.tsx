@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
-import { ArrowLeft, ExternalLink, Play, RefreshCw, RotateCw, Square, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ExternalLink,
+  MousePointerClick,
+  Play,
+  RefreshCw,
+  RotateCw,
+  Square,
+  X,
+} from "lucide-react";
 import type { DiscoveredServer, ProjectScript } from "@agent-deck/contracts";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../../state/store.ts";
+import { parseLoopbackHttpUrl } from "../../lib/loopback.ts";
+import { buildPendingElementContext, newElementContextId } from "../../lib/elementContext.ts";
 import {
   attachSessionRun,
   getSessionRunId,
@@ -31,7 +42,16 @@ import {
  *     browser AND inside the Electron shell (no webview/BrowserView needed; the
  *     desktop bridge exposes none). The parent can never read a cross-origin
  *     frame's content or history, so back/forward are dropped: the chrome is a
- *     URL bar + reload + open-in-system-browser (Slice 16 adds automation).
+ *     URL bar + reload + open-in-system-browser + Slice-16 element capture.
+ *
+ * Slice 16 (element context → composer): the donor points at an element with an
+ * in-frame inspector injected as an Electron `<webview preload>` (react-grab +
+ * ipcRenderer). That is impossible against THIS sandboxed cross-origin iframe —
+ * the parent cannot read its DOM, inject a script, or postMessage an arbitrary
+ * dev-server page — so we ship the documented manual subset: an "Add element
+ * context" affordance where the user names the element (selector and/or
+ * description) with the current preview URL captured automatically. See
+ * lib/elementContext.ts for the full mechanism rationale + serialization.
  *
  * Lifecycle mirrors the terminal drawer: the panel renders null while closed, so
  * a session that never opens it never spawns a dev server. Opening lists the
@@ -61,38 +81,19 @@ function appendLog(previous: string, chunk: string): string {
 }
 
 /**
- * Loopback hosts only — localhost, the 127.0.0.0/8 block, and IPv6 ::1. The
- * preview embeds the user's OWN locally-run dev server; embedding an arbitrary
- * external origin is the invariant the whole feature rests on (a sandboxed
- * iframe with `allow-scripts allow-same-origin` pointed at attacker content
- * could still be a phishing/clickjacking surface inside the app window).
- */
-function isLoopbackHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return h === "localhost" || h === "::1" || /^127(?:\.\d{1,3}){3}$/.test(h);
-}
-
-/**
- * Parse+validate a URL for embedding: http(s) on a loopback host, or null. This
- * is enforced at BOTH input points (the URL bar below) AND the iframe-src
- * boundary, so no matter how a URL reaches previewUrl (typed, or a discovered
- * server frame), a non-loopback origin can never become an iframe src.
+ * Parse+validate a URL for EMBEDDING (iframe src): http(s) on a loopback host,
+ * or null. Enforced at BOTH input points (the URL bar below) AND the iframe-src
+ * boundary — via the shared {@link isLoopbackHost} guard (lib/loopback.ts) — so
+ * no matter how a URL reaches previewUrl (typed, or a discovered server frame),
+ * a non-loopback origin can never become an iframe src. Returns the validated
+ * candidate VERBATIM (not `url.toString()`, which would append a trailing slash)
+ * so the URL bar and the iframe src stay byte-identical to the discovered URL.
  */
 function toLoopbackEmbedUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return null;
   const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  try {
-    const url = new URL(candidate);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    if (!isLoopbackHost(url.hostname)) return null;
-    // Return the validated candidate VERBATIM (not url.toString(), which would
-    // append a trailing slash / re-normalize) so the URL bar and the iframe src
-    // stay byte-identical to the discovered/typed URL.
-    return candidate;
-  } catch {
-    return null;
-  }
+  return parseLoopbackHttpUrl(candidate) === null ? null : candidate;
 }
 
 export function PreviewPanel() {
@@ -101,6 +102,29 @@ export function PreviewPanel() {
   const sessionId = useAppStore((state) => state.session?.id ?? null);
   const connection = useAppStore((state) => state.connection);
   const connected = connection === "open";
+  const addElementContext = useAppStore((state) => state.addElementContext);
+
+  // Slice 16 — capture a "preview element" context from the embedded preview.
+  // Because our iframe is sandboxed + cross-origin we cannot run the donor's
+  // in-frame inspector (see lib/elementContext.ts), so the capture is manual:
+  // the user supplies a selector and/or a description, the current preview URL
+  // rides along automatically, and it becomes a pending composer card that
+  // serializes into the next pi turn as a donor `<element_context>` block.
+  const captureElement = useCallback(
+    (input: { pageUrl: string; selector: string; note: string }): boolean => {
+      if (sessionId === null) return false;
+      const context = buildPendingElementContext({
+        id: newElementContextId(),
+        pageUrl: input.pageUrl,
+        selector: input.selector,
+        note: input.note,
+      });
+      if (context === null) return false;
+      addElementContext(sessionId, context);
+      return true;
+    },
+    [sessionId, addElementContext],
+  );
 
   const [scripts, setScripts] = useState<readonly ProjectScript[]>([]);
   const [scriptsLoading, setScriptsLoading] = useState(false);
@@ -237,6 +261,7 @@ export function PreviewPanel() {
           onNavigate={(next) => setPreviewUrl(next)}
           onBack={() => setPreviewUrl(null)}
           onClose={() => setOpen(false)}
+          onCaptureElement={captureElement}
         />
       ) : (
         <ScriptsRunner
@@ -444,14 +469,17 @@ function PreviewBrowser(props: {
   onNavigate: (url: string) => void;
   onBack: () => void;
   onClose: () => void;
+  onCaptureElement: (input: { pageUrl: string; selector: string; note: string }) => boolean;
 }) {
-  const { url, onNavigate, onBack, onClose } = props;
+  const { url, onNavigate, onBack, onClose, onCaptureElement } = props;
   const [draft, setDraft] = useState(url);
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showHint, setShowHint] = useState(false);
   // Bumped to force the iframe to remount (a hard reload of the same URL).
   const [reloadNonce, setReloadNonce] = useState(0);
+  // Slice 16: whether the manual element-capture form is open.
+  const [selecting, setSelecting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The embed-boundary guard: whatever the URL's provenance (typed, or a
@@ -540,6 +568,20 @@ function PreviewBrowser(props: {
         />
         <button
           type="button"
+          className={cn(
+            "shrink-0 rounded p-1 transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary",
+            selecting ? "text-accent" : "text-text-muted",
+          )}
+          title="Add element context"
+          aria-label="Add element context"
+          aria-pressed={selecting}
+          data-testid="preview-select-element"
+          onClick={() => setSelecting((value) => !value)}
+        >
+          <MousePointerClick className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
           className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
           title="Open in system browser"
           aria-label="Open in system browser"
@@ -559,6 +601,20 @@ function PreviewBrowser(props: {
           <X className="h-3.5 w-3.5" />
         </button>
       </form>
+
+      {/* Slice 16 — the manual element-capture form. Our preview iframe is
+          sandboxed + cross-origin, so the donor's in-frame point-and-click
+          inspector (Electron webview + react-grab) can't run here; instead the
+          user names the element (a CSS selector and/or a description) and the
+          current preview URL rides along. It becomes a pending composer card
+          that serializes into the next pi turn as an <element_context> block. */}
+      {selecting ? (
+        <ElementCaptureForm
+          pageUrl={url}
+          onCapture={onCaptureElement}
+          onClose={() => setSelecting(false)}
+        />
+      ) : null}
 
       {/* The embed. A plain iframe works in the browser AND the Electron shell;
           it never leaks the parent origin (cross-origin isolation). The sandbox
@@ -602,5 +658,108 @@ function PreviewBrowser(props: {
         ) : null}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The manual element-capture form (Slice 16). The donor points at an element in
+// the previewed page via an in-frame inspector; our sandboxed cross-origin
+// iframe forbids that, so the user names the element instead — a CSS selector
+// and/or a free-text description — and the current preview URL is captured
+// automatically. Add is enabled once either field has content (matching
+// buildPendingElementContext, which needs a selector OR a note).
+// ---------------------------------------------------------------------------
+
+function ElementCaptureForm(props: {
+  pageUrl: string;
+  onCapture: (input: { pageUrl: string; selector: string; note: string }) => boolean;
+  onClose: () => void;
+}) {
+  const { pageUrl, onCapture, onClose } = props;
+  const [selector, setSelector] = useState("");
+  const [note, setNote] = useState("");
+  const selectorRef = useRef<HTMLInputElement>(null);
+
+  // Focus the selector field the moment the form opens.
+  useEffect(() => {
+    selectorRef.current?.focus();
+  }, []);
+
+  const canAdd = selector.trim().length > 0 || note.trim().length > 0;
+
+  const add = useCallback(
+    (event?: FormEvent) => {
+      event?.preventDefault();
+      if (!canAdd) return;
+      const added = onCapture({ pageUrl, selector, note });
+      if (added) onClose();
+    },
+    [canAdd, onCapture, pageUrl, selector, note, onClose],
+  );
+
+  return (
+    <form
+      onSubmit={add}
+      className="flex flex-col gap-2 border-b border-border-subtle bg-surface px-3 py-2.5"
+      data-testid="preview-element-form"
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-text-secondary">Add element context</span>
+        <span className="truncate pl-2 font-mono text-[10px] text-text-muted" title={pageUrl}>
+          {pageUrl}
+        </span>
+      </div>
+      <input
+        ref={selectorRef}
+        className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-1 font-mono text-[11px] text-text-primary focus:border-accent focus:outline-none"
+        data-testid="preview-element-selector"
+        value={selector}
+        spellCheck={false}
+        placeholder="CSS selector — e.g. button.primary"
+        onChange={(event) => setSelector(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          }
+        }}
+      />
+      <textarea
+        className="min-h-[3rem] resize-none rounded-md border border-border-subtle bg-surface-elevated px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none"
+        data-testid="preview-element-note"
+        value={note}
+        placeholder="Describe the element or the change you want…"
+        rows={2}
+        onChange={(event) => setNote(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          }
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            add();
+          }
+        }}
+      />
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-md px-2.5 py-1 text-xs text-text-muted transition-colors hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
+          data-testid="preview-element-cancel"
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-[var(--color-accent-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          data-testid="preview-element-add"
+          disabled={!canAdd}
+        >
+          Add
+        </button>
+      </div>
+    </form>
   );
 }

@@ -338,6 +338,33 @@ test("visual: composer with pending review-comment cards", async ({ page }) => {
   );
 });
 
+test("visual: composer with a pending preview-element context card", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(PREVIEW_PROJECT));
+  await expect(page.getByTestId("session-cwd")).toHaveText(PREVIEW_PROJECT);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Run the dev server so the preview embeds (the element-capture form only
+  // exists in the embedded-browser state), then capture a fixed element context.
+  await page.getByTestId("preview-toggle").click();
+  await page.getByTestId("preview-run").click();
+  await expect(page.getByTestId("preview-iframe")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("preview-select-element").click();
+  await page.getByTestId("preview-element-selector").fill("button.primary");
+  await page.getByTestId("preview-element-note").fill("Make the Save button larger");
+  await page.getByTestId("preview-element-add").click();
+
+  // The card's visible content is fully deterministic (the `<button>` label +
+  // the fixed note; the ephemeral-port URL rides only the hidden title/detail
+  // fallback, never the rendered text), so the container shot needs no mask.
+  await expect(page.getByTestId("pending-element-card")).toHaveCount(1);
+  await expect(page.getByTestId("composer-pending-elements")).toHaveScreenshot(
+    "composer-pending-elements.png",
+    SCREENSHOT_OPTS,
+  );
+});
+
 test("visual: command palette open with a fixed filter", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");

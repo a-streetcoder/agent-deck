@@ -7,6 +7,7 @@ import type {
 import { emptyTranscript, type TranscriptState } from "@agent-deck/domain";
 import { create } from "zustand";
 import type { PendingReviewComment, ReviewCommentSide } from "../lib/reviewComments.ts";
+import type { PendingElementContext } from "../lib/elementContext.ts";
 
 /** A jump-to-diff request raised by a pending review-comment card (Slice 12). */
 export interface DiffJumpRequest {
@@ -112,6 +113,14 @@ export interface AppState {
    * set separate; page reload drops them (deliberate — see lib/reviewComments).
    */
   pendingReviewComments: Record<string, readonly PendingReviewComment[]>;
+  /**
+   * Pending preview element contexts per SESSION id (Slice 16): captured by
+   * pointing out an element in the S15 preview panel, shown above the composer,
+   * serialized into the next outgoing prompt (a donor `<element_context>` block)
+   * and cleared by the send. Keyed by session (mirrors pendingReviewComments):
+   * sets stay separate across session switches and die with the page.
+   */
+  pendingElementContexts: Record<string, readonly PendingElementContext[]>;
   /** A jump-to-diff request from a pending card; consumed by the DiffPanel. */
   diffJumpRequest: DiffJumpRequest | null;
   /**
@@ -161,6 +170,12 @@ export interface AppState {
   removeReviewComment(sessionId: string, commentId: string): void;
   /** Clear a session's whole pending set (the send that delivered them). */
   clearReviewComments(sessionId: string): void;
+  /** Add a captured preview element context to a session's pending set (Slice 16). */
+  addElementContext(sessionId: string, context: PendingElementContext): void;
+  /** Drop one pending element context (composer card dismiss). */
+  removeElementContext(sessionId: string, contextId: string): void;
+  /** Clear a session's whole pending element-context set (the send delivered them). */
+  clearElementContexts(sessionId: string): void;
   /** Raise a jump-to-diff request from a pending card; the DiffPanel consumes it. */
   requestDiffJump(request: Omit<DiffJumpRequest, "token">): void;
   /** The DiffPanel drops the request once it has scrolled to the anchor. */
@@ -207,6 +222,7 @@ export const useAppStore = create<AppState>((set) => ({
   diffFiles: [],
   diffTruncated: false,
   pendingReviewComments: {},
+  pendingElementContexts: {},
   diffJumpRequest: null,
   keybindings: [],
   commandPaletteOpen: false,
@@ -285,6 +301,31 @@ export const useAppStore = create<AppState>((set) => ({
       delete next[sessionId];
       return { pendingReviewComments: next };
     }),
+  addElementContext: (sessionId, context) =>
+    set((state) => ({
+      pendingElementContexts: {
+        ...state.pendingElementContexts,
+        [sessionId]: [...(state.pendingElementContexts[sessionId] ?? []), context],
+      },
+    })),
+  removeElementContext: (sessionId, contextId) =>
+    set((state) => {
+      const existing = state.pendingElementContexts[sessionId];
+      if (existing === undefined) return {};
+      return {
+        pendingElementContexts: {
+          ...state.pendingElementContexts,
+          [sessionId]: existing.filter((context) => context.id !== contextId),
+        },
+      };
+    }),
+  clearElementContexts: (sessionId) =>
+    set((state) => {
+      if (!(sessionId in state.pendingElementContexts)) return {};
+      const next = { ...state.pendingElementContexts };
+      delete next[sessionId];
+      return { pendingElementContexts: next };
+    }),
   requestDiffJump: (request) =>
     set((state) => ({
       diffJumpRequest: { ...request, token: (state.diffJumpRequest?.token ?? 0) + 1 },
@@ -305,9 +346,16 @@ export const useAppStore = create<AppState>((set) => ({
               Object.entries(state.pendingReviewComments).filter(([id]) => id !== sessionId),
             )
           : state.pendingReviewComments;
+      const pendingElementContexts =
+        sessionId in state.pendingElementContexts
+          ? Object.fromEntries(
+              Object.entries(state.pendingElementContexts).filter(([id]) => id !== sessionId),
+            )
+          : state.pendingElementContexts;
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         pendingReviewComments,
+        pendingElementContexts,
       };
     }),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),

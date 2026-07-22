@@ -25,6 +25,11 @@ import { SuggestionPanel } from "./composer/SuggestionPanel.tsx";
 import { useSuggestions } from "./composer/useSuggestions.ts";
 import { ComposerPendingReviewComments } from "./composer/ComposerPendingReviewComments.tsx";
 import { appendReviewCommentsToPrompt, type PendingReviewComment } from "../lib/reviewComments.ts";
+import { ComposerPendingElementContexts } from "./composer/ComposerPendingElementContexts.tsx";
+import {
+  appendElementContextsToPrompt,
+  type PendingElementContext,
+} from "../lib/elementContext.ts";
 
 interface PendingImage extends ImageAttachment {
   id: string;
@@ -34,6 +39,8 @@ interface PendingImage extends ImageAttachment {
 /** Stable empty reference so the pending-comments selector never returns a
  * fresh array (which would re-render the composer every store change). */
 const EMPTY_COMMENTS: readonly PendingReviewComment[] = [];
+/** Stable empty reference for the pending element-context selector (Slice 16). */
+const EMPTY_ELEMENT_CONTEXTS: readonly PendingElementContext[] = [];
 
 async function fileToImage(file: File): Promise<PendingImage | null> {
   if (!file.type.startsWith("image/")) return null;
@@ -83,6 +90,15 @@ export function Composer() {
   const clearReviewComments = useAppStore((state) => state.clearReviewComments);
   const requestDiffJump = useAppStore((state) => state.requestDiffJump);
   const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
+  // Pending preview element contexts (Slice 16) for the CURRENT session:
+  // captured in the preview panel, shown as cards, serialized into the next send.
+  const pendingElementContexts = useAppStore((state) =>
+    sessionIdForComments
+      ? (state.pendingElementContexts[sessionIdForComments] ?? EMPTY_ELEMENT_CONTEXTS)
+      : EMPTY_ELEMENT_CONTEXTS,
+  );
+  const removeElementContext = useAppStore((state) => state.removeElementContext);
+  const clearElementContexts = useAppStore((state) => state.clearElementContexts);
   const agents = useAgents();
   const running = agentStatus === "running";
   const pickableAgents = agents.filter((agent) => !agent.shadowed && !agent.disabled);
@@ -287,10 +303,14 @@ export function Composer() {
     // microtask reset reopens it next tick (legitimate rapid sends still work).
     if (sendLockRef.current) return;
     const message = draft.trim();
-    // A send is valid with just pending review comments (a comments-only turn),
-    // matching the donor's append-and-send when the composer text is empty.
+    // A send is valid with just pending review comments or element contexts (a
+    // context-only turn), matching the donor's append-and-send when the composer
+    // text is empty.
     if (
-      (!message && images.length === 0 && pendingComments.length === 0) ||
+      (!message &&
+        images.length === 0 &&
+        pendingComments.length === 0 &&
+        pendingElementContexts.length === 0) ||
       connection !== "open" ||
       running
     )
@@ -299,10 +319,14 @@ export function Composer() {
     queueMicrotask(() => {
       sendLockRef.current = false;
     });
-    // Prepend/attach the pending comments as the donor serializes them (one
-    // structured <review_comment> block per comment) and clear the set — they
-    // ride this single prompt turn to pi, not a new server op.
-    const outgoing = appendReviewCommentsToPrompt(message, pendingComments);
+    // Attach the pending review comments (Slice 12) then the pending element
+    // contexts (Slice 16) as the donor serializes each — a <review_comment>
+    // block per comment, an <element_context> block for the contexts — and clear
+    // both sets. They ride this single prompt turn to pi, not a new server op.
+    const outgoing = appendElementContextsToPrompt(
+      appendReviewCommentsToPrompt(message, pendingComments),
+      pendingElementContexts,
+    );
     sendPrompt(
       outgoing,
       images.length > 0
@@ -311,6 +335,9 @@ export function Composer() {
     );
     if (pendingComments.length > 0 && sessionIdForComments) {
       clearReviewComments(sessionIdForComments);
+    }
+    if (pendingElementContexts.length > 0 && sessionIdForComments) {
+      clearElementContexts(sessionIdForComments);
     }
     setDraft("");
     setImages([]);
@@ -342,6 +369,13 @@ export function Composer() {
           onJump={(comment) => {
             setDiffPanelOpen(true);
             requestDiffJump({ path: comment.filePath, side: comment.side, line: comment.line });
+          }}
+        />
+
+        <ComposerPendingElementContexts
+          contexts={pendingElementContexts}
+          onRemove={(contextId) => {
+            if (sessionIdForComments) removeElementContext(sessionIdForComments, contextId);
           }}
         />
 
@@ -538,7 +572,10 @@ export function Composer() {
           <SendStopButton
             running={running}
             disabled={
-              (!draft.trim() && images.length === 0 && pendingComments.length === 0) ||
+              (!draft.trim() &&
+                images.length === 0 &&
+                pendingComments.length === 0 &&
+                pendingElementContexts.length === 0) ||
               connection !== "open"
             }
             onSend={submit}
