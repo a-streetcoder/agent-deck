@@ -630,6 +630,27 @@ Menu, shell` — no Notification/Tray/setBadgeCount, no focus tracking, and it s
 - Every gap becomes a fix slice before the goal is considered DONE.
 - Exit gate: full suite + `test:pi` + visual gate green, and both checklists
   fully ticked in a written audit report committed to docs/.
+- **AUDIT COMPLETE (2026-07-22). Report: `docs/parity-audit.md`.** Ran as a 12-agent
+  workflow (11 parallel per-area auditors vs the macOS Swift sources + the adopted t3code
+  set, then a synthesis). **Verdict: has-blockers** — the load-bearing core of every area
+  is ported + tested and the t3code-adopted set is the most complete, but the port is NOT
+  yet at full parity: **1 BLOCKER** (Loops ships only the single-agent engine — the editor
+  advertises Maker+Checker/Pipeline/Parallel/Triage/Human-Approval but every non-single
+  structure silently runs single-agent; verified: `loopEngine.ts` is the native
+  `launchSingleAgentLoop` minimal form only, the other 4 engines were never ported while
+  the UI/route enum still offer them), plus a band of majors (agent avatars + per-project
+  assignment matrix; skills import-preview sheet + folder scan + per-file conflict
+  detection [data-loss]; session per-message fork/rerun; semantic-memory abstain gates +
+  "Memory Recalled" card; MCP add-http/edit/OAuth-auto-capture/assignment; Issues
+  reply/reopen/rich-context; provider API-key sign-in + session-independent model catalog;
+  Doctor in-app pi install/update + Web Access card; desktop BACKGROUND-session
+  notifications) and a long minor/cosmetic tail (mostly documented deliberate reductions).
+  The report catalogs all 110 gaps + 11 recommended fix-slices (A–K, severity-ordered). All
+  gaps + fix-slices AWAIT USER PRIORITIZATION — this is a Linux/Windows port, so which
+  native-macOS features to build is the user's call (some may be undesired; avatar AI-gen +
+  Apple Foundation Model are intentionally macOS-only). The Loops blocker specifically needs
+  a user decision: IMPLEMENT the 4 missing engines, or restrict the UI/enum to singleAgent
+  so the app stops advertising what it doesn't run.
 
 ---
 
