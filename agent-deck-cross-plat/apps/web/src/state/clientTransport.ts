@@ -5,6 +5,8 @@ import {
   type DiffFilesResult,
   type FileListResult,
   type FileReadResult,
+  type ScriptRunResult,
+  type ScriptsListResult,
   type TerminalOpenResult,
   type WebSocketCtor,
 } from "@agent-deck/client-runtime";
@@ -13,6 +15,7 @@ import type {
   ClientMessage,
   DiffPush,
   EditorId,
+  ScriptPush,
   ServerMessage,
   TerminalClientRequest,
   TerminalPush,
@@ -48,6 +51,9 @@ export interface TransportHost {
   /** A diff push (Slice 10): a session's refreshed changed-file set, outside
    * the reducer path (like terminal pushes). */
   onDiffPush?(message: DiffPush): void;
+  /** A script push (Slice 15b): dev-script output/discovered-server/exit,
+   * outside the reducer path (like terminal pushes). */
+  onScriptPush?(message: ScriptPush): void;
   /** Fired once per (re)connection AFTER the session subscription settled —
    * the point where per-session sideband state (the changed-file set) is
    * (re)fetched, so it can never race the subscribe. */
@@ -84,6 +90,14 @@ export interface ClientTransport {
   fileList(sessionId: string, path?: string): Promise<FileListResult>;
   /** Read one file of the session's project, bounded (Slice 13b); rejects offline. */
   fileRead(sessionId: string, path: string): Promise<FileReadResult>;
+  /** List the session project's declared package.json scripts (Slice 15b). */
+  scriptsList(sessionId: string): Promise<ScriptsListResult>;
+  /** Start a declared dev/build script as a managed run (Slice 15b). */
+  startScript(sessionId: string, scriptName: string): Promise<ScriptRunResult>;
+  /** Reattach to a run this connection started, replaying scrollback (Slice 15b). */
+  attachScript(runId: string): Promise<ScriptRunResult>;
+  /** Stop a run: tree-kill the child process (Slice 15b); rejects offline. */
+  stopScript(runId: string): Promise<void>;
 }
 
 function socketUrl(pathSuffix: string): string {
@@ -166,6 +180,10 @@ export class RpcClientTransport implements ClientTransport {
       onDiffPush: (message) => {
         if (myGeneration !== this.generation) return;
         this.host.onDiffPush?.(message);
+      },
+      onScriptPush: (message) => {
+        if (myGeneration !== this.generation) return;
+        this.host.onScriptPush?.(message);
       },
       onDecodeError: (error, raw) => {
         // A push that fails the contract at the boundary is dropped (never
@@ -272,5 +290,37 @@ export class RpcClientTransport implements ClientTransport {
       return Promise.reject(new Error("transport not connected"));
     }
     return transport.fileRead(sessionId, path);
+  }
+
+  scriptsList(sessionId: string): Promise<ScriptsListResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.scriptsList(sessionId);
+  }
+
+  startScript(sessionId: string, scriptName: string): Promise<ScriptRunResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.startScript(sessionId, scriptName);
+  }
+
+  attachScript(runId: string): Promise<ScriptRunResult> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.attachScript(runId);
+  }
+
+  stopScript(runId: string): Promise<void> {
+    const transport = this.transport;
+    if (!transport || transport.getState() !== "connected") {
+      return Promise.reject(new Error("transport not connected"));
+    }
+    return transport.stopScript(runId);
   }
 }

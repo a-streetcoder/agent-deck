@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderTree, GitCompareArrows, SquareTerminal } from "lucide-react";
+import { FolderTree, GitCompareArrows, MonitorPlay, SquareTerminal } from "lucide-react";
 import type { KeybindingBinding } from "@agent-deck/contracts";
 import { Composer } from "./components/Composer.tsx";
 import { AppTitleBar } from "./components/AppTitleBar.tsx";
@@ -9,6 +9,7 @@ import { DeckPanel } from "./components/DeckPanel.tsx";
 import { DiffPanel } from "./components/diff/DiffPanel.tsx";
 import { FilesPanel } from "./components/files/FilesPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
+import { PreviewPanel } from "./components/preview/PreviewPanel.tsx";
 import { ProjectPicker } from "./components/ProjectPicker.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { TerminalDrawer } from "./components/TerminalDrawer.tsx";
@@ -84,6 +85,9 @@ function ChatColumn() {
         {/* The file-navigation panel (Slice 13b): a sibling right aside;
             renders null while closed. Ungated by git (any session has a cwd). */}
         <FilesPanel />
+        {/* The dev-server preview panel (Slice 15b): runs project scripts and
+            embeds the discovered dev-server URL; renders null while closed. */}
+        <PreviewPanel />
       </div>
       {/* The per-session terminal drawer (Slice 8b) spans the full chat surface
           bottom, like the donor's thread drawer. Renders null while closed. */}
@@ -100,6 +104,8 @@ export function App() {
   const setDiffPanelOpen = useAppStore((state) => state.setDiffPanelOpen);
   const filesPanelOpen = useAppStore((state) => state.filesPanelOpen);
   const setFilesPanelOpen = useAppStore((state) => state.setFilesPanelOpen);
+  const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
+  const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
   const diffRepo = useAppStore((state) => state.diffRepo);
   const diffFileCount = useAppStore((state) => state.diffFiles.length);
   const connection = useAppStore((state) => state.connection);
@@ -209,6 +215,26 @@ export function App() {
                   onClick={() => setFilesPanelOpen(!filesPanelOpen)}
                 >
                   <FolderTree className="h-4 w-4" />
+                </button>
+              ) : null}
+              {/* Preview toggle (Slice 15b): runs project dev scripts and embeds
+                  the discovered dev-server URL. Ungated by git — shown for any
+                  chat session (it browses the session's package.json scripts). */}
+              {session && isChat ? (
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-md p-1.5 transition-colors hover:bg-[var(--color-hover-fill)]",
+                    previewPanelOpen ? "text-accent" : "text-text-muted",
+                    macDesktop && "[-webkit-app-region:no-drag]",
+                  )}
+                  title="Toggle preview"
+                  aria-label="Toggle preview"
+                  aria-pressed={previewPanelOpen}
+                  data-testid="preview-toggle"
+                  onClick={() => setPreviewPanelOpen(!previewPanelOpen)}
+                >
+                  <MonitorPlay className="h-4 w-4" />
                 </button>
               ) : null}
               {/* Changed-files toggle (Slice 10): only for git-repo sessions

@@ -120,11 +120,17 @@ export const DEFAULT_TERMINAL_ROWS = 30;
 const KILL_GRACE_MS = 1_000;
 
 /**
- * Env keys terminals must NOT inherit from the server process (donor's
+ * Env keys child processes must NOT inherit from the server process (donor's
  * TERMINAL_ENV_BLOCKLIST): dev-server/electron plumbing that would confuse
- * tools launched from the shell.
+ * tools launched from the shell. Exported so the script runner (services/
+ * scriptRunner.ts) blocks the EXACT same server-internal vars — a shared
+ * security value, never a drifting copy.
  */
-const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
+export const TERMINAL_ENV_BLOCKLIST = new Set([
+  "PORT",
+  "ELECTRON_RENDERER_PORT",
+  "ELECTRON_RUN_AS_NODE",
+]);
 
 /** Every candidate in the fallback chain failed to spawn. */
 export class TerminalSpawnFailed extends Data.TaggedError("TerminalSpawnFailed")<{

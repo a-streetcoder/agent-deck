@@ -6,4 +6,5 @@ export * from "./files.ts";
 export * from "./keybindings.ts";
 export * from "./protocol.ts";
 export * from "./rpc.ts";
+export * from "./scripts.ts";
 export * from "./terminal.ts";

@@ -3,6 +3,7 @@ import { SessionDiffLive, type SessionDiff } from "./services/diff.ts";
 import { PersistenceLive, type Persistence } from "./services/persistence.ts";
 import { PiHostLive, type PiHost } from "./services/piHost.ts";
 import { SessionPushBusesLive, type SessionPushBuses } from "./services/pushBus.ts";
+import { ScriptRunnerLive, type ScriptRunner } from "./services/scriptRunner.ts";
 import {
   SessionManagerServiceLive,
   type SessionManagerService,
@@ -67,6 +68,9 @@ const leafLayers = Layer.mergeAll(
   TerminalHostLive,
   // Slice 9 — per-session changed-file tracking + diff computation.
   SessionDiffLive,
+  // Slice 15a — project-script runner factory, a TerminalHost sibling (scoped
+  // child processes + dev-server port discovery).
+  ScriptRunnerLive,
 );
 
 export const serverLayers = SessionManagerServiceLive.pipe(Layer.provideMerge(leafLayers));
@@ -78,7 +82,8 @@ export type ServerServices =
   | SessionManagerService
   | Persistence
   | TerminalHost
-  | SessionDiff;
+  | SessionDiff
+  | ScriptRunner;
 
 export type ServerRuntime = ManagedRuntime.ManagedRuntime<ServerServices, never>;
 

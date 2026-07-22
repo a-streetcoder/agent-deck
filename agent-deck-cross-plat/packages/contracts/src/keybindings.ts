@@ -22,6 +22,7 @@ export const KEYBINDING_COMMANDS = [
   "terminal.toggle",
   "diff.toggle",
   "files.toggle",
+  "preview.toggle",
   "session.new",
   "session.stop",
   "session.next",

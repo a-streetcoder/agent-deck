@@ -10,6 +10,10 @@ import {
   type FileClientRequest,
   type FileContentKind,
   type FileListEntry,
+  type DiscoveredServer,
+  type ProjectScript,
+  type ScriptClientRequest,
+  type ScriptPush,
   type ServerMessage,
   type SessionMeta,
   type TerminalClientRequest,
@@ -83,6 +87,9 @@ export interface TransportOptions {
   readonly onTerminalPush?: (message: TerminalPush) => void;
   /** A decoded diff push (Slice 10): a session's refreshed changed-file set. */
   readonly onDiffPush?: (message: DiffPush) => void;
+  /** A decoded script push (Slice 15b): dev-script output chunks, the discovered
+   * dev-server notification, and the run's exit — outside the reducer path. */
+  readonly onScriptPush?: (message: ScriptPush) => void;
   /** A frame that failed contracts decode at the boundary — dropped, reported. */
   readonly onDecodeError?: (error: string, raw: unknown) => void;
   readonly backoff?: BackoffOptions;
@@ -135,8 +142,26 @@ export interface FileReadResult {
   readonly truncated: boolean;
 }
 
+/** The reply to a `scripts_list` request (Slice 15b): the session project's
+ * declared `package.json` scripts (empty when there is no package.json). */
+export interface ScriptsListResult {
+  readonly scripts: readonly ProjectScript[];
+}
+
+/** The reply to a `script_start` / `script_attach` request (Slice 15b): the
+ * server-allocated run id, the bounded scrollback (populated on reattach),
+ * whether the child is still running, and the discovered dev server (present
+ * once detected+confirmed, so a reattaching preview can re-embed at once). */
+export interface ScriptRunResult {
+  readonly runId: string;
+  readonly scrollback: string;
+  readonly running: boolean;
+  readonly server: DiscoveredServer | null;
+}
+
 /** How one request settled: a plain ack, the hello session list, or a
- * terminal/diff/editor/file reply payload. Internal — the public methods narrow it. */
+ * terminal/diff/editor/file/script reply payload. Internal — the public methods
+ * narrow it. */
 type RequestSettled =
   | { readonly kind: "ok" }
   | { readonly kind: "sessions"; readonly sessions: SessionMeta[] }
@@ -145,7 +170,9 @@ type RequestSettled =
   | { readonly kind: "diff_file"; readonly result: DiffFileResult }
   | { readonly kind: "editors"; readonly editors: readonly EditorId[] }
   | { readonly kind: "file_list"; readonly result: FileListResult }
-  | { readonly kind: "file_read"; readonly result: FileReadResult };
+  | { readonly kind: "file_read"; readonly result: FileReadResult }
+  | { readonly kind: "scripts_list"; readonly result: ScriptsListResult }
+  | { readonly kind: "script_run"; readonly result: ScriptRunResult };
 
 interface Pending {
   readonly resolve: (settled: RequestSettled) => void;
@@ -354,6 +381,28 @@ export class RpcTransport {
         });
         return;
       }
+      case "scripts_list_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({ kind: "scripts_list", result: { scripts: frame.scripts } });
+        return;
+      }
+      case "script_run_ok": {
+        const entry = this.pending.get(frame.id);
+        if (!entry) return;
+        this.pending.delete(frame.id);
+        entry.resolve({
+          kind: "script_run",
+          result: {
+            runId: frame.runId,
+            scrollback: frame.scrollback,
+            running: frame.running,
+            server: frame.server,
+          },
+        });
+        return;
+      }
       case "push":
         this.options.onPush?.(frame.message);
         return;
@@ -362,6 +411,9 @@ export class RpcTransport {
         return;
       case "diff_push":
         this.options.onDiffPush?.(frame.message);
+        return;
+      case "script_push":
+        this.options.onScriptPush?.(frame.message);
         return;
     }
   }
@@ -379,7 +431,8 @@ export class RpcTransport {
       | TerminalClientRequest
       | DiffClientRequest
       | EditorClientRequest
-      | FileClientRequest,
+      | FileClientRequest
+      | ScriptClientRequest,
   ): Promise<RequestSettled> {
     if (this.state !== "connected" || !this.socket) {
       return Promise.reject(new Error("transport not connected"));
@@ -515,6 +568,52 @@ export class RpcTransport {
       throw new Error("file_read settled without a file_read_ok reply");
     }
     return settled.result;
+  }
+
+  /**
+   * List the session project's declared `package.json` scripts (Slice 15b). An
+   * empty list is the clean "no package.json / no scripts" answer; rejects on a
+   * server failure reply (unknown session) or while disconnected.
+   */
+  async scriptsList(sessionId: string): Promise<ScriptsListResult> {
+    const settled = await this.sendRequest({ type: "scripts_list", sessionId });
+    if (settled.kind !== "scripts_list") {
+      throw new Error("scripts_list settled without a scripts_list_ok reply");
+    }
+    return settled.result;
+  }
+
+  /**
+   * Start one DECLARED dev/build script as a managed child process (Slice 15b).
+   * The server resolves `scriptName` against the project's `package.json` and
+   * spawns it in the session cwd (the client never supplies a command). Resolves
+   * with the server-allocated run id; rejects on a server failure reply (unknown
+   * session, undeclared script, a run already active, spawn failure).
+   */
+  async startScript(sessionId: string, scriptName: string): Promise<ScriptRunResult> {
+    const settled = await this.sendRequest({ type: "script_start", sessionId, scriptName });
+    if (settled.kind !== "script_run") {
+      throw new Error("script_start settled without a script_run_ok reply");
+    }
+    return settled.result;
+  }
+
+  /**
+   * Reattach to a run this connection already started (Slice 15b): replays the
+   * bounded scrollback and reports the current dev server, and replaces the push
+   * listener. Rejects on a server failure reply (unknown run) or while offline.
+   */
+  async attachScript(runId: string): Promise<ScriptRunResult> {
+    const settled = await this.sendRequest({ type: "script_attach", runId });
+    if (settled.kind !== "script_run") {
+      throw new Error("script_attach settled without a script_run_ok reply");
+    }
+    return settled.result;
+  }
+
+  /** Stop a run: tree-kill the child process (Slice 15b). Resolves on ack. */
+  async stopScript(runId: string): Promise<void> {
+    await this.sendRequest({ type: "script_stop", runId });
   }
 
   /** Convenience: the `hello` handshake, resolving with the session list. */

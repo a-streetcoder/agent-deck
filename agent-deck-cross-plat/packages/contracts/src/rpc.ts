@@ -17,6 +17,15 @@ import {
 } from "./files.ts";
 import { ClientMessage, ServerMessage, SessionMeta } from "./protocol.ts";
 import {
+  DiscoveredServer,
+  ProjectScript,
+  SCRIPT_MAX_SCRIPTS,
+  SCRIPT_MAX_SCROLLBACK_CHARS,
+  ScriptClientRequest,
+  ScriptPush,
+  ScriptRunId,
+} from "./scripts.ts";
+import {
   TERMINAL_MAX_SCROLLBACK_CHARS,
   TerminalClientRequest,
   TerminalId,
@@ -82,6 +91,7 @@ export const RpcClientFrame = Schema.Struct({
     DiffClientRequest,
     EditorClientRequest,
     FileClientRequest,
+    ScriptClientRequest,
   ),
 });
 export type RpcClientFrame = typeof RpcClientFrame.Type;
@@ -242,6 +252,49 @@ export const RpcFileReadOkFrame = Schema.Struct({
 });
 export type RpcFileReadOkFrame = typeof RpcFileReadOkFrame.Type;
 
+/**
+ * server → client: the reply to a `scripts_list` request (Slice 15a) — the
+ * session project's declared `package.json` scripts. An empty array is the
+ * clean "no package.json / no scripts" answer; it is never an error.
+ */
+export const RpcScriptsListOkFrame = Schema.Struct({
+  kind: Schema.Literal("scripts_list_ok"),
+  id: RequestId,
+  // Decode-side cap (defense-in-depth, parity with DiffPush's maxItems): the
+  // producer already slices to SCRIPT_MAX_SCRIPTS.
+  scripts: Schema.Array(ProjectScript).pipe(Schema.maxItems(SCRIPT_MAX_SCRIPTS)),
+});
+export type RpcScriptsListOkFrame = typeof RpcScriptsListOkFrame.Type;
+
+/**
+ * server → client: the reply to a `script_start` / `script_attach` request
+ * (Slice 15a). Carries the server-allocated run id, the bounded scrollback
+ * (populated on reattach), whether the child is still running, and the current
+ * discovered dev server (present once detected+confirmed, so a reattaching
+ * preview can re-embed without waiting for the next push).
+ */
+export const RpcScriptRunOkFrame = Schema.Struct({
+  kind: Schema.Literal("script_run_ok"),
+  id: RequestId,
+  runId: ScriptRunId,
+  scrollback: Schema.String.pipe(Schema.maxLength(SCRIPT_MAX_SCROLLBACK_CHARS)),
+  running: Schema.Boolean,
+  server: Schema.NullOr(DiscoveredServer),
+});
+export type RpcScriptRunOkFrame = typeof RpcScriptRunOkFrame.Type;
+
+/**
+ * server → client: an unsolicited script push (Slice 15a) — output chunks, the
+ * discovered-server notification, and the exit notification. A separate frame
+ * kind from `push` so `ServerMessage` (parity-pinned) stays untouched, exactly
+ * like `terminal_push` / `diff_push`.
+ */
+export const RpcScriptPushFrame = Schema.Struct({
+  kind: Schema.Literal("script_push"),
+  message: ScriptPush,
+});
+export type RpcScriptPushFrame = typeof RpcScriptPushFrame.Type;
+
 /** server → client: the full frame union spoken on the `/rpc` path. */
 export const RpcServerFrame = Schema.Union(
   RpcReplyFrame,
@@ -255,6 +308,9 @@ export const RpcServerFrame = Schema.Union(
   RpcEditorsOkFrame,
   RpcFileListOkFrame,
   RpcFileReadOkFrame,
+  RpcScriptsListOkFrame,
+  RpcScriptRunOkFrame,
+  RpcScriptPushFrame,
 );
 export type RpcServerFrame = typeof RpcServerFrame.Type;
 

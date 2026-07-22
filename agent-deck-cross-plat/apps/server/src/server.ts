@@ -42,6 +42,7 @@ import {
 import { registerDeckBridgeTools } from "./bridgeTools.ts";
 import { createDiffGateway } from "./diffGateway.ts";
 import { createEditorLauncher } from "./editorLauncher.ts";
+import { createScriptRunnerGateway } from "./scriptRunnerGateway.ts";
 import { createFileService } from "./services/files.ts";
 import { LoopEngine } from "./loopEngine.ts";
 import {
@@ -580,6 +581,10 @@ async function initServer(
   // Slice 13a: file-navigation endpoints (services/files.ts) — directory browse
   // + bounded file read, containment-gated to each session's project cwd.
   const files = createFileService();
+  // Slice 15a: per-session project-script runs (dev servers) + port discovery,
+  // scope-owned through the runtime. Held here (like terminals) so close() can
+  // run the awaited closeAll() sweep — run scopes are detached roots.
+  const scripts = createScriptRunnerGateway(effectRuntime);
   const {
     close: closeWebSockets,
     broadcast: wsBroadcast,
@@ -591,6 +596,7 @@ async function initServer(
     diffs,
     editors,
     files,
+    scripts,
   });
   broadcast = wsBroadcast;
   broadcastDiff = wsBroadcastDiff;
@@ -690,6 +696,9 @@ async function initServer(
         // socket-close teardown is fire-and-forget and terminal scopes are
         // detached roots, so await the PTY kills BEFORE dispose() below.
         await step(() => terminals.closeAll());
+        // Same deterministic teardown for script runs (detached root scopes):
+        // tree-kill every dev server before dispose().
+        await step(() => scripts.closeAll());
         await step(() => fastify.close());
       } finally {
         // Dispose LAST, after the HTTP/WS surface is gone (see startServer).

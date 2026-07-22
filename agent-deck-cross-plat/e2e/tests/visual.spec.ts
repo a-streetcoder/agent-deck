@@ -66,6 +66,12 @@ const DIFF_FILE_CONTENT = "alpha one\nbeta two\ngamma three\n";
 const FILES_PROJECT = mkdtempSync(path.join(tmpdir(), "proj-files-visual-"));
 const FILES_PREVIEW_CONTENT = 'export const answer = 42;\nexport const greeting = "hi";\n';
 
+// The preview-panel baseline's project: a scratch dir whose only script is a
+// static dev server on an EPHEMERAL loopback port. The port varies run to run,
+// so the URL bar + the iframe are MASKED; the baseline guards the browser chrome
+// (nav buttons, frame borders, panel width) once the embed has settled.
+const PREVIEW_PROJECT = mkdtempSync(path.join(tmpdir(), "proj-preview-visual-"));
+
 let harness: E2eHarness;
 
 test.beforeAll(async () => {
@@ -94,6 +100,27 @@ test.beforeAll(async () => {
   writeFileSync(path.join(FILES_PROJECT, "src", "example.ts"), FILES_PREVIEW_CONTENT);
   writeFileSync(path.join(FILES_PROJECT, "README.md"), "# fixture\n");
 
+  // The preview project's dev-server script (ephemeral port, fixed page).
+  writeFileSync(
+    path.join(PREVIEW_PROJECT, "package.json"),
+    JSON.stringify({ name: "preview-fixture", private: true, scripts: { dev: "node server.js" } }),
+  );
+  writeFileSync(
+    path.join(PREVIEW_PROJECT, "server.js"),
+    [
+      "const http = require('node:http');",
+      "const server = http.createServer((_req, res) => {",
+      "  res.writeHead(200, { 'content-type': 'text/html' });",
+      "  res.end('<!doctype html><html><body><h1>preview</h1></body></html>');",
+      "});",
+      "server.listen(0, '127.0.0.1', () => {",
+      "  process.stdout.write(`  Local:   http://localhost:${server.address().port}/\\n`);",
+      "});",
+      "process.on('SIGTERM', () => process.exit(0));",
+      "",
+    ].join("\n"),
+  );
+
   harness = await startHarness({
     reply: () => REPLY,
     chunkDelayMs: 0,
@@ -110,7 +137,7 @@ test.beforeAll(async () => {
       };
     },
   });
-  for (const projectPath of [DIFF_REPO, FILES_PROJECT]) {
+  for (const projectPath of [DIFF_REPO, FILES_PROJECT, PREVIEW_PROJECT]) {
     const response = await fetch(`${harness.baseUrl}/projects`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -371,5 +398,31 @@ test("visual: files panel with a text file previewed", async ({ page }) => {
   await expect(page.getByTestId("chat-layer")).toHaveScreenshot("files-panel.png", {
     ...SCREENSHOT_OPTS,
     mask: dynamicChrome(page),
+  });
+});
+
+test("visual: preview panel with an embedded dev server", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(PREVIEW_PROJECT));
+  await expect(page.getByTestId("session-cwd")).toHaveText(PREVIEW_PROJECT);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Open the panel, run the dev script; the discovered port auto-embeds.
+  await page.getByTestId("preview-toggle").click();
+  await page.getByTestId("preview-run").click();
+  const iframe = page.getByTestId("preview-iframe");
+  await expect(iframe).toBeVisible({ timeout: 30_000 });
+  // Wait for the frame to finish loading so the reload icon isn't mid-spin and
+  // no loading overlay is on screen — then only the port-bearing URL bar +
+  // iframe body vary, and those are masked.
+  await expect(page.getByTestId("preview-loading")).toHaveCount(0, { timeout: 30_000 });
+
+  // Clip to the chat layer (the panel's mount). Mask the URL input (carries the
+  // ephemeral port) and the iframe (cross-origin content is nondeterministic);
+  // the baseline guards the browser chrome + panel frame.
+  await expect(page.getByTestId("chat-layer")).toHaveScreenshot("preview-panel.png", {
+    ...SCREENSHOT_OPTS,
+    mask: [...dynamicChrome(page), page.getByTestId("preview-url-input"), iframe],
   });
 });

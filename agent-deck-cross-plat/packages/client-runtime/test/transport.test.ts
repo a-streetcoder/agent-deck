@@ -80,6 +80,7 @@ function makeHarness(overrides?: {
   const pushes: unknown[] = [];
   const terminalPushes: unknown[] = [];
   const diffPushes: unknown[] = [];
+  const scriptPushes: unknown[] = [];
   const decodeErrors: string[] = [];
   let connectedCount = 0;
   const clock = new FakeClock();
@@ -97,6 +98,7 @@ function makeHarness(overrides?: {
     onPush: (m) => pushes.push(m),
     onTerminalPush: (m) => terminalPushes.push(m),
     onDiffPush: (m) => diffPushes.push(m),
+    onScriptPush: (m) => scriptPushes.push(m),
     onDecodeError: (e) => decodeErrors.push(e),
     backoff: overrides?.backoff ?? { initialMs: 500, maxMs: 10_000, factor: 2 },
     setTimer: clock.setTimer,
@@ -110,6 +112,7 @@ function makeHarness(overrides?: {
     pushes,
     terminalPushes,
     diffPushes,
+    scriptPushes,
     decodeErrors,
     clock,
     connectedCount: () => connectedCount,
@@ -578,5 +581,130 @@ describe("RpcTransport file surface (Slice 13b)", () => {
       }),
     );
     await expect(promise).rejects.toThrow("path escapes the session directory");
+  });
+});
+
+describe("RpcTransport script/preview surface (Slice 15b)", () => {
+  it("scriptsList resolves with the scripts_list_ok payload", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.scriptsList("s1");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({ type: "scripts_list", sessionId: "s1" });
+
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "scripts_list_ok",
+        id: sentFrame.id,
+        scripts: [{ name: "dev", command: "vite" }],
+      }),
+    );
+    await expect(promise).resolves.toEqual({ scripts: [{ name: "dev", command: "vite" }] });
+  });
+
+  it("startScript resolves with the script_run_ok payload (server present)", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.startScript("s1", "dev");
+    const sentFrame = JSON.parse(h.sockets[0]!.sent[0]!) as { id: number; request: unknown };
+    expect(sentFrame.request).toEqual({ type: "script_start", sessionId: "s1", scriptName: "dev" });
+
+    const server = { host: "localhost", port: 5173, url: "http://localhost:5173" };
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "script_run_ok",
+        id: sentFrame.id,
+        runId: "run-1",
+        scrollback: "> vite\n",
+        running: true,
+        server,
+      }),
+    );
+    await expect(promise).resolves.toEqual({
+      runId: "run-1",
+      scrollback: "> vite\n",
+      running: true,
+      server,
+    });
+  });
+
+  it("startScript rejects on a server failure reply (a run already active)", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const promise = h.transport.startScript("s1", "dev");
+    const id = (JSON.parse(h.sockets[0]!.sent[0]!) as { id: number }).id;
+    h.sockets[0]!.message(
+      JSON.stringify({ kind: "reply", id, ok: false, error: "a script is already running" }),
+    );
+    await expect(promise).rejects.toThrow("a script is already running");
+  });
+
+  it("attachScript replays scrollback + server, stopScript acks", async () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const attachPromise = h.transport.attachScript("run-1");
+    const stopPromise = h.transport.stopScript("run-1");
+    const ids = h.sockets[0]!.sent.map((s) => (JSON.parse(s) as { id: number }).id);
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "script_run_ok",
+        id: ids[0],
+        runId: "run-1",
+        scrollback: "buffered output\n",
+        running: false,
+        server: null,
+      }),
+    );
+    h.sockets[0]!.message(JSON.stringify({ kind: "reply", id: ids[1], ok: true }));
+
+    await expect(attachPromise).resolves.toEqual({
+      runId: "run-1",
+      scrollback: "buffered output\n",
+      running: false,
+      server: null,
+    });
+    await expect(stopPromise).resolves.toBeUndefined();
+  });
+
+  it("script_push frames dispatch to onScriptPush (not onPush)", () => {
+    const h = makeHarness();
+    h.transport.connect();
+    h.sockets[0]!.open();
+
+    const output = { type: "script_output", runId: "run-1", data: "listening\n" };
+    const server = {
+      type: "script_server",
+      runId: "run-1",
+      server: { host: "localhost", port: 3000, url: "http://localhost:3000" },
+    };
+    // sanity: the frames are contract-valid
+    expect(
+      Schema.decodeUnknownEither(RpcServerFrame)({ kind: "script_push", message: output })._tag,
+    ).toBe("Right");
+
+    h.sockets[0]!.message(JSON.stringify({ kind: "script_push", message: output }));
+    h.sockets[0]!.message(JSON.stringify({ kind: "script_push", message: server }));
+    h.sockets[0]!.message(
+      JSON.stringify({
+        kind: "script_push",
+        message: { type: "script_exit", runId: "run-1", exitCode: 0, signal: null },
+      }),
+    );
+
+    expect(h.pushes).toHaveLength(0);
+    expect(h.scriptPushes).toEqual([
+      output,
+      server,
+      { type: "script_exit", runId: "run-1", exitCode: 0, signal: null },
+    ]);
+    expect(h.decodeErrors).toHaveLength(0);
   });
 });

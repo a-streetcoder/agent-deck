@@ -2,6 +2,8 @@ import type {
   ClientMessage,
   EditorId,
   ProjectMeta,
+  ProjectScript,
+  ScriptPush,
   ServerMessage,
   SessionMeta,
   TerminalPush,
@@ -10,6 +12,7 @@ import { reduceTranscript } from "@agent-deck/domain";
 import type {
   FileListResult,
   FileReadResult,
+  ScriptRunResult,
   TerminalOpenResult,
 } from "@agent-deck/client-runtime";
 import { RpcClientTransport, type ClientTransport, type TransportHost } from "./clientTransport.ts";
@@ -34,14 +37,21 @@ let currentSessionId: string | null = null;
 const transportHost: TransportHost = {
   onServerMessage: (message) => handleMessage(message),
   setConnection: (status) => {
-    // Terminals are owned by the server-side RPC connection: any drop kills
-    // their PTYs, so every remembered terminal id dies with the socket.
-    if (status !== "open") sessionTerminals.clear();
+    // Terminals AND script runs are owned by the server-side RPC connection: any
+    // drop kills their child processes, so every remembered id dies with the
+    // socket (a reopen respawns / re-lists).
+    if (status !== "open") {
+      sessionTerminals.clear();
+      sessionRuns.clear();
+    }
     useAppStore.getState().setConnection(status);
   },
   getLastSeq: () => useAppStore.getState().lastSeq,
   onTerminalPush: (message) => {
     for (const listener of terminalPushListeners) listener(message);
+  },
+  onScriptPush: (message) => {
+    for (const listener of scriptPushListeners) listener(message);
   },
   // Slice 10: a turn boundary refreshed the session's changed-file set. The
   // push is broadcast per connection and carries its sessionId — only the
@@ -145,6 +155,71 @@ export function closeSessionTerminal(sessionId: string): void {
   if (terminalId === undefined) return;
   sessionTerminals.delete(sessionId);
   transport.sendTerminal({ type: "terminal_close", terminalId });
+}
+
+// ---------------------------------------------------------------------------
+// Preview / dev-script surface (Slice 15b) — ported from t3code's preview state
+// wiring (openDiscoveredPort / usePreviewSession, MIT), re-expressed over our
+// RPC transport: the preview panel lists the CURRENT session's package.json
+// scripts, starts ONE as a managed child process (server-allocated run id,
+// remembered per connection), streams its output, and surfaces the loopback
+// dev-server URL the run starts listening on so the panel can embed it. Like
+// terminals, a run is owned by the RPC connection: a drop tree-kills the child
+// and clears the remembered id (the panel re-lists on reconnect).
+// ---------------------------------------------------------------------------
+
+/** Run ids the server allocated for this connection, per session (one active
+ * run per session — the server enforces it). Cleared on disconnect. */
+const sessionRuns = new Map<string, string>();
+const scriptPushListeners = new Set<(message: ScriptPush) => void>();
+
+/** Subscribe to script pushes (output/server/exit). Returns the unsubscriber. */
+export function subscribeScriptPush(listener: (message: ScriptPush) => void): () => void {
+  scriptPushListeners.add(listener);
+  return () => scriptPushListeners.delete(listener);
+}
+
+/** List the CURRENT session's declared package.json scripts ([] if none/offline). */
+export async function listSessionScripts(): Promise<readonly ProjectScript[]> {
+  const sessionId = currentSessionId;
+  if (!sessionId) return [];
+  const result = await transport.scriptsList(sessionId);
+  return result.scripts;
+}
+
+/** The run this connection currently has active for the CURRENT session, if any
+ * (drives the panel's reattach-on-reopen path). */
+export function getSessionRunId(): string | null {
+  const sessionId = currentSessionId;
+  if (!sessionId) return null;
+  return sessionRuns.get(sessionId) ?? null;
+}
+
+/** Start a declared dev/build script for the CURRENT session as a managed run.
+ * Throws on a server failure reply (undeclared script, a run already active). */
+export async function startSessionScript(scriptName: string): Promise<ScriptRunResult> {
+  const sessionId = currentSessionId;
+  if (!sessionId) throw new Error("no active session");
+  const result = await transport.startScript(sessionId, scriptName);
+  sessionRuns.set(sessionId, result.runId);
+  return result;
+}
+
+/** Reattach to a run (the panel reopened while the dev server still runs):
+ * replays scrollback + the current server, and replaces the push listener. */
+export async function attachSessionRun(runId: string): Promise<ScriptRunResult> {
+  return await transport.attachScript(runId);
+}
+
+/** Stop the CURRENT session's run (tree-kill the child; the next start is fresh). */
+export function stopSessionScript(sessionId: string): void {
+  const runId = sessionRuns.get(sessionId);
+  if (runId === undefined) return;
+  sessionRuns.delete(sessionId);
+  void transport.stopScript(runId).catch(() => {
+    // A stop of an already-exited/torn-down run is a no-op; the exit push (or
+    // the connection drop) already conveyed the truth to the panel.
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -277,8 +352,10 @@ function handleMessage(message: ServerMessage): void {
       break;
     case "session_removed":
       store.removeSession(message.sessionId);
-      // Its terminals died server-side with the session (rpcHandler teardown).
+      // Its terminals AND script runs died server-side with the session
+      // (rpcHandler teardown funnels both into the session-exit hook).
       sessionTerminals.delete(message.sessionId);
+      sessionRuns.delete(message.sessionId);
       // If ANOTHER client deleted the session we're viewing, drop it and open
       // a fresh chat so we're not pointing at (or subscribed to) a dead id.
       if (useAppStore.getState().session?.id === message.sessionId) {

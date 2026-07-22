@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { RpcServerFrame } from "@agent-deck/contracts";
-import type { RpcServerFrame as Frame } from "@agent-deck/contracts";
+import type { DiscoveredServer, RpcServerFrame as Frame } from "@agent-deck/contracts";
 import type { DiffGateway } from "../src/diffGateway.ts";
 import type { EditorLauncher, EditorOpenInput } from "../src/editorLauncher.ts";
 import { createRpcConnection } from "../src/rpcHandler.ts";
+import type { OpenedScript, ScriptRunnerGateway } from "../src/scriptRunnerGateway.ts";
 import type { ManagedSession, SessionManager } from "../src/SessionManager.ts";
 import type { FileService } from "../src/services/files.ts";
 import type { StampedEvent } from "../src/services/pushBus.ts";
+import type { ScriptEvent } from "../src/services/scriptRunner.ts";
 import type { TerminalEvent } from "../src/services/terminal.ts";
 import type { OpenedTerminal, TerminalGateway } from "../src/terminalGateway.ts";
 
@@ -164,6 +166,77 @@ function makeTerminalGateway() {
   return { gateway, openCalls, terminals };
 }
 
+// --- Fake script runner gateway (Slice 15a): scripted runs, no child procs ---
+
+interface FakeScript {
+  readonly opened: OpenedScript;
+  /** Simulate output/server/exit reaching the connection's listener (+ scrollback). */
+  emit: (event: ScriptEvent) => void;
+  listenerCount: () => number;
+  close: ReturnType<typeof vi.fn>;
+}
+
+function makeFakeScript(runId: string, sessionId: string, scriptName: string): FakeScript {
+  const listeners = new Set<(event: ScriptEvent) => void>();
+  let scrollback = "";
+  let running = true;
+  let discovered: DiscoveredServer | null = null;
+  const emit = (event: ScriptEvent): void => {
+    if (event._tag === "Output") scrollback += event.data;
+    else if (event._tag === "Server") discovered = event.server;
+    else running = false;
+    for (const listener of [...listeners]) listener(event);
+  };
+  const close = vi.fn(async () => {
+    if (running) emit({ _tag: "Exit", exit: { exitCode: 0, signal: "SIGTERM" } });
+  });
+  const opened: OpenedScript = {
+    runId,
+    sessionId,
+    scriptName,
+    pid: 5252,
+    attach: (listener) => {
+      listeners.add(listener);
+      return {
+        scrollback,
+        running,
+        server: discovered,
+        unsubscribe: () => listeners.delete(listener),
+      };
+    },
+    close,
+  };
+  return { opened, emit, listenerCount: () => listeners.size, close };
+}
+
+function makeScriptGateway(scripts: Record<string, { name: string; command: string }[]> = {}) {
+  const startCalls: Array<{ sessionId: string; scriptName: string; cwd: string }> = [];
+  const runs: FakeScript[] = [];
+  let nextId = 1;
+  let startError: Error | null = null;
+  const gateway: ScriptRunnerGateway = {
+    listScripts: async (cwd) => scripts[cwd] ?? [],
+    start: async (options) => {
+      startCalls.push({ ...options });
+      if (startError) throw startError;
+      const run = makeFakeScript(`run-${nextId++}`, options.sessionId, options.scriptName);
+      runs.push(run);
+      return run.opened;
+    },
+    closeAll: async () => {
+      await Promise.all(runs.map((run) => run.opened.close()));
+    },
+  };
+  return {
+    gateway,
+    startCalls,
+    runs,
+    setStartError: (error: Error | null) => {
+      startError = error;
+    },
+  };
+}
+
 function makeManager(sessions: Record<string, ManagedSession>, list: unknown[] = []) {
   return {
     get: (id: string) => sessions[id],
@@ -243,6 +316,7 @@ function harness(
   diffs?: DiffGateway,
   editors?: EditorLauncher,
   files?: FileService,
+  scripts?: ScriptRunnerGateway,
 ) {
   const frames: Frame[] = [];
   const conn = createRpcConnection({
@@ -251,6 +325,7 @@ function harness(
     diffs: diffs ?? makeDiffGateway().gateway,
     editors: editors ?? makeEditorLauncher().launcher,
     files: files ?? makeFileService().service,
+    scripts: scripts ?? makeScriptGateway().gateway,
     send: (frame) => {
       // Assert every outbound frame is contract-valid.
       expect(decodeFrame(frame)._tag, JSON.stringify(frame)).toBe("Right");
@@ -903,5 +978,156 @@ describe("createRpcConnection file ops (Slice 13a)", () => {
       { kind: "reply", id: 6, ok: false, error: "path escapes the session directory" },
       { kind: "reply", id: 7, ok: false, error: "file not found" },
     ]);
+  });
+});
+
+describe("createRpcConnection script/dev-server ops (Slice 15a)", () => {
+  const withScripts = (sessions: Record<string, ManagedSession>, scripts: ScriptRunnerGateway) =>
+    harness(makeManager(sessions), undefined, undefined, undefined, undefined, undefined, scripts);
+
+  const server: DiscoveredServer = { host: "localhost", port: 5173, url: "http://localhost:5173" };
+
+  it("scripts_list answers with the session project's declared scripts (cwd from meta)", async () => {
+    const { session } = makeSession("s1"); // meta.cwd === "/tmp"
+    const scripts = makeScriptGateway({ "/tmp": [{ name: "dev", command: "vite" }] });
+    const { conn, frames } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(frame(1, { type: "scripts_list", sessionId: "s1" }));
+    expect(frames).toEqual([
+      { kind: "scripts_list_ok", id: 1, scripts: [{ name: "dev", command: "vite" }] },
+    ]);
+  });
+
+  it("script_start spawns via the gateway, streams output/server, and pushes exit", async () => {
+    const { session } = makeSession("s1");
+    const scripts = makeScriptGateway();
+    const { conn, frames } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(2, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    // The gateway resolves the cwd server-side (session meta), never the wire.
+    expect(scripts.startCalls).toEqual([{ sessionId: "s1", scriptName: "dev", cwd: "/tmp" }]);
+    expect(frames).toEqual([
+      { kind: "script_run_ok", id: 2, runId: "run-1", scrollback: "", running: true, server: null },
+    ]);
+
+    const run = scripts.runs[0]!;
+    run.emit({ _tag: "Output", data: "vite ready\n" });
+    run.emit({ _tag: "Server", server });
+    run.emit({ _tag: "Exit", exit: { exitCode: 0, signal: null } });
+    expect(frames.slice(1)).toEqual([
+      {
+        kind: "script_push",
+        message: { type: "script_output", runId: "run-1", data: "vite ready\n" },
+      },
+      { kind: "script_push", message: { type: "script_server", runId: "run-1", server } },
+      {
+        kind: "script_push",
+        message: { type: "script_exit", runId: "run-1", exitCode: 0, signal: null },
+      },
+    ]);
+  });
+
+  it("script_attach replays scrollback + current server and replaces the listener", async () => {
+    const { session } = makeSession("s1");
+    const scripts = makeScriptGateway();
+    const { conn, frames } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(1, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    const run = scripts.runs[0]!;
+    run.emit({ _tag: "Output", data: "listening\n" });
+    run.emit({ _tag: "Server", server });
+    expect(run.listenerCount()).toBe(1);
+
+    await conn.handleMessage(frame(2, { type: "script_attach", runId: "run-1" }));
+    expect(frames.at(-1)).toEqual({
+      kind: "script_run_ok",
+      id: 2,
+      runId: "run-1",
+      scrollback: "listening\n",
+      running: true,
+      server,
+    });
+    // The old listener was replaced, not stacked (still exactly one).
+    expect(run.listenerCount()).toBe(1);
+  });
+
+  it("script_stop closes the run (tree-kill via the scope) and acks", async () => {
+    const { session } = makeSession("s1");
+    const scripts = makeScriptGateway();
+    const { conn, frames } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(1, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    const run = scripts.runs[0]!;
+    await conn.handleMessage(frame(2, { type: "script_stop", runId: "run-1" }));
+    expect(run.close).toHaveBeenCalledTimes(1);
+    expect(frames.at(-1)).toEqual({ kind: "reply", id: 2, ok: true });
+  });
+
+  it("script ops on an unknown session / run reply with an error (ownership gate)", async () => {
+    const scripts = makeScriptGateway();
+    const { conn, frames } = withScripts({}, scripts.gateway);
+    await conn.handleMessage(frame(1, { type: "scripts_list", sessionId: "nope" }));
+    await conn.handleMessage(
+      frame(2, { type: "script_start", sessionId: "nope", scriptName: "dev" }),
+    );
+    await conn.handleMessage(frame(3, { type: "script_attach", runId: "run-99" }));
+    await conn.handleMessage(frame(4, { type: "script_stop", runId: "run-99" }));
+    expect(frames).toEqual([
+      { kind: "reply", id: 1, ok: false, error: "unknown session" },
+      { kind: "reply", id: 2, ok: false, error: "unknown session" },
+      { kind: "reply", id: 3, ok: false, error: "unknown run" },
+      { kind: "reply", id: 4, ok: false, error: "unknown run" },
+    ]);
+    expect(scripts.startCalls).toEqual([]);
+  });
+
+  it("script_start on an ended session is rejected without spawning", async () => {
+    const { session } = makeSession("s1", { endedAt: "2026-01-01T00:00:00.000Z" });
+    const scripts = makeScriptGateway();
+    const { conn, frames } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(1, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    expect(frames).toEqual([{ kind: "reply", id: 1, ok: false, error: "session has ended" }]);
+    expect(scripts.startCalls).toEqual([]);
+  });
+
+  it("a rejected start (e.g. already running / not declared) surfaces as a failure reply", async () => {
+    const { session } = makeSession("s1");
+    const scripts = makeScriptGateway();
+    scripts.setStartError(new Error("a script is already running for this session"));
+    const { conn, frames } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(1, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    expect(frames).toEqual([
+      { kind: "reply", id: 1, ok: false, error: "a script is already running for this session" },
+    ]);
+  });
+
+  it("a session exit tears down its running scripts (no orphan dev servers)", async () => {
+    const { session, triggerExit } = makeSession("s1");
+    const scripts = makeScriptGateway();
+    const { conn } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(1, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    const run = scripts.runs[0]!;
+    triggerExit();
+    expect(run.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("connection close tears down every owned run", async () => {
+    const { session } = makeSession("s1");
+    const scripts = makeScriptGateway();
+    const { conn } = withScripts({ s1: session }, scripts.gateway);
+    await conn.handleMessage(
+      frame(1, { type: "script_start", sessionId: "s1", scriptName: "dev" }),
+    );
+    const run = scripts.runs[0]!;
+    conn.close();
+    expect(run.close).toHaveBeenCalledTimes(1);
   });
 });

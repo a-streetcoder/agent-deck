@@ -8,8 +8,10 @@ import { Either, Schema } from "effect";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { DiffGateway } from "./diffGateway.ts";
 import type { EditorLauncher } from "./editorLauncher.ts";
+import type { OpenedScript, ScriptRunnerGateway } from "./scriptRunnerGateway.ts";
 import type { ManagedSession, SessionManager } from "./SessionManager.ts";
 import type { FileService } from "./services/files.ts";
+import type { ScriptEvent } from "./services/scriptRunner.ts";
 import type { TerminalEvent } from "./services/terminal.ts";
 import type { OpenedTerminal, TerminalGateway } from "./terminalGateway.ts";
 
@@ -64,11 +66,12 @@ export function createRpcConnection(deps: {
   diffs: DiffGateway;
   editors: EditorLauncher;
   files: FileService;
+  scripts: ScriptRunnerGateway;
   send: (frame: RpcServerFrame) => void;
   /** Socket send-buffer depth in bytes (`ws` bufferedAmount); 0 when absent. */
   bufferedAmount?: () => number;
 }): RpcConnection {
-  const { sessions, terminals, diffs, editors, files, send } = deps;
+  const { sessions, terminals, diffs, editors, files, scripts, send } = deps;
   const bufferedAmount = deps.bufferedAmount ?? ((): number => 0);
   const push = (message: ServerMessage): void => send({ kind: "push", message });
 
@@ -89,9 +92,23 @@ export function createRpcConnection(deps: {
     detach: () => void;
   }
   const terminalEntries = new Map<string, TerminalEntry>();
-  // One session-exit hook per session with live terminals: the session
+
+  // Script-run ownership (Slice 15a): dev-server/script runs started over THIS
+  // connection, each a detached Scope owned via its gateway handle. Same
+  // teardown funnel as terminals — script_stop, connection drop, owning-session
+  // exit — all reach `entry.opened.close()` (the scope close that tree-kills the
+  // child), so no orphan dev servers.
+  interface ScriptEntry {
+    opened: OpenedScript;
+    /** Unsubscribe of the CURRENT push listener (replaced on reattach). */
+    detach: () => void;
+  }
+  const scriptEntries = new Map<string, ScriptEntry>();
+
+  // One session-exit hook per session with live terminals/runs: the session
   // closing (pi exit — destroy() funnels into stop() → exit) tears its
-  // terminals down, so a removed session can never leave orphan PTYs.
+  // terminals AND script runs down, so a removed session can never leave orphan
+  // child processes.
   const sessionExitHooks = new Map<string, () => void>();
 
   // Backpressure valve state: PTYs paused because this connection's socket
@@ -158,9 +175,46 @@ export function createRpcConnection(deps: {
     void entry.opened.close().catch(() => {});
   };
 
-  const closeTerminalsForSession = (sessionId: string): void => {
+  const scriptListener =
+    (runId: string) =>
+    (event: ScriptEvent): void => {
+      if (event._tag === "Output") {
+        send({ kind: "script_push", message: { type: "script_output", runId, data: event.data } });
+        return;
+      }
+      if (event._tag === "Server") {
+        send({
+          kind: "script_push",
+          message: { type: "script_server", runId, server: event.server },
+        });
+        return;
+      }
+      send({
+        kind: "script_push",
+        message: {
+          type: "script_exit",
+          runId,
+          exitCode: event.exit.exitCode,
+          signal: event.exit.signal,
+        },
+      });
+    };
+
+  const closeScript = (runId: string): void => {
+    const entry = scriptEntries.get(runId);
+    if (!entry) return;
+    scriptEntries.delete(runId);
+    // The push listener stays attached through the close so the client still
+    // receives the script_exit push produced by the tree-kill.
+    void entry.opened.close().catch(() => {});
+  };
+
+  const closeSessionProcesses = (sessionId: string): void => {
     for (const [terminalId, entry] of terminalEntries) {
       if (entry.opened.sessionId === sessionId) closeTerminal(terminalId);
+    }
+    for (const [runId, entry] of scriptEntries) {
+      if (entry.opened.sessionId === sessionId) closeScript(runId);
     }
     sessionExitHooks.get(sessionId)?.();
     sessionExitHooks.delete(sessionId);
@@ -171,13 +225,13 @@ export function createRpcConnection(deps: {
     if (sessionExitHooks.has(sessionId)) return;
     // onExit fires the listener SYNCHRONOUSLY when the session has already
     // exited (services/sessionManager.ts) — possible when the session dies
-    // between the handler's sessions.get() and the PTY spawn. Detect that and
+    // between the handler's sessions.get() and the child spawn. Detect that and
     // drop the hook instead of storing a stale no-op unhook for a session
     // that will never fire again.
     let exited = false;
     const unhook = session.onExit(() => {
       exited = true;
-      closeTerminalsForSession(sessionId);
+      closeSessionProcesses(sessionId);
     });
     if (exited) {
       unhook();
@@ -454,6 +508,99 @@ export function createRpcConnection(deps: {
       }
       return;
     }
+    // Script/dev-server ops (Slice 15a). scripts_list + script_start address a
+    // session (cwd resolved server-side from meta, never the wire; the command
+    // resolved from the project's package.json, never client-supplied);
+    // script_attach + script_stop address a runId this connection owns.
+    if (request.type === "scripts_list") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      try {
+        const list = await scripts.listScripts(session.meta.cwd);
+        send({ kind: "scripts_list_ok", id, scripts: list });
+      } catch (error) {
+        replyError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (request.type === "script_start") {
+      const session = sessions.get(request.sessionId);
+      if (!session) {
+        replyError("unknown session");
+        return;
+      }
+      // An ENDED session stays listed but its exit hook would reap a fresh run
+      // synchronously — reject instead of burning a spawn+kill.
+      if (session.meta.endedAt !== undefined) {
+        replyError("session has ended");
+        return;
+      }
+      try {
+        const opened = await scripts.start({
+          sessionId: session.meta.id,
+          scriptName: request.scriptName,
+          cwd: session.meta.cwd,
+        });
+        // The socket may have dropped DURING the spawn — close() already swept
+        // scriptEntries, so inserting now would orphan the child. Reap it.
+        if (connectionClosed) {
+          void opened.close().catch(() => {});
+          return;
+        }
+        const attachment = opened.attach(scriptListener(opened.runId));
+        scriptEntries.set(opened.runId, { opened, detach: attachment.unsubscribe });
+        ensureSessionExitHook(session);
+        // The session may have exited DURING the spawn: the hook fired and
+        // already reaped the entry — report the truth, not a running run.
+        if (!scriptEntries.has(opened.runId)) {
+          replyError("session has ended");
+          return;
+        }
+        send({
+          kind: "script_run_ok",
+          id,
+          runId: opened.runId,
+          scrollback: attachment.scrollback,
+          running: attachment.running,
+          server: attachment.server,
+        });
+      } catch (error) {
+        replyError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (request.type === "script_attach") {
+      const entry = scriptEntries.get(request.runId);
+      if (!entry) {
+        replyError("unknown run");
+        return;
+      }
+      entry.detach();
+      const attachment = entry.opened.attach(scriptListener(request.runId));
+      entry.detach = attachment.unsubscribe;
+      send({
+        kind: "script_run_ok",
+        id,
+        runId: request.runId,
+        scrollback: attachment.scrollback,
+        running: attachment.running,
+        server: attachment.server,
+      });
+      return;
+    }
+    if (request.type === "script_stop") {
+      const entry = scriptEntries.get(request.runId);
+      if (!entry) {
+        replyError("unknown run");
+        return;
+      }
+      closeScript(request.runId);
+      replyOk();
+      return;
+    }
     const session = sessions.get(request.sessionId);
     if (!session) {
       replyError("unknown session");
@@ -521,6 +668,13 @@ export function createRpcConnection(deps: {
         void entry.opened.close().catch(() => {});
       }
       terminalEntries.clear();
+      // Connection drop tears every owned script run down too (no orphan dev
+      // servers). Detach first: the socket is gone, so exit pushes go nowhere.
+      for (const entry of scriptEntries.values()) {
+        entry.detach();
+        void entry.opened.close().catch(() => {});
+      }
+      scriptEntries.clear();
       for (const unhook of sessionExitHooks.values()) unhook();
       sessionExitHooks.clear();
     },
@@ -541,8 +695,9 @@ export function setupRpcEndpoint(deps: {
   diffs: DiffGateway;
   editors: EditorLauncher;
   files: FileService;
+  scripts: ScriptRunnerGateway;
 }): RpcEndpoint {
-  const { sessions, terminals, diffs, editors, files } = deps;
+  const { sessions, terminals, diffs, editors, files, scripts } = deps;
 
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set<WebSocket>();
@@ -565,6 +720,7 @@ export function setupRpcEndpoint(deps: {
       diffs,
       editors,
       files,
+      scripts,
       send: (frame) => sendTo(socket, frame),
       // Terminal push backpressure reads the real socket send-buffer depth.
       bufferedAmount: () => socket.bufferedAmount,

@@ -116,6 +116,18 @@ const ACTION_COMMANDS: readonly CommandDefinition[] = [
     },
   },
   {
+    command: "preview.toggle",
+    label: "Toggle Preview",
+    group: "actions",
+    keywords: ["dev server", "browser", "scripts", "run", "localhost"],
+    run: () => {
+      const store = useAppStore.getState();
+      // The preview lives on the chat surface only (matches the header toggle).
+      if (store.view !== "chat") return;
+      store.setPreviewPanelOpen(!store.previewPanelOpen);
+    },
+  },
+  {
     command: "session.new",
     label: "New Session",
     group: "actions",

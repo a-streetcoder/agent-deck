@@ -88,6 +88,15 @@ export interface AppState {
    * has a cwd), so the toggle shows for every chat session.
    */
   filesPanelOpen: boolean;
+  /**
+   * Whether the dev-server preview panel is open (Slice 15b). Follows the
+   * terminalOpen / filesPanelOpen pattern: one global boolean, the panel runs
+   * the CURRENT session's package.json scripts and embeds the discovered
+   * dev-server URL. Ungated (any session has a cwd + maybe scripts), so the
+   * toggle shows for every chat session; renders null while closed (a session
+   * that never opens it never spawns a dev server).
+   */
+  previewPanelOpen: boolean;
   /** Whether the current session's cwd is a git work tree (diff surface gate).
    * False until the first diff_files fetch answers — the toggle stays hidden
    * for non-repo sessions and while the answer is in flight. */
@@ -139,6 +148,7 @@ export interface AppState {
   setTerminalOpen(open: boolean): void;
   setDiffPanelOpen(open: boolean): void;
   setFilesPanelOpen(open: boolean): void;
+  setPreviewPanelOpen(open: boolean): void;
   /** Replace the changed-file set (a diff_push or a diff_files fetch). */
   setDiffState(state: { repo: boolean; files: readonly DiffFileEntry[]; truncated: boolean }): void;
   /** Drop the previous session's set on a session switch (panel stays open). */
@@ -192,6 +202,7 @@ export const useAppStore = create<AppState>((set) => ({
   terminalOpen: false,
   diffPanelOpen: false,
   filesPanelOpen: false,
+  previewPanelOpen: false,
   diffRepo: false,
   diffFiles: [],
   diffTruncated: false,
@@ -232,6 +243,7 @@ export const useAppStore = create<AppState>((set) => ({
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
   setDiffPanelOpen: (diffPanelOpen) => set({ diffPanelOpen }),
   setFilesPanelOpen: (filesPanelOpen) => set({ filesPanelOpen }),
+  setPreviewPanelOpen: (previewPanelOpen) => set({ previewPanelOpen }),
   setDiffState: ({ repo, files, truncated }) =>
     set({ diffRepo: repo, diffFiles: files, diffTruncated: truncated }),
   resetDiffState: () => set({ diffRepo: false, diffFiles: [], diffTruncated: false }),
