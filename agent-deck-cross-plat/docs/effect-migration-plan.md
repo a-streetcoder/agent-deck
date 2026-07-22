@@ -595,14 +595,18 @@ main` Merge commit) + diff-worktree-toolbar visual baseline (masked dynamic bran
 Menu, shell` — no Notification/Tray/setBadgeCount, no focus tracking, and it spawns the
   server via `pnpm --filter … dev` (a dev-checkout shell, NOT a packaged bundle). There is
   no electron-builder/forge, no `.github` release automation, and no code-signing config.
-- **S22a — notifications + badges: IN PROGRESS (workflow).** Native OS notifications on the
-  active session's turn-complete (`agentStatus` running→idle, already detected at
-  Composer.tsx:246-248) and approval-needed (`openQuestion` non-null), plus a dock/taskbar
-  badge via `app.setBadgeCount`. Design: the web forwards semantic attention events over a
-  new `signalAttention` preload bridge; MAIN owns the `!isFocused()` gate + badge counter
-  (increment while unfocused, clear on focus) so it's testable via the `_electron`
-  `app.evaluate` spy pattern (desktop-electron.spec.ts). Scoped to the ACTIVE session
-  (agentStatus is active-session-only); background-session notifications deferred.
+- **S22a — notifications + badges: LANDED (2026-07-22, 041145c).** Native OS notifications
+  on the active session's turn-complete (`agentStatus` running→idle) and approval-needed
+  (`openQuestion`), plus a dock/taskbar badge via `app.setBadgeCount`. The web forwards
+  semantic attention events over a new `signalAttention` preload bridge; MAIN owns the
+  `!isFocused()` gate + badge counter (increment while unfocused, clear on focus) so it's
+  testable via the `_electron` `app.evaluate` spy pattern. Scoped to the ACTIVE session
+  (agentStatus is active-session-only); background-session notifications deferred. Review:
+  0 blocker/major; fixes applied — edge-detection extracted to a PURE
+  `attentionEventsFor(prev, next)` + 8 unit tests (closed the untested-hook gap);
+  approval-needed now fires on any new distinct question id (not only null→non-null);
+  documented the harmless focus-gated rollback edge. Gates green (web unit 54, desktop e2e
+  6/6 incl. a Notification/setBadgeCount spy test asserting focus clears the badge).
 - **S22b — auto-update + packaging/signing: PARKED (2026-07-22) pending USER/infra
   decisions.** electron-updater needs three things the repo has zero of, and they are not
   self-contained code tasks: (1) a packaging tool (electron-builder) AND a bundled-server
