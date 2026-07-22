@@ -555,10 +555,10 @@ machinery — this is where "their chrome, our core" pays off.
   button idle-gated (was the lone ungated merge surface). DEFERRED (branch-vs-base gap, →
   S23): committed-in-worktree work (agent/terminal `git commit` inside the worktree) is
   merged but NOT shown in the working-tree diff — a true review needs a `sourceBranch...
-  worktreeBranch` diff base (new git primitive + diff-scope contract); also a shared live
+worktreeBranch` diff base (new git primitive + diff-scope contract); also a shared live
   settings store so the gitAutomation gate tracks Preferences without reload (self-corrects
   on reload today). Tests: worktree-merge.spec.ts (full click→merge→verify incl. `git log
-  main` Merge commit) + diff-worktree-toolbar visual baseline (masked dynamic branch). All
+main` Merge commit) + diff-worktree-toolbar visual baseline (masked dynamic branch). All
   gates green (typecheck, lint, format, web unit, server unit 305, e2e, visual); CI real-pi
   matrix validates the unchanged merge route.
 
