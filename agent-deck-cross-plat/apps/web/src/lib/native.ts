@@ -3,6 +3,14 @@
  * the bridge is absent, so callers fall back to the type-a-path input.
  */
 
+/** A semantic attention event forwarded to the Electron shell (Slice 22a). */
+export interface AttentionPayload {
+  kind: "turn-complete" | "approval-needed";
+  title: string;
+  body: string;
+  sessionId?: string;
+}
+
 export interface AgentDeckBridge {
   isElectron?: boolean;
   platform?: string;
@@ -18,6 +26,8 @@ export interface AgentDeckBridge {
   ): Promise<boolean>;
   /** Subscribe to native-menu commands; returns an unsubscribe function. */
   onMenu?(handler: (action: string) => void): () => void;
+  /** Forward a semantic attention event; the main process owns the focus gate. */
+  signalAttention?(payload: AttentionPayload): void;
 }
 
 declare global {
@@ -75,5 +85,22 @@ export async function chooseDirectory(
   } catch {
     // A failed IPC/dialog shouldn't become an unhandled rejection at call sites.
     return [];
+  }
+}
+
+/**
+ * Forward a semantic attention event (turn complete / approval needed) to the
+ * Electron shell (Slice 22a). No-op in a plain browser, or against an older
+ * bridge that predates the method. Fire-and-forget: the MAIN process decides
+ * whether to actually notify/badge based on window focus, so this never throws
+ * at the call site.
+ */
+export function signalAttention(payload: AttentionPayload): void {
+  const bridge = nativeBridge();
+  if (!bridge?.signalAttention) return;
+  try {
+    bridge.signalAttention(payload);
+  } catch {
+    // A failed IPC must not surface where a domain transition is detected.
   }
 }

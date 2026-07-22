@@ -18,6 +18,15 @@ contextBridge.exposeInMainWorld("agentDeck", {
   /** Open a native menu at a renderer-provided titlebar anchor. */
   openAppMenu: (name, anchor) => ipcRenderer.invoke("app-menu:open", name, anchor),
   /**
+   * Forward a semantic attention event to the shell (Slice 22a). Fire-and-forget
+   * (send, not invoke): the MAIN process owns the focus gate and the OS surface —
+   * it decides whether to show a native notification and bump the taskbar/dock
+   * badge based on whether the window is currently focused. The renderer only
+   * detects the domain transition and forwards it.
+   * @param {{ kind: "turn-complete" | "approval-needed", title: string, body: string, sessionId?: string }} payload
+   */
+  signalAttention: (payload) => ipcRenderer.send("attention", payload),
+  /**
    * Subscribe to native-menu commands ("new-chat", "add-project",
    * "open-keybindings"). Returns an unsubscribe function.
    * @param {(action: string) => void} handler

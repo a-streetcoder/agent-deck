@@ -288,6 +288,117 @@ test("File → Edit Keybindings… opens the editor (palette-independent recover
   await expect(editor).toHaveCount(0);
 });
 
+test("attention events notify + badge while unfocused, and focus clears the badge", async () => {
+  const window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+
+  // Install main-process spies (Slice 22a): record setBadgeCount + notification
+  // shows, force isFocused()=false so the focus gate lets events through, and
+  // force Notification.isSupported()=true. Stubbing Notification.prototype.show
+  // works because main.js's `new Notification(...)` shares this exact prototype.
+  await app.evaluate(({ app: electronApp, BrowserWindow, Notification }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) throw new Error("no window");
+    const g = globalThis as typeof globalThis & {
+      agentDeckAttention?: {
+        badge: number[];
+        notifications: Array<{ title: string; body: string }>;
+      };
+    };
+    g.agentDeckAttention = { badge: [], notifications: [] };
+    electronApp.setBadgeCount = (n: number) => {
+      g.agentDeckAttention!.badge.push(n);
+      return true;
+    };
+    win.isFocused = () => false;
+    Notification.isSupported = () => true;
+    (Notification.prototype as unknown as { show: () => void }).show = function (this: {
+      title?: string;
+      body?: string;
+    }) {
+      g.agentDeckAttention!.notifications.push({ title: this.title ?? "", body: this.body ?? "" });
+    };
+    // Re-baseline the counter + recording so a stray startup focus can't skew it.
+    win.emit("focus");
+    g.agentDeckAttention = { badge: [], notifications: [] };
+  });
+
+  const readAttention = () =>
+    app.evaluate(() => {
+      const g = globalThis as typeof globalThis & {
+        agentDeckAttention?: {
+          badge: number[];
+          notifications: Array<{ title: string; body: string }>;
+        };
+      };
+      return g.agentDeckAttention ?? { badge: [], notifications: [] };
+    });
+
+  // Turn complete while unfocused → one notification + badge 1.
+  await window.evaluate(() => {
+    (
+      window as unknown as { agentDeck?: { signalAttention?(p: unknown): void } }
+    ).agentDeck?.signalAttention?.({
+      kind: "turn-complete",
+      title: "My session",
+      body: "Turn complete",
+    });
+  });
+  await expect.poll(async () => (await readAttention()).badge.at(-1)).toBe(1);
+  {
+    const state = await readAttention();
+    expect(state.notifications).toContainEqual({ title: "My session", body: "Turn complete" });
+  }
+
+  // Approval needed while unfocused → a second notification + badge 2.
+  await window.evaluate(() => {
+    (
+      window as unknown as { agentDeck?: { signalAttention?(p: unknown): void } }
+    ).agentDeck?.signalAttention?.({
+      kind: "approval-needed",
+      title: "My session",
+      body: "Run rm -rf build?",
+    });
+  });
+  await expect.poll(async () => (await readAttention()).badge.at(-1)).toBe(2);
+  {
+    const state = await readAttention();
+    expect(state.notifications).toContainEqual({ title: "My session", body: "Run rm -rf build?" });
+  }
+
+  // Focusing the window clears the badge (attention "seen").
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.emit("focus");
+  });
+  await expect.poll(async () => (await readAttention()).badge.at(-1)).toBe(0);
+
+  // A focused window suppresses both notification and badge bump.
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0]!;
+    win.isFocused = () => true;
+    const g = globalThis as typeof globalThis & {
+      agentDeckAttention?: { badge: number[]; notifications: Array<unknown> };
+    };
+    g.agentDeckAttention = { badge: [], notifications: [] };
+  });
+  await window.evaluate(() => {
+    (
+      window as unknown as { agentDeck?: { signalAttention?(p: unknown): void } }
+    ).agentDeck?.signalAttention?.({
+      kind: "turn-complete",
+      title: "My session",
+      body: "Turn complete",
+    });
+  });
+  // Give the fire-and-forget IPC a beat, then assert nothing was recorded.
+  await window.waitForTimeout(200);
+  {
+    const state = await readAttention();
+    expect(state.badge).toEqual([]);
+    expect(state.notifications).toEqual([]);
+  }
+});
+
 test("the app presents itself as Agent Deck", async () => {
   const name = await app.evaluate(({ app: electronApp }) => electronApp.getName());
   expect(name).toBe("Agent Deck");

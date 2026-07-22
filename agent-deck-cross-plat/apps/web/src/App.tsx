@@ -38,6 +38,7 @@ import { refreshCheckpoints } from "./state/wsBridge.ts";
 import { useAppStore } from "./state/store.ts";
 import { useKeyboardShortcuts } from "./state/useKeyboardShortcuts.ts";
 import { useMenuCommands } from "./state/useMenuCommands.ts";
+import { useDesktopAttention } from "./state/useDesktopAttention.ts";
 
 /**
  * Detail routing mirrors the native ContentView: the chat surface stays
@@ -129,6 +130,9 @@ export function App() {
   const setKeybindings = useAppStore((state) => state.setKeybindings);
   useMenuCommands();
   useKeyboardShortcuts();
+  // Slice 22a: forward turn-complete / approval-needed transitions on the active
+  // session to the Electron shell (native notification + taskbar/dock badge).
+  useDesktopAttention();
   // Seed the user's keybinding overrides once on boot so the global handler and
   // the palette resolve chords against the persisted map (Slice 14). The editor
   // keeps the store in sync thereafter.

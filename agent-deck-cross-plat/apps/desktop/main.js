@@ -14,7 +14,7 @@ import http from "node:http";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, shell } from "electron";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // apps/desktop -> repo root (agent-deck-cross-plat).
@@ -32,6 +32,10 @@ const TITLEBAR_SYMBOL = "#f5f5f7";
 let serverProcess = null;
 let serverPort = null;
 let mainWindow = null;
+// Unseen-attention count driving the taskbar/dock badge (Slice 22a). Bumped when
+// a turn-complete / approval-needed event arrives while the window is UNFOCUSED,
+// reset to 0 once the window is focused (the user has "seen" it).
+let attentionCount = 0;
 
 /** Resolve pnpm's executable name per platform (dev PATH is inherited). */
 function pnpmCommand() {
@@ -189,6 +193,14 @@ function createWindow(port) {
     return { action: "deny" };
   });
 
+  // Attention is "seen" once the window gains focus: clear the counter and the
+  // OS badge (Slice 22a). Any turn-complete/approval that arrives while focused
+  // never bumps the badge in the first place, so this only undoes prior bumps.
+  mainWindow.on("focus", () => {
+    attentionCount = 0;
+    app.setBadgeCount(0);
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -295,6 +307,49 @@ ipcMain.handle("app-menu:open", (_event, menuName, anchor) => {
   const y = Math.max(0, Math.min(contentHeight, Math.round(anchor.y)));
   item.submenu.popup({ window: mainWindow, x, y });
   return true;
+});
+
+/**
+ * Native desktop attention (Slice 22a). The renderer detects the domain
+ * transition (a turn completing, or an approval request appearing on the ACTIVE
+ * session) and forwards a semantic event here; the focus gate + OS surface stay
+ * in MAIN so they're testable and the main process never opens its own server
+ * subscription. If the window is already focused the user is looking, so we do
+ * nothing. Otherwise show a native notification (when supported) and bump the
+ * portable taskbar/dock badge via setBadgeCount. Clicking the notification
+ * shows + focuses the window (which clears the badge) and forwards the session
+ * id for a future in-app session switch.
+ */
+ipcMain.on("attention", (_event, payload) => {
+  if (!mainWindow || !payload || typeof payload !== "object") return;
+  const { kind, title, body, sessionId } = payload;
+  if (kind !== "turn-complete" && kind !== "approval-needed") return;
+  // Already looking → no notification, no badge (don't nag a focused user).
+  if (mainWindow.isFocused()) return;
+
+  attentionCount += 1;
+  app.setBadgeCount(attentionCount);
+
+  if (Notification.isSupported()) {
+    const notification = new Notification({
+      title: typeof title === "string" && title ? title : "Agent Deck",
+      body: typeof body === "string" ? body : "",
+    });
+    notification.on("click", () => {
+      if (!mainWindow) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      // Best-effort in-app switch to the session that raised the event. The
+      // renderer wiring for "focus-session" is deferred (Slice 22a focuses the
+      // window; consuming this to select the session is a follow-up) — sending
+      // it now is harmless and future-proofs the channel.
+      if (typeof sessionId === "string" && sessionId) {
+        mainWindow.webContents.send("focus-session", sessionId);
+      }
+    });
+    notification.show();
+  }
 });
 
 async function bootstrap() {
