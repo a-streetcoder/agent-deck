@@ -412,6 +412,16 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 - Run project dev scripts from the UI (processRunner), detect listening ports, open the
   dev server in an embedded preview panel; terminal links open in preview.
 - Depends on terminal (Slice 8) for the script-output surface.
+- **Status: LANDED (2026-07-22, e5c4bc6).** services/scriptRunner.ts (terminal.ts
+  template — Scope-owned managed child, tree-kill, 0 orphans; shares
+  TERMINAL_ENV_BLOCKLIST) runs DECLARED scripts only, streams output, detects the
+  loopback port (stdout match + TCP confirm-probe). Web PreviewPanel: scripts control
+  - sandboxed iframe embed. Security: loopback-only embed ENFORCED at both the URL bar
+    and the iframe-src boundary (shared isLoopbackHost guard) — not just advertised.
+    Deferred (doc corrected, not overclaimed): port-probe can't prove the listener is
+    this run's own PID — donor's socket→process-tree mapping is the hardening. New
+    preview visual baseline; Toggle Preview palette command. Terminal-link-to-preview:
+    not built (no anchor yet). NO annotation-to-composer (that is S16).
 
 ### Slice 16 — Preview automation → composer context
 
