@@ -421,7 +421,10 @@ struct CodingAgentRecentRow: View, Equatable {
                     .accessibilityHidden(true)
             }
 
-            HoverMarqueeTitleText(text: session.displayTitle, isHovering: isHovering)
+            Text(session.displayTitle)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
                 .font(AppTheme.Font.footnote.weight(.medium))
                 .fontWidth(.expanded)
                 .foregroundStyle(.primary)

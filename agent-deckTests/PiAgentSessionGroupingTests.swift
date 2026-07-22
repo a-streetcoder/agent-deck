@@ -713,44 +713,6 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertNil(next)
     }
 
-    // MARK: - Hover marquee
-
-    func testHoverMarqueeTaskIdentityIgnoresGeometryChangesWhileActive() {
-        let initial = HoverMarqueeTaskID(
-            text: "A long session title",
-            isHovering: true,
-            overflow: 42,
-            reduceMotion: false
-        )
-        let afterLayoutChange = HoverMarqueeTaskID(
-            text: "A long session title",
-            isHovering: true,
-            overflow: 43.25,
-            reduceMotion: false
-        )
-
-        XCTAssertTrue(initial.shouldScroll)
-        XCTAssertEqual(initial, afterLayoutChange)
-    }
-
-    func testHoverMarqueeTaskIdentityChangesAtScrollingBoundary() {
-        let inactive = HoverMarqueeTaskID(
-            text: "A long session title",
-            isHovering: true,
-            overflow: 0.75,
-            reduceMotion: false
-        )
-        let active = HoverMarqueeTaskID(
-            text: "A long session title",
-            isHovering: true,
-            overflow: 42,
-            reduceMotion: false
-        )
-
-        XCTAssertFalse(inactive.shouldScroll)
-        XCTAssertNotEqual(inactive, active)
-    }
-
     // MARK: - helpers
 
     private func makeSession(

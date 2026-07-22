@@ -423,7 +423,6 @@ struct PiAgentSessionRow: View, Equatable {
     }
 
     @State private var draftTitle = ""
-    @State private var isTitleHovered = false
     @State private var isRowHovered = false
     @FocusState private var isTitleFocused: Bool
 
@@ -658,16 +657,17 @@ struct PiAgentSessionRow: View, Equatable {
                 }
         } else {
             Button(action: onBeginRename) {
-                HStack(alignment: .center, spacing: 5) {
-                    HoverMarqueeTitleText(text: sessionTitle, isHovering: isTitleHovered || isRowHovered)
+                Text(sessionTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
                     .layoutPriority(1)
-                }
-                .font(AppTheme.Font.footnote.weight(.medium))
-                .fontWidth(.expanded)
-                .foregroundStyle(.primary)
+                    .font(AppTheme.Font.footnote.weight(.medium))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Rename session \(sessionTitle)")
@@ -679,7 +679,6 @@ struct PiAgentSessionRow: View, Equatable {
             // one line of the footnote title, so the row carries no dead space
             // above or below it.
             .frame(height: 18, alignment: .center)
-            .onHover { isTitleHovered = $0 }
             .help("Rename session")
         }
     }
@@ -732,114 +731,6 @@ struct PiAgentSessionRow: View, Equatable {
         case .stopped: return .orange
         case .draft: return .secondary
         }
-    }
-}
-
-struct HoverMarqueeTitleText: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    let text: String
-    let isHovering: Bool
-
-    @State private var containerWidth: CGFloat = 0
-    @State private var textWidth: CGFloat = 0
-    @State private var isScrolled = false
-
-    private var overflow: CGFloat {
-        max(textWidth - containerWidth, 0)
-    }
-
-    private var shouldScroll: Bool {
-        marqueeTaskID.shouldScroll
-    }
-
-    private var scrollDurationSeconds: Double {
-        max(Double(overflow) / 42, 1.6)
-    }
-
-    private var scrollDuration: Duration {
-        .seconds(scrollDurationSeconds)
-    }
-
-    var body: some View {
-        Text(text)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .opacity(shouldScroll ? 0 : 1)
-            .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
-            .overlay(alignment: .leading) {
-                if shouldScroll {
-                    Text(text)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .offset(x: isScrolled ? -overflow : 0)
-                }
-            }
-            .background(alignment: .leading) {
-                Text(text)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .hidden()
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { width in
-                        textWidth = width
-                    }
-            }
-            .clipped()
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                containerWidth = width
-            }
-            .task(id: marqueeTaskID) {
-                guard shouldScroll else {
-                    isScrolled = false
-                    return
-                }
-
-                do {
-                    try await Task.sleep(for: .milliseconds(350))
-                    while !Task.isCancelled {
-                        withAnimation(.linear(duration: scrollDurationSeconds)) {
-                            isScrolled = true
-                        }
-                        try await Task.sleep(for: scrollDuration + .milliseconds(900))
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            isScrolled = false
-                        }
-                        try await Task.sleep(for: .milliseconds(650))
-                    }
-                } catch {
-                    return
-                }
-            }
-    }
-
-    private var marqueeTaskID: HoverMarqueeTaskID {
-        HoverMarqueeTaskID(
-            text: text,
-            isHovering: isHovering,
-            overflow: overflow,
-            reduceMotion: reduceMotion
-        )
-    }
-}
-
-/// Stable identity for the marquee animation task.
-///
-/// Geometry measurements deliberately do not participate in equality. Including
-/// raw widths here makes `.task(id:)` restart while SwiftUI is still resolving a
-/// frame; the restarted task writes `isScrolled`, which invalidates layout again
-/// and can trap AttributeGraph in a main-thread update loop. Width changes only
-/// matter when they cross the threshold between scrolling and not scrolling.
-struct HoverMarqueeTaskID: Equatable {
-    let text: String
-    let shouldScroll: Bool
-
-    init(text: String, isHovering: Bool, overflow: CGFloat, reduceMotion: Bool) {
-        self.text = text
-        shouldScroll = isHovering && overflow > 1 && !reduceMotion
     }
 }
 
