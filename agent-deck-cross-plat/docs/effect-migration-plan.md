@@ -504,11 +504,33 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
 Existing functionality survives the migration; these slices _deepen_ it using the new
 machinery — this is where "their chrome, our core" pays off.
 
-### Slice 19 — Skills/agents/prompts management re-skin
+### Slice 19 — Skills/agents/prompts management re-skin + a11y batch
 
 - Re-home the Skills screens (import, sync, conflict sheets), AgentEditor, scope chips
   onto the new design language (palette entries, command surfaces, file-preview reuse).
   No behavior change — presentation + wiring only.
+- **LANDED (2026-07-22, 86e115d).** Re-skin AUDITED (adversarial workflow) as ALREADY
+  SATISFIED: the Skills/Agents/Prompts screens + AgentEditor + ScopeChip already speak
+  the migration design language (same token vocabulary border/surface/text/selection-fill,
+  the `text-[10px] font-semibold uppercase tracking-wider text-text-muted` group-label
+  idiom byte-for-byte with CommandPalette, rounded-xl selection-fill/stroke row cards,
+  `rounded-xl border-border-subtle bg-surface-elevated` detail cards, capsule chips,
+  centered muted empty states). materialGap=false — a re-skin would be churn/risk against
+  working tested code; the `design-system/components/App*` primitives are DEAD (0-1
+  consumers) pre-migration scaffolding, NOT the design language. So the slice landed the
+  deferred A11Y BATCH instead: (1) `lib/platform.ts` detectPlatform() centralizing the
+  deprecated navigator.platform behind navigator.userAgentData.platform (3 call sites;
+  empty-value coalesce so "" can't flip ⌘/Ctrl; unit-tested); (2) `lib/useFocusTrap.ts`
+  reusable modal trap (initial focus + Tab wrap + restore-to-opener, optional
+  initialFocusRef) adopted in ExpandedImageDialog (backdrop → tabIndex=-1, focus → visible
+  close, killing a viewport-ring + Space/Enter insta-close footgun the reviewer caught);
+  (3) CommandPalette Tab trapped on the input (arrow-key model — handler on the input;
+  comment+e2e corrected). AgentEditSheet already had a complete trap — left unchanged.
+  Review: 0 blocker/0 major; 4 minors/nits all fixed. Gates green (web unit/e2e/visual);
+  test:pi orthogonal (web-only diff) — CI real-pi matrix is the authoritative check.
+  NOTE: no jsdom test env → the useFocusTrap DOM behavior is covered by the palette
+  Tab-trap e2e; a dedicated image-dialog focus e2e was deferred (image-seeding
+  disproportionate for a minor).
 
 ### Slice 20 — Sessions ⇄ worktree ⇄ diff integration
 
