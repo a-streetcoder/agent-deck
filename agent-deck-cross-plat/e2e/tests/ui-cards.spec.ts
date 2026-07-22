@@ -59,3 +59,18 @@ test("the editor card is multiline and prefilled, and sends the edit back", asyn
   await page.getByTestId("question-submit").click();
   await expect(card).toHaveAttribute("data-answered", "true");
 });
+
+test("an open request is answerable from the composer-anchored pending panel", async ({ page }) => {
+  await runCommand(page, "/ask-input");
+  // The same open extension_ui_request surfaces both as the transcript card AND
+  // as the composer-anchored panel (Slice 17). Answering from the composer panel
+  // flows through the same ui_response path and resolves the request.
+  const panel = page.getByTestId("composer-question");
+  await expect(panel).toBeVisible({ timeout: 30_000 });
+  await expect(panel).toContainText("Your handle");
+  await page.getByTestId("composer-question-input").fill("moretti");
+  await page.getByTestId("composer-question-submit").click();
+  // The transcript card marks answered and the composer panel drops away.
+  await expect(page.getByTestId("question-cell")).toHaveAttribute("data-answered", "true");
+  await expect(panel).toHaveCount(0);
+});

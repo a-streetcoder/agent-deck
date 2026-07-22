@@ -72,6 +72,44 @@ test("@ panel lists project files and inserts a path", async ({ page }) => {
   await expect(input).toHaveValue("look at @README-uniquename.md ");
 });
 
+test("an @-mention surfaces a removable file tag chip (Slice 17)", async ({ page }) => {
+  await openProject(page);
+  const input = page.getByTestId("composer-input");
+  await input.click();
+  await input.pressSequentially("look at @README-unique");
+  await expect(page.getByTestId("file-panel")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("file-panel-item-README-uniquename.md").click();
+  await expect(input).toHaveValue("look at @README-uniquename.md ");
+
+  // The mention shows as a removable chip over the draft text.
+  const chip = page.getByTestId("file-tag-chip");
+  await expect(chip).toHaveAttribute("data-path", "README-uniquename.md");
+  // Removing the chip strips its @path token from the draft.
+  await page.getByTestId("file-tag-remove").click();
+  await expect(page.getByTestId("file-tag-chip")).toHaveCount(0);
+  await expect(input).toHaveValue("look at ");
+});
+
+test("a pending image expands to a full-size preview (Slice 17)", async ({ page }) => {
+  await openProject(page);
+  const pngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  await page.getByTestId("attach-input").setInputFiles({
+    name: "pixel.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(pngBase64, "base64"),
+  });
+  await expect(page.getByTestId("attachments")).toBeVisible();
+
+  // Click the thumbnail → full-size overlay; Escape closes it.
+  await page.locator('[data-testid^="attachment-expand-"]').first().click();
+  const dialog = page.getByTestId("expanded-image-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("pixel.png");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
 test("an attached image reaches the model as image content", async ({ page }) => {
   await openProject(page);
 

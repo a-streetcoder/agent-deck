@@ -365,6 +365,33 @@ test("visual: composer with a pending preview-element context card", async ({ pa
   );
 });
 
+test("visual: composer with a file tag chip (Slice 17)", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await selectProject(page, path.basename(FILES_PROJECT));
+  await expect(page.getByTestId("session-cwd")).toHaveText(FILES_PROJECT);
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Insert a mention of the fixed project file via the @-file panel, producing a
+  // removable file tag chip. The chip shows the file basename (relative, stable),
+  // so the strip is byte-deterministic.
+  const input = page.getByTestId("composer-input");
+  await input.click();
+  await input.pressSequentially("look at @exa");
+  await expect(page.getByTestId("file-panel")).toBeVisible({ timeout: 15_000 });
+  // The @-search returns OS-native paths (a backslash separator on Windows), so
+  // click the sole listed item rather than hard-coding a separator, and assert
+  // the chip appeared (its label is the basename "example.ts" on either OS).
+  await page.locator('[data-testid^="file-panel-item-"]').first().click();
+  await expect(page.getByTestId("file-tag-chip")).toHaveCount(1);
+  await expect(page.getByTestId("file-tag-chip")).toContainText("example.ts");
+
+  await expect(page.getByTestId("file-tag-chips")).toHaveScreenshot(
+    "composer-file-tag-chips.png",
+    SCREENSHOT_OPTS,
+  );
+});
+
 test("visual: command palette open with a fixed filter", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");

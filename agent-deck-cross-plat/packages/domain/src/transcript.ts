@@ -226,6 +226,20 @@ export function deckRunDetail(state: TranscriptState, runId: string): DeckRunDet
   return { cell, questions };
 }
 
+/**
+ * The single open (unanswered) extension_ui_request question, if any. pi emits
+ * one `extension_ui_request` at a time, so this returns the first unanswered
+ * `question` cell in transcript order — the one the composer-anchored pending
+ * user-input panel surfaces so it is answerable right at the composer (Slice 17).
+ * Pure so the panel and the transcript card agree on which request is live.
+ */
+export function openQuestion(state: TranscriptState): QuestionCell | null {
+  for (const cell of state.cells) {
+    if (cell.kind === "question" && !cell.answered) return cell;
+  }
+  return null;
+}
+
 export type DomainEvent =
   | { type: "cell_open"; cell: TranscriptCell }
   | {

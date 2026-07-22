@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Paperclip, Shrink, X } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
-import { thinkingLevelsForModel } from "@agent-deck/domain";
+import { openQuestion, thinkingLevelsForModel } from "@agent-deck/domain";
 import { useAppStore } from "../state/store.ts";
 import { useAgents } from "../state/useAgents.ts";
 import {
@@ -30,6 +30,11 @@ import {
   appendElementContextsToPrompt,
   type PendingElementContext,
 } from "../lib/elementContext.ts";
+import { ComposerPendingUserInput } from "./composer/ComposerPendingUserInput.tsx";
+import { FileTagChips } from "./composer/FileTagChips.tsx";
+import { ExpandedImageDialog } from "./composer/ExpandedImageDialog.tsx";
+import { parseFileMentions, removeFileMention } from "../lib/fileMentions.ts";
+import { buildExpandedImagePreview } from "../lib/expandedImage.ts";
 
 interface PendingImage extends ImageAttachment {
   id: string;
@@ -75,6 +80,11 @@ export function Composer() {
   const setPendingComposerText = useAppStore((state) => state.setPendingComposerText);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const contextRevision = useAppStore((state) => state.transcript.contextRevision);
+  // The single open extension_ui_request (input/select/editor/confirm), surfaced
+  // as a composer-anchored pending panel so it is answerable right at the composer
+  // (Slice 17). The transcript question-cell still renders; both answer through the
+  // same existing ui_response path, and answering either drops both.
+  const pendingQuestion = useAppStore((state) => openQuestion(state.transcript));
   const connection = useAppStore((state) => state.connection);
   const session = useAppStore((state) => state.session);
   const currentAgentName = useAppStore((state) => state.currentAgentName);
@@ -256,6 +266,15 @@ export function Composer() {
   const thinkingLevels = thinkingLevelsForModel(currentModel?.reasoning);
   const [images, setImages] = useState<PendingImage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Full-size preview overlay: the id of the pending image being expanded, or
+  // null. Cleared when its image is removed so a stale id can't reopen it.
+  const [expandedImageId, setExpandedImageId] = useState<string | null>(null);
+  // @-file mentions in the draft, surfaced as removable chips (a view over the
+  // text — the literal @path tokens stay in the prompt).
+  const fileMentions = useMemo(() => parseFileMentions(draft), [draft]);
+  const expandedPreview = expandedImageId
+    ? buildExpandedImagePreview(images, expandedImageId)
+    : null;
 
   // Seed the composer from elsewhere (e.g. an issue) — replaces the draft,
   // since seeding is a deliberate "start on this" action, not an append.
@@ -361,6 +380,8 @@ export function Composer() {
           />
         ) : null}
 
+        {pendingQuestion ? <ComposerPendingUserInput question={pendingQuestion} /> : null}
+
         <ComposerPendingReviewComments
           comments={pendingComments}
           onRemove={(commentId) => {
@@ -379,6 +400,15 @@ export function Composer() {
           }}
         />
 
+        <FileTagChips
+          mentions={fileMentions}
+          onRemove={(start) => {
+            const next = removeFileMention(draft, start);
+            setDraft(next);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }}
+        />
+
         {images.length > 0 ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3" data-testid="attachments">
             {images.map((image) => (
@@ -387,16 +417,29 @@ export function Composer() {
                 data-testid={`attachment-${image.id}`}
                 className="flex items-center gap-1.5 rounded-lg border border-border-strong bg-surface px-2 py-1 text-xs text-text-secondary"
               >
-                <img
-                  src={`data:${image.mimeType};base64,${image.data}`}
-                  alt={image.name}
-                  className="h-8 w-8 rounded object-cover"
-                />
+                <button
+                  type="button"
+                  className="rounded outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                  aria-label={`Expand ${image.name}`}
+                  data-testid={`attachment-expand-${image.id}`}
+                  onClick={() => setExpandedImageId(image.id)}
+                >
+                  <img
+                    src={`data:${image.mimeType};base64,${image.data}`}
+                    alt={image.name}
+                    className="h-8 w-8 cursor-zoom-in rounded object-cover"
+                  />
+                </button>
                 <span className="max-w-[12ch] truncate">{image.name}</span>
                 <button
                   className="text-text-muted hover:text-[var(--color-role-error)]"
                   aria-label="Remove attachment"
-                  onClick={() => setImages((prev) => prev.filter((i) => i.id !== image.id))}
+                  onClick={() =>
+                    setImages((prev) => {
+                      if (expandedImageId === image.id) setExpandedImageId(null);
+                      return prev.filter((i) => i.id !== image.id);
+                    })
+                  }
                 >
                   <X size={12} />
                 </button>
@@ -583,6 +626,9 @@ export function Composer() {
           />
         </div>
       </div>
+      {expandedPreview ? (
+        <ExpandedImageDialog preview={expandedPreview} onClose={() => setExpandedImageId(null)} />
+      ) : null}
     </div>
   );
 }
