@@ -537,6 +537,30 @@ machinery — this is where "their chrome, our core" pays off.
 - Wire our existing worktree isolation + Merge action into the diff panel and branch
   toolbar patterns (donor: `BranchToolbar*`, `GitActionsControl*`) so worktree sessions
   get first-class review-then-merge flow.
+- **LANDED (2026-07-22, 2cbb495). PHASE 9 COMPLETE.** Scoped first (Explore agent): the
+  SERVER merge flow was already COMPLETE + tested (POST /sessions/:id/merge auto-commits
+  worktree work, checks commits-ahead, `git merge --no-ff` into the source branch, 400/409
+  errors; session-worktree.pi.test.ts). And because worktree work stays UNCOMMITTED until
+  merge (checkpoints use hidden refs, not branch commits), the existing Slice-9
+  working-tree-vs-HEAD diff ALREADY shows the complete branch delta — it IS the review
+  surface. So this was a ~70% WIRING slice: a branch toolbar in the DiffPanel for worktree
+  sessions ("<branch> → <source>" + "Merge to <source>", testid diff-merge), gated on the
+  gitAutomation setting + idle-gated (mid-turn merge would auto-commit a half-written tree).
+  Shared `wsBridge.mergeWorktreeSession` used by BOTH the toolbar and GitScreen (unified
+  toast); merge STAYS on the HTTP route (git-route-family consistency — NOT moved to RPC).
+  Review: 0 blocker, 0 confirmed-major (the one major — post-merge SessionDiff cache
+  staleness on resubscribe — was verified real but transient; FIXED properly: the merge
+  route now drops the server diff cache via new `ctx.dropDiffCache`, so a resubscribe
+  recomputes the empty set instead of replaying the stale one). Also fixed: GitScreen merge
+  button idle-gated (was the lone ungated merge surface). DEFERRED (branch-vs-base gap, →
+  S23): committed-in-worktree work (agent/terminal `git commit` inside the worktree) is
+  merged but NOT shown in the working-tree diff — a true review needs a `sourceBranch...
+  worktreeBranch` diff base (new git primitive + diff-scope contract); also a shared live
+  settings store so the gitAutomation gate tracks Preferences without reload (self-corrects
+  on reload today). Tests: worktree-merge.spec.ts (full click→merge→verify incl. `git log
+  main` Merge commit) + diff-worktree-toolbar visual baseline (masked dynamic branch). All
+  gates green (typecheck, lint, format, web unit, server unit 305, e2e, visual); CI real-pi
+  matrix validates the unchanged merge route.
 
 ## Phase 10 — Remote & multi-device
 
