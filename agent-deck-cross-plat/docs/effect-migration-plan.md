@@ -452,6 +452,18 @@ surrogate-safe chunk/scrollback cuts,`connectionClosed` guard on the awaited
   file tag chips, terminal context chips, expanded image previews,
   `apps/server/src/attachmentStore.ts` for attachments.
 - Split into 2–3 landings if reviews get large; each chip/panel is independent.
+- **Status: LANDED (2026-07-22, c826c88).** Coherent subset, EXTENDING existing
+  surfaces (context meter, token footer, image attachments, @-file autocomplete all
+  already existed — not rebuilt). Landed: composer-anchored pending user-input panel
+  (on the existing `ui_response` pass-through, NO wire change; answer controls
+  extracted to a shared `QuestionAnswerControls` used by transcript + composer, with a
+  module-scoped single-answer guard); file tag chips (view over draft @-mention
+  tokens); expanded image dialog. New composer-file-tag-chips visual baseline.
+  DEFERRED to the Slice-23 parity audit (assess value there, not a dedicated S17b):
+  ComposerPendingApprovalPanel + actions (CHECK first — pi tool-approval may already
+  flow through `extension_ui_request`, i.e. covered by the user-input panel),
+  TerminalContextInlineChip / pending-terminal-contexts, the donor attachmentStore
+  (in-memory image flow has no gap it fixes). ExpandedImageDialog focus-trap → S19 a11y.
 
 ### Slice 18 — Checkpoints & rollback
 
