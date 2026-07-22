@@ -720,3 +720,42 @@ without blocking anything except itself.
   lifts).
 - Do not chase upstream. Re-sync the reference clone only when starting a new donor
   slice, and diff only the donor files.
+
+---
+
+## Post-audit user-requested features (L-series, 2026-07-22)
+
+Beyond the S3–S23 migration plan, the user asked for an in-app BROWSER + a
+click-to-select element inspector + a tabbed workspace (Chrome-style, replacing
+the side-by-side tool panels). Decided (user): workspace-tools tabs (chat fixed
+left; terminal stays the bottom drawer); browser as a DESKTOP (Electron webview)
+feature — web build falls back to a placeholder; "deal with the web later."
+
+- **Slice L1 — Tabbed workspace pane: LANDED (2026-07-22, 917be39).** Ported
+  t3code RightPanelTabs/rightPanelStore. The four side-by-side tool asides
+  (Diff/Files/Preview/Checkpoints) become tabs in one right pane with a
+  Chrome-style tab strip + "+" menu + right-click context menu; per-session
+  `workspaceTabs` store model; KEEP-ALIVE (inactive tab bodies hidden not
+  unmounted, so the Preview's live dev-server iframe survives switches); header
+  toggles → open/activate/close the tab; DeckPanel + terminal untouched. Review
+  0 blocker/major; ARIA + diff-placeholder nits fixed. 4 visual baselines
+  regenerated.
+- **Slice L2 — Desktop general browser: LANDED (2026-07-22, 15d93ea).** A real
+  Electron `<webview>` browser as a singleton "browser" workspace tab (Option B —
+  additive; internal Chrome-style page-tabs inside the panel, capped at 8,
+  keep-alive). Toolbar (back/forward/reload/stop, address bar, title), stock
+  Chrome UA (Google-login workaround), `persist:agentdeck-browser` partition.
+  Desktop-only (web build → placeholder; "+" gated on isElectron). Security pass
+  (biggest threat-model change — arbitrary untrusted content in-app): fixed a
+  BLOCKER (guest handed non-http(s) URLs to shell.openExternal → RCE) + a MAJOR
+  (no nav clamp → file:// + unguarded agent-deck REST reachable) by dropping
+  non-http(s) popups and a guest will-navigate blocking file: + the control-plane
+  origin. FOLLOW-UP (recommended, server-side): mirror the WS local-origin guard
+  onto the REST mutating routes (defense-in-depth vs guest CSRF). desktop e2e 8/8.
+- **Slice L3 — Click-to-select element inspector: IN PROGRESS.** Inject a picker
+  into the browser webview (via `webview.executeJavaScript` returning a
+  click-resolved Promise — NO guest preload / NO contextIsolation weakening, so
+  L2's hardening is preserved) so clicking an element captures its selector + the
+  page URL into the EXISTING element-context path (buildPendingElementContext →
+  addElementContext) that feeds the composer. Restores the point-and-click
+  automation the sandboxed loopback iframe couldn't do (Slice 16's manual subset).
