@@ -82,11 +82,6 @@ enum AppCredits {
                 url: "https://pi.dev"
             ),
             Entry(
-                title: "TourKit",
-                detail: "SwiftUI onboarding slideshow package by Ram Patra. MIT License.",
-                url: "https://github.com/rampatra/TourKit"
-            ),
-            Entry(
                 title: "marked.js",
                 detail: "Markdown parser used by the embedded Markdown renderer. MIT License.",
                 url: "https://github.com/markedjs/marked"

@@ -351,6 +351,11 @@ final class AppViewModel: NSObject {
 
     var automationAvailableModels: [AvailableModel] { cachedAutomationAvailableModels }
     var showPiAgentAttentionOnly = false
+    /// Acknowledged old attention session retained in the focused list only
+    /// while it remains selected in Coding Agent. This is view state, never
+    /// persisted, and filtering happens before grouping so it cannot bypass a
+    /// search or attention-only filter.
+    private(set) var transientFocusedPiAgentSessionID: UUID?
     /// Per-project "Show more/less" state for the All-Projects grouped session
     /// list, keyed by section id (project path, or the catch-all "Other").
     /// Shared on the view model so all mounted session lists (sidebar panel,
@@ -501,7 +506,12 @@ final class AppViewModel: NSObject {
             self.stopNativeSubagent(runID: childRunID, parentSessionID: sessionID)
         }
         piAgentSessionStore.onLoadApplied = { [weak self] in
-            self?.pruneNeverStartedDraftSessions()
+            guard let self else { return }
+            self.pruneNeverStartedDraftSessions()
+            // The persisted store is authoritative only after its async load
+            // and draft pruning. Keep useful history open; collapse an actually
+            // empty first-run store.
+            self.isCodingAgentPanelExpanded = !self.piAgentSessionStore.sessions.isEmpty
         }
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
@@ -3080,6 +3090,11 @@ final class AppViewModel: NSObject {
     }
 
     func selectPiAgentSession(_ id: UUID) {
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == id }) else { return }
+        transientFocusedPiAgentSessionID = nil
+        if session.needsAttention {
+            transientFocusedPiAgentSessionID = id
+        }
         piAgentSessionStore.select(id)
         selectedSidebarItem = .agent
         ensurePiAgentModelCatalogLoaded()
@@ -3238,9 +3253,16 @@ final class AppViewModel: NSObject {
     }
 
     func acknowledgeVisibleSelectedPiAgentSession() {
-        guard let sessionID = piAgentSessionStore.selectedSession?.id,
-              isPiAgentSessionActuallyVisible(sessionID) else { return }
-        acknowledgePiAgentSession(sessionID)
+        guard let session = piAgentSessionStore.selectedSession,
+              isPiAgentSessionActuallyVisible(session.id) else { return }
+        if session.needsAttention {
+            transientFocusedPiAgentSessionID = session.id
+        }
+        acknowledgePiAgentSession(session.id)
+    }
+
+    func releaseTransientFocusedPiAgentSession() {
+        transientFocusedPiAgentSessionID = nil
     }
 
     func piAgentSessionIsWorking(_ session: PiAgentSessionRecord) -> Bool {
@@ -6253,6 +6275,9 @@ final class AppViewModel: NSObject {
     }
 
     func deletePiAgentSessions(_ sessionIDs: Set<UUID>, fallbackSelectionID: UUID? = nil) {
+        if let retainedID = transientFocusedPiAgentSessionID, sessionIDs.contains(retainedID) {
+            transientFocusedPiAgentSessionID = nil
+        }
         for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID)
             || piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status == .starting {
             piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)

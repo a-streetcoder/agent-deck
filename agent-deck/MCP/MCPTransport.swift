@@ -18,13 +18,19 @@ nonisolated enum MCPXcodeBridgeLaunchPreflight {
                 break
             }
             guard argument.hasPrefix("-") else { break }
-            // `--find` looks like a bridge invocation but only queries xcrun; it
-            // never launches the bridge child that needs this availability check.
-            if ["--find", "-f"].contains(argument) { return false }
-            // These xcrun options consume their following argument. Other options
-            // are flags or use an equals form, so skipping just the option is safe.
-            if ["--sdk", "-sdk", "--toolchain", "-toolchain"].contains(argument) {
+
+            // xcrun's help, version, lookup, and SDK-display modes do not execute
+            // a tool. Treat only documented run-mode options as launch-relevant,
+            // so an informational or unrecognized option cannot be mistaken for a
+            // bridge launch merely because a later argument is named mcpbridge.
+            switch argument {
+            case "--sdk", "-sdk", "--toolchain", "-toolchain":
                 index += 1
+                guard index < arguments.count else { return false }
+            case "-v", "--verbose", "-l", "--log", "-r", "--run", "-n", "--no-cache", "-k", "--kill-cache":
+                break
+            default:
+                return false
             }
             index += 1
         }

@@ -2,13 +2,38 @@ import XCTest
 @testable import agent_deck
 
 final class MCPXcodeBridgeLaunchPreflightTests: XCTestCase {
-    func testDetectsOnlyDirectAndXcrunMCPBridgeInvocations() {
+    func testDetectsOnlyDirectAndXcrunLaunchFormMCPBridgeInvocations() {
         XCTAssertTrue(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "mcpbridge", arguments: []))
         XCTAssertTrue(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "/usr/local/bin/mcpbridge", arguments: ["--stdio"]))
         XCTAssertTrue(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "xcrun", arguments: ["mcpbridge"]))
         XCTAssertTrue(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "/usr/bin/xcrun", arguments: ["--sdk", "macosx", "mcpbridge"]))
+        XCTAssertTrue(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "xcrun", arguments: ["-sdk", "macosx", "--toolchain", "default", "--verbose", "--log", "--run", "--no-cache", "--kill-cache", "mcpbridge"]))
+        XCTAssertTrue(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "xcrun", arguments: ["--", "mcpbridge"]))
         XCTAssertFalse(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "node", arguments: ["mcpbridge"]))
-        XCTAssertFalse(MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "xcrun", arguments: ["--find", "mcpbridge"]))
+    }
+
+    func testXcrunInformationalAndQueryModesDoNotDetectBridgeLaunch() {
+        let nonLaunchingArguments = [
+            ["-h", "mcpbridge"],
+            ["--help", "mcpbridge"],
+            ["--version", "mcpbridge"],
+            ["-f", "mcpbridge"],
+            ["--find", "mcpbridge"],
+            ["--sdk", "macosx", "--show-sdk-path", "mcpbridge"],
+            ["--show-sdk-version", "mcpbridge"],
+            ["--show-sdk-build-version", "mcpbridge"],
+            ["--show-sdk-platform-path", "mcpbridge"],
+            ["--show-sdk-platform-version", "mcpbridge"],
+            ["--show-toolchain-path", "mcpbridge"],
+            ["--unrecognized-option", "mcpbridge"]
+        ]
+
+        for arguments in nonLaunchingArguments {
+            XCTAssertFalse(
+                MCPXcodeBridgeLaunchPreflight.isXcodeBridge(command: "xcrun", arguments: arguments),
+                "Expected xcrun \(arguments) not to launch mcpbridge"
+            )
+        }
     }
 
     func testUnavailableBridgeIsRejectedBeforeTransportSpawns() async {

@@ -454,13 +454,14 @@ struct ContentView: View {
                 isActive: AppInitialLoadWindowCover.isEnabled
                     && !isOnboardingPresented
                     && !viewModel.hasCompletedInitialRefresh))
-            .sheet(isPresented: $isOnboardingPresented, onDismiss: completeOnboarding) {
+            .sheet(isPresented: $isOnboardingPresented) {
                 WelcomeOnboardingSheet(viewModel: viewModel) { target in
                     if let target {
                         viewModel.selectedSidebarItem = target
                     }
                     completeOnboarding()
                 }
+                .interactiveDismissDisabled()
             }
 #if DEBUG
             .onAppear { startSidebarExpandBenchIfEnabled() }
@@ -503,7 +504,7 @@ struct ContentView: View {
         let store = viewModel.piAgentSessionStore
         let chosen = store.sidebarExpandBenchLargestParentTranscriptCandidate()
         if let chosen, store.selectedSessionID != chosen.sessionID {
-            store.select(chosen.sessionID)
+            viewModel.selectPiAgentSession(chosen.sessionID)
         } else if let chosen {
             store.requestTranscriptLoad(for: chosen.sessionID)
         }
@@ -1808,10 +1809,13 @@ struct ContentView: View {
 
         if newValue == .agent {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
-        } else if viewModel.isCodingAgentPanelExpanded {
-            // The expanded panel covers the nav list, so any non-agent selection
-            // (commands, programmatic jumps) must reveal it again.
-            viewModel.isCodingAgentPanelExpanded = false
+        } else {
+            viewModel.releaseTransientFocusedPiAgentSession()
+            if viewModel.isCodingAgentPanelExpanded {
+                // The expanded panel covers the nav list, so any non-agent selection
+                // (commands, programmatic jumps) must reveal it again.
+                viewModel.isCodingAgentPanelExpanded = false
+            }
         }
     }
 

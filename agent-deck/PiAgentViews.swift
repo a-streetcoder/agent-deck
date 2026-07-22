@@ -4694,12 +4694,13 @@ struct CodingAgentExpandedPanel: View {
         let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
         let loopSessionIDs = activeLoopSessionIDs(in: filtered)
         return PiAgentSessionGrouping.focusPartition(from: filtered) {
-            $0.matchesActiveSessionsFilter(
-                referenceDate: now,
-                isWorking: viewModel.piAgentSessionIsWorking($0),
-                hasActiveLoop: loopSessionIDs.contains($0.id),
-                hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
-            )
+            $0.id == viewModel.transientFocusedPiAgentSessionID
+                || $0.matchesActiveSessionsFilter(
+                    referenceDate: now,
+                    isWorking: viewModel.piAgentSessionIsWorking($0),
+                    hasActiveLoop: loopSessionIDs.contains($0.id),
+                    hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
+                )
         }
     }
 
@@ -5499,8 +5500,9 @@ struct PiAgentScreen: View {
             }
             store.newSessionSubagentsEnabled = originalNewSessionSubagentsEnabled
             if let originalSelection, store.sessions.contains(where: { $0.id == originalSelection }) {
-                store.select(originalSelection)
+                viewModel.selectPiAgentSession(originalSelection)
             } else {
+                viewModel.releaseTransientFocusedPiAgentSession()
                 store.clearSelection()
             }
             store.flushPendingSave()
@@ -6003,9 +6005,8 @@ struct PiAgentScreen: View {
             if let parentTitle = session.forkedFromParentTitle, !parentTitle.isEmpty {
                 let parentID = session.forkedFromSessionID
                 let snapshot = session.forkedFromTranscriptSnapshot
-                let storeRef = store
                 let onSelect: (UUID) -> Void = { parentSessionID in
-                    storeRef.select(parentSessionID)
+                    viewModel.selectPiAgentSession(parentSessionID)
                 }
                 var hasher = Hasher()
                 hasher.combine(parentTitle)

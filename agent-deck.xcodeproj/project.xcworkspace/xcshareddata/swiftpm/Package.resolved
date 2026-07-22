@@ -27,15 +27,6 @@
         "revision" : "6276ba2b404829d139c45ff98427cf90e2efc59b",
         "version" : "2.9.2"
       }
-    },
-    {
-      "identity" : "tourkit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/rampatra/TourKit.git",
-      "state" : {
-        "revision" : "0cac3a51069e105286635601e82117c195058ee9",
-        "version" : "1.0.0"
-      }
     }
   ],
   "version" : 3

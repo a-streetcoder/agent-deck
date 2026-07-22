@@ -154,7 +154,9 @@ final class PiAgentSessionStore {
     /// AppViewModel hooks launch-time maintenance here (pruning never-started
     /// drafts) so cleanup runs against the loaded records, not the empty
     /// first-frame state.
-    var onLoadApplied: (() -> Void)?
+    var onLoadApplied: (() -> Void)? {
+        didSet { notifyLoadAppliedIfNeeded() }
+    }
 
     enum TranscriptRevisionPolicy: Equatable {
         /// Normal transcript mutations are globally coalesced, including selected
@@ -274,7 +276,17 @@ final class PiAgentSessionStore {
     /// it via `waitForLoadForTesting()`. Cleared once the load applies.
     private var loadTask: Task<Void, Never>?
     private var hasAppliedInitialLoad = false
+    private var didNotifyLoadApplied = false
     private var saveRequestedBeforeInitialLoad = false
+
+    /// The owner installs this callback just after constructing the store. A
+    /// missing index finishes synchronously during `init`, so invoking only
+    /// from the async loader could otherwise lose that late assignment.
+    private func notifyLoadAppliedIfNeeded() {
+        guard hasAppliedInitialLoad, !didNotifyLoadApplied, let onLoadApplied else { return }
+        didNotifyLoadApplied = true
+        onLoadApplied()
+    }
 
     /// Kick off the on-disk load asynchronously so `init` (and therefore
     /// `AppViewModel.init`) returns immediately. Views render with `sessions == []`
@@ -289,14 +301,15 @@ final class PiAgentSessionStore {
                 backupFileURL: backupFileURL,
                 transcriptManifestURL: transcriptManifestURL
             )
-            self?.applyLoadedPersistedState(loaded)
-            self?.hasAppliedInitialLoad = true
-            self?.loadTask = nil
-            if self?.saveRequestedBeforeInitialLoad == true {
-                self?.saveRequestedBeforeInitialLoad = false
-                self?.saveNowAsync()
+            guard let self else { return }
+            self.applyLoadedPersistedState(loaded)
+            self.hasAppliedInitialLoad = true
+            self.loadTask = nil
+            if self.saveRequestedBeforeInitialLoad {
+                self.saveRequestedBeforeInitialLoad = false
+                self.saveNowAsync()
             }
-            self?.onLoadApplied?()
+            self.notifyLoadAppliedIfNeeded()
         }
     }
 

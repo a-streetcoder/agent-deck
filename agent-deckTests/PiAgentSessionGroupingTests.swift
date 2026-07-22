@@ -310,6 +310,31 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertEqual(partition.previous.map(\.title), ["previous"])
     }
 
+    func testTransientFocusRespectsFiltersAndReturnsSettledSessionToPreviousWhenReleased() throws {
+        let retained = try makeSession(title: "retained", updatedAt: now.addingTimeInterval(-7_200))
+        let searchMatch = try makeSession(title: "search match", updatedAt: now.addingTimeInterval(-7_100))
+        let sessions = [retained, searchMatch]
+
+        // The view filters before calling `focusPartition`, so a transient
+        // retention ID cannot reintroduce an old row excluded by search.
+        let searched = sessions.filter { $0.matchesSessionSearch("search") }
+        let searchPartition = PiAgentSessionGrouping.focusPartition(from: searched) { $0.id == retained.id }
+        XCTAssertFalse(searchPartition.focused.contains(where: { $0.id == retained.id }))
+        XCTAssertFalse(searchPartition.previous.contains(where: { $0.id == retained.id }))
+
+        // Nor can it bypass attention-only after acknowledgement cleared the bell.
+        let attentionOnly = sessions.filter(\.needsAttention)
+        let attentionPartition = PiAgentSessionGrouping.focusPartition(from: attentionOnly) { $0.id == retained.id }
+        XCTAssertFalse(attentionPartition.focused.contains(where: { $0.id == retained.id }))
+
+        let retainedPartition = PiAgentSessionGrouping.focusPartition(from: sessions) { $0.id == retained.id }
+        XCTAssertEqual(retainedPartition.focused.map(\.id), [retained.id])
+
+        let releasedPartition = PiAgentSessionGrouping.focusPartition(from: sessions) { _ in false }
+        XCTAssertTrue(releasedPartition.focused.isEmpty)
+        XCTAssertTrue(releasedPartition.previous.contains(where: { $0.id == retained.id }))
+    }
+
     func testPinnedInactiveSessionIsPromotedFromPrevious() throws {
         var pinned = try makeSession(title: "pinned", updatedAt: now.addingTimeInterval(-7_200), status: .completed)
         pinned.pinnedAt = now

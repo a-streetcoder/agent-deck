@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class PiAgentSessionStoreTests: XCTestCase {
+    func testLateLoadCallbackForEmptyStoreIsDeliveredOnce() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        var callbackCount = 0
+
+        store.onLoadApplied = { callbackCount += 1 }
+        store.onLoadApplied = { callbackCount += 1 }
+
+        XCTAssertEqual(callbackCount, 1)
+    }
+
     func testSelectingSessionDiscardsItsPendingBackgroundRevisionWithoutSubsequentMutation() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let background = store.createSession(kind: .project, title: "Background", project: try PiTestSupport.makeProject(), repository: nil)

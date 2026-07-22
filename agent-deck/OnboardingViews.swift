@@ -1,36 +1,42 @@
 import AppKit
 import SwiftUI
-import TourKit
+
+private struct WelcomeTourPage: Identifiable {
+    let imageName: String
+    let title: String
+    let description: String
+    var id: String { imageName }
+}
 
 private enum WelcomeTourContent {
-    static var pages: [TourPage] {
+    static var pages: [WelcomeTourPage] {
         [
-            TourPage(
+            WelcomeTourPage(
                 imageName: "pop-onb-1",
                 title: "Command Pi from \(AppBrand.displayName)",
                 description: "Run Pi coding sessions from a focused Mac workspace with project context, models, repo activity, and session state in one place."
             ),
-            TourPage(
+            WelcomeTourPage(
                 imageName: "pop-onb-2",
                 title: "Work in a Coding Chat",
                 description: "Use a customizable chat view built for implementation work: full transcripts, tool calls, file previews, attachments, and live controls."
             ),
-            TourPage(
+            WelcomeTourPage(
                 imageName: "pop-onb-3",
                 title: "Orchestrate Deck Agents",
                 description: "Delegate focused work to custom Deck agents, run them alone or in parallel, supervise decisions, and keep worktrees isolated."
             ),
-            TourPage(
+            WelcomeTourPage(
                 imageName: "pop-onb-4",
                 title: "Shape Your Agent System",
                 description: "Create, organize, assign, and reuse agents, skills, and prompts so project workflows become clear, portable, and repeatable."
             ),
-            TourPage(
+            WelcomeTourPage(
                 imageName: "pop-onb-5",
                 title: "Manage Project Instructions",
                 description: "Control system guidance, AGENTS.md, CLAUDE.md, and project-scoped instructions from one place instead of hunting through files."
             ),
-            TourPage(
+            WelcomeTourPage(
                 imageName: "pop-onb-6",
                 title: "Connect the Wider Workflow",
                 description: "Bring in GitHub, project folders, environment keys, and model setup when you need them. Setup checks confirm the workspace is ready."
@@ -100,18 +106,10 @@ struct WelcomeOnboardingSheet: View {
     }
 
     private var tourView: some View {
-        TourSlideshowView(
-            pages: WelcomeTourContent.pages,
-            width: 660,
-            continueButtonTitle: "Continue",
-            finishButtonTitle: "Check Setup",
-            onFinish: {
-                setupItemsTask = nil
-                phase = .setup
-            },
-            onClose: { onFinish(nil) }
-        )
-        .frame(width: 660)
+        WelcomeTourView(pages: WelcomeTourContent.pages) {
+            setupItemsTask = nil
+            phase = .setup
+        }
     }
 
     /// `.nothingInstalled` in the debug demo so the Setup step runs the real
@@ -163,6 +161,75 @@ struct WelcomeOnboardingSheet: View {
                 suggestedProjectsRootPath: suggestedProjectsRootPath
             )
         }
+    }
+}
+
+/// Local, completion-only welcome tour. Unlike the removed package slideshow,
+/// it has no close or skip action: onboarding reaches Setup only through its
+/// final page.
+private struct WelcomeTourView: View {
+    let pages: [WelcomeTourPage]
+    let onFinish: () -> Void
+    @State private var pageIndex = 0
+
+    private var page: WelcomeTourPage { pages[pageIndex] }
+    private var isFinalPage: Bool { pageIndex == pages.count - 1 }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(page.imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: 310)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(page.title)
+                    .font(.title2.bold())
+                    .fontWidth(.expanded)
+                Text(page.description)
+                    .font(.body)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 32)
+            .padding(.top, 18)
+
+            Spacer(minLength: 18)
+
+            Divider()
+            HStack {
+                Button("Back") { pageIndex -= 1 }
+                    .appSecondaryButton()
+                    .opacity(pageIndex == 0 ? 0 : 1)
+                    .disabled(pageIndex == 0)
+                Spacer()
+                HStack(spacing: 6) {
+                    ForEach(pages.indices, id: \.self) { index in
+                        Capsule()
+                            .fill(index == pageIndex ? AppTheme.brandAccent : AppTheme.contentStroke)
+                            .frame(width: index == pageIndex ? 18 : 6, height: 6)
+                    }
+                }
+                Spacer()
+                Button(isFinalPage ? "Check Setup" : "Continue") {
+                    if isFinalPage {
+                        onFinish()
+                    } else {
+                        pageIndex += 1
+                    }
+                }
+                .appPrimaryButton()
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 660, height: 560)
+        .background(AppTheme.windowBackground)
+        .animation(.easeInOut(duration: 0.2), value: pageIndex)
     }
 }
 

@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */ = {isa = PBXBuildFile; productRef = 24B3A7709E2E4A2A89175011 /* TourKit */; };
 		5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A92B5029E2E4A2A89175011 /* Sparkle */; };
 		7C4E10039E2E4A2A89175011 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 7C4E10029E2E4A2A89175011 /* Lottie */; };
 		8F5A2A6925B14789B7C0D431 /* bundled-agents in Resources */ = {isa = PBXBuildFile; fileRef = 4E1F0B28C6D84725B47F2D75 /* bundled-agents */; };
@@ -75,7 +74,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */,
 				5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */,
 				7C4E10039E2E4A2A89175011 /* Lottie in Frameworks */,
 				D2A5E8012FB0000000000001 /* PostHog in Frameworks */,
@@ -134,7 +132,6 @@
 			);
 			name = "agent-deck";
 			packageProductDependencies = (
-				24B3A7709E2E4A2A89175011 /* TourKit */,
 				5A92B5029E2E4A2A89175011 /* Sparkle */,
 				7C4E10029E2E4A2A89175011 /* Lottie */,
 				D2A5E8032FB0000000000001 /* PostHog */,
@@ -195,7 +192,6 @@
 			mainGroup = 6572B1622FA2391500596CE4;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */,
 				5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				7C4E10019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "lottie-spm" */,
 				D2A5E8022FB0000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */,
@@ -584,14 +580,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/rampatra/TourKit.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
-			};
-		};
 		5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
@@ -619,11 +607,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		24B3A7709E2E4A2A89175011 /* TourKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */;
-			productName = TourKit;
-		};
 		5A92B5029E2E4A2A89175011 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */;

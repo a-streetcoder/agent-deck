@@ -240,17 +240,23 @@ struct DoctorScreen: View {
             }
             refreshWebFetchStatus()
         }
-        // Re-check the Pi version when the app regains focus so an in-terminal
-        // install or `pi update pi` is reflected without a manual refresh click.
-        // scenePhase never fires on macOS focus changes, so listen to AppKit's
-        // activation notification directly. Only the cheap Pi status fetch
-        // re-runs here; the broader Setup Checks still belong to the explicit
-        // refresh button to avoid spawning subprocesses on every focus change.
+        // Re-check Pi and GitHub after returning from Terminal so installs,
+        // updates, and interactive `gh auth login` appear without a manual
+        // refresh. `scenePhase` does not fire on macOS focus changes, so listen
+        // to AppKit's activation notification directly; when CLI auth is now
+        // available, reconnect the app state and refresh the setup rows.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             if skipLiveChecksForPreview { return }
             guard !piInstaller.isRunning else { return }
             refreshWebFetchStatus()
-            Task { await refreshPiRuntimeStatus() }
+            Task {
+                await refreshPiRuntimeStatus()
+                await viewModel.refreshGitHubStatus()
+                if case .available = viewModel.githubConnectionState {
+                    await viewModel.connectGitHubUsingCLIIfNeeded()
+                }
+                await refreshSetupChecks()
+            }
         }
         // The launch auto-updater and this screen share the same installer.
         // Refresh an already-open Doctor as soon as that background work ends.
@@ -790,17 +796,10 @@ struct DoctorScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     if effectiveGitHubAccount == nil {
-                        if isDemo {
-                            Button("Set up GitHub") {
-                                viewModel.openGitHubSetupInTerminal()
-                            }
-                            .appPrimaryButton()
-                        } else {
-                            Button("Connect GitHub") {
-                                viewModel.connectGitHubUsingCLI()
-                            }
-                            .appPrimaryButton()
+                        Button("Set up GitHub") {
+                            viewModel.openGitHubSetupInTerminal()
                         }
+                        .appPrimaryButton()
                     }
                 }
 
@@ -827,7 +826,7 @@ struct DoctorScreen: View {
         if isDemo {
             return "Optional. Install the GitHub CLI and sign in to enable issue, comment, commit, and push workflows."
         }
-        return "Optional. Connect GitHub CLI to enable issue, comment, commit, and push workflows."
+        return "Optional. Set up GitHub to install the GitHub CLI if needed and sign in for issue, comment, commit, and push workflows."
     }
 
     private var githubStatusText: String {
