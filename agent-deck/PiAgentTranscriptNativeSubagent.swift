@@ -190,7 +190,7 @@ private final class PiAgentNativeSubagentGlyph: NSView, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-        popover.contentViewController = PiAgentNativeProfilePopoverController(profile: profile) { [weak self] isInside in
+        let controller = PiAgentNativeProfilePopoverController(profile: profile) { [weak self] isInside in
             self?.isPointerInsideProfilePopover = isInside
             if isInside {
                 self?.hoverDismissWorkItem?.cancel()
@@ -198,6 +198,9 @@ private final class PiAgentNativeSubagentGlyph: NSView, NSPopoverDelegate {
                 self?.scheduleProfilePopoverDismissal()
             }
         }
+        controller.loadView()
+        popover.contentViewController = controller
+        popover.contentSize = controller.preferredContentSize
         profilePopover = popover
         popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)
     }
@@ -1056,6 +1059,65 @@ private final class PiAgentNativeProfilePopoverContentView: NSView {
     override func mouseExited(with event: NSEvent) { onPointerInsideChange?(false) }
 }
 
+/// Draws real avatar images aspect-filled and center-cropped, while leaving the
+/// fallback symbol to NSImageView's normal centered rendering.
+private final class PiAgentNativeProfileAvatarImageView: NSImageView {
+    var cropsImage = false
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard cropsImage, let image, image.size.width > 0, image.size.height > 0 else {
+            super.draw(dirtyRect)
+            return
+        }
+
+        let scale = max(bounds.width / image.size.width, bounds.height / image.size.height)
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        let destination = NSRect(
+            x: bounds.midX - size.width / 2,
+            y: bounds.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSBezierPath(ovalIn: bounds).addClip()
+        image.draw(
+            in: destination,
+            from: NSRect(origin: .zero, size: image.size),
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: isFlipped,
+            hints: nil
+        )
+        NSGraphicsContext.current?.restoreGraphicsState()
+    }
+}
+
+/// AppKit's `layoutMarginsGuide` is read-only, so this document view owns the
+/// popover's single explicit 14×12 content-margin guide.
+private final class PiAgentNativeProfileDocumentView: NSView {
+    let contentMarginsGuide = NSLayoutGuide()
+    private let contentMargins: NSEdgeInsets
+
+    init(contentMargins: NSEdgeInsets) {
+        self.contentMargins = contentMargins
+        super.init(frame: .zero)
+        addLayoutGuide(contentMarginsGuide)
+        NSLayoutConstraint.activate([
+            contentMarginsGuide.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentMargins.left),
+            contentMarginsGuide.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentMargins.right),
+            contentMarginsGuide.topAnchor.constraint(equalTo: topAnchor, constant: contentMargins.top),
+            contentMarginsGuide.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -contentMargins.bottom)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    // NSScrollView starts an unflipped document at its bottom when it is taller
+    // than the clip view. A flipped document keeps the profile header at top.
+    override var isFlipped: Bool { true }
+
+    var verticalContentMargins: CGFloat { contentMargins.top + contentMargins.bottom }
+}
+
 private final class PiAgentNativeProfilePopoverController: NSViewController {
     private let profile: NativeAgentProfilePayload
     private let onPointerInsideChange: (Bool) -> Void
@@ -1072,7 +1134,9 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
         let content = PiAgentNativeProfilePopoverContentView()
         content.onPointerInsideChange = onPointerInsideChange
         let scrollView = NSScrollView()
-        let document = NSView()
+        let document = PiAgentNativeProfileDocumentView(
+            contentMargins: NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        )
         let stack = NSStackView()
         let width: CGFloat = 340
         let maximumHeight: CGFloat = 420
@@ -1082,19 +1146,18 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
         document.translatesAutoresizingMaskIntoConstraints = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .width
         stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
         document.addSubview(stack)
         scrollView.documentView = document
         content.addSubview(scrollView)
 
-        let avatar = NSImageView()
+        let avatar = PiAgentNativeProfileAvatarImageView()
         avatar.translatesAutoresizingMaskIntoConstraints = false
-        avatar.imageScaling = .scaleProportionallyUpOrDown
         avatar.wantsLayer = true
         avatar.layer?.cornerRadius = 23
         avatar.layer?.masksToBounds = true
@@ -1102,6 +1165,7 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
         avatar.layer?.borderColor = profile.accentColor.withAlphaComponent(0.45).cgColor
         if let image = AgentImageLoader.image(at: profile.avatarURL) {
             avatar.image = image
+            avatar.cropsImage = true
         } else {
             avatar.image = NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 20, weight: .medium))
@@ -1150,10 +1214,14 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
             stack.addArrangedSubview(divider())
         }
         if let description {
-            stack.addArrangedSubview(profileSection(title: "Description", text: description))
+            let section = profileSection(title: "Description", text: description)
+            stack.addArrangedSubview(section)
+            section.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         if let whenToUse {
-            stack.addArrangedSubview(profileSection(title: "When to use", text: whenToUse))
+            let section = profileSection(title: "When to use", text: whenToUse)
+            stack.addArrangedSubview(section)
+            section.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
         NSLayoutConstraint.activate([
@@ -1162,30 +1230,22 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
             scrollView.topAnchor.constraint(equalTo: content.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
-            // Match the clip view instead of the popover's outer width so text
-            // remains inside the visible column with legacy (non-overlay) scrollbars.
+            // The document always tracks the visible clip width. Overlay scrolling
+            // keeps that width stable when long profiles need a scrollbar.
             document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: document.topAnchor)
+            stack.leadingAnchor.constraint(equalTo: document.contentMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.contentMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: document.contentMarginsGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.contentMarginsGuide.bottomAnchor)
         ])
         view = content
+        // Give the scroll view its fixed width before asking Auto Layout to wrap
+        // text; its eventual height is set from the measured document below.
+        content.frame.size = NSSize(width: width, height: 1)
         content.layoutSubtreeIfNeeded()
-        var naturalHeight = ceil(stack.fittingSize.height)
-        if naturalHeight > maximumHeight {
-            // Temporarily reserve a legacy scroller's width before measuring the
-            // wrapped prose; the final document stays constrained to the clip view.
-            scrollView.hasVerticalScroller = true
-            scrollView.autohidesScrollers = false
-            content.layoutSubtreeIfNeeded()
-            naturalHeight = ceil(stack.fittingSize.height)
-            scrollView.autohidesScrollers = true
-        }
-        let documentHeight = document.heightAnchor.constraint(equalToConstant: naturalHeight)
-        NSLayoutConstraint.activate([
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-            documentHeight
-        ])
+        document.layoutSubtreeIfNeeded()
+        let naturalHeight = ceil(stack.fittingSize.height + document.verticalContentMargins)
+        document.heightAnchor.constraint(equalToConstant: naturalHeight).isActive = true
         scrollView.hasVerticalScroller = naturalHeight > maximumHeight
         preferredContentSize = NSSize(width: width, height: min(maximumHeight, naturalHeight))
     }
@@ -1209,9 +1269,12 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
 
         let section = NSStackView(views: [heading, body])
         section.orientation = .vertical
-        section.alignment = .leading
+        section.alignment = .width
         section.spacing = 5
-        body.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
+        // NSTextField's alignment rectangle is inset from its drawing frame;
+        // anchoring the heading's leading edge makes the nested width alignment
+        // resolve from this section's content edge without constraining the body.
+        heading.leadingAnchor.constraint(equalTo: section.leadingAnchor).isActive = true
         return section
     }
 }
