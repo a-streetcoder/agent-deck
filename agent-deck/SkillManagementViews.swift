@@ -971,6 +971,8 @@ struct SkillsScreen: View {
             }
         }
 
+        syncedRepositoryCard(for: collection)
+
         AppCard(title: "Project Runtime Assignment") {
             collectionAssignmentList(for: collection)
         }
@@ -1177,67 +1179,90 @@ struct SkillsScreen: View {
     @ViewBuilder
     private func syncedRepositoryCard(for skill: SkillRecord) -> some View {
         if let repository = viewModel.importedRepository(for: skill) {
-            AppCard(title: "Synced Repository") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("This skill is synced from a GitHub repository. You can edit it here; updates fast-forward and ask before overwriting your edits.")
+            syncedRepositoryCard(
+                repository,
+                description: "This skill is synced from a GitHub repository. You can edit it here; updates fast-forward and ask before overwriting your edits.",
+                updateButtonTitle: "Update Skill"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func syncedRepositoryCard(for collection: SkillCollectionRecord) -> some View {
+        if let repository = viewModel.importedRepository(for: collection) {
+            syncedRepositoryCard(
+                repository,
+                description: "This collection is synced from a GitHub repository. Updates refresh its repository-backed skills and ask before overwriting your edits.",
+                updateButtonTitle: "Update Collection"
+            )
+        }
+    }
+
+    private func syncedRepositoryCard(
+        _ repository: ImportedSkillRepository,
+        description: String,
+        updateButtonTitle: String
+    ) -> some View {
+        AppCard(title: "Synced Repository") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                AppKeyValueList(rows: [
+                    ("Source", "GitHub · \(repository.displayName)"),
+                    ("Branch", repository.ref),
+                    ("Synced", "\(shortCommit(repository.lastSyncedCommit)) · \(repository.lastSyncedDate.formatted(date: .abbreviated, time: .shortened))"),
+                    ("Last checked", repository.lastCheckedDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
+                ])
+
+                if repository.hasKnownUpdate {
+                    Label(
+                        "Update available — \(shortCommit(repository.lastSyncedCommit)) → \(shortCommit(repository.latestKnownRemoteCommit ?? ""))",
+                        systemImage: "arrow.down.circle.fill"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                }
+
+                if let skillUpdateStatusMessage {
+                    Text(skillUpdateStatusMessage)
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-                    AppKeyValueList(rows: [
-                        ("Source", "GitHub · \(repository.displayName)"),
-                        ("Branch", repository.ref),
-                        ("Synced", "\(shortCommit(repository.lastSyncedCommit)) · \(repository.lastSyncedDate.formatted(date: .abbreviated, time: .shortened))"),
-                        ("Last checked", repository.lastCheckedDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
-                    ])
+                HStack {
+                    Button {
+                        checkSkillRepositoryForUpdate(repository)
+                    } label: {
+                        if isCheckingSkillUpdate {
+                            AppSpinner().controlSize(.small)
+                        } else {
+                            Text("Check for Updates")
+                        }
+                    }
+                    .appSecondaryButton()
+                    .disabled(isCheckingSkillUpdate || isUpdatingSkillRepository)
 
                     if repository.hasKnownUpdate {
-                        Label(
-                            "Update available — \(shortCommit(repository.lastSyncedCommit)) → \(shortCommit(repository.latestKnownRemoteCommit ?? ""))",
-                            systemImage: "arrow.down.circle.fill"
-                        )
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                    }
-
-                    if let skillUpdateStatusMessage {
-                        Text(skillUpdateStatusMessage)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    HStack {
                         Button {
-                            checkSkillRepositoryForUpdate(repository)
+                            applySkillRepositoryUpdate(repository)
                         } label: {
-                            if isCheckingSkillUpdate {
+                            if isUpdatingSkillRepository {
                                 AppSpinner().controlSize(.small)
                             } else {
-                                Text("Check for Updates")
+                                Text(updateButtonTitle)
                             }
                         }
-                        .appSecondaryButton()
+                        .appPrimaryButton()
                         .disabled(isCheckingSkillUpdate || isUpdatingSkillRepository)
+                    }
 
-                        if repository.hasKnownUpdate {
-                            Button {
-                                applySkillRepositoryUpdate(repository)
-                            } label: {
-                                if isUpdatingSkillRepository {
-                                    AppSpinner().controlSize(.small)
-                                } else {
-                                    Text("Update Skill")
-                                }
-                            }
-                            .appPrimaryButton()
-                            .disabled(isCheckingSkillUpdate || isUpdatingSkillRepository)
-                        }
-
-                        if let webURL = repository.webURL {
-                            Button("Open on GitHub") { NSWorkspace.shared.open(webURL) }
-                                .appSecondaryButton()
-                        }
+                    if let webURL = repository.webURL {
+                        Button("Open on GitHub") { NSWorkspace.shared.open(webURL) }
+                            .appSecondaryButton()
                     }
                 }
             }
@@ -2182,7 +2207,10 @@ private struct AgentAssignmentToggleRow: View {
             }
         )
 
-        return Toggle(isOn: toggleBinding) {
+        return AppCheckboxRow(
+            isOn: toggleBinding,
+            accessibilityLabel: "Toggle agent \(agent.name)"
+        ) {
             HStack(alignment: .center, spacing: 12) {
                 ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -2219,9 +2247,7 @@ private struct AgentAssignmentToggleRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .appCheckbox()
         .controlSize(.regular)
-        .accessibilityLabel("Toggle agent \(agent.name)")
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
         .opacity(isInactive ? 0.62 : 1)
@@ -2866,13 +2892,16 @@ private struct SkillCollectionEditorSheet: View {
 
                                 ForEach(filteredSkills.indices, id: \.self) { index in
                                     let skill = filteredSkills[index]
-                                    Toggle(isOn: Binding(
-                                        get: { selectedSkillIDs.contains(skill.id) },
-                                        set: { enabled in
-                                            if enabled { selectedSkillIDs.insert(skill.id) }
-                                            else { selectedSkillIDs.remove(skill.id) }
-                                        }
-                                    )) {
+                                    AppCheckboxRow(
+                                        isOn: Binding(
+                                            get: { selectedSkillIDs.contains(skill.id) },
+                                            set: { enabled in
+                                                if enabled { selectedSkillIDs.insert(skill.id) }
+                                                else { selectedSkillIDs.remove(skill.id) }
+                                            }
+                                        ),
+                                        accessibilityLabel: "Toggle skill \(skill.name)"
+                                    ) {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(skill.name)
                                                 .font(.callout.weight(.semibold))
@@ -2882,7 +2911,6 @@ private struct SkillCollectionEditorSheet: View {
                                                 .lineLimit(1)
                                         }
                                     }
-                                    .appCheckbox()
                                     .padding(.vertical, 7)
 
                                     if index < filteredSkills.count - 1 { Divider() }

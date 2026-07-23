@@ -999,7 +999,10 @@ private struct MCPServerEditorSheet: View {
             }
         )
 
-        return Toggle(isOn: isSelected) {
+        return AppCheckboxRow(
+            isOn: isSelected,
+            accessibilityLabel: "Toggle MCP server \(candidate.name)"
+        ) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -1023,8 +1026,6 @@ private struct MCPServerEditorSheet: View {
                 Spacer(minLength: 0)
             }
         }
-        .appCheckbox()
-        .accessibilityLabel("Toggle MCP server \(candidate.name)")
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
     }
@@ -1126,4 +1127,3 @@ private struct MCPServerEditorSheet: View {
         return result.isEmpty ? nil : result
     }
 }
-

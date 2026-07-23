@@ -1606,6 +1606,13 @@ final class AppViewModel: NSObject {
         appSettings.importedSkillRepositories.first { $0.contains(skillFilePath: skill.filePath) }
     }
 
+    /// The synced repository explicitly associated with a Git-backed skill
+    /// collection. Local/user-organized collections intentionally return nil.
+    func importedRepository(for collection: SkillCollectionRecord) -> ImportedSkillRepository? {
+        guard let repositoryID = collection.importedRepositoryID else { return nil }
+        return appSettings.importedSkillRepositories.first { $0.id == repositoryID }
+    }
+
     /// Resolve a pasted GitHub / skills.sh URL, clone it for discovery (or
     /// reuse an existing clone when the repo is already imported), and list
     /// its skills.

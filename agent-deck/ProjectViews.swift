@@ -16,7 +16,10 @@ struct ProjectAssignmentToggleRow: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        Toggle(isOn: $isOn) {
+        AppCheckboxRow(
+            isOn: $isOn,
+            accessibilityLabel: "Toggle project \(project.name)"
+        ) {
             HStack(alignment: .center, spacing: 12) {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30, assetName: project.projectType.assetName)
 
@@ -33,7 +36,6 @@ struct ProjectAssignmentToggleRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .appCheckbox()
         .controlSize(.regular)
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
@@ -48,7 +50,10 @@ struct AllProjectsAssignmentRow: View {
     var subtitle: String = "Enable this agent for every project"
 
     var body: some View {
-        Toggle(isOn: $isOn) {
+        AppCheckboxRow(
+            isOn: $isOn,
+            accessibilityLabel: "Toggle all projects"
+        ) {
             HStack(alignment: .center, spacing: 12) {
                 ProjectIconView(imageURL: nil, symbolName: "square.grid.2x2", size: 30)
 
@@ -65,7 +70,6 @@ struct AllProjectsAssignmentRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .appCheckbox()
         .controlSize(.regular)
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
@@ -1110,4 +1114,3 @@ private struct ProjectMcpServersRecapSheet: View {
         }
     }
 }
-

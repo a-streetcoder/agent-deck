@@ -327,6 +327,52 @@ enum AppTheme {
     static var subtleFill: Color { contentSubtleFill }
 }
 
+/// A checkbox paired with a rich, potentially multi-line label.
+///
+/// SwiftUI's macOS checkbox style aligns the control to the label's first text
+/// baseline. That looks top-heavy for the two-line resource assignment rows
+/// used throughout the app. Keeping the native checkbox and label as siblings
+/// gives the row an explicit vertical-center alignment while preserving the
+/// full label as a clickable target.
+struct AppCheckboxRow<Label: View>: View {
+    @Binding var isOn: Bool
+    let accessibilityLabel: String
+    let spacing: CGFloat
+    let label: Label
+
+    init(
+        isOn: Binding<Bool>,
+        accessibilityLabel: String,
+        spacing: CGFloat = 12,
+        @ViewBuilder label: () -> Label
+    ) {
+        _isOn = isOn
+        self.accessibilityLabel = accessibilityLabel
+        self.spacing = spacing
+        self.label = label()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: spacing) {
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .appCheckbox()
+                .fixedSize()
+                .accessibilityLabel(accessibilityLabel)
+
+            Button {
+                isOn.toggle()
+            } label: {
+                label
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 extension View {
     /// Liquid Glass capsule chrome for pill-shaped controls (composer chips, keyboard
     /// shortcut hints, the like). Replaces the previous `.background(Capsule().fill(…))`
