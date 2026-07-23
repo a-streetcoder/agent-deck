@@ -528,6 +528,104 @@ final class NativeMarkdownTextContainer: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Natural unwrapped width of the same styled blocks this container renders.
+    /// User bubbles use this instead of measuring raw Markdown as one body-font
+    /// string, which underestimates headings, bold/code spans, lists, and quotes.
+    ///
+    /// Very large documents and tables already need the full bubble cap; returning
+    /// `ceiling` avoids doing expensive main-thread measurement for content whose
+    /// final clamped width is known in advance.
+    static func naturalWidth(for source: String, ceiling: CGFloat) -> CGFloat {
+        guard !source.isEmpty else { return 0 }
+        guard source.count <= 4_000 else { return ceiling }
+
+        let balanced = StreamingMarkdownBalancer.balance(source)
+        let document = MarkdownRenderCache.document(for: balanced)
+        guard document.frontmatter == nil else { return ceiling }
+
+        var widest: CGFloat = 0
+        for block in document.blocks {
+            let width: CGFloat
+            switch block.kind {
+            case let .heading(level, text):
+                width = measuredUnwrappedWidth(
+                    attributedString(
+                        text,
+                        font: NativeMarkdownFont.heading(level: level),
+                        color: MarkdownSemanticStyler.headingColor,
+                        parseInlineMarkdown: true
+                    ),
+                    ceiling: ceiling
+                )
+            case let .paragraph(text):
+                width = measuredUnwrappedWidth(
+                    attributedString(
+                        text,
+                        font: NativeMarkdownFont.body,
+                        color: .labelColor,
+                        parseInlineMarkdown: true
+                    ),
+                    ceiling: ceiling
+                )
+            case let .bullet(text, indentLevel):
+                width = measuredUnwrappedWidth(
+                    listAttributedString(
+                        marker: bulletMarker(for: indentLevel),
+                        text: text,
+                        indentLevel: indentLevel,
+                        markerWidth: 18
+                    ),
+                    ceiling: ceiling
+                )
+            case let .numbered(number, text, indentLevel):
+                width = measuredUnwrappedWidth(
+                    listAttributedString(
+                        marker: "\(number).",
+                        text: text,
+                        indentLevel: indentLevel,
+                        markerWidth: 22,
+                        markerColor: MarkdownSemanticStyler.listEnumerationColor
+                    ),
+                    ceiling: ceiling
+                )
+            case let .quote(text):
+                let body = attributedString(
+                    text,
+                    font: MarkdownSemanticStyler.quoteFont,
+                    color: MarkdownSemanticStyler.quoteColor,
+                    parseInlineMarkdown: true
+                )
+                // 3pt quote bar + 9pt stack spacing.
+                width = 12 + measuredUnwrappedWidth(body, ceiling: max(1, ceiling - 12))
+            case .code, .table:
+                // Code blocks and tables are deliberately full-width transcript
+                // surfaces; their internal padding/columns should never be guessed.
+                return ceiling
+            }
+            widest = max(widest, width)
+            if widest >= ceiling { return ceiling }
+        }
+        return min(ceil(widest), ceiling)
+    }
+
+    private static func measuredUnwrappedWidth(
+        _ attributed: NSAttributedString,
+        ceiling: CGFloat
+    ) -> CGFloat {
+        guard attributed.length > 0 else { return 0 }
+        let storage = NSTextStorage(attributedString: attributed)
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer(
+            containerSize: NSSize(width: ceiling, height: .greatestFiniteMagnitude)
+        )
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = 0
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: container)
+        return min(ceil(layoutManager.usedRect(for: container).maxX), ceiling)
+    }
+
     private func setupStackView() {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.orientation = .vertical

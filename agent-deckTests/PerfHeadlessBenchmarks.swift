@@ -60,6 +60,24 @@ final class PerfHeadlessBenchmarks: XCTestCase {
         }
     }
 
+    /// First-use sizing for immutable user messages. Each sample is unique so
+    /// this measures the renderer-backed Markdown estimate rather than only the
+    /// `MessageTextWidth` cache-hit path.
+    func testStyledUserBubbleWidthMeasurementPerformance() {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 10
+        var batch = 0
+        measure(metrics: [XCTClockMetric()], options: options) {
+            for index in 0..<100 {
+                _ = PiAgentBubbleWidth.huggedUser(
+                    text: "# Heading \(batch)-\(index) with **bold** and `inlineCode()`",
+                    paneWidth: 900
+                )
+            }
+            batch += 1
+        }
+    }
+
     private func runningPayload(task: String) -> NativeAgentBlockPayload {
         NativeAgentBlockPayload(
             agentName: "explorer",

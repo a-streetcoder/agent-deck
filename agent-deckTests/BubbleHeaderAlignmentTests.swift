@@ -92,13 +92,64 @@ final class BubbleHeaderAlignmentTests: XCTestCase {
         )
     }
 
+    func testChipNaturalWidthUsesRenderedNativeChipFont() {
+        let label = "README-with-a-fairly-wide-name.md"
+        let expected = ceil(
+            (label as NSString).size(
+                withAttributes: [.font: NativeTranscriptFont.caption()]
+            ).width
+        )
+
+        XCTAssertEqual(ChipLabelWidth.labelWidth(of: label), expected, accuracy: 0.5)
+    }
+
+    func testStyledUserBubblesDoNotWrapBeforeTheirNaturalWidth() throws {
+        let samples = [
+            "# A heading whose larger font must drive its card width",
+            "**Bold words must be measured using their rendered weight**",
+            "    - A nested list includes its marker column and indentation",
+            "> A quoted message includes the quote bar and its spacing",
+            "Use `inlineMonospace()` without estimating it as body text"
+        ]
+
+        for source in samples {
+            let result = try laidOutUserBubble(source: source)
+            let textView = try XCTUnwrap(
+                firstTextView(in: result.card),
+                "No rendered text view for \(source)"
+            )
+            XCTAssertEqual(
+                lineCount(in: textView),
+                1,
+                "Styled content wrapped before the card reached its cap: \(source)"
+            )
+            XCTAssertLessThan(
+                result.card.frame.width,
+                PiAgentBubbleWidth.replyCap(for: rowWidth),
+                "The regression sample should remain content-hugging: \(source)"
+            )
+        }
+    }
+
     func testUserBubbleUsesNaturalWidthWithoutPrematureFinalWordWrap() throws {
+        let result = try laidOutUserBubble(source: userWidthRegressionText)
+        let card = result.card
+        let textView = try XCTUnwrap(firstTextView(in: card))
+        XCTAssertEqual(lineCount(in: textView), 1)
+        XCTAssertLessThan(
+            card.frame.width,
+            PiAgentBubbleWidth.replyCap(for: rowWidth),
+            "A short user message should hug its content rather than fill the response-card cap."
+        )
+    }
+
+    private func laidOutUserBubble(source: String) throws -> (view: PiAgentNativeBubbleView, card: NSView) {
         let payload = NativeBubblePayload(
             role: .user,
             headerTitle: "You",
             iconSymbol: "person.crop.circle.fill",
-            markdownSource: userWidthRegressionText,
-            copyText: userWidthRegressionText,
+            markdownSource: source,
+            copyText: source,
             copySide: .leading,
             isThreadChild: false,
             isUserHugged: true
@@ -111,27 +162,21 @@ final class BubbleHeaderAlignmentTests: XCTestCase {
         view.configure(payload: payload, width: rowWidth)
         view.frame = NSRect(x: 0, y: 0, width: rowWidth, height: measuredHeight)
         view.settleLayoutImmediately()
+        return (view, try XCTUnwrap(view.subviews.first))
+    }
 
-        let card = try XCTUnwrap(view.subviews.first)
-        let textView = try XCTUnwrap(firstTextView(in: card))
-        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
-        var lineCount = 0
-        if let layoutManager = textView.layoutManager,
-           let textContainer = textView.textContainer {
-            layoutManager.enumerateLineFragments(
-                forGlyphRange: NSRange(location: 0, length: layoutManager.numberOfGlyphs)
-            ) { _, _, _, _, _ in
-                lineCount += 1
-            }
-            XCTAssertGreaterThan(textContainer.containerSize.width, 0)
+    private func lineCount(in textView: NSTextView) -> Int {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return 0 }
+        layoutManager.ensureLayout(for: textContainer)
+        var count = 0
+        layoutManager.enumerateLineFragments(
+            forGlyphRange: NSRange(location: 0, length: layoutManager.numberOfGlyphs)
+        ) { _, _, _, _, _ in
+            count += 1
         }
-
-        XCTAssertEqual(lineCount, 1)
-        XCTAssertLessThan(
-            card.frame.width,
-            PiAgentBubbleWidth.replyCap(for: rowWidth),
-            "A short user message should hug its content rather than fill the response-card cap."
-        )
+        XCTAssertGreaterThan(textContainer.containerSize.width, 0)
+        return count
     }
 
     func testLongUserBubbleStillStopsAtTheDefinedMaximumWidth() {

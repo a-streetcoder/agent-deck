@@ -828,7 +828,8 @@ enum PiAgentBubbleWidth {
     }
 }
 
-/// Measurement of an attachment chip label in `.caption2`, used by the bubble
+/// Measurement of an attachment chip label in the native chip's caption font,
+/// used by the bubble
 /// width calculation so chips can grow the bubble to fit (within the cap).
 /// Per-chip width is capped — a single huge filename can't blow the bubble;
 /// the chip will middle-truncate beyond that ceiling.
@@ -837,8 +838,12 @@ enum ChipLabelWidth {
     private static var cache: [String: CGFloat] = [:]
     private static var order: [String] = []
     private static let limit = 256
+    /// Must match `PiAgentNativeChipView`'s normal label font. The system
+    /// preferred caption2 font is 10pt, while transcript chips render with the
+    /// app's explicit 11pt caption token; using the smaller font can make a chip
+    /// wrap even though its containing card has not reached the width cap.
     private static let attributes: [NSAttributedString.Key: Any] =
-        [.font: NSFont.preferredFont(forTextStyle: .caption2)]
+        [.font: NativeTranscriptFont.caption()]
     /// Width contribution per chip beyond its label: icon + spacing + glass-capsule
     /// horizontal padding (small button style).
     static let chipChrome: CGFloat = 38
@@ -871,38 +876,31 @@ enum ChipLabelWidth {
     }
 }
 
-/// Cheap, cached measurement of a message's natural (unwrapped) text width —
+/// Cached measurement of a message's natural (unwrapped) rendered width —
 /// the width below which the body text would begin to wrap. This lets chat
 /// bubbles size to their content WITHOUT touching the markdown view's own
 /// (carefully tuned) layout / height-measurement path.
 @MainActor
 enum MessageTextWidth {
-    private static var cache: [String: CGFloat] = [:]
-    private static var order: [String] = []
+    private struct CacheKey: Hashable {
+        var text: String
+        var styleRevision: Int
+    }
+
+    private static var cache: [CacheKey: CGFloat] = [:]
+    private static var order: [CacheKey] = []
     private static let limit = 256
     // Bounds work for pathologically long lines; far above any real bubble cap.
     private static let ceiling: CGFloat = 5000
-    /// Must match `NativeMarkdownFont.body`, used by the AppKit Markdown
-    /// renderer. `preferredFont(forTextStyle: .body)` is 13pt on macOS while
-    /// transcript prose is explicitly 14pt, which underestimated user-message
-    /// widths and wrapped the final word before the bubble reached its cap.
-    private static let attributes: [NSAttributedString.Key: Any] =
-        [.font: NativeTranscriptFont.body()]
-
-    /// Width of the widest line of `text` in the body font. Measures the raw
-    /// markdown source, so syntax characters bias the result slightly wide —
-    /// the safe direction (a bubble never ends up narrower than its text).
+    /// Width of the widest rendered block. The native Markdown renderer owns the
+    /// typography and structural chrome (headings, inline traits, list indents,
+    /// quote bars), so width estimation cannot drift from what is painted.
     static func naturalWidth(of text: String) -> CGFloat {
-        if let cached = cache[text] { return cached }
-        var widest: CGFloat = 0
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let width = (String(line) as NSString).size(withAttributes: attributes).width
-            if width > widest { widest = width }
-            if widest >= ceiling { break }
-        }
-        let result = min(ceil(widest), ceiling)
-        cache[text] = result
-        order.append(text)
+        let key = CacheKey(text: text, styleRevision: ThemeManager.shared.revision)
+        if let cached = cache[key] { return cached }
+        let result = NativeMarkdownTextContainer.naturalWidth(for: text, ceiling: ceiling)
+        cache[key] = result
+        order.append(key)
         if order.count > limit { cache.removeValue(forKey: order.removeFirst()) }
         return result
     }
