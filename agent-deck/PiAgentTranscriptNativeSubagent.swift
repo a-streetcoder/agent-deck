@@ -63,7 +63,7 @@ private struct NativeAgentProfilePayload {
 
 // MARK: - Activity glyph (avatar + rotating ring when active)
 
-private final class PiAgentNativeSubagentGlyph: NSView {
+private final class PiAgentNativeSubagentGlyph: NSView, NSPopoverDelegate {
     private let bgLayer = CAShapeLayer()
     private let strokeLayer = CAShapeLayer()
     // Activity ring: a conic ("angular") gradient masked to a circular stroke —
@@ -75,9 +75,11 @@ private final class PiAgentNativeSubagentGlyph: NSView {
     private let avatar = NSImageView()
     private var hoverTracking: NSTrackingArea?
     private var hoverShowWorkItem: DispatchWorkItem?
+    private var hoverDismissWorkItem: DispatchWorkItem?
     private var profilePopover: NSPopover?
     private var profile: NativeAgentProfilePayload?
     private var isPointerInside = false
+    private var isPointerInsideProfilePopover = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -102,7 +104,8 @@ private final class PiAgentNativeSubagentGlyph: NSView {
         avatar.layer?.cornerRadius = 14
         avatar.layer?.masksToBounds = true
         addSubview(avatar)
-        toolTip = "Hover for agent profile"
+        setAccessibilityLabel("Agent profile for \(profile?.agentName ?? "agent")")
+        setAccessibilityHelp("Hover to view this agent's profile.")
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 34),
             heightAnchor.constraint(equalToConstant: 34),
@@ -125,6 +128,7 @@ private final class PiAgentNativeSubagentGlyph: NSView {
             dismissProfilePopover()
         }
         self.profile = profile
+        setAccessibilityLabel("Agent profile for \(profile?.agentName ?? "agent")")
         bgLayer.fillColor = color.withAlphaComponent(isActive ? 0.12 : 0.08).cgColor
         strokeLayer.strokeColor = color.withAlphaComponent(isActive ? 0.30 : 0.16).cgColor
         // Comet profile: transparent tail rising to a bright head.
@@ -164,6 +168,7 @@ private final class PiAgentNativeSubagentGlyph: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         isPointerInside = true
+        hoverDismissWorkItem?.cancel()
         hoverShowWorkItem?.cancel()
         guard profile != nil else { return }
         let item = DispatchWorkItem { [weak self] in
@@ -176,7 +181,7 @@ private final class PiAgentNativeSubagentGlyph: NSView {
 
     override func mouseExited(with event: NSEvent) {
         isPointerInside = false
-        dismissProfilePopover()
+        scheduleProfilePopoverDismissal()
     }
 
     private func showProfilePopover() {
@@ -184,14 +189,43 @@ private final class PiAgentNativeSubagentGlyph: NSView {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
-        popover.contentViewController = PiAgentNativeProfilePopoverController(profile: profile)
+        popover.delegate = self
+        popover.contentViewController = PiAgentNativeProfilePopoverController(profile: profile) { [weak self] isInside in
+            self?.isPointerInsideProfilePopover = isInside
+            if isInside {
+                self?.hoverDismissWorkItem?.cancel()
+            } else {
+                self?.scheduleProfilePopoverDismissal()
+            }
+        }
         profilePopover = popover
         popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)
+    }
+
+    private func scheduleProfilePopoverDismissal() {
+        hoverDismissWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, !self.isPointerInside, !self.isPointerInsideProfilePopover else { return }
+            self.dismissProfilePopover()
+        }
+        hoverDismissWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        // NSPopover may close itself (for example, from Escape). Ignore a delayed
+        // callback from an older popover so it cannot clear a newer one.
+        guard let popover = notification.object as? NSPopover, popover === profilePopover else { return }
+        isPointerInsideProfilePopover = false
+        profilePopover = nil
     }
 
     func dismissProfilePopover() {
         hoverShowWorkItem?.cancel()
         hoverShowWorkItem = nil
+        hoverDismissWorkItem?.cancel()
+        hoverDismissWorkItem = nil
+        isPointerInsideProfilePopover = false
         profilePopover?.close()
         profilePopover = nil
     }
@@ -1000,31 +1034,69 @@ extension NativeSubagentParallelPayload {
 
 // MARK: - Agent profile hover card
 
+/// Reports pointer transitions so the glyph can keep its hover popover open while
+/// its scrollable content is being read or scrolled.
+private final class PiAgentNativeProfilePopoverContentView: NSView {
+    var onPointerInsideChange: ((Bool) -> Void)?
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { onPointerInsideChange?(true) }
+    override func mouseExited(with event: NSEvent) { onPointerInsideChange?(false) }
+}
+
 private final class PiAgentNativeProfilePopoverController: NSViewController {
     private let profile: NativeAgentProfilePayload
+    private let onPointerInsideChange: (Bool) -> Void
 
-    init(profile: NativeAgentProfilePayload) {
+    init(profile: NativeAgentProfilePayload, onPointerInsideChange: @escaping (Bool) -> Void) {
         self.profile = profile
+        self.onPointerInsideChange = onPointerInsideChange
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let content = NSView()
+        let content = PiAgentNativeProfilePopoverContentView()
+        content.onPointerInsideChange = onPointerInsideChange
+        let scrollView = NSScrollView()
+        let document = NSView()
         let stack = NSStackView()
+        let width: CGFloat = 340
+        let maximumHeight: CGFloat = 420
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        document.translatesAutoresizingMaskIntoConstraints = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .width
-        stack.spacing = 14
-        stack.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
-        content.addSubview(stack)
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        document.addSubview(stack)
+        scrollView.documentView = document
+        content.addSubview(scrollView)
 
         let avatar = NSImageView()
         avatar.translatesAutoresizingMaskIntoConstraints = false
         avatar.imageScaling = .scaleProportionallyUpOrDown
         avatar.wantsLayer = true
-        avatar.layer?.cornerRadius = 36
+        avatar.layer?.cornerRadius = 23
         avatar.layer?.masksToBounds = true
         avatar.layer?.borderWidth = 1
         avatar.layer?.borderColor = profile.accentColor.withAlphaComponent(0.45).cgColor
@@ -1032,18 +1104,20 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
             avatar.image = image
         } else {
             avatar.image = NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 30, weight: .medium))
+                .withSymbolConfiguration(.init(pointSize: 20, weight: .medium))
             avatar.contentTintColor = profile.accentColor
             avatar.imageScaling = .scaleNone
         }
         NSLayoutConstraint.activate([
-            avatar.widthAnchor.constraint(equalToConstant: 72),
-            avatar.heightAnchor.constraint(equalToConstant: 72)
+            avatar.widthAnchor.constraint(equalToConstant: 46),
+            avatar.heightAnchor.constraint(equalToConstant: 46)
         ])
 
         let name = NSTextField(labelWithString: profile.agentName)
         name.font = NativeTranscriptFont.sectionTitle()
+        name.maximumNumberOfLines = 1
         name.lineBreakMode = .byTruncatingTail
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let role = NSTextField(labelWithString: "DECK AGENT")
         role.font = NativeTranscriptFont.caption2(.semibold)
@@ -1052,46 +1126,68 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
         let identity = NSStackView(views: [role, name])
         identity.orientation = .vertical
         identity.alignment = .leading
-        identity.spacing = 4
-        if let modelText = profile.modelText {
+        identity.spacing = 2
+        identity.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if let modelText = NativeSubagentFactory.nonEmpty(profile.modelText) {
             let model = NSTextField(labelWithString: modelText)
             model.font = AppTheme.IdentifierPill.nsFont()
             model.textColor = AppTheme.ns(AppTheme.mutedText)
+            model.maximumNumberOfLines = 1
+            model.lineBreakMode = .byTruncatingTail
+            model.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             identity.addArrangedSubview(model)
         }
 
         let header = NSStackView(views: [avatar, identity])
         header.orientation = .horizontal
         header.alignment = .centerY
-        header.spacing = 14
+        header.spacing = 10
         stack.addArrangedSubview(header)
-        stack.addArrangedSubview(divider())
-        stack.addArrangedSubview(
-            profileSection(
-                title: "Description",
-                text: profile.agentDescription ?? "No description provided."
-            )
-        )
-        stack.addArrangedSubview(
-            profileSection(
-                title: "When to use",
-                text: profile.whenToUse ?? "No routing guidance provided."
-            )
-        )
+
+        let description = NativeSubagentFactory.nonEmpty(profile.agentDescription)
+        let whenToUse = NativeSubagentFactory.nonEmpty(profile.whenToUse)
+        if description != nil || whenToUse != nil {
+            stack.addArrangedSubview(divider())
+        }
+        if let description {
+            stack.addArrangedSubview(profileSection(title: "Description", text: description))
+        }
+        if let whenToUse {
+            stack.addArrangedSubview(profileSection(title: "When to use", text: whenToUse))
+        }
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: content.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            content.widthAnchor.constraint(equalToConstant: 380)
+            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: content.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            content.widthAnchor.constraint(equalToConstant: width),
+            // Match the clip view instead of the popover's outer width so text
+            // remains inside the visible column with legacy (non-overlay) scrollbars.
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: document.topAnchor)
         ])
         view = content
         content.layoutSubtreeIfNeeded()
-        preferredContentSize = NSSize(
-            width: 380,
-            height: min(500, max(220, ceil(stack.fittingSize.height)))
-        )
+        var naturalHeight = ceil(stack.fittingSize.height)
+        if naturalHeight > maximumHeight {
+            // Temporarily reserve a legacy scroller's width before measuring the
+            // wrapped prose; the final document stays constrained to the clip view.
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = false
+            content.layoutSubtreeIfNeeded()
+            naturalHeight = ceil(stack.fittingSize.height)
+            scrollView.autohidesScrollers = true
+        }
+        let documentHeight = document.heightAnchor.constraint(equalToConstant: naturalHeight)
+        NSLayoutConstraint.activate([
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            documentHeight
+        ])
+        scrollView.hasVerticalScroller = naturalHeight > maximumHeight
+        preferredContentSize = NSSize(width: width, height: min(maximumHeight, naturalHeight))
     }
 
     private func divider() -> NSBox {
