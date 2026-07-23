@@ -29,6 +29,8 @@ Blocking requests wait for a human or parent-agent answer. Non-blocking progress
 
 Native subagents start fresh by default and cannot see the parent conversation, context window, reasoning, tool results, user decisions, or prior-agent findings. Every fresh delegation must therefore be self-contained: its task supplies the goal, relevant requirements/decisions, constraints/findings, expected output, and useful reads. Direct follow-ups can pass a previous Subagent ID as `continueSubagentID`; Agent Deck resumes only that child's own session and updates the same parent chat card. Agent Deck never restores parent context or uses forked parent context for native subagents.
 
+In the parent transcript, hovering a Deck agent avatar opens a profile card with the resolved agent image, description, model, and `whenToUse` routing guidance. This is available for both single-agent runs and child cards in parallel runs.
+
 ## Extension isolation
 
 Native child sessions disable ambient extension discovery and load only configured extensions plus the app child bridge when needed. This keeps child capabilities explicit.

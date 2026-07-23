@@ -16,6 +16,8 @@ import SwiftUI
 
 struct NativeAgentBlockPayload {
     var agentName: String
+    var agentDescription: String?
+    var whenToUse: String?
     var statusText: String
     var statusColor: NSColor
     var isActive: Bool
@@ -50,6 +52,15 @@ struct NativeSubagentParallelPayload {
     var children: [NativeAgentBlockPayload]
 }
 
+private struct NativeAgentProfilePayload {
+    var agentName: String
+    var agentDescription: String?
+    var whenToUse: String?
+    var modelText: String?
+    var avatarURL: URL?
+    var accentColor: NSColor
+}
+
 // MARK: - Activity glyph (avatar + rotating ring when active)
 
 private final class PiAgentNativeSubagentGlyph: NSView {
@@ -62,6 +73,11 @@ private final class PiAgentNativeSubagentGlyph: NSView {
     private let ringGradient = CAGradientLayer()
     private let ringMask = CAShapeLayer()
     private let avatar = NSImageView()
+    private var hoverTracking: NSTrackingArea?
+    private var hoverShowWorkItem: DispatchWorkItem?
+    private var profilePopover: NSPopover?
+    private var profile: NativeAgentProfilePayload?
+    private var isPointerInside = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -86,6 +102,7 @@ private final class PiAgentNativeSubagentGlyph: NSView {
         avatar.layer?.cornerRadius = 14
         avatar.layer?.masksToBounds = true
         addSubview(avatar)
+        toolTip = "Hover for agent profile"
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 34),
             heightAnchor.constraint(equalToConstant: 34),
@@ -98,7 +115,16 @@ private final class PiAgentNativeSubagentGlyph: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
 
-    func configure(color: NSColor, isActive: Bool, avatarURL: URL?) {
+    func configure(
+        color: NSColor,
+        isActive: Bool,
+        avatarURL: URL?,
+        profile: NativeAgentProfilePayload?
+    ) {
+        if self.profile?.agentName != profile?.agentName {
+            dismissProfilePopover()
+        }
+        self.profile = profile
         bgLayer.fillColor = color.withAlphaComponent(isActive ? 0.12 : 0.08).cgColor
         strokeLayer.strokeColor = color.withAlphaComponent(isActive ? 0.30 : 0.16).cgColor
         // Comet profile: transparent tail rising to a bright head.
@@ -122,6 +148,52 @@ private final class PiAgentNativeSubagentGlyph: NSView {
         }
         if isActive { startSpin() } else { ringGradient.removeAnimation(forKey: "spin") }
         needsLayout = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        hoverShowWorkItem?.cancel()
+        guard profile != nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.isPointerInside else { return }
+            self.showProfilePopover()
+        }
+        hoverShowWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: item)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        dismissProfilePopover()
+    }
+
+    private func showProfilePopover() {
+        guard profilePopover?.isShown != true, let profile, window != nil else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = PiAgentNativeProfilePopoverController(profile: profile)
+        profilePopover = popover
+        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)
+    }
+
+    func dismissProfilePopover() {
+        hoverShowWorkItem?.cancel()
+        hoverShowWorkItem = nil
+        profilePopover?.close()
+        profilePopover = nil
     }
 
     private func startSpin() {
@@ -405,7 +477,20 @@ final class PiAgentNativeAgentBlockView: NSView {
     override var isFlipped: Bool { true }
 
     func configure(_ payload: NativeAgentBlockPayload) {
-        glyph.configure(color: payload.statusColor, isActive: payload.isActive, avatarURL: payload.avatarURL)
+        let profile = NativeAgentProfilePayload(
+            agentName: payload.agentName,
+            agentDescription: payload.agentDescription,
+            whenToUse: payload.whenToUse,
+            modelText: payload.modelText,
+            avatarURL: payload.avatarURL,
+            accentColor: payload.statusColor
+        )
+        glyph.configure(
+            color: payload.statusColor,
+            isActive: payload.isActive,
+            avatarURL: payload.avatarURL,
+            profile: profile
+        )
         nameLabel.stringValue = payload.agentName
         modelLabel.stringValue = payload.modelText ?? ""
         modelLabel.isHidden = (payload.modelText?.isEmpty ?? true)
@@ -535,7 +620,10 @@ final class PiAgentNativeAgentBlockView: NSView {
         return ceil(headerH + headerToTask + taskH)
     }
 
-    func cancel() { task.cancel() }
+    func cancel() {
+        glyph.dismissProfilePopover()
+        task.cancel()
+    }
 }
 
 // MARK: - Single subagent card
@@ -783,6 +871,7 @@ extension NativeAgentBlockPayload {
     @MainActor
     static func makeSingle(
         run: PiSubagentRunRecord,
+        agent: EffectiveAgentRecord?,
         imageStore: AgentImageStore,
         onStop: @escaping () -> Void,
         onTranscript: @escaping () -> Void,
@@ -828,6 +917,8 @@ extension NativeAgentBlockPayload {
 
         return NativeAgentBlockPayload(
             agentName: run.agentName,
+            agentDescription: NativeSubagentFactory.nonEmpty(agent?.resolved.description),
+            whenToUse: NativeSubagentFactory.nonEmpty(agent?.resolved.whenToUse),
             statusText: run.status.rawValue.capitalized,
             statusColor: NativeSubagentFactory.statusColor(run.status),
             isActive: run.status.isActive,
@@ -856,6 +947,7 @@ extension NativeSubagentParallelPayload {
     @MainActor
     static func make(
         run: PiSubagentRunRecord,
+        agentsByName: [String: EffectiveAgentRecord],
         imageStore: AgentImageStore,
         onOpenChildTranscript: @escaping (UUID) -> Void,
         onStopChild: @escaping (UUID) -> Void
@@ -882,6 +974,8 @@ extension NativeSubagentParallelPayload {
 
             return NativeAgentBlockPayload(
                 agentName: child.agentName,
+                agentDescription: NativeSubagentFactory.nonEmpty(agentsByName[child.agentName]?.resolved.description),
+                whenToUse: NativeSubagentFactory.nonEmpty(agentsByName[child.agentName]?.resolved.whenToUse),
                 statusText: child.status.rawValue.capitalized,
                 statusColor: NativeSubagentFactory.statusColor(child.status),
                 isActive: child.status.isActive,
@@ -901,6 +995,128 @@ extension NativeSubagentParallelPayload {
             statusColor: NativeSubagentFactory.statusColor(run.status),
             children: children
         )
+    }
+}
+
+// MARK: - Agent profile hover card
+
+private final class PiAgentNativeProfilePopoverController: NSViewController {
+    private let profile: NativeAgentProfilePayload
+
+    init(profile: NativeAgentProfilePayload) {
+        self.profile = profile
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let content = NSView()
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .width
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
+        content.addSubview(stack)
+
+        let avatar = NSImageView()
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        avatar.imageScaling = .scaleProportionallyUpOrDown
+        avatar.wantsLayer = true
+        avatar.layer?.cornerRadius = 36
+        avatar.layer?.masksToBounds = true
+        avatar.layer?.borderWidth = 1
+        avatar.layer?.borderColor = profile.accentColor.withAlphaComponent(0.45).cgColor
+        if let image = AgentImageLoader.image(at: profile.avatarURL) {
+            avatar.image = image
+        } else {
+            avatar.image = NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 30, weight: .medium))
+            avatar.contentTintColor = profile.accentColor
+            avatar.imageScaling = .scaleNone
+        }
+        NSLayoutConstraint.activate([
+            avatar.widthAnchor.constraint(equalToConstant: 72),
+            avatar.heightAnchor.constraint(equalToConstant: 72)
+        ])
+
+        let name = NSTextField(labelWithString: profile.agentName)
+        name.font = NativeTranscriptFont.sectionTitle()
+        name.lineBreakMode = .byTruncatingTail
+
+        let role = NSTextField(labelWithString: "DECK AGENT")
+        role.font = NativeTranscriptFont.caption2(.semibold)
+        role.textColor = profile.accentColor
+
+        let identity = NSStackView(views: [role, name])
+        identity.orientation = .vertical
+        identity.alignment = .leading
+        identity.spacing = 4
+        if let modelText = profile.modelText {
+            let model = NSTextField(labelWithString: modelText)
+            model.font = AppTheme.IdentifierPill.nsFont()
+            model.textColor = AppTheme.ns(AppTheme.mutedText)
+            identity.addArrangedSubview(model)
+        }
+
+        let header = NSStackView(views: [avatar, identity])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 14
+        stack.addArrangedSubview(header)
+        stack.addArrangedSubview(divider())
+        stack.addArrangedSubview(
+            profileSection(
+                title: "Description",
+                text: profile.agentDescription ?? "No description provided."
+            )
+        )
+        stack.addArrangedSubview(
+            profileSection(
+                title: "When to use",
+                text: profile.whenToUse ?? "No routing guidance provided."
+            )
+        )
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            content.widthAnchor.constraint(equalToConstant: 380)
+        ])
+        view = content
+        content.layoutSubtreeIfNeeded()
+        preferredContentSize = NSSize(
+            width: 380,
+            height: min(500, max(220, ceil(stack.fittingSize.height)))
+        )
+    }
+
+    private func divider() -> NSBox {
+        let box = NSBox()
+        box.boxType = .separator
+        return box
+    }
+
+    private func profileSection(title: String, text: String) -> NSView {
+        let heading = NSTextField(labelWithString: title.uppercased())
+        heading.font = NativeTranscriptFont.caption2(.semibold)
+        heading.textColor = AppTheme.ns(AppTheme.mutedText)
+
+        let body = NSTextField(wrappingLabelWithString: text)
+        body.font = NativeTranscriptFont.callout()
+        body.textColor = .labelColor
+        body.maximumNumberOfLines = 0
+        body.isSelectable = true
+
+        let section = NSStackView(views: [heading, body])
+        section.orientation = .vertical
+        section.alignment = .leading
+        section.spacing = 5
+        body.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
+        return section
     }
 }
 

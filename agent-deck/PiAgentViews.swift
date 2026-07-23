@@ -5921,6 +5921,7 @@ struct PiAgentScreen: View {
         hasher.combine(appKitTranscriptThreadContextRevision(snapshot: snapshot))
         hasher.combine(showArchivedPreCompactionTranscript)
         if let session = store.selectedSession {
+            hasher.combine(viewModel.displayAgentsRevision)
             hasher.combine(session.commandInvocations)         // slash-command chrome
             hasher.combine(session.forkedFromParentTitle)      // fork-origin card
             hasher.combine(session.forkedFromSessionID)
@@ -5947,7 +5948,8 @@ struct PiAgentScreen: View {
             "streaming": transcriptCache.streamingRevision,
             "archived": showArchivedPreCompactionTranscript ? 1 : 0,
             "visibility": String(describing: viewModel.appSettings.piAgentTranscriptVisibility).hashValue,
-            "skills": visibleSkillsForSelectedSession.map(\.name).hashValue
+            "skills": visibleSkillsForSelectedSession.map(\.name).hashValue,
+            "agents": viewModel.displayAgentsRevision
         ]
         if let session = store.selectedSession {
             components["sessionID"] = session.id.hashValue
@@ -5984,6 +5986,15 @@ struct PiAgentScreen: View {
             name.hasPrefix("/") ? String(name.dropFirst()) : name
         })
         let subagentRuns = nativeSubagentRunsByID
+        var agentProfilesByName: [String: EffectiveAgentRecord] = [:]
+        for agent in viewModel.cachedAllDisplayAgents {
+            agentProfilesByName[agent.name] = agent
+        }
+        if let session = store.selectedSession {
+            for agent in viewModel.catalogAgents(for: session) {
+                agentProfilesByName[agent.name] = agent
+            }
+        }
 
         var descriptors: [PiAgentTranscriptBlockDescriptor] = []
         // Block ids whose render kind we memoize this pass (the per-N timeline
@@ -6144,7 +6155,10 @@ struct PiAgentScreen: View {
                         let nativeKind = transcriptCache.cachedBlockKind(id: child.id, revision: revision) {
                             nativeChildKind(
                                 for: child, visibility: visibility, skills: skills,
-                                commandSlashNames: commandSlashNames, subagentRuns: subagentRuns) ?? Self.nativeEmptyKind
+                                commandSlashNames: commandSlashNames,
+                                subagentRuns: subagentRuns,
+                                agentProfilesByName: agentProfilesByName
+                            ) ?? Self.nativeEmptyKind
                         }
                         descriptors.append(PiAgentTranscriptBlockDescriptor(
                             id: child.id,
@@ -6358,7 +6372,8 @@ struct PiAgentScreen: View {
         visibility: PiAgentTranscriptVisibilitySettings,
         skills: [SkillRecord],
         commandSlashNames: Set<String>,
-        subagentRuns: [UUID: PiSubagentRunRecord]
+        subagentRuns: [UUID: PiSubagentRunRecord],
+        agentProfilesByName: [String: EffectiveAgentRecord]
     ) -> PiAgentTranscriptCellKind? {
         switch child {
         case .assistant:
@@ -6418,6 +6433,7 @@ struct PiAgentScreen: View {
                 if NativeSubagentFactory.isParallel(run) {
                     let payload = NativeSubagentParallelPayload.make(
                         run: run,
+                        agentsByName: agentProfilesByName,
                         imageStore: viewModel.agentImageStore,
                         onOpenChildTranscript: { [self] in selectedSubagentTranscriptRunID = $0 },
                         onStopChild: { [viewModel] in viewModel.stopNativeSubagent(runID: $0, parentSessionID: run.parentSessionID) }
@@ -6428,6 +6444,7 @@ struct PiAgentScreen: View {
                 }
                 let payload = NativeAgentBlockPayload.makeSingle(
                     run: run,
+                    agent: agentProfilesByName[run.agentName],
                     imageStore: viewModel.agentImageStore,
                     onStop: { [viewModel] in viewModel.stopNativeSubagent(runID: run.id, parentSessionID: run.parentSessionID) },
                     onTranscript: { [self] in selectedSubagentTranscriptRunID = run.id },
@@ -6602,6 +6619,7 @@ struct PiAgentScreen: View {
         var hasher = Hasher()
         hasher.combine(String(describing: viewModel.appSettings.piAgentTranscriptVisibility))
         hasher.combine(visibleSkillsForSelectedSession.map(\.name))
+        hasher.combine(viewModel.displayAgentsRevision)
         hasher.combine(store.selectedSession.map { $0.worktreePath ?? $0.projectPath })
         // Deliberately NO subagent-run state here: this revision folds into EVERY
         // row, and run records update on every subagent event — hashing them here

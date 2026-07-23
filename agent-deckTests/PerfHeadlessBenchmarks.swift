@@ -81,6 +81,8 @@ final class PerfHeadlessBenchmarks: XCTestCase {
     private func runningPayload(task: String) -> NativeAgentBlockPayload {
         NativeAgentBlockPayload(
             agentName: "explorer",
+            agentDescription: "Quickly maps unfamiliar projects and reports the relevant files and data flow.",
+            whenToUse: "Use for focused reconnaissance before implementation.",
             statusText: "Running",
             statusColor: .systemBlue,
             isActive: true,
