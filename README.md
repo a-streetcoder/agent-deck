@@ -34,7 +34,7 @@ Pi is the coding agent. Agent Deck is the native macOS workspace around it — n
 
 ## What you can do
 
-- Run Pi sessions with a live transcript, tool calls, plans, file previews, steering messages, attachments, and terminal handoff.
+- Run Pi sessions with content-hugging message cards, a live transcript, tool calls, plans, file previews, steering messages, attachments, terminal handoff, and session-scoped composer drafts that survive switching sessions until the app closes.
 - Organize agents, skills, reusable prompts, and slash commands for a project or across projects.
 - Delegate research, planning, implementation, or review to app-managed subagents and track their results.
 - Start from a GitHub issue, work in an isolated branch and worktree, then review, commit, push, or merge the result.

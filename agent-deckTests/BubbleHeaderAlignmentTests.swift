@@ -7,6 +7,7 @@ import XCTest
 @MainActor
 final class BubbleHeaderAlignmentTests: XCTestCase {
     private let rowWidth: CGFloat = 900
+    private let userWidthRegressionText = "just deployed, let's see if it fixes it"
 
     private func payload(role: NativeBubblePayload.Role) -> NativeBubblePayload {
         let isUser = role == .user
@@ -75,5 +76,86 @@ final class BubbleHeaderAlignmentTests: XCTestCase {
                 ((constraint.firstItem as? NSView) === icon || (constraint.secondItem as? NSView) === icon)
             }))
         }
+    }
+
+    func testUserBubbleNaturalWidthUsesRenderedTranscriptBodyFont() {
+        let expected = ceil(
+            (userWidthRegressionText as NSString).size(
+                withAttributes: [.font: NativeTranscriptFont.body()]
+            ).width
+        )
+
+        XCTAssertEqual(
+            MessageTextWidth.naturalWidth(of: userWidthRegressionText),
+            expected,
+            accuracy: 0.5
+        )
+    }
+
+    func testUserBubbleUsesNaturalWidthWithoutPrematureFinalWordWrap() throws {
+        let payload = NativeBubblePayload(
+            role: .user,
+            headerTitle: "You",
+            iconSymbol: "person.crop.circle.fill",
+            markdownSource: userWidthRegressionText,
+            copyText: userWidthRegressionText,
+            copySide: .leading,
+            isThreadChild: false,
+            isUserHugged: true
+        )
+        let measuredHeightView = PiAgentNativeBubbleView()
+        measuredHeightView.configure(payload: payload, width: rowWidth)
+        let measuredHeight = measuredHeightView.measuredHeight(forWidth: rowWidth)
+
+        let view = PiAgentNativeBubbleView()
+        view.configure(payload: payload, width: rowWidth)
+        view.frame = NSRect(x: 0, y: 0, width: rowWidth, height: measuredHeight)
+        view.settleLayoutImmediately()
+
+        let card = try XCTUnwrap(view.subviews.first)
+        let textView = try XCTUnwrap(firstTextView(in: card))
+        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+        var lineCount = 0
+        if let layoutManager = textView.layoutManager,
+           let textContainer = textView.textContainer {
+            layoutManager.enumerateLineFragments(
+                forGlyphRange: NSRange(location: 0, length: layoutManager.numberOfGlyphs)
+            ) { _, _, _, _, _ in
+                lineCount += 1
+            }
+            XCTAssertGreaterThan(textContainer.containerSize.width, 0)
+        }
+
+        XCTAssertEqual(lineCount, 1)
+        XCTAssertLessThan(
+            card.frame.width,
+            PiAgentBubbleWidth.replyCap(for: rowWidth),
+            "A short user message should hug its content rather than fill the response-card cap."
+        )
+    }
+
+    func testLongUserBubbleStillStopsAtTheDefinedMaximumWidth() {
+        let paneWidth: CGFloat = 2_000
+        let expectedCap = min(
+            paneWidth * PiAgentBubbleWidth.userCapMultiplier,
+            PiAgentBubbleWidth.userCapMax
+        )
+
+        XCTAssertEqual(
+            PiAgentBubbleWidth.huggedUser(
+                text: String(repeating: "This message must eventually wrap. ", count: 100),
+                paneWidth: paneWidth
+            ),
+            expectedCap,
+            accuracy: 0.5
+        )
+    }
+
+    private func firstTextView(in view: NSView) -> NSTextView? {
+        if let textView = view as? NSTextView { return textView }
+        for subview in view.subviews {
+            if let textView = firstTextView(in: subview) { return textView }
+        }
+        return nil
     }
 }

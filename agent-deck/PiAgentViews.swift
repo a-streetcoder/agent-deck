@@ -5796,6 +5796,7 @@ struct PiAgentScreen: View {
                 PiAgentComposerPanel(
                     viewModel: viewModel,
                     store: store,
+                    selectedSessionID: store.selectedSessionID,
                     onWillSend: beginTranscriptAutoScrollTurn,
                     onDidSend: requestTranscriptBottomScroll
                 )
@@ -8120,6 +8121,10 @@ private struct ComputerUseChatGPTStartSheet: View {
 private struct PiAgentComposerPanel: View {
     var viewModel: AppViewModel
     var store: PiAgentSessionStore
+    /// Value snapshot used both for draft ownership and the Equatable boundary.
+    /// The store reference is stable across selections, so identity alone cannot
+    /// tell SwiftUI that the composer must save one session and restore another.
+    let selectedSessionID: UUID?
     let onWillSend: () -> Void
     let onDidSend: () -> Void
 
@@ -8329,16 +8334,16 @@ private struct PiAgentComposerPanel: View {
             // Mirror the draft into the session store on every keystroke so an
             // unsent message survives a window re-key (a theme change rebuilds
             // the view tree). `onAppear` below restores it into the new tree.
-            saveComposerDraft(for: store.selectedSession?.id)
+            saveComposerDraft(for: selectedSessionID)
         }
         .onAppear {
             syncRuntimeFooterSnapshot()
-            loadComposerDraft(for: store.selectedSession?.id)
+            loadComposerDraft(for: selectedSessionID)
         }
         .onDisappear {
-            saveComposerDraft(for: store.selectedSession?.id)
+            saveComposerDraft(for: selectedSessionID)
         }
-        .onChange(of: store.selectedSession?.id) { oldID, newID in
+        .onChange(of: selectedSessionID) { oldID, newID in
             saveComposerDraft(for: oldID)
             loadComposerDraft(for: newID)
             syncRuntimeFooterSnapshot()
@@ -8998,14 +9003,15 @@ private struct PiAgentComposerPanel: View {
 // menu, suggestions) — from the parent transcript view's per-streaming-token
 // body churn. The parent re-runs ~30×/sec while tokens arrive (its body reads
 // the transcript cache); without this the composer's body re-ran each time even
-// though nothing it shows changed. Its only non-`@State` inputs are the two
-// reference-type stores and two action closures, and all of its display state
-// is driven by `@Observable` reads of those stores — so comparing store identity
-// (and ignoring the closures, which are recreated every parent pass) is correct:
-// `.equatable()` skips parent-churn re-renders while observation still drives
-// every real update (e.g. run/stop transitions).
+// though nothing it shows changed. Most display state is driven by `@Observable`
+// reads of the two long-lived stores, but the selected session is also passed as
+// an immutable value snapshot. That value must participate in equality so the
+// draft save/restore lifecycle runs on a session switch. Ignoring the closures,
+// which are recreated every parent pass, still skips streaming churn.
 extension PiAgentComposerPanel: Equatable {
     nonisolated static func == (lhs: PiAgentComposerPanel, rhs: PiAgentComposerPanel) -> Bool {
-        lhs.viewModel === rhs.viewModel && lhs.store === rhs.store
+        lhs.viewModel === rhs.viewModel
+            && lhs.store === rhs.store
+            && lhs.selectedSessionID == rhs.selectedSessionID
     }
 }

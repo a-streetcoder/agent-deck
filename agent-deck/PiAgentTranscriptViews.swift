@@ -800,7 +800,10 @@ enum PiAgentBubbleWidth {
     static let userCapMultiplier: CGFloat = 0.62
     static let userCapMax: CGFloat = 720
     static let userMinWidth: CGFloat = 120
-    static let userChrome: CGFloat = 34   // card h-padding (14*2) + a little slack
+    /// Horizontal card padding plus a small rounding allowance. Keep this tied
+    /// to the rendered AppKit chrome so the natural-width calculation and the
+    /// native bubble cannot drift apart.
+    static let userChrome: CGFloat = AppTheme.Chat.bubbleHPadding * 2 + 2
 
     /// Fixed width for an agent reply / tool / plan card.
     static func replyCap(for paneWidth: CGFloat) -> CGFloat {
@@ -879,8 +882,12 @@ enum MessageTextWidth {
     private static let limit = 256
     // Bounds work for pathologically long lines; far above any real bubble cap.
     private static let ceiling: CGFloat = 5000
+    /// Must match `NativeMarkdownFont.body`, used by the AppKit Markdown
+    /// renderer. `preferredFont(forTextStyle: .body)` is 13pt on macOS while
+    /// transcript prose is explicitly 14pt, which underestimated user-message
+    /// widths and wrapped the final word before the bubble reached its cap.
     private static let attributes: [NSAttributedString.Key: Any] =
-        [.font: NSFont.preferredFont(forTextStyle: .body)]
+        [.font: NativeTranscriptFont.body()]
 
     /// Width of the widest line of `text` in the body font. Measures the raw
     /// markdown source, so syntax characters bias the result slightly wide —

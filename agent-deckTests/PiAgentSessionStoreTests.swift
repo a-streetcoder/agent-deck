@@ -3,6 +3,33 @@ import XCTest
 
 @MainActor
 final class PiAgentSessionStoreTests: XCTestCase {
+    func testComposerDraftsRemainScopedToTheirSessionForStoreLifetime() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let project = try PiTestSupport.makeProject()
+        let first = store.createSession(kind: .project, title: "First", project: project, repository: nil)
+        let second = store.createSession(kind: .project, title: "Second", project: project, repository: nil)
+
+        store.saveComposerDraft(text: "Unsent first message", images: [], files: [], folders: [], for: first.id)
+        store.saveComposerDraft(text: "Unsent second message", images: [], files: [], folders: [], for: second.id)
+
+        XCTAssertEqual(store.composerDraft(for: first.id).text, "Unsent first message")
+        XCTAssertEqual(store.composerDraft(for: second.id).text, "Unsent second message")
+    }
+
+    func testEmptyComposerDraftClearsOnlyItsSession() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let project = try PiTestSupport.makeProject()
+        let first = store.createSession(kind: .project, title: "First", project: project, repository: nil)
+        let second = store.createSession(kind: .project, title: "Second", project: project, repository: nil)
+        store.saveComposerDraft(text: "First draft", images: [], files: [], folders: [], for: first.id)
+        store.saveComposerDraft(text: "Second draft", images: [], files: [], folders: [], for: second.id)
+
+        store.saveComposerDraft(text: "", images: [], files: [], folders: [], for: first.id)
+
+        XCTAssertEqual(store.composerDraft(for: first.id).text, "")
+        XCTAssertEqual(store.composerDraft(for: second.id).text, "Second draft")
+    }
+
     func testLateLoadCallbackForEmptyStoreIsDeliveredOnce() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         var callbackCount = 0

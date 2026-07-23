@@ -29,7 +29,8 @@ Validated on May 7, 2026 with Xcode 26.4.1 selected at `/Applications/Xcode.app/
 |---|---|
 | `PiTestSupport.swift` | Temporary projects, fake Pi executable, RPC harness, shared factories. |
 | `PiRPCBridgeFixtures.swift` | Canonical bridge event fixtures for parent and child bridge tests. |
-| `PiAgentSessionStoreTests.swift` | Session persistence, selection recovery, session plans, supervisor request state. |
+| `PiAgentSessionStoreTests.swift` | Session persistence, selection recovery, in-memory session-scoped composer drafts, session plans, supervisor request state. |
+| `BubbleHeaderAlignmentTests.swift` | Native user/assistant card header geometry and content-hugging user-message width parity with the rendered transcript font. |
 | `PiAgentBridgeSmokeTests.swift` | Parent bridge extension injection, native catalog prompt injection, parent bridge routing for managed subagent/parallel, supervisor list/answer, plan set/update, malformed bridge traffic, regular editor UI. |
 | `PiNativeBridgeExtensionSourceTests.swift` | Generated TypeScript bridge extension source for parent and child Pi tools. |
 | `PiSubagentRuntimeSmokeTests.swift` | Launch planner, pre-event run metadata, artifact files, read-first sanitization, fork-context sanitization, child launch isolation flags, expected-outcome prompts, child supervisor progress/decision/interview flow. |
