@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "screen-art-issues.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

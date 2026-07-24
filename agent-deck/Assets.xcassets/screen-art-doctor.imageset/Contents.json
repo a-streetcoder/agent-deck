@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "screen-art-doctor.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
