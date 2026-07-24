@@ -99,7 +99,11 @@ class NativeAccessiblePressableView: NSView {
     /// surface own hit testing so a click anywhere follows the same path as
     /// keyboard and VoiceOver activation.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard pressRole == .button, pressAction != nil, bounds.contains(point) else { return nil }
+        // AppKit supplies hit-test points in the receiver's superview coordinate
+        // system. Convert before checking our local bounds; this matters for a
+        // chip positioned away from its chip-row origin.
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        guard pressRole == .button, pressAction != nil, bounds.contains(localPoint) else { return nil }
         return self
     }
     override func mouseDown(with event: NSEvent) {
