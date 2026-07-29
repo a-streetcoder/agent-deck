@@ -76,9 +76,11 @@ struct ExtensionsScreen: View {
     /// settings + environment (mirrors `PiNativeSubagentBridgeExtensions` /
     /// `PiAgentRunnerService` inject conditions). Reactive to settings/env changes.
     private var activeBridgeIDs: Set<String> {
-        let exaConfigured = viewModel.snapshot.envKeys.contains {
-            $0.key == "EXA_API_KEY" && ($0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        }
+        let envMap = Dictionary(uniqueKeysWithValues: viewModel.snapshot.envKeys.compactMap { item -> (String, String)? in
+            guard let value = item.value else { return nil }
+            return (item.key, value)
+        })
+        let exaConfigured = PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: envMap)
         return Set(PiNativeSubagentBridgeExtensions.injectedParentBridges(
             memoryEnabled: viewModel.appSettings.agentMemoryEnabled,
             exaConfigured: exaConfigured,

@@ -757,14 +757,14 @@ struct DoctorScreen: View {
         AppCard(title: "Web Access") {
             VStack(alignment: .leading, spacing: 0) {
                 webAccessOptionRow(
-                    icon: hasExaAPIKey ? "checkmark.circle.fill" : "circle.dashed",
-                    iconColor: hasExaAPIKey ? .green : .secondary,
-                    title: "Exa Search",
-                    detail: hasExaAPIKey
-                        ? "EXA_API_KEY is configured. Exa web_search, fetch_content, and get_search_content are available to new Pi sessions."
-                        : "Optional. Add EXA_API_KEY to enable Exa web_search, fetch_content, and get_search_content.",
-                    tag: hasExaAPIKey ? "Ready" : "Optional",
-                    tagColor: hasExaAPIKey ? .green : .secondary
+                    icon: hasWebSearchCredential ? "checkmark.circle.fill" : "circle.dashed",
+                    iconColor: hasWebSearchCredential ? .green : .secondary,
+                    title: "Web Search (Exa / Brave / Tavily)",
+                    detail: hasWebSearchCredential
+                        ? "Configured via ~/.pi/web-search.json (same as pi-web-access) and/or EXA_/BRAVE_/TAVILY_API_KEY. web_search, fetch_content, and get_search_content are available to new Pi sessions."
+                        : "Optional. Add keys in ~/.pi/web-search.json (exaApiKey / braveApiKey / tavilyApiKey) or Environment EXA_/BRAVE_/TAVILY_API_KEY.",
+                    tag: hasWebSearchCredential ? "Ready" : "Optional",
+                    tagColor: hasWebSearchCredential ? .green : .secondary
                 )
 
                 Divider()
@@ -786,7 +786,7 @@ struct DoctorScreen: View {
                     Text(title)
                         .font(.body.weight(.semibold))
                         .fontWidth(.expanded)
-                    if title == "Exa Search", let infoURL = URL(string: "https://dashboard.exa.ai/api-keys") {
+                    if title.hasPrefix("Web Search"), let infoURL = URL(string: "https://dashboard.exa.ai/api-keys") {
                         Button {
                             NSWorkspace.shared.open(infoURL)
                         } label: {
@@ -794,7 +794,7 @@ struct DoctorScreen: View {
                                 .font(.system(size: 13))
                         }
                         .buttonStyle(.borderless)
-                        .help("Get an Exa API key")
+                        .help("Get an Exa API key (or configure Brave/Tavily in ~/.pi/web-search.json)")
                     }
                 }
                 Text(detail)
@@ -802,7 +802,7 @@ struct DoctorScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if title == "Exa Search", !hasExaAPIKey {
+                if title.hasPrefix("Web Search"), !hasWebSearchCredential {
                     Button(languageStore.t("doctor.addExaKey")) {
                         envDraft = viewModel.makeNewEnvDraft(prefilledKey: "EXA_API_KEY")
                     }
@@ -829,8 +829,8 @@ struct DoctorScreen: View {
                     .fontWidth(.expanded)
 
                 Text(webFetchStatus.isInstalled
-                     ? "Installed. Used as a fallback for known URLs when Exa is not configured or direct URL fetching is enough."
-                     : "Optional fallback for fetching known URLs without Exa search. Installs htmlparser2 and turndown locally for Agent Deck.")
+                     ? "Installed. Used as a fallback for known URLs when no Exa/Brave/Tavily provider is configured or direct URL fetching is enough."
+                     : "Optional fallback for fetching known URLs without web search. Installs htmlparser2 and turndown locally for Agent Deck.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -901,11 +901,13 @@ struct DoctorScreen: View {
         }
     }
 
-    private var hasExaAPIKey: Bool {
+    private var hasWebSearchCredential: Bool {
         if skipLiveChecksForPreview { return false }
-        return snapshot.envKeys.contains {
-            $0.key == "EXA_API_KEY" && ($0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        }
+        let envMap = Dictionary(uniqueKeysWithValues: snapshot.envKeys.compactMap { item -> (String, String)? in
+            guard let value = item.value else { return nil }
+            return (item.key, value)
+        })
+        return PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: envMap)
     }
 
     // MARK: - Settings

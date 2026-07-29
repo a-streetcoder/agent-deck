@@ -114,12 +114,37 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         }
 
         XCTAssertTrue(source.contains("https://api.exa.ai/"))
+        XCTAssertTrue(source.contains("https://api.search.brave.com/res/v1/web/search"))
+        XCTAssertTrue(source.contains("https://api.tavily.com/search"))
+        XCTAssertTrue(source.contains("web-search.json"))
+        XCTAssertTrue(source.contains("exaApiKey"))
+        XCTAssertTrue(source.contains("braveApiKey"))
+        XCTAssertTrue(source.contains("tavilyApiKey"))
         XCTAssertTrue(source.contains("EXA_API_KEY"))
+        XCTAssertTrue(source.contains("BRAVE_API_KEY"))
+        XCTAssertTrue(source.contains("TAVILY_API_KEY"))
         XCTAssertTrue(source.contains(#""x-api-key""#))
         XCTAssertTrue(source.contains("contents: { text: true }"))
         XCTAssertTrue(source.contains("responseId"))
+        XCTAssertTrue(source.contains("resolveProvider"))
         XCTAssertFalse(source.contains(["code", "search"].joined(separator: "_")))
         XCTAssertFalse(source.contains(["PER", "PLEXITY"].joined()))
         XCTAssertFalse(source.contains(["GEM", "INI"].joined()))
+    }
+
+    func testWebSearchConfigURLMatchesPiWebAccessDefault() {
+        let url = PiNativeSubagentBridgeExtensions.webSearchConfigURL()
+        XCTAssertEqual(url.lastPathComponent, "web-search.json")
+        XCTAssertTrue(url.path.contains("/.pi/") || url.path.hasSuffix("pi/web-search.json"))
+    }
+
+    func testIsWebSearchConfiguredReadsSupportedEnvKeys() {
+        XCTAssertTrue(PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: ["BRAVE_API_KEY": "x"]))
+        XCTAssertTrue(PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: ["TAVILY_API_KEY": "x"]))
+        XCTAssertTrue(PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: ["EXA_API_KEY": "x"]))
+        // Empty env falls back to ~/.pi/web-search.json on this machine when present.
+        let empty = PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: [:])
+        let fileHasKey = PiNativeSubagentBridgeExtensions.webSearchConfigHasSupportedCredential()
+        XCTAssertEqual(empty, fileHasKey)
     }
 }

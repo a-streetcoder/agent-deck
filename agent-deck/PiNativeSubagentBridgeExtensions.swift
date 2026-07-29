@@ -58,17 +58,17 @@ struct PiNativeSubagentBridgeExtensions {
         ),
         BridgeDescriptor(
             id: "web_exa",
-            displayName: "Web search (Exa)",
-            summary: "Gives the agent web search and page-content fetching, powered by Exa.",
+            displayName: "Web search (Exa / Brave / Tavily)",
+            summary: "Gives the agent web_search / fetch_content / get_search_content. Reads ~/.pi/web-search.json like pi-web-access (Exa, Brave, Tavily).",
             toolNames: exaToolNames.sorted(),
-            condition: "Requires an Exa API key"
+            condition: "Requires a key in ~/.pi/web-search.json or EXA_/BRAVE_/TAVILY_API_KEY"
         ),
         BridgeDescriptor(
             id: "web_fetch",
             displayName: "Web fetch",
-            summary: "Lets the agent fetch the contents of a known URL when Exa search isn't configured.",
+            summary: "Lets the agent fetch the contents of a known URL when no web-search provider is configured.",
             toolNames: [fallbackWebFetchToolName],
-            condition: "When no Exa key is set and web fetch is available"
+            condition: "When no Exa/Brave/Tavily key is set and web fetch is available"
         ),
         BridgeDescriptor(
             id: "memory",
@@ -126,15 +126,57 @@ struct PiNativeSubagentBridgeExtensions {
             bridges.append(InjectedBridge(id: "mcp", displayName: "MCP", toolNames: [mcpProxyToolName]))
         }
         if exaConfigured {
-            bridges.append(InjectedBridge(id: "web_exa", displayName: "Web search (Exa)", toolNames: exaToolNames.sorted()))
+            bridges.append(InjectedBridge(id: "web_exa", displayName: "Web search (Exa / Brave / Tavily)", toolNames: exaToolNames.sorted()))
         } else if fallbackWebFetchAvailable {
             bridges.append(InjectedBridge(id: "web_fetch", displayName: "Web fetch", toolNames: [fallbackWebFetchToolName]))
         }
         return bridges
     }
 
-    static func isExaConfigured(environment: [String: String]) -> Bool {
-        environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    /// Config path shared with pi-web-access (`getWebSearchConfigPath`).
+    nonisolated static func webSearchConfigURL() -> URL {
+        let env = ProcessInfo.processInfo.environment
+        if let dir = env["PI_CODING_AGENT_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !dir.isEmpty {
+            return URL(fileURLWithPath: dir, isDirectory: true).appendingPathComponent("web-search.json")
+        }
+        if let xdg = env["XDG_CONFIG_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines), !xdg.isEmpty {
+            return URL(fileURLWithPath: xdg, isDirectory: true)
+                .appendingPathComponent("pi", isDirectory: true)
+                .appendingPathComponent("web-search.json")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi", isDirectory: true)
+            .appendingPathComponent("web-search.json")
+    }
+
+    /// True when any supported web-search provider credential is available
+    /// (env vars and/or `~/.pi/web-search.json`, same keys as pi-web-access).
+    nonisolated static func isExaConfigured(environment: [String: String]) -> Bool {
+        isWebSearchConfigured(environment: environment)
+    }
+
+    nonisolated static func isWebSearchConfigured(environment: [String: String]) -> Bool {
+        for key in ["EXA_API_KEY", "BRAVE_API_KEY", "TAVILY_API_KEY"] {
+            if environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                return true
+            }
+        }
+        return webSearchConfigHasSupportedCredential()
+    }
+
+    nonisolated static func webSearchConfigHasSupportedCredential() -> Bool {
+        let url = webSearchConfigURL()
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        for key in ["exaApiKey", "braveApiKey", "tavilyApiKey"] {
+            if let value = object[key] as? String,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+        }
+        return false
     }
 
     static func openAIFastExtensionURL(fileManager: FileManager = .default) throws -> URL {
@@ -911,14 +953,11 @@ struct PiNativeSubagentBridgeExtensions {
     private static let webAccessExtensionSource = #"""
         import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
         import { Type } from "typebox";
+        import { existsSync, readFileSync } from "node:fs";
+        import { homedir } from "node:os";
+        import { join } from "node:path";
 
-        type SearchResult = {
-            title: string;
-            url: string;
-            text?: string;
-            publishedDate?: string;
-            author?: string;
-        };
+        type SearchProvider = "exa" | "brave" | "tavily";
 
         type StoredEntry = {
             query?: string;
@@ -933,17 +972,99 @@ struct PiNativeSubagentBridgeExtensions {
             type: "search" | "fetch";
             id: string;
             queries?: string[];
+            provider?: string;
             entries: StoredEntry[];
             createdAt: string;
+        };
+
+        type WebSearchConfig = {
+            provider?: string;
+            searchProvider?: string;
+            exaApiKey?: unknown;
+            braveApiKey?: unknown;
+            tavilyApiKey?: unknown;
         };
 
         const store = new Map<string, StoredResult>();
         const MAX_STORED_RESULTS = 50;
         const MAX_RETURN_CHARS = 50000;
+        const SUPPORTED_PROVIDERS: SearchProvider[] = ["exa", "brave", "tavily"];
 
-        function apiKey(): string | null {
-            const key = process.env.EXA_API_KEY?.trim();
-            return key && key.length > 0 ? key : null;
+        function getWebSearchConfigPath(): string {
+            if (process.env.PI_CODING_AGENT_DIR?.trim()) {
+                return join(process.env.PI_CODING_AGENT_DIR.trim(), "web-search.json");
+            }
+            if (process.env.XDG_CONFIG_HOME?.trim()) {
+                return join(process.env.XDG_CONFIG_HOME.trim(), "pi", "web-search.json");
+            }
+            return join(homedir(), ".pi", "web-search.json");
+        }
+
+        const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
+        let cachedConfig: WebSearchConfig | null = null;
+
+        function loadConfig(): WebSearchConfig {
+            if (cachedConfig) return cachedConfig;
+            if (!existsSync(WEB_SEARCH_CONFIG_PATH)) {
+                cachedConfig = {};
+                return cachedConfig;
+            }
+            try {
+                const raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
+                const parsed = JSON.parse(raw);
+                cachedConfig = parsed && typeof parsed === "object" ? parsed as WebSearchConfig : {};
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
+            }
+            return cachedConfig;
+        }
+
+        function stringCredential(value: unknown): string | null {
+            return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+        }
+
+        function envKey(name: string): string | null {
+            return stringCredential(process.env[name]);
+        }
+
+        function providerKey(provider: SearchProvider): string | null {
+            const config = loadConfig();
+            if (provider === "exa") return stringCredential(config.exaApiKey) ?? envKey("EXA_API_KEY");
+            if (provider === "brave") return stringCredential(config.braveApiKey) ?? envKey("BRAVE_API_KEY");
+            return stringCredential(config.tavilyApiKey) ?? envKey("TAVILY_API_KEY");
+        }
+
+        function hasProvider(provider: SearchProvider): boolean {
+            return providerKey(provider) !== null;
+        }
+
+        function normalizeProviderName(value: unknown): SearchProvider | null {
+            const raw = String(value ?? "").trim().toLowerCase();
+            if (raw === "exa" || raw === "brave" || raw === "tavily") return raw;
+            return null;
+        }
+
+        function resolveProvider(requested?: unknown): SearchProvider {
+            const config = loadConfig();
+            const candidates = [
+                normalizeProviderName(requested),
+                normalizeProviderName(config.searchProvider),
+                normalizeProviderName(config.provider),
+                "exa" as SearchProvider
+            ].filter((item): item is SearchProvider => item !== null);
+
+            for (const candidate of candidates) {
+                if (hasProvider(candidate)) return candidate;
+            }
+            for (const provider of SUPPORTED_PROVIDERS) {
+                if (hasProvider(provider)) return provider;
+            }
+            throw new Error(
+                "No web search provider key found. Configure ~/.pi/web-search.json " +
+                '(same file as pi-web-access) with exaApiKey / braveApiKey / tavilyApiKey, ' +
+                "or set EXA_API_KEY / BRAVE_API_KEY / TAVILY_API_KEY."
+            );
         }
 
         function makeID(prefix: string): string {
@@ -957,32 +1078,6 @@ struct PiNativeSubagentBridgeExtensions {
                 if (!first) break;
                 store.delete(first);
             }
-        }
-
-        async function exa(path: "search" | "contents", body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
-            const key = apiKey();
-            if (!key) throw new Error("Missing EXA_API_KEY. Add it in Agent Deck Environment settings or ~/.pi/agent/.env.");
-            const response = await fetch(`https://api.exa.ai/${path}`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "x-api-key": key
-                },
-                body: JSON.stringify(body),
-                signal
-            });
-            const text = await response.text();
-            let json: any = null;
-            try {
-                json = text ? JSON.parse(text) : null;
-            } catch {
-                json = null;
-            }
-            if (!response.ok) {
-                const message = json?.error || json?.message || text || `HTTP ${response.status}`;
-                throw new Error(String(message));
-            }
-            return json;
         }
 
         function asString(value: unknown): string | undefined {
@@ -1033,6 +1128,12 @@ struct PiNativeSubagentBridgeExtensions {
             };
         }
 
+        function domainFilterList(params: any): string[] | undefined {
+            const filters = Array.isArray(params?.domainFilter) ? params.domainFilter : [];
+            const list = filters.map((item: unknown) => String(item ?? "").trim()).filter(Boolean);
+            return list.length ? list : undefined;
+        }
+
         function recencyStart(value: unknown): string | undefined {
             const recency = String(value ?? "").trim().toLowerCase();
             const days = recency === "day" ? 1 : recency === "week" ? 7 : recency === "month" ? 31 : recency === "year" ? 366 : 0;
@@ -1045,7 +1146,13 @@ struct PiNativeSubagentBridgeExtensions {
             const url = asString(result?.url);
             if (!url) return null;
             const title = asString(result?.title) ?? url;
-            const text = cleanText(result?.text) || cleanText(result?.highlights?.join?.("\n\n")) || "";
+            const text =
+                cleanText(result?.text) ||
+                cleanText(result?.snippet) ||
+                cleanText(result?.description) ||
+                cleanText(result?.content) ||
+                cleanText(result?.highlights?.join?.("\n\n")) ||
+                "";
             return {
                 query,
                 title,
@@ -1071,9 +1178,9 @@ struct PiNativeSubagentBridgeExtensions {
             return lines.join("\n");
         }
 
-        function searchSummary(responseId: string, queries: string[], entries: StoredEntry[]): string {
+        function searchSummary(responseId: string, queries: string[], entries: StoredEntry[], provider: SearchProvider): string {
             const lines: string[] = [];
-            lines.push(`Search stored as ${responseId}.`);
+            lines.push(`Search stored as ${responseId} (provider: ${provider}).`);
             for (const query of queries) {
                 lines.push("");
                 lines.push(`## ${query}`);
@@ -1106,17 +1213,220 @@ struct PiNativeSubagentBridgeExtensions {
             return data.entries[0] ?? null;
         }
 
+        async function readJSON(response: Response): Promise<any> {
+            const text = await response.text();
+            let json: any = null;
+            try {
+                json = text ? JSON.parse(text) : null;
+            } catch {
+                json = null;
+            }
+            if (!response.ok) {
+                const message = json?.error || json?.message || text || `HTTP ${response.status}`;
+                throw new Error(String(message));
+            }
+            return json;
+        }
+
+        async function searchWithExa(query: string, params: any, signal?: AbortSignal): Promise<StoredEntry[]> {
+            const key = providerKey("exa");
+            if (!key) throw new Error("Missing Exa API key.");
+            const numResults = Math.max(1, Math.min(10, Number(params?.numResults ?? 5)));
+            const startPublishedDate = recencyStart(params?.recencyFilter);
+            const body: Record<string, unknown> = {
+                query,
+                numResults,
+                contents: { text: true },
+                ...domainFilters(params)
+            };
+            if (startPublishedDate) body.startPublishedDate = startPublishedDate;
+            const response = await fetch("https://api.exa.ai/search", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-api-key": key
+                },
+                body: JSON.stringify(body),
+                signal
+            });
+            const json = await readJSON(response);
+            const results = Array.isArray(json?.results) ? json.results : [];
+            return results.flatMap((result: any) => {
+                const entry = entryFromResult(result, query);
+                return entry ? [entry] : [];
+            });
+        }
+
+        async function searchWithBrave(query: string, params: any, signal?: AbortSignal): Promise<StoredEntry[]> {
+            const key = providerKey("brave");
+            if (!key) throw new Error("Missing Brave API key.");
+            const numResults = Math.max(1, Math.min(20, Number(params?.numResults ?? 5)));
+            const filters = domainFilters(params);
+            const parts = [query];
+            if (filters.includeDomains?.length === 1) {
+                parts.push(`site:${filters.includeDomains[0]}`);
+            } else if ((filters.includeDomains?.length ?? 0) > 1) {
+                parts.push(filters.includeDomains!.map((domain) => `site:${domain}`).join(" OR "));
+            }
+            for (const domain of filters.excludeDomains ?? []) {
+                parts.push(`NOT site:${domain}`);
+            }
+            const searchQuery = parts.join(" ");
+            const searchParams = new URLSearchParams({
+                q: searchQuery,
+                count: String(domainFilterList(params)?.length ? 20 : numResults)
+            });
+            const recency = String(params?.recencyFilter ?? "").trim().toLowerCase();
+            const freshnessMap: Record<string, string> = { day: "pd", week: "pw", month: "pm", year: "py" };
+            if (freshnessMap[recency]) searchParams.set("freshness", freshnessMap[recency]);
+
+            const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${searchParams.toString()}`, {
+                method: "GET",
+                headers: {
+                    "X-Subscription-Token": key,
+                    "Accept": "application/json"
+                },
+                signal
+            });
+            const json = await readJSON(response);
+            const results = Array.isArray(json?.web?.results) ? json.web.results : [];
+            const entries: StoredEntry[] = [];
+            for (const result of results) {
+                const entry = entryFromResult({
+                    title: result?.title,
+                    url: result?.url,
+                    text: result?.description
+                }, query);
+                if (!entry) continue;
+                entries.push(entry);
+                if (entries.length >= numResults) break;
+            }
+            return entries;
+        }
+
+        async function searchWithTavily(query: string, params: any, signal?: AbortSignal): Promise<StoredEntry[]> {
+            const key = providerKey("tavily");
+            if (!key) throw new Error("Missing Tavily API key.");
+            const numResults = Math.max(1, Math.min(20, Number(params?.numResults ?? 5)));
+            const filters = domainFilters(params);
+            const body: Record<string, unknown> = {
+                query,
+                search_depth: "basic",
+                max_results: numResults,
+                include_answer: "basic",
+                include_raw_content: params?.includeContent ? "markdown" : false
+            };
+            const recency = String(params?.recencyFilter ?? "").trim().toLowerCase();
+            if (["day", "week", "month", "year"].includes(recency)) body.time_range = recency;
+            if (filters.includeDomains?.length) body.include_domains = filters.includeDomains;
+            if (filters.excludeDomains?.length) body.exclude_domains = filters.excludeDomains;
+
+            const response = await fetch("https://api.tavily.com/search", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${key}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(body),
+                signal
+            });
+            const json = await readJSON(response);
+            const results = Array.isArray(json?.results) ? json.results : [];
+            return results.flatMap((result: any) => {
+                const entry = entryFromResult({
+                    title: result?.title,
+                    url: result?.url,
+                    text: result?.raw_content || result?.content
+                }, query);
+                return entry ? [entry] : [];
+            });
+        }
+
+        async function searchQuery(provider: SearchProvider, query: string, params: any, signal?: AbortSignal): Promise<StoredEntry[]> {
+            if (provider === "exa") return searchWithExa(query, params, signal);
+            if (provider === "brave") return searchWithBrave(query, params, signal);
+            return searchWithTavily(query, params, signal);
+        }
+
+        async function fetchWithExa(urls: string[], signal?: AbortSignal): Promise<StoredEntry[]> {
+            const key = providerKey("exa");
+            if (!key) throw new Error("Missing Exa API key.");
+            const response = await fetch("https://api.exa.ai/contents", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-api-key": key
+                },
+                body: JSON.stringify({ urls, text: true }),
+                signal
+            });
+            const json = await readJSON(response);
+            const results = Array.isArray(json?.results) ? json.results : [];
+            return results.flatMap((result: any) => {
+                const entry = entryFromResult(result);
+                return entry ? [entry] : [];
+            });
+        }
+
+        function stripHTML(html: string): string {
+            return html
+                .replace(/<script[\s\S]*?<\/script>/gi, " ")
+                .replace(/<style[\s\S]*?<\/style>/gi, " ")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+        }
+
+        async function fetchURLDirect(url: string, signal?: AbortSignal): Promise<StoredEntry> {
+            const response = await fetch(url, {
+                method: "GET",
+                headers: { "User-Agent": "Pi-Deck-WebAccess/1.0" },
+                signal,
+                redirect: "follow"
+            });
+            const contentType = response.headers.get("content-type") || "";
+            const body = await response.text();
+            if (!response.ok) {
+                throw new Error(`Fetch failed HTTP ${response.status} for ${url}`);
+            }
+            let text = body;
+            let title = url;
+            if (contentType.includes("html") || /<html[\s>]/i.test(body)) {
+                const titleMatch = body.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+                if (titleMatch?.[1]) title = stripHTML(titleMatch[1]).slice(0, 200) || url;
+                text = stripHTML(body);
+            }
+            return { title, url, text };
+        }
+
+        async function fetchURLs(urls: string[], signal?: AbortSignal): Promise<StoredEntry[]> {
+            if (hasProvider("exa")) {
+                return fetchWithExa(urls, signal);
+            }
+            const entries: StoredEntry[] = [];
+            for (const url of urls) {
+                try {
+                    entries.push(await fetchURLDirect(url, signal));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    entries.push({ title: url, url, text: `Error fetching URL: ${message}` });
+                }
+            }
+            return entries;
+        }
+
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "web_search",
                 label: "Web Search",
-                description: "Search the web with Exa and store returned page content for later retrieval.",
-                promptSnippet: "Use web_search for current web research. Use get_search_content with the returned responseId when full content is needed.",
+                description: "Search the web (Exa / Brave / Tavily via ~/.pi/web-search.json, same config as pi-web-access) and store page snippets for later retrieval.",
+                promptSnippet: "Use web_search for current web research. Optional provider: exa | brave | tavily. Use get_search_content with responseId for full stored content.",
                 parameters: Type.Object({
                     query: Type.Optional(Type.String({ description: "Single search query." })),
                     queries: Type.Optional(Type.Array(Type.String(), { description: "Up to 4 search queries." })),
-                    numResults: Type.Optional(Type.Number({ description: "Results per query. Default 5, max 10." })),
-                    includeContent: Type.Optional(Type.Boolean({ description: "Compatibility flag. Agent Deck always stores returned Exa text when available." })),
+                    provider: Type.Optional(Type.String({ description: "Search provider: exa, brave, or tavily. Defaults to searchProvider/provider in ~/.pi/web-search.json." })),
+                    numResults: Type.Optional(Type.Number({ description: "Results per query. Default 5, max 10–20 depending on provider." })),
+                    includeContent: Type.Optional(Type.Boolean({ description: "When using Tavily, request raw markdown content when available." })),
                     recencyFilter: Type.Optional(Type.String({ description: "Optional recency filter: day, week, month, or year." })),
                     domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Domains to include, or prefix with '-' to exclude." }))
                 }, { additionalProperties: false }),
@@ -1126,25 +1436,12 @@ struct PiNativeSubagentBridgeExtensions {
                         return { content: [{ type: "text", text: "Error: No query provided. Use query or queries." }], details: { error: "No query provided" } };
                     }
                     try {
-                        const numResults = Math.max(1, Math.min(10, Number((params as any).numResults ?? 5)));
-                        const startPublishedDate = recencyStart((params as any).recencyFilter);
+                        const provider = resolveProvider((params as any).provider);
                         const entries: StoredEntry[] = [];
                         const curatedQueries: any[] = [];
 
                         for (const query of queries) {
-                            const body: Record<string, unknown> = {
-                                query,
-                                numResults,
-                                contents: { text: true },
-                                ...domainFilters(params)
-                            };
-                            if (startPublishedDate) body.startPublishedDate = startPublishedDate;
-                            const json = await exa("search", body, signal);
-                            const results = Array.isArray(json?.results) ? json.results : [];
-                            const queryEntries = results.flatMap((result: any) => {
-                                const entry = entryFromResult(result, query);
-                                return entry ? [entry] : [];
-                            });
+                            const queryEntries = await searchQuery(provider, query, params, signal);
                             entries.push(...queryEntries);
                             curatedQueries.push({
                                 query,
@@ -1158,17 +1455,19 @@ struct PiNativeSubagentBridgeExtensions {
                         }
 
                         const responseId = makeID("search");
-                        remember({ type: "search", id: responseId, queries, entries, createdAt: new Date().toISOString() });
+                        remember({ type: "search", id: responseId, queries, provider, entries, createdAt: new Date().toISOString() });
                         return {
-                            content: [{ type: "text", text: searchSummary(responseId, queries, entries) }],
+                            content: [{ type: "text", text: searchSummary(responseId, queries, entries, provider) }],
                             details: {
                                 responseId,
+                                provider,
                                 queries,
                                 queryCount: queries.length,
                                 successfulQueries: queries.length,
                                 totalResults: entries.length,
                                 urls: entries.map((entry) => entry.url),
-                                curatedQueries
+                                curatedQueries,
+                                configPath: WEB_SEARCH_CONFIG_PATH
                             }
                         };
                     } catch (error) {
@@ -1181,7 +1480,7 @@ struct PiNativeSubagentBridgeExtensions {
             pi.registerTool({
                 name: "fetch_content",
                 label: "Fetch Content",
-                description: "Fetch URL content with Exa and store it for later retrieval.",
+                description: "Fetch URL content (Exa contents when configured; otherwise direct HTTP) and store it for later retrieval.",
                 promptSnippet: "Use fetch_content for specific URLs; use get_search_content with the returned responseId for full stored content.",
                 parameters: Type.Object({
                     url: Type.Optional(Type.String({ description: "Single URL to fetch." })),
@@ -1193,12 +1492,7 @@ struct PiNativeSubagentBridgeExtensions {
                         return { content: [{ type: "text", text: "Error: No URL provided. Use url or urls." }], details: { error: "No URL provided" } };
                     }
                     try {
-                        const json = await exa("contents", { urls, text: true }, signal);
-                        const results = Array.isArray(json?.results) ? json.results : [];
-                        const entries = results.flatMap((result: any) => {
-                            const entry = entryFromResult(result);
-                            return entry ? [entry] : [];
-                        });
+                        const entries = await fetchURLs(urls, signal);
                         const responseId = makeID("fetch");
                         remember({ type: "fetch", id: responseId, entries, createdAt: new Date().toISOString() });
 
