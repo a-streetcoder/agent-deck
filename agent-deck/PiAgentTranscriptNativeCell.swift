@@ -920,30 +920,98 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         }
     }
 
+    private static let thinkingExpandDuration: TimeInterval = 0.18
+    private static let thinkingCollapseDuration: TimeInterval = 0.14
+
     @objc private func toggleThinkingExpansion(_ sender: Any?) {
         thinkingExpanded.toggle()
         thinkingUserExpanded = thinkingExpanded
-        applyThinkingBodyVisibility()
-        refreshThinkingDisclosureButton()
-        needsLayout = true
-        layoutSubtreeIfNeeded()
-        onIntrinsicHeightChange?()
-    }
+        refreshThinkingDisclosureButton(animated: true)
 
-    /// Show/hide prebuilt thinking body without tearing down the assistant markdown.
-    private func applyThinkingBodyVisibility() {
-        for view in thinkingBodyViews {
-            view.isHidden = !thinkingExpanded
+        if thinkingExpanded {
+            // Expand: unhide at α=0 → grow row → fade body in.
+            for view in thinkingBodyViews {
+                view.isHidden = false
+                view.alphaValue = 0
+            }
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            onIntrinsicHeightChange?()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = Self.thinkingExpandDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.allowsImplicitAnimation = true
+                for view in thinkingBodyViews {
+                    view.animator().alphaValue = self.thinkingBodyRestAlpha(for: view)
+                }
+            }
+        } else {
+            // Collapse: fade out first, then hide + shrink row (avoids flash).
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = Self.thinkingCollapseDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.allowsImplicitAnimation = true
+                for view in thinkingBodyViews {
+                    view.animator().alphaValue = 0
+                }
+            }, completionHandler: { [weak self] in
+                guard let self else { return }
+                // User may have re-expanded before fade finished.
+                guard !self.thinkingExpanded else { return }
+                for view in self.thinkingBodyViews {
+                    view.isHidden = true
+                    view.alphaValue = 0
+                }
+                self.needsLayout = true
+                self.onIntrinsicHeightChange?()
+            })
         }
     }
 
-    private func refreshThinkingDisclosureButton() {
+    /// Resting alpha for a thinking body subview when fully expanded.
+    private func thinkingBodyRestAlpha(for view: NSView) -> CGFloat {
+        if view is NSBox { return 1 }
+        // Nested thinking markdown is slightly dimmed; standalone uses ~0.95.
+        if payload?.role == .thinking { return 0.95 }
+        return 0.88
+    }
+
+    /// Show/hide prebuilt thinking body without tearing down the assistant markdown.
+    /// Used by non-animated configure paths (streaming reconfigure, first paint).
+    private func applyThinkingBodyVisibility() {
+        for view in thinkingBodyViews {
+            view.isHidden = !thinkingExpanded
+            view.alphaValue = thinkingExpanded ? thinkingBodyRestAlpha(for: view) : 0
+        }
+    }
+
+    private func refreshThinkingDisclosureButton(animated: Bool = false) {
         guard let button = thinkingDisclosureButton else { return }
         let chevron = thinkingExpanded ? "chevron.down" : "chevron.right"
-        button.image = NSImage(systemSymbolName: chevron, accessibilityDescription: nil)
-        button.toolTip = thinkingExpanded ? "Hide thinking" : "Show thinking"
-        if payload?.role == .thinking {
-            button.title = thinkingExpanded ? "Hide thinking" : "Show thinking"
+        let image = NSImage(systemSymbolName: chevron, accessibilityDescription: nil)
+        let tip = thinkingExpanded ? "Hide thinking" : "Show thinking"
+        let title: String = {
+            if payload?.role == .thinking {
+                return thinkingExpanded ? "Hide thinking" : "Show thinking"
+            }
+            return button.title.isEmpty ? "Thinking" : button.title
+        }()
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = Self.thinkingExpandDuration
+                ctx.allowsImplicitAnimation = true
+                button.animator().image = image
+                button.toolTip = tip
+                if payload?.role == .thinking {
+                    button.animator().title = title
+                }
+            }
+        } else {
+            button.image = image
+            button.toolTip = tip
+            if payload?.role == .thinking {
+                button.title = title
+            }
         }
     }
 

@@ -3810,11 +3810,14 @@ struct PiAgentTranscriptCard: View {
             let expanded = nestedThinkingExpanded ?? nestedThinkingLive
             VStack(alignment: .leading, spacing: 6) {
                 Button {
-                    nestedThinkingExpanded = !expanded
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        nestedThinkingExpanded = !expanded
+                    }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 10, weight: .semibold))
+                            .contentTransition(.symbolEffect(.replace))
                         Text(expanded ? "Hide thinking" : "Show thinking")
                             .font(AppTheme.Font.caption.weight(.semibold))
                     }
@@ -3824,8 +3827,10 @@ struct PiAgentTranscriptCard: View {
                 if expanded {
                     MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
+            .animation(.easeInOut(duration: 0.18), value: expanded)
         } else if entry.role == .user {
             PiAgentUserMessageContent(entry: entry, skills: skills, commandSlashNames: commandSlashNames)
         } else if entry.role == .assistant {
@@ -3834,11 +3839,14 @@ struct PiAgentTranscriptCard: View {
                 let expanded = nestedThinkingExpanded ?? nestedThinkingLive
                 VStack(alignment: .leading, spacing: 8) {
                     Button {
-                        nestedThinkingExpanded = !expanded
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            nestedThinkingExpanded = !expanded
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: expanded ? "chevron.down" : "chevron.right")
                                 .font(.system(size: 10, weight: .semibold))
+                                .contentTransition(.symbolEffect(.replace))
                             Text("Thinking")
                                 .font(AppTheme.Font.caption.weight(.semibold))
                         }
@@ -3849,11 +3857,14 @@ struct PiAgentTranscriptCard: View {
                         MarkdownTextView(source: nested)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .opacity(0.85)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         Divider().opacity(0.35)
+                            .transition(.opacity)
                     }
                     MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .animation(.easeInOut(duration: 0.18), value: expanded)
             } else {
                 MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
                     .frame(maxWidth: .infinity, alignment: .leading)
