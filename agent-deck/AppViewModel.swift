@@ -5120,12 +5120,37 @@ final class AppViewModel: NSObject {
         let effectiveText = text
         let visibleText = (transcriptText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
         let displayOverride = transcriptText
-        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: piAgentTitleGenerationSource(titleSource: titleSource, visibleText: visibleText, effectiveText: effectiveText))
+        let omitUserTranscript = PiAgentRunnerService.isEphemeralSlashCommandMessage(
+            text: visibleText.isEmpty ? effectiveText : visibleText,
+            images: images,
+            pasteAttachments: pasteAttachments
+        )
+        if !omitUserTranscript {
+            schedulePiAgentTitleGenerationIfNeeded(
+                for: session,
+                firstMessage: piAgentTitleGenerationSource(titleSource: titleSource, visibleText: visibleText, effectiveText: effectiveText)
+            )
+        }
         if !piAgentRunner.isRunning(sessionID: session.id), session.piSessionFile != nil || session.status == .draft {
-            piAgentRunner.resume(session: session, initialPrompt: effectiveText, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments)
+            piAgentRunner.resume(
+                session: session,
+                initialPrompt: effectiveText,
+                transcriptText: displayOverride,
+                images: images,
+                pasteAttachments: pasteAttachments,
+                recordInTranscript: !omitUserTranscript
+            )
             return
         }
-        piAgentRunner.send(effectiveText, mode: mode, to: session.id, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments)
+        piAgentRunner.send(
+            effectiveText,
+            mode: mode,
+            to: session.id,
+            transcriptText: displayOverride,
+            images: images,
+            pasteAttachments: pasteAttachments,
+            recordInTranscript: !omitUserTranscript
+        )
     }
 
     private func piAgentTitleGenerationSource(titleSource: String?, visibleText: String, effectiveText: String) -> String {

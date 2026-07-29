@@ -267,18 +267,41 @@ final class PiAgentRunnerService {
         }
     }
 
-    func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    func resume(
+        session: PiAgentSessionRecord,
+        initialPrompt: String? = nil,
+        transcriptText: String? = nil,
+        images: [PiAgentImageAttachment] = [],
+        pasteAttachments: [PiAgentPasteAttachment] = [],
+        recordInTranscript: Bool = true
+    ) {
         let projectURL = session.launchWorkingDirectory
         // If Pi has already created a session file, always resume it before sending a new prompt.
         // Otherwise an idle follow-up (or a model change followed by Send) starts a fresh Pi session
         // and the chat appears to lose context.
         let canResumePiSession = session.piSessionFile != nil
         Task { @MainActor [weak self] in
-            await self?.start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialTranscriptText: transcriptText, initialImages: images, initialPasteAttachments: pasteAttachments, resumeExisting: canResumePiSession)
+            await self?.start(
+                session: session,
+                projectURL: projectURL,
+                initialPrompt: initialPrompt,
+                initialTranscriptText: transcriptText,
+                initialImages: images,
+                initialPasteAttachments: pasteAttachments,
+                resumeExisting: canResumePiSession,
+                recordInTranscript: recordInTranscript
+            )
         }
     }
 
-    private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    private func restartForLaunchConfiguration(
+        session: PiAgentSessionRecord,
+        initialPrompt: String? = nil,
+        transcriptText: String? = nil,
+        images: [PiAgentImageAttachment] = [],
+        pasteAttachments: [PiAgentPasteAttachment] = [],
+        recordInTranscript: Bool = true
+    ) {
         let projectURL = session.launchWorkingDirectory
         Task { @MainActor [weak self] in
             await self?.start(
@@ -289,7 +312,8 @@ final class PiAgentRunnerService {
                 initialImages: images,
                 initialPasteAttachments: pasteAttachments,
                 resumeExisting: session.piSessionFile != nil,
-                recordStopTranscript: false
+                recordStopTranscript: false,
+                recordInTranscript: recordInTranscript
             )
         }
     }
@@ -311,10 +335,26 @@ final class PiAgentRunnerService {
         restartForLaunchConfiguration(session: session)
     }
 
-    func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, transcriptText displayText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    func send(
+        _ text: String,
+        mode: PiAgentInputMode,
+        to sessionID: UUID,
+        transcriptText displayText: String? = nil,
+        images: [PiAgentImageAttachment] = [],
+        pasteAttachments: [PiAgentPasteAttachment] = [],
+        recordInTranscript: Bool = true
+    ) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
         let message = userMessage(trimmed, images: images)
+        // Extension slash commands (e.g. `/blackhole-memory status`) should still hit Pi RPC
+        // but must not pollute Deck chat history — same policy as ephemeral notify popups.
+        let shouldRecordUser = recordInTranscript
+            && !Self.isEphemeralSlashCommandMessage(
+                text: displayText ?? trimmed,
+                images: images,
+                pasteAttachments: pasteAttachments
+            )
         cancelPendingIdle(for: sessionID)
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID] else {
@@ -326,8 +366,10 @@ final class PiAgentRunnerService {
             // construct and register PiRPCClient. Keep startup input rather than
             // treating that small window as a stopped session.
             let effectiveMode: PiAgentInputMode = .steer
-            let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
-            store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: true), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments)))
+            if shouldRecordUser {
+                let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
+                store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: true), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments)))
+            }
             pendingStartupInputsBySessionID[sessionID, default: []].append(.init(message: message, images: images))
             return
         }
@@ -336,11 +378,20 @@ final class PiAgentRunnerService {
         if effectiveMode == .prompt,
            pendingConfigurationRestartSessionIDs.remove(sessionID) != nil,
            let session = store.sessions.first(where: { $0.id == sessionID }) {
-            restartForLaunchConfiguration(session: session, initialPrompt: text, transcriptText: displayText, images: images, pasteAttachments: pasteAttachments)
+            restartForLaunchConfiguration(
+                session: session,
+                initialPrompt: text,
+                transcriptText: displayText,
+                images: images,
+                pasteAttachments: pasteAttachments,
+                recordInTranscript: shouldRecordUser
+            )
             return
         }
-        let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
-        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments)))
+        if shouldRecordUser {
+            let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
+            store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments)))
+        }
         // Harmless when Pi is idle, but prevents dropped messages if our local
         // status lags behind Pi's authoritative streaming state. Routed through
         // `prompt` + streamingBehavior rather than the dedicated `steer` type so
@@ -692,7 +743,17 @@ final class PiAgentRunnerService {
         }
     }
 
-    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialTranscriptText: String? = nil, initialImages: [PiAgentImageAttachment] = [], initialPasteAttachments: [PiAgentPasteAttachment] = [], resumeExisting: Bool = false, recordStopTranscript: Bool = true) async {
+    private func start(
+        session: PiAgentSessionRecord,
+        projectURL: URL,
+        initialPrompt: String?,
+        initialTranscriptText: String? = nil,
+        initialImages: [PiAgentImageAttachment] = [],
+        initialPasteAttachments: [PiAgentPasteAttachment] = [],
+        resumeExisting: Bool = false,
+        recordStopTranscript: Bool = true,
+        recordInTranscript: Bool = true
+    ) async {
         // stop() → clearStreamingState wipes processing activity, so capture the
         // pending summary first and re-apply it below once the new run is staged.
         let configurationChangeSummary = pendingConfigurationChangeSummariesBySessionID.removeValue(forKey: session.id)
@@ -710,8 +771,16 @@ final class PiAgentRunnerService {
         let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
             let message = userMessage(trimmedInitialPrompt, images: initialImages)
-            let transcriptMessage = initialTranscriptText.map { userMessage($0, images: initialImages) } ?? message
-            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: initialImages, pasteAttachments: initialPasteAttachments)))
+            let shouldRecordUser = recordInTranscript
+                && !Self.isEphemeralSlashCommandMessage(
+                    text: initialTranscriptText ?? trimmedInitialPrompt,
+                    images: initialImages,
+                    pasteAttachments: initialPasteAttachments
+                )
+            if shouldRecordUser {
+                let transcriptMessage = initialTranscriptText.map { userMessage($0, images: initialImages) } ?? message
+                store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: initialImages, pasteAttachments: initialPasteAttachments)))
+            }
         }
 
         // For agent-chat sessions, resolve the bound agent up-front so we can
@@ -1227,6 +1296,34 @@ final class PiAgentRunnerService {
             if !existingIDs.contains(id) { return String(id) }
         }
         return UUID().uuidString.lowercased()
+    }
+
+    /// Pure extension slash commands (`/blackhole-memory status`, chip+args) should not
+    /// appear in Deck chat history. Skills (`/skill:…`), prompts, and free text still do.
+    ///
+    /// - Parameters:
+    ///   - text: Visible or RPC message text. Required.
+    ///   - images: Image attachments. Required (empty means none).
+    ///   - pasteAttachments: Paste blobs. Required (empty means none).
+    /// - Returns: `true` when Deck should omit the user bubble from transcript/disk.
+    nonisolated static func isEphemeralSlashCommandMessage(
+        text: String,
+        images: [PiAgentImageAttachment],
+        pasteAttachments: [PiAgentPasteAttachment]
+    ) -> Bool {
+        guard images.isEmpty, pasteAttachments.isEmpty else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return false }
+        return lines.allSatisfy { line in
+            guard line.hasPrefix("/") else { return false }
+            // Active skill invocations are real turns and should remain in history.
+            if line.lowercased().hasPrefix("/skill:") { return false }
+            return true
+        }
     }
 
     /// Builds the canonical Pi RPC prompt. Attachment-only transcript labels are
@@ -2193,7 +2290,11 @@ final class PiAgentRunnerService {
         switch message["role"]?.stringValue ?? "" {
         case "user":
             let text = extractText(from: message)
-            return text.isEmpty ? [] : [.init(sessionID: sessionID, role: .user, title: "You", text: text)]
+            // Keep extension slash commands out of Deck history on rehydrate too.
+            if text.isEmpty || Self.isEphemeralSlashCommandMessage(text: text, images: [], pasteAttachments: []) {
+                return []
+            }
+            return [.init(sessionID: sessionID, role: .user, title: "You", text: text)]
         case "assistant":
             var entries: [PiAgentTranscriptEntry] = []
             let thinking = extractAssistantThinking(from: message)
