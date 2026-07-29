@@ -52,6 +52,33 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         default: return nil
         }
     }
+
+    /// Stable `Localizable.strings` key for this item.
+    var l10nKey: String {
+        switch self {
+        case .projects: return "sidebar.projects"
+        case .instructions: return "sidebar.instructions"
+        case .memory: return "sidebar.memory"
+        case .issues: return "sidebar.issues"
+        case .agent: return "sidebar.agent"
+        case .agents: return "sidebar.agents"
+        case .skills: return "sidebar.skills"
+        case .prompts: return "sidebar.prompts"
+        case .loops: return "sidebar.loops"
+        case .subagents: return "sidebar.subagents"
+        case .models: return "sidebar.models"
+        case .environment: return "sidebar.environment"
+        case .extensions: return "sidebar.extensions"
+        case .mcp: return "sidebar.mcp"
+        case .doctor: return "sidebar.doctor"
+        }
+    }
+
+    /// Localized sidebar title (uses current `LanguageStore`).
+    @MainActor
+    var localizedTitle: String {
+        LanguageStore.shared.t(l10nKey)
+    }
 }
 
 enum SidebarSection: String, CaseIterable, Identifiable {
@@ -60,6 +87,21 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case runtime = "Runtime"
 
     var id: String { rawValue }
+
+    /// Stable `Localizable.strings` key for this section header.
+    var l10nKey: String {
+        switch self {
+        case .workspace: return "sidebar.section.workspace"
+        case .piResources: return "sidebar.section.resources"
+        case .runtime: return "sidebar.section.runtime"
+        }
+    }
+
+    /// Localized section title (uses current `LanguageStore`).
+    @MainActor
+    var localizedTitle: String {
+        LanguageStore.shared.t(l10nKey)
+    }
 
     var items: [SidebarItem] {
         unsortedItems.sorted { $0.rawValue.localizedStandardCompare($1.rawValue) == .orderedAscending }

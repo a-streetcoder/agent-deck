@@ -1,0 +1,76 @@
+/* Pi Deck Localizable.strings — English */
+/* Keys are stable; do not rename casually. */
+
+/* MARK: - Language / brand */
+"settings.language" = "Language";
+"settings.languageHelp" = "UI language for Pi Deck. Takes effect immediately.";
+"brand.displayName" = "Pi Deck";
+
+/* MARK: - Sidebar sections */
+"sidebar.section.workspace" = "Workspace";
+"sidebar.section.resources" = "Resources";
+"sidebar.section.runtime" = "Runtime";
+
+/* MARK: - Sidebar items */
+"sidebar.projects" = "Projects";
+"sidebar.instructions" = "System Prompt";
+"sidebar.memory" = "Memory";
+"sidebar.issues" = "Issues";
+"sidebar.agent" = "Pi Agent";
+"sidebar.agents" = "Agents";
+"sidebar.skills" = "Skills";
+"sidebar.prompts" = "Prompts";
+"sidebar.loops" = "Loops";
+"sidebar.subagents" = "Deck agents";
+"sidebar.models" = "Models";
+"sidebar.environment" = "Environment";
+"sidebar.extensions" = "Extensions";
+"sidebar.mcp" = "MCP";
+"sidebar.doctor" = "Doctor";
+
+/* MARK: - Sidebar chrome */
+"sidebar.sectionWarning" = "This section has warnings that need attention.";
+"sidebar.sectionWarningA11y" = "Section warning";
+
+/* MARK: - Search placeholders */
+"search.projects" = "Search projects";
+"search.agents" = "Search agents";
+"search.issues" = "Search issues";
+"search.memory" = "Search memories";
+"search.skills" = "Search skills";
+"search.prompts" = "Search prompts";
+"search.loops" = "Search loops";
+"search.sessions" = "Search sessions";
+"search.default" = "Search";
+
+/* MARK: - Settings tabs */
+"settings.tab.general" = "General";
+"settings.tab.appearance" = "Appearance";
+"settings.tab.agent" = "Agent";
+"settings.tab.automations" = "Automations";
+"settings.tab.performance" = "Performance";
+"settings.tab.commands" = "Commands";
+"settings.tab.shortcuts" = "Shortcuts";
+
+/* MARK: - Settings · General */
+"settings.projectsFolders" = "Projects folders:";
+"settings.projectsFoldersEmpty" = "No projects folders configured yet. Click Add Folder… below.";
+"settings.projectsFoldersNote" = "Each folder is the parent of your project repositories, not a single repo. Suggested: %@";
+"settings.addFolder" = "Add Folder...";
+"settings.useSuggested" = "Use Suggested";
+"settings.resetToDefault" = "Reset to Default";
+"settings.skillRepositories" = "Skill repositories:";
+"settings.revealInFinder" = "Reveal in Finder";
+"settings.removeFolder" = "Remove this folder";
+"settings.removeFolderA11y" = "Remove %@ from project folders";
+"settings.revealPathA11y" = "Reveal %@ in Finder";
+
+/* MARK: - Common actions */
+"common.cancel" = "Cancel";
+"common.done" = "Done";
+"common.save" = "Save";
+"common.delete" = "Delete";
+"common.open" = "Open";
+"common.close" = "Close";
+"common.refresh" = "Refresh";
+"common.loading" = "Loading…";

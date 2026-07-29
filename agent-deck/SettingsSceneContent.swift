@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsSceneContent: View {
     @Environment(AppViewModel.self) private var viewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var themeManager = ThemeManager.shared
     @State private var selectedTab: SettingsTab = .general
 
@@ -20,7 +21,7 @@ struct SettingsSceneContent: View {
             SettingsTabStrip(
                 tabs: visibleTabs,
                 selection: $selectedTab,
-                label: { $0.rawValue },
+                label: { languageStore.t($0.l10nKey) },
                 systemImage: { $0.systemImage }
             )
             Divider()
@@ -83,6 +84,19 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case shortcuts = "Shortcuts"
 
     var id: String { rawValue }
+
+    /// Stable `Localizable.strings` key for the tab label.
+    var l10nKey: String {
+        switch self {
+        case .general: return "settings.tab.general"
+        case .appearance: return "settings.tab.appearance"
+        case .agent: return "settings.tab.agent"
+        case .automations: return "settings.tab.automations"
+        case .performance: return "settings.tab.performance"
+        case .commands: return "settings.tab.commands"
+        case .shortcuts: return "settings.tab.shortcuts"
+        }
+    }
 
     var systemImage: String {
         switch self {
@@ -399,29 +413,49 @@ private struct SettingsToggleRow: View {
 
 private struct GeneralSettingsTab: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         SettingsForm {
             SettingsSection {
+                SettingsRow(
+                    title: languageStore.t("settings.language"),
+                    note: languageStore.t("settings.languageHelp")
+                ) {
+                    Picker("", selection: Binding(
+                        get: { languageStore.language },
+                        set: { languageStore.setLanguage($0) }
+                    )) {
+                        ForEach(AppLanguage.allCases) { lang in
+                            Text(lang.menuLabel).tag(lang)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+                }
+            }
+
+            SettingsSection {
                 ProjectsRootListRow(viewModel: viewModel)
 
                 SettingsButtonRow {
-                    Button("Add Folder...") { viewModel.chooseProjectsRootDirectory() }
+                    Button(languageStore.t("settings.addFolder")) { viewModel.chooseProjectsRootDirectory() }
                         .appSecondaryButton()
-                    Button("Use Suggested") { viewModel.useSuggestedProjectsRootDirectory() }
+                    Button(languageStore.t("settings.useSuggested")) { viewModel.useSuggestedProjectsRootDirectory() }
                         .appSecondaryButton()
                         .disabled(viewModel.suggestedProjectsRootPath == nil)
-                    Button("Reset to Default") { viewModel.resetProjectsRootPathsToDefault() }
+                    Button(languageStore.t("settings.resetToDefault")) { viewModel.resetProjectsRootPathsToDefault() }
                         .appSecondaryButton()
                 }
             }
 
             SettingsSection {
                 SettingsValueButtonRow(
-                    title: "Skill repositories:",
+                    title: languageStore.t("settings.skillRepositories"),
                     value: SkillRepositorySyncService.repositoriesDirectoryURL().path
                 ) {
-                    Button("Reveal in Finder") {
+                    Button(languageStore.t("settings.revealInFinder")) {
                         let url = SkillRepositorySyncService.repositoriesDirectoryURL()
                         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
                         revealInFinder(url.path)
@@ -438,6 +472,7 @@ private struct GeneralSettingsTab: View {
 /// / Reset.
 private struct ProjectsRootListRow: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         // Read raw `appSettings.projectsRootPaths` directly (not the
@@ -448,13 +483,13 @@ private struct ProjectsRootListRow: View {
         // refresh on next view re-creation (e.g. tab switch).
         let paths = viewModel.appSettings.projectsRootPaths
         SettingsRow(
-            title: "Projects folders:",
+            title: languageStore.t("settings.projectsFolders"),
             alignment: .top,
             note: noteText
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 if paths.isEmpty {
-                    Text("No projects folders configured yet. Click Add Folder… below.")
+                    Text(languageStore.t("settings.projectsFoldersEmpty"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 4)
@@ -470,7 +505,7 @@ private struct ProjectsRootListRow: View {
 
     private var noteText: String {
         let suggested = ProjectDiscovery.defaultRootDirectoryURL().path
-        return "Each folder is the parent of your project repositories, not a single repo. Suggested: \(suggested)"
+        return languageStore.t("settings.projectsFoldersNote", suggested)
     }
 
     private func projectRootRow(path: String) -> some View {
@@ -491,8 +526,8 @@ private struct ProjectsRootListRow: View {
                     .appActionTarget()
             }
             .buttonStyle(.borderless)
-            .help("Reveal in Finder")
-            .accessibilityLabel("Reveal \(path) in Finder")
+            .help(languageStore.t("settings.revealInFinder"))
+            .accessibilityLabel(languageStore.t("settings.revealPathA11y", path))
             Button {
                 viewModel.removeProjectsRootPath(path)
             } label: {
@@ -500,8 +535,8 @@ private struct ProjectsRootListRow: View {
                     .appActionTarget()
             }
             .buttonStyle(.borderless)
-            .help("Remove this folder")
-            .accessibilityLabel("Remove \(path) from project folders")
+            .help(languageStore.t("settings.removeFolder"))
+            .accessibilityLabel(languageStore.t("settings.removeFolderA11y", path))
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)

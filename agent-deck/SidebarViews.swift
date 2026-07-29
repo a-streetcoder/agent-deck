@@ -5,11 +5,12 @@ struct SidebarNavigationRow: View {
     var isSelected: Bool = false
     var showsWarning = false
     var showsNewFeatureBadge = false
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         Label {
             HStack(spacing: 6) {
-                Text(item.rawValue)
+                Text(languageStore.t(item.l10nKey))
                     .font(AppTheme.Font.primary.weight(.medium))
                 if showsNewFeatureBadge {
                     SidebarNewFeatureBadge(isSelected: isSelected)
@@ -18,8 +19,8 @@ struct SidebarNavigationRow: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.yellow)
-                        .help("This section has warnings that need attention.")
-                        .accessibilityLabel("Section warning")
+                        .help(languageStore.t("sidebar.sectionWarning"))
+                        .accessibilityLabel(languageStore.t("sidebar.sectionWarningA11y"))
                 }
             }
             .fontWidth(.expanded)

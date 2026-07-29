@@ -110,6 +110,7 @@ struct agent_deckApp: App {
             ContentView()
                 .environment(viewModel)
                 .environmentObject(appDelegate.updater)
+                .observingLanguage()
                 .preferredColorScheme(.dark)
                 // `AppTheme`'s themed tokens are computed `static var`s, so a
                 // theme switch is invisible to SwiftUI's dependency graph.
@@ -123,6 +124,7 @@ struct agent_deckApp: App {
             SettingsSceneContent()
                 .environment(viewModel)
                 .environmentObject(appDelegate.updater)
+                .observingLanguage()
                 .preferredColorScheme(.dark)
                 // The theme re-key lives INSIDE SettingsSceneContent (around the
                 // themed content only) rather than here, so a theme switch repaints

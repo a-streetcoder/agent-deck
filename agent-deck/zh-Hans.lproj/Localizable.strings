@@ -1,0 +1,76 @@
+/* Pi Deck Localizable.strings — 简体中文 */
+/* Keys must match en.lproj exactly. */
+
+/* MARK: - Language / brand */
+"settings.language" = "语言";
+"settings.languageHelp" = "Pi Deck 界面语言，切换后立即生效。";
+"brand.displayName" = "Pi Deck";
+
+/* MARK: - Sidebar sections */
+"sidebar.section.workspace" = "工作区";
+"sidebar.section.resources" = "资源";
+"sidebar.section.runtime" = "运行时";
+
+/* MARK: - Sidebar items */
+"sidebar.projects" = "项目";
+"sidebar.instructions" = "系统提示词";
+"sidebar.memory" = "记忆";
+"sidebar.issues" = "Issues";
+"sidebar.agent" = "Pi 代理";
+"sidebar.agents" = "Agents";
+"sidebar.skills" = "Skills";
+"sidebar.prompts" = "提示词";
+"sidebar.loops" = "Loops";
+"sidebar.subagents" = "Deck 子代理";
+"sidebar.models" = "模型";
+"sidebar.environment" = "环境变量";
+"sidebar.extensions" = "扩展";
+"sidebar.mcp" = "MCP";
+"sidebar.doctor" = "诊断";
+
+/* MARK: - Sidebar chrome */
+"sidebar.sectionWarning" = "此分区有需要处理的警告。";
+"sidebar.sectionWarningA11y" = "分区警告";
+
+/* MARK: - Search placeholders */
+"search.projects" = "搜索项目";
+"search.agents" = "搜索 agents";
+"search.issues" = "搜索 issues";
+"search.memory" = "搜索记忆";
+"search.skills" = "搜索 skills";
+"search.prompts" = "搜索提示词";
+"search.loops" = "搜索 loops";
+"search.sessions" = "搜索会话";
+"search.default" = "搜索";
+
+/* MARK: - Settings tabs */
+"settings.tab.general" = "通用";
+"settings.tab.appearance" = "外观";
+"settings.tab.agent" = "代理";
+"settings.tab.automations" = "自动化";
+"settings.tab.performance" = "性能";
+"settings.tab.commands" = "命令";
+"settings.tab.shortcuts" = "快捷键";
+
+/* MARK: - Settings · General */
+"settings.projectsFolders" = "项目根目录：";
+"settings.projectsFoldersEmpty" = "尚未配置项目根目录。请点击下方「添加文件夹…」。";
+"settings.projectsFoldersNote" = "每个路径是「多个仓库的父目录」，不是单个仓库。建议：%@";
+"settings.addFolder" = "添加文件夹…";
+"settings.useSuggested" = "使用建议路径";
+"settings.resetToDefault" = "恢复默认";
+"settings.skillRepositories" = "Skill 仓库目录：";
+"settings.revealInFinder" = "在 Finder 中显示";
+"settings.removeFolder" = "移除此文件夹";
+"settings.removeFolderA11y" = "从项目目录中移除 %@";
+"settings.revealPathA11y" = "在 Finder 中显示 %@";
+
+/* MARK: - Common actions */
+"common.cancel" = "取消";
+"common.done" = "完成";
+"common.save" = "保存";
+"common.delete" = "删除";
+"common.open" = "打开";
+"common.close" = "关闭";
+"common.refresh" = "刷新";
+"common.loading" = "加载中…";

@@ -394,6 +394,7 @@ extension View {
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(AppViewModel.self) private var viewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
     @State private var envDraft: EnvEditorDraft?
@@ -801,15 +802,15 @@ struct ContentView: View {
 
     private var toolbarSearchPrompt: String {
         switch viewModel.selectedSidebarItem {
-        case .projects: return "Search projects"
-        case .agents: return "Search agents"
-        case .issues: return "Search issues"
-        case .memory: return "Search memories"
-        case .skills: return "Search skills"
-        case .prompts: return "Search prompts"
-        case .loops: return "Search loops"
-        case .agent: return "Search sessions"
-        default: return "Search"
+        case .projects: return languageStore.t("search.projects")
+        case .agents: return languageStore.t("search.agents")
+        case .issues: return languageStore.t("search.issues")
+        case .memory: return languageStore.t("search.memory")
+        case .skills: return languageStore.t("search.skills")
+        case .prompts: return languageStore.t("search.prompts")
+        case .loops: return languageStore.t("search.loops")
+        case .agent: return languageStore.t("search.sessions")
+        default: return languageStore.t("search.default")
         }
     }
 
@@ -992,7 +993,7 @@ struct ContentView: View {
             sections: SidebarSection.allCases.map { section in
                 AppListSection(
                     id: section.id,
-                    title: section.rawValue,
+                    title: languageStore.t(section.l10nKey),
                     items: section.items
                 )
             },
