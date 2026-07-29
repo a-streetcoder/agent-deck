@@ -502,7 +502,14 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     private var thinkingExpansionKey: String = ""
     private var thinkingUserExpanded: Bool?
     private var thinkingExpanded: Bool = false
+    /// Thinking body + divider; kept in the stack and toggled via `isHidden` so expand
+    /// does not rebuild assistant markdown or re-parse thinking.
     private var thinkingBodyViews: [NSView] = []
+    private weak var thinkingDisclosureButton: NSButton?
+    /// Last measured height of the expanded thinking body (markdown + divider), for
+    /// collapsed→expanded height estimates without re-applying markdown.
+    private var cachedThinkingBodyHeight: CGFloat = 0
+    private var cachedThinkingBodyWidth: CGFloat = 0
 
     /// Fired when nested thinking expands/collapses so the table re-tiles the row.
     var onIntrinsicHeightChange: (() -> Void)?
@@ -824,17 +831,15 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         }
         if let thinking = payload?.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines),
            !thinking.isEmpty {
-            // Collapsed: one disclosure row. Expanded: disclosure + markdown + divider.
+            // Collapsed: disclosure only. Expanded: disclosure + body (cached when possible).
             addBlockHeight(Self.thinkingDisclosureRowHeight)
             if thinkingExpanded {
-                let container = markdownContainer(at: markdownIndex)
-                markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
+                addBlockHeight(thinkingBodyHeight(source: thinking, markdownIndex: &markdownIndex, inner: inner))
+            } else {
+                // Keep markdown index aligned with configureContentBlocks (body always reserved).
                 markdownIndex += 1
-                addBlockHeight(container.measureHeight(forWidth: inner))
-                addBlockHeight(9) // spacing + 1pt divider
             }
         } else if payload?.role == .thinking {
-            // Standalone thinking bubble uses the same collapse rules via payload.thinkingLive.
             addBlockHeight(Self.thinkingDisclosureRowHeight)
             if thinkingExpanded {
                 let presentation = imagePresentation()
@@ -844,7 +849,10 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
                     case .markdown(let text):
                         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                         let container = markdownContainer(at: markdownIndex)
-                        markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                        // Only re-apply when width cache miss or empty — expand path reuses parse.
+                        if abs(cachedThinkingBodyWidth - inner) > 0.5 || container.bounds.height < 1 {
+                            markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                        }
                         markdownIndex += 1
                         addBlockHeight(container.measureHeight(forWidth: inner))
                     case .image(let reference, _):
@@ -901,6 +909,8 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         if key != thinkingExpansionKey {
             thinkingExpansionKey = key
             thinkingUserExpanded = nil
+            cachedThinkingBodyHeight = 0
+            cachedThinkingBodyWidth = 0
         }
         if let user = thinkingUserExpanded {
             thinkingExpanded = user
@@ -913,14 +923,28 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     @objc private func toggleThinkingExpansion(_ sender: Any?) {
         thinkingExpanded.toggle()
         thinkingUserExpanded = thinkingExpanded
-        guard let payload else {
-            onIntrinsicHeightChange?()
-            return
-        }
-        let cardW = cardWidthC?.constant ?? bounds.width
-        configureContentBlocks(payload: payload, innerWidth: max(1, cardW - hPad * 2))
+        applyThinkingBodyVisibility()
+        refreshThinkingDisclosureButton()
         needsLayout = true
+        layoutSubtreeIfNeeded()
         onIntrinsicHeightChange?()
+    }
+
+    /// Show/hide prebuilt thinking body without tearing down the assistant markdown.
+    private func applyThinkingBodyVisibility() {
+        for view in thinkingBodyViews {
+            view.isHidden = !thinkingExpanded
+        }
+    }
+
+    private func refreshThinkingDisclosureButton() {
+        guard let button = thinkingDisclosureButton else { return }
+        let chevron = thinkingExpanded ? "chevron.down" : "chevron.right"
+        button.image = NSImage(systemSymbolName: chevron, accessibilityDescription: nil)
+        button.toolTip = thinkingExpanded ? "Hide thinking" : "Show thinking"
+        if payload?.role == .thinking {
+            button.title = thinkingExpanded ? "Hide thinking" : "Show thinking"
+        }
     }
 
     private func makeThinkingDisclosureButton(title: String) -> NSButton {
@@ -939,7 +963,25 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         button.setContentHuggingPriority(.defaultLow, for: .horizontal)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.heightAnchor.constraint(equalToConstant: Self.thinkingDisclosureRowHeight).isActive = true
+        thinkingDisclosureButton = button
         return button
+    }
+
+    /// Measures nested thinking markdown + divider; reuses parse/height when width is stable.
+    private func thinkingBodyHeight(source: String, markdownIndex: inout Int, inner: CGFloat) -> CGFloat {
+        if abs(cachedThinkingBodyWidth - inner) < 0.5, cachedThinkingBodyHeight > 0 {
+            markdownIndex += 1
+            return cachedThinkingBodyHeight
+        }
+        let container = markdownContainer(at: markdownIndex)
+        markdownApplier(at: markdownIndex).apply(source: source, to: container)
+        markdownIndex += 1
+        let mdH = container.measureHeight(forWidth: inner)
+        // stack spacing before divider (~6) + divider (~1) + small pad ≈ 9
+        let total = mdH + 9 + contentStack.spacing
+        cachedThinkingBodyHeight = total
+        cachedThinkingBodyWidth = inner
+        return total
     }
 
     private func configureContentBlocks(payload: NativeBubblePayload, innerWidth: CGFloat) {
@@ -948,50 +990,56 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             view.removeFromSuperview()
         }
         thinkingBodyViews = []
+        thinkingDisclosureButton = nil
         var markdownIndex = 0
 
         if let thinking = payload.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines),
            !thinking.isEmpty {
             contentStack.addArrangedSubview(makeThinkingDisclosureButton(title: "Thinking"))
-            if thinkingExpanded {
-                let container = markdownContainer(at: markdownIndex)
-                markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
-                container.alphaValue = 0.88
-                markdownIndex += 1
-                contentStack.addArrangedSubview(container)
-                thinkingBodyViews.append(container)
+            // Always mount body so expand only flips isHidden (no assistant re-parse).
+            let container = markdownContainer(at: markdownIndex)
+            markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
+            container.alphaValue = 0.88
+            markdownIndex += 1
+            contentStack.addArrangedSubview(container)
+            thinkingBodyViews.append(container)
 
-                let divider = NSBox()
-                divider.boxType = .separator
-                divider.translatesAutoresizingMaskIntoConstraints = false
-                contentStack.addArrangedSubview(divider)
-                thinkingBodyViews.append(divider)
+            let divider = NSBox()
+            divider.boxType = .separator
+            divider.translatesAutoresizingMaskIntoConstraints = false
+            contentStack.addArrangedSubview(divider)
+            thinkingBodyViews.append(divider)
+
+            applyThinkingBodyVisibility()
+            if thinkingExpanded, abs(cachedThinkingBodyWidth - innerWidth) > 0.5 {
+                let mdH = container.measureHeight(forWidth: innerWidth)
+                cachedThinkingBodyHeight = mdH + 9 + contentStack.spacing
+                cachedThinkingBodyWidth = innerWidth
             }
         } else if payload.role == .thinking {
             contentStack.addArrangedSubview(
                 makeThinkingDisclosureButton(title: thinkingExpanded ? "Hide thinking" : "Show thinking")
             )
-            if thinkingExpanded {
-                let presentation = imagePresentation()
-                let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
-                for block in blocks {
-                    switch block {
-                    case .markdown(let text):
-                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                        let container = markdownContainer(at: markdownIndex)
-                        container.alphaValue = 0.95
-                        markdownApplier(at: markdownIndex).apply(source: text, to: container)
-                        markdownIndex += 1
-                        contentStack.addArrangedSubview(container)
-                        thinkingBodyViews.append(container)
-                    case .image(let reference, let caption):
-                        let image = PiAgentNativeTranscriptImageAttachmentView()
-                        image.configure(reference: reference, caption: caption, width: innerWidth)
-                        contentStack.addArrangedSubview(image)
-                        thinkingBodyViews.append(image)
-                    }
+            let presentation = imagePresentation()
+            let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
+            for block in blocks {
+                switch block {
+                case .markdown(let text):
+                    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                    let container = markdownContainer(at: markdownIndex)
+                    container.alphaValue = 0.95
+                    markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                    markdownIndex += 1
+                    contentStack.addArrangedSubview(container)
+                    thinkingBodyViews.append(container)
+                case .image(let reference, let caption):
+                    let image = PiAgentNativeTranscriptImageAttachmentView()
+                    image.configure(reference: reference, caption: caption, width: innerWidth)
+                    contentStack.addArrangedSubview(image)
+                    thinkingBodyViews.append(image)
                 }
             }
+            applyThinkingBodyVisibility()
             while markdownContainers.count > markdownIndex {
                 markdownAppliers.removeLast().cancel()
                 markdownContainers.removeLast()
