@@ -290,10 +290,10 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
                 }
             }
             flushGroup()
-            // Option A: fold thinking into the next assistant when nothing
-            // tool-like sits between them. Thinking that precedes a tool/status
-            // stays a standalone row so the timeline does not jump.
-            return Self.coalesceThinkingIntoFollowingAssistant(children)
+            // Keep thinking and assistant as separate timeline cards (original split).
+            // Nested merge (`coalesceThinkingIntoFollowingAssistant`) was tried and
+            // reverted because expand/collapse jittered the reply body under the same card.
+            return children
         }
 
         /// Merges thinking into the next assistant when no **tool work** sits between
