@@ -259,6 +259,7 @@ struct PiAgentOpenTerminalToolbarButton: View {
 
 struct PiAgentTranscriptDisplayOptionsPopover: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     private var visibility: PiAgentTranscriptVisibilitySettings {
         viewModel.appSettings.piAgentTranscriptVisibility
@@ -273,20 +274,23 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
         var id: String { title }
     }
 
-    private let options: [Option] = [
-        .init(title: "Keyboard shortcuts", subtitle: "Show the shortcut strip at the top of the transcript", systemImage: "keyboard", keyPath: \.showShortcutsStrip),
-        .init(title: "Thinking", subtitle: "Show Pi reasoning blocks", systemImage: "brain.head.profile", keyPath: \.showThinking),
-        .init(title: "Web activity", subtitle: "Show searches and fetched/read links", systemImage: "globe", keyPath: \.showWebActivity),
-        .init(title: "Errors", subtitle: "Show error rows in the transcript", systemImage: "exclamationmark.triangle", keyPath: \.showErrors),
-        .init(title: "Final system prompt", subtitle: "Show Pi's captured final system prompt card", systemImage: "doc.text", keyPath: \.showFinalSystemPrompt),
-        .init(title: "Diffs", subtitle: "Show compact file changes in chat", systemImage: "plusminus", keyPath: \.showDiffs),
-        .init(title: "Images", subtitle: "Show inline image previews in transcripts", systemImage: "photo", keyPath: \.showImages),
-        .init(title: "Memory", subtitle: "Show memory recall cards in the transcript", systemImage: "brain", keyPath: \.showMemoryCards),
-        .init(title: "MCP", subtitle: "Show MCP tool call cards in the transcript", systemImage: AppSymbols.mcp, assetImage: AppSymbols.mcp, keyPath: \.showMCPCards),
-    ]
+    private var options: [Option] {
+        let ls = languageStore
+        return [
+        .init(title: ls.t("display.shortcuts"), subtitle: ls.t("display.shortcutsSub"), systemImage: "keyboard", keyPath: \.showShortcutsStrip),
+        .init(title: ls.t("display.thinking"), subtitle: ls.t("display.thinkingSub"), systemImage: "brain.head.profile", keyPath: \.showThinking),
+        .init(title: ls.t("display.web"), subtitle: ls.t("display.webSub"), systemImage: "globe", keyPath: \.showWebActivity),
+        .init(title: ls.t("display.errors"), subtitle: ls.t("display.errorsSub"), systemImage: "exclamationmark.triangle", keyPath: \.showErrors),
+        .init(title: ls.t("display.finalPrompt"), subtitle: ls.t("display.finalPromptSub"), systemImage: "doc.text", keyPath: \.showFinalSystemPrompt),
+        .init(title: ls.t("display.diffs"), subtitle: ls.t("display.diffsSub"), systemImage: "plusminus", keyPath: \.showDiffs),
+        .init(title: ls.t("display.images"), subtitle: ls.t("display.imagesSub"), systemImage: "photo", keyPath: \.showImages),
+        .init(title: ls.t("display.memory"), subtitle: ls.t("display.memorySub"), systemImage: "brain", keyPath: \.showMemoryCards),
+        .init(title: ls.t("display.mcp"), subtitle: ls.t("display.mcpSub"), systemImage: AppSymbols.mcp, assetImage: AppSymbols.mcp, keyPath: \.showMCPCards),
+        ]
+    }
 
     var body: some View {
-        AppPopoverContainer(title: "Transcript display") {
+        AppPopoverContainer(title: languageStore.t("display.title")) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
                     AppPopoverToggleRow(

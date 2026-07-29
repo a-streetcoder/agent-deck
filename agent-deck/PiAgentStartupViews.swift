@@ -97,7 +97,7 @@ struct PiAgentStartupResourcesPopover: View {
                     toolCallSection
 
                     if isEmpty {
-                        Text("No agents, skills, prompts, or environment overrides were discovered for this session.")
+                        Text(LanguageStore.shared.t("startup.noDiscoveries"))
                             .font(.callout)
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -133,7 +133,7 @@ struct PiAgentStartupResourcesPopover: View {
                         .foregroundStyle(AppTheme.brandAccent)
                         .frame(width: 16, height: 16)
                         .frame(width: 18)
-                    Text("MCP")
+                    Text(LanguageStore.shared.t("startup.mcp"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppTheme.brandAccent)
                     Spacer()
@@ -170,7 +170,7 @@ struct PiAgentStartupResourcesPopover: View {
             }
 
             if server.calledTools.isEmpty {
-                Text("No tools called yet")
+                Text(LanguageStore.shared.t("startup.noToolsYet"))
                     .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.leading, 26)
@@ -212,7 +212,7 @@ struct PiAgentStartupResourcesPopover: View {
                     Image(systemName: "wrench.and.screwdriver")
                         .foregroundStyle(AppTheme.brandAccent)
                         .frame(width: 18)
-                    Text("Tool calls")
+                    Text(LanguageStore.shared.t("startup.toolCalls"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppTheme.brandAccent)
                     Spacer()
@@ -253,7 +253,9 @@ struct PiAgentStartupResourcesPopover: View {
         }
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .help("\(item.name): \(item.successCount) ok\(item.errorCount > 0 ? ", \(item.errorCount) failed" : "")")
+        .help(item.errorCount > 0
+              ? LanguageStore.shared.t("startup.toolHelpFailed", item.name, item.successCount, item.errorCount)
+              : LanguageStore.shared.t("startup.toolHelpOk", item.name, item.successCount))
     }
 
     private var isEmpty: Bool {
@@ -744,7 +746,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                         .foregroundStyle(Self.accent)
                         .frame(width: 18)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Deck agents for this session")
+                        Text(LanguageStore.shared.t("startup.deckAgentsForSession"))
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(.primary)
                         Text(data?.subtitle ?? "Off, Pi will not delegate in this session")
@@ -870,7 +872,7 @@ struct PiAgentSessionSubagentPickerCard: View {
 
     private var delegationPolicyDescription: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Delegation")
+            Text(LanguageStore.shared.t("startup.delegation"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
             Text(compactDelegationPolicyDescription)
@@ -998,10 +1000,10 @@ struct PiAgentSessionSubagentPickerCard: View {
             HStack(spacing: 10) {
                 boundAgentAvatar
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("1:1 chat with \(session.agentName ?? "agent")")
+                    Text(LanguageStore.shared.t("startup.oneToOneChat", session.agentName ?? "agent"))
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("Only this agent replies, with its own prompt and tools")
+                    Text(LanguageStore.shared.t("startup.oneToOneBody"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -1011,13 +1013,13 @@ struct PiAgentSessionSubagentPickerCard: View {
                         viewModel.unbindPiAgentDraft(session.id)
                     }
                 } label: {
-                    Text("Switch back")
+                    Text(LanguageStore.shared.t("startup.switchBack"))
                         .font(.caption.weight(.semibold))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Self.accent)
-                .help("Turn this back into a regular session with Deck agents")
+                .help(LanguageStore.shared.t("startup.switchBackHelp"))
             }
         }
     }
@@ -1428,15 +1430,15 @@ private struct PiAgentSubagentPickerRow: View {
             HStack(spacing: 5) {
                 Image(systemName: "paperplane")
                     .font(AppTheme.Font.caption.weight(.semibold))
-                Text("1:1 chat")
+                Text(LanguageStore.shared.t("startup.oneToOneTitle"))
                     .font(AppTheme.Font.caption.weight(.semibold))
             }
             .padding(.vertical, 3)
             .padding(.horizontal, 1)
         }
         .appSmallSecondaryButton()
-        .help("Make this a 1:1 chat with \(agent.name)")
-        .accessibilityLabel("Start a 1:1 chat with \(agent.name)")
+        .help(LanguageStore.shared.t("startup.oneToOneHelp", agent.name))
+        .accessibilityLabel(LanguageStore.shared.t("startup.oneToOneA11y", agent.name))
         .disabled(agent.resolved.disabled == true)
     }
 }
@@ -1571,7 +1573,7 @@ private struct PiAgentPickerLaunchControls: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "brain.head.profile")
-                Text("Thinking: \(thinkingLabel)")
+                Text(LanguageStore.shared.t("startup.thinkingLabel", thinkingLabel))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -1774,7 +1776,7 @@ private struct PiAgentPickerAddRow: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(Self.accent)
                         }
-                    Text("Add agents…")
+                    Text(LanguageStore.shared.t("startup.addAgentsEllipsis"))
                         .font(.callout.weight(.medium))
                         .foregroundStyle(Self.accent)
                     Spacer(minLength: 0)
@@ -1786,7 +1788,7 @@ private struct PiAgentPickerAddRow: View {
             .opacity(isEnabled ? 1 : 0.4)
 
             if showsReset {
-                Button("Reset to default", action: onReset)
+                Button(LanguageStore.shared.t("startup.resetDefault"), action: onReset)
                     .buttonStyle(.plain)
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
@@ -1860,10 +1862,10 @@ struct PiAgentAddAgentsSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Add agents")
+                Text(LanguageStore.shared.t("startup.addAgentsTitle"))
                     .font(.headline)
                     .fontWidth(.expanded)
-                Text("Pick agents to include in this session. Existing default-row selections are preserved; chosen agents are added when you click Update.")
+                Text(LanguageStore.shared.t("startup.addAgentsBody"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1890,8 +1892,8 @@ struct PiAgentAddAgentsSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear agent search")
-                .help("Clear agent search")
+                .accessibilityLabel(LanguageStore.shared.t("startup.clearAgentSearch"))
+                .help(LanguageStore.shared.t("startup.clearAgentSearch"))
             }
         }
         .padding(.horizontal, 10)
@@ -1969,12 +1971,12 @@ struct PiAgentAddAgentsSheet: View {
     private var footer: some View {
         HStack {
             if !selected.isEmpty {
-                Text("\(selected.count) selected")
+                Text(LanguageStore.shared.t("startup.selectedCount", selected.count))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
             Spacer()
-            Button("Cancel") { dismiss() }
+            Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                 .appSecondaryButton()
                 .keyboardShortcut(.cancelAction)
             Button(selected.isEmpty ? "Update" : "Update \(selected.count)") {

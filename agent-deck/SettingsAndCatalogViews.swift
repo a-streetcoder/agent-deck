@@ -2,20 +2,22 @@ import AppKit
 import SwiftUI
 
 struct ModelsInfoPopover: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Models catalog")
+            Text(languageStore.t("models.infoTitle"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("Catalog", "Agent Deck queries Pi for available models and groups them by provider.")
-                infoRow("Defaults", "Default model and thinking apply to new Pi Agent sessions unless a session or agent overrides them.")
-                infoRow("Automation", "Apple Foundation Model is local and can be used for automation tasks in Settings.")
-                infoRow("Availability", "Disabling a model removes it from default selection, launch controls, and agent editors.")
+                infoRow(languageStore.t("models.infoCatalogTitle"), languageStore.t("models.infoCatalogBody"))
+                infoRow(languageStore.t("models.infoDefaultsTitle"), languageStore.t("models.infoDefaultsBody"))
+                infoRow(languageStore.t("models.infoAutomationTitle"), languageStore.t("models.infoAutomationBody"))
+                infoRow(languageStore.t("models.infoAvailabilityTitle"), languageStore.t("models.infoAvailabilityBody"))
             }
 
-            Text("Refresh reloads the catalog from Pi and updates supported thinking levels for the current selection.")
+            Text(languageStore.t("models.infoRefresh"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -94,6 +96,7 @@ private struct AutomationModelItem: Identifiable {
 
 struct ModelsScreen: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     private let modelControlWidth: CGFloat = 330
     private let thinkingControlWidth: CGFloat = 130
@@ -105,14 +108,14 @@ struct ModelsScreen: View {
 #endif
 
     var body: some View {
-        AppPage("Models") {
+        AppPage(languageStore.t("models.pageTitle")) {
 #if DEBUG
             SidebarExpandBenchScrollProbe(trigger: sidebarExpandBenchModelsScrollRequest)
                 .frame(width: 0, height: 0)
 #endif
             if viewModel.cachedDisplayModels.isEmpty {
-                AppCard(title: "Catalog") {
-                    Text("No models loaded yet. Use the toolbar Refresh action to query Pi.")
+                AppCard(title: languageStore.t("models.catalogTitle")) {
+                    Text(languageStore.t("models.catalogEmpty"))
                         .foregroundStyle(AppTheme.mutedText)
                 }
             } else {
@@ -219,7 +222,7 @@ struct ModelsScreen: View {
                     .lineLimit(1)
 
                 if agent.id.hasPrefix("builtin-model::") {
-                    Text("Builtin")
+                    Text(languageStore.t("models.builtin"))
                         .font(AppTheme.Font.micro.weight(.bold))
                         .fontWidth(.expanded)
                         .foregroundStyle(AppTheme.mutedText)
@@ -359,13 +362,13 @@ struct ModelsScreen: View {
         HStack(spacing: 5) {
             if let model, model.supportsThinking {
                 Image(systemName: "brain.head.profile")
-                    .help("Supports thinking")
-                    .accessibilityLabel("Supports thinking")
+                    .help(languageStore.t("models.supportsThinking"))
+                    .accessibilityLabel(languageStore.t("models.supportsThinking"))
             }
             if let model, model.supportsImages {
                 Image(systemName: "photo")
-                    .help("Supports image input")
-                    .accessibilityLabel("Supports image input")
+                    .help(languageStore.t("models.supportsImage"))
+                    .accessibilityLabel(languageStore.t("models.supportsImage"))
             }
         }
         .imageScale(.small)
@@ -391,7 +394,7 @@ struct ModelsScreen: View {
         .appMenuPicker()
         .frame(width: thinkingControlWidth, alignment: .leading)
         .disabled(levels.isEmpty)
-        .help("Thinking level: \(selectedLevel.capitalized)")
+        .help(languageStore.t("models.thinkingLevel", selectedLevel.capitalized))
     }
 
     /// Visual placeholder for the thinking column when the selected model has
@@ -400,13 +403,13 @@ struct ModelsScreen: View {
     /// support thinking (task: no plain "Not supported" text).
     private func disabledThinkingPlaceholder() -> some View {
         Picker("Thinking", selection: .constant("Not available")) {
-            Text("Not available").tag("Not available")
+            Text(languageStore.t("models.notAvailable")).tag("Not available")
         }
         .labelsHidden()
         .appMenuPicker()
         .frame(width: thinkingControlWidth, alignment: .leading)
         .disabled(true)
-        .help("Thinking is not available for this model")
+        .help(languageStore.t("models.thinkingUnavailable"))
     }
 
     /// Persists one agent's model/thinking immediately. The local draft mirrors
@@ -657,7 +660,7 @@ struct ModelsScreen: View {
     private var defaultModelCard: some View {
         modelsBorderedCard {
             HStack(alignment: .center, spacing: 12) {
-                Text("Default Model")
+                Text(languageStore.t("models.defaultModel"))
                     .font(.headline)
                     .fontWidth(.expanded)
                     .lineLimit(1)
@@ -786,7 +789,7 @@ struct ModelsScreen: View {
             HStack(spacing: 5) {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .font(.caption.weight(.semibold))
-                Text("Sign out")
+                Text(languageStore.t("models.signOut"))
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
             }
@@ -796,7 +799,7 @@ struct ModelsScreen: View {
             .background(AppTheme.brandAccent.opacity(0.12), in: Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("Sign out of \(provider) (removes its credentials from auth.json).")
+        .help(languageStore.t("models.signOutHelp", provider))
     }
 
     private func providerToggle(for group: (provider: String, models: [AvailableModel])) -> some View {
@@ -825,7 +828,7 @@ struct ModelsScreen: View {
             HStack(spacing: 5) {
                 Image(systemName: isFastEnabled ? "bolt.fill" : "bolt")
                     .font(.caption.weight(.semibold))
-                Text("Fast")
+                Text(languageStore.t("models.fast"))
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
             }
@@ -838,12 +841,12 @@ struct ModelsScreen: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("OpenAI Fast")
+        .accessibilityLabel(languageStore.t("models.openaiFastA11y"))
         .accessibilityValue(isFastEnabled ? "On" : "Off")
         .accessibilityHint(isFastEnabled
             ? "Turns off priority service for eligible ChatGPT and Codex models."
             : "Turns on priority service for eligible ChatGPT and Codex models.")
-        .help("Use OpenAI priority service tier for all eligible ChatGPT/Codex models.")
+        .help(languageStore.t("models.openaiFastHelp"))
         .animation(.snappy(duration: 0.18), value: isFastEnabled)
     }
 
@@ -851,9 +854,10 @@ struct ModelsScreen: View {
 
 struct SubagentsScreen: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
-        AppPage("Deck agents", subtitle: "App-managed delegation and supervision") {
+        AppPage(languageStore.t("deckAgents.pageTitle"), subtitle: languageStore.t("deckAgents.pageSubtitle")) {
             nativeRuntimeCard
             sessionDefaultsCard
             availableAgentsCard
@@ -862,34 +866,34 @@ struct SubagentsScreen: View {
     }
 
     private var nativeRuntimeCard: some View {
-        AppCard(title: "Deck Agent Runtime") {
+        AppCard(title: languageStore.t("deckAgents.runtimeTitle")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("• \(AppBrand.displayName) launches child Pi sessions itself and keeps parent, child, transcript, artifact, and supervisor state in the app.")
-                Text("• Parent sessions receive app-provided managed tools for single and parallel delegation.")
-                Text("• Child sessions can contact the supervisor through \(AppBrand.displayName)'s supervisor request cards.")
+                Text(languageStore.t("deckAgents.runtime1", AppBrand.displayName))
+                Text(languageStore.t("deckAgents.runtime2"))
+                Text(languageStore.t("deckAgents.runtime3", AppBrand.displayName))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var sessionDefaultsCard: some View {
-        AppCard(title: "Session Defaults") {
+        AppCard(title: languageStore.t("deckAgents.defaultsTitle")) {
             AppKeyValueList(rows: [
-                ("New Sessions", viewModel.areSubagentsEnabledForNewSessions ? "Deck agents enabled" : "Deck agents disabled"),
-                ("Selected Session", selectedSessionStatus),
-                ("Available Agents", "\(viewModel.snapshot.effectiveAgents.count(where: { $0.resolved.disabled != true }))")
+                (languageStore.t("deckAgents.newSessions"), viewModel.areSubagentsEnabledForNewSessions ? languageStore.t("deckAgents.enabled") : languageStore.t("deckAgents.disabled")),
+                (languageStore.t("deckAgents.selectedSession"), selectedSessionStatus),
+                (languageStore.t("deckAgents.availableAgentsLabel"), "\(viewModel.snapshot.effectiveAgents.count(where: { $0.resolved.disabled != true }))")
             ])
         }
     }
 
     private var availableAgentsCard: some View {
-        AppCard(title: "Available Deck Agents") {
+        AppCard(title: languageStore.t("deckAgents.availableTitle")) {
             VStack(alignment: .leading, spacing: 10) {
                 let agents = viewModel.snapshot.effectiveAgents
                     .filter { $0.resolved.disabled != true }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 if agents.isEmpty {
-                    Text("No enabled agents are available in the current scope.")
+                    Text(languageStore.t("deckAgents.noneEnabled"))
                         .foregroundStyle(AppTheme.mutedText)
                 } else {
                     ForEach(agents.prefix(12)) { agent in
@@ -899,14 +903,14 @@ struct SubagentsScreen: View {
                                 .frame(width: 18)
                             Text(agent.name)
                                 .font(.body.weight(.semibold))
-                            Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
+                            Text(agent.resolved.description.isEmpty ? languageStore.t("deckAgents.noDescription") : agent.resolved.description)
                                 .foregroundStyle(AppTheme.mutedText)
                                 .lineLimit(1)
                         }
                     }
 
                     if agents.count > 12 {
-                        Text("\(agents.count - 12) more agents are available from the run picker.")
+                        Text(languageStore.t("deckAgents.moreAgents", agents.count - 12))
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
                     }
@@ -917,22 +921,22 @@ struct SubagentsScreen: View {
     }
 
     private var safetyCard: some View {
-        AppCard(title: "Safety") {
+        AppCard(title: languageStore.t("deckAgents.safetyTitle")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("• Writer-like Deck agent runs use isolated worktrees unless direct project writes are explicitly allowed.")
-                Text("• Parent and child transcript state is persisted by \(AppBrand.displayName).")
-                Text("• Supervisor questions stay scoped to the owning parent session and window.")
+                Text(languageStore.t("deckAgents.safety1"))
+                Text(languageStore.t("deckAgents.safety2", AppBrand.displayName))
+                Text(languageStore.t("deckAgents.safety3"))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var selectedSessionStatus: String {
-        guard let session = viewModel.piAgentSessionStore.selectedSession else { return "No session selected" }
-        guard session.subagentsEnabled else { return "Deck agents disabled" }
+        guard let session = viewModel.piAgentSessionStore.selectedSession else { return languageStore.t("deckAgents.noSession") }
+        guard session.subagentsEnabled else { return languageStore.t("deckAgents.disabled") }
         return viewModel.catalogAgents(for: session).isEmpty
-            ? "Deck agents disabled (no agents selected)"
-            : "Deck agents enabled"
+            ? languageStore.t("deckAgents.disabledNoAgents")
+            : languageStore.t("deckAgents.enabled")
     }
 }
 
@@ -954,6 +958,7 @@ struct AgentModelQuickEditorSection: Identifiable {
 
 struct AgentModelQuickEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var languageStore = LanguageStore.shared
     let context: AgentModelQuickEditorContext
     let availableModels: [AvailableModel]
     let modelsLastUpdatedAt: Date?
@@ -1015,7 +1020,7 @@ struct AgentModelQuickEditorSheet: View {
 
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Default model and thinking can be changed in Sidebar > Models.")
+                    Text(languageStore.t("models.quickEditorHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                     if let saveMessage {
@@ -1025,11 +1030,11 @@ struct AgentModelQuickEditorSheet: View {
                     }
                 }
                 Spacer()
-                Button("Cancel") {
+                Button(languageStore.t("common.cancel")) {
                     dismiss()
                 }
                 .appSecondaryButton()
-                Button("Save All") {
+                Button(languageStore.t("models.saveAll")) {
                     saveAll()
                 }
                 .appPrimaryButton()

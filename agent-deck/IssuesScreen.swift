@@ -4,6 +4,7 @@ import SwiftUI
 struct IssuesScreen: View {
     @Bindable var viewModel: AppViewModel
     @Binding var searchText: String
+    @ObservedObject private var languageStore = LanguageStore.shared
     /// Cached visible items. Recomputed via `.task(id: visibleItemsCacheKey)`
     /// over the 6 input drivers (board, 4 filters, search). Without this, every
     /// observable read of GitHub state would re-run the filter + search passes
@@ -64,9 +65,9 @@ struct IssuesScreen: View {
             noProjectPlaceholder
         } else if !viewModel.githubConnectionState.isConnected {
             ContentUnavailableView(
-                "Not Connected to GitHub",
+                languageStore.t("issues.notConnectedTitle"),
                 systemImage: "person.crop.circle.badge.questionmark",
-                description: Text("Connect your GitHub CLI session to browse issues.")
+                description: Text(languageStore.t("issues.notConnectedBody"))
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewModel.githubIsLoadingProjectBoard && viewModel.githubProjectBoard == nil {
@@ -75,9 +76,9 @@ struct IssuesScreen: View {
             boardContent(board: board)
         } else {
             ContentUnavailableView(
-                "No Issues Loaded",
+                languageStore.t("issues.noneLoadedTitle"),
                 systemImage: "circle.dashed",
-                description: Text("Refresh to load issues for this repository.")
+                description: Text(languageStore.t("issues.noneLoadedBody"))
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -87,16 +88,16 @@ struct IssuesScreen: View {
     private var noProjectPlaceholder: some View {
         if viewModel.selectedProjectPath != nil {
             ContentUnavailableView(
-                "No GitHub Remote",
+                languageStore.t("issues.noRemoteTitle"),
                 systemImage: "link.badge.plus",
-                description: Text("The selected project is not mapped to a GitHub remote.")
+                description: Text(languageStore.t("issues.noRemoteBody"))
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView(
-                "No Project Selected",
+                languageStore.t("issues.noProjectTitle"),
                 systemImage: "folder",
-                description: Text("Choose a project to browse its issues.")
+                description: Text(languageStore.t("issues.noProjectBody"))
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -109,9 +110,9 @@ struct IssuesScreen: View {
                     AppSpinner()
                         .controlSize(.small)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Loading issues")
+                        Text(languageStore.t("issues.loadingTitle"))
                             .font(.headline)
-                        Text("Fetching open issues for this repository.")
+                        Text(languageStore.t("issues.loadingBody"))
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     Spacer()
@@ -216,9 +217,9 @@ struct IssuesScreen: View {
                 GitHubIssueDetailView(viewModel: viewModel)
             } else {
                 ContentUnavailableView(
-                    "Select an Issue",
+                    languageStore.t("issues.selectTitle"),
                     systemImage: "doc.text",
-                    description: Text("Pick an issue from the list to read it, browse comments, and reply.")
+                    description: Text(languageStore.t("issues.selectBody"))
                 )
             }
         }
@@ -257,12 +258,12 @@ struct IssuesScreen: View {
 
     private func emptyStateMessage(query: String, filtersActive: Bool) -> String {
         if !query.isEmpty {
-            return "No issues match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”."
+            return languageStore.t("issues.noMatch", searchText.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         if filtersActive {
-            return "Try clearing the filters or changing the state."
+            return languageStore.t("issues.tryClearFilters")
         }
-        return "There are no \(viewModel.githubIssueStateFilter.rawValue.lowercased()) issues for this repository."
+        return languageStore.t("issues.noneForState", viewModel.githubIssueStateFilter.rawValue.lowercased())
     }
 
     // MARK: - Helpers
@@ -291,6 +292,7 @@ struct IssuesScreen: View {
 
 struct IssuesFiltersPopover: View {
     @Bindable var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -314,7 +316,7 @@ struct IssuesFiltersPopover: View {
                 Divider()
                 HStack {
                     Spacer()
-                    Button("Clear all filters") {
+                    Button(languageStore.t("issues.clearAllFilters")) {
                         viewModel.resetIssueFilters()
                     }
                     .buttonStyle(.borderless)
@@ -350,7 +352,7 @@ struct IssuesFiltersPopover: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader("Close Reason")
             Picker("Close Reason", selection: closeReasonBinding) {
-                Text("Any reason").tag(GitHubIssueCloseReason?.none)
+                Text(languageStore.t("issues.anyReason")).tag(GitHubIssueCloseReason?.none)
                 Divider()
                 ForEach(GitHubIssueCloseReason.allCases) { reason in
                     Text(reason.title).tag(GitHubIssueCloseReason?.some(reason))
@@ -371,7 +373,7 @@ struct IssuesFiltersPopover: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader("Type")
             Picker("Type", selection: typeBinding) {
-                Text("Any type").tag(String?.none)
+                Text(languageStore.t("issues.anyType")).tag(String?.none)
                 Divider()
                 ForEach(viewModel.githubAvailableTypes, id: \.self) { type in
                     Text(type).tag(String?.some(type))
@@ -392,7 +394,7 @@ struct IssuesFiltersPopover: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader("Creator")
             Picker("Creator", selection: authorBinding) {
-                Text("Any creator").tag(String?.none)
+                Text(languageStore.t("issues.anyCreator")).tag(String?.none)
                 if !viewModel.githubAvailableAuthors.isEmpty {
                     Divider()
                     ForEach(viewModel.githubAvailableAuthors, id: \.self) { author in
@@ -416,7 +418,7 @@ struct IssuesFiltersPopover: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader("Assignee")
             Picker("Assignee", selection: assigneeBinding) {
-                Text("Anyone").tag(String?.none)
+                Text(languageStore.t("issues.anyone")).tag(String?.none)
                 if !viewModel.githubAvailableAssignees.isEmpty {
                     Divider()
                     ForEach(viewModel.githubAvailableAssignees, id: \.self) { assignee in
@@ -442,7 +444,7 @@ struct IssuesFiltersPopover: View {
                 sectionHeader("Labels")
                 Spacer()
                 if !viewModel.githubLabelFilters.isEmpty {
-                    Button("Clear") { viewModel.githubLabelFilters = [] }
+                    Button(languageStore.t("issues.clear")) { viewModel.githubLabelFilters = [] }
                         .buttonStyle(.borderless)
                         .font(.caption)
                 }

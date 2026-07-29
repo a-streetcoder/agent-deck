@@ -36,6 +36,7 @@ struct PiSubagentSupervisorRequestInlineNotice: View {
     let request: PiSubagentSupervisorRequest
     let onRespond: () -> Void
     let onCancel: () -> Void
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -44,7 +45,7 @@ struct PiSubagentSupervisorRequestInlineNotice: View {
                 .foregroundStyle(AppTheme.brandAccent)
                 .frame(width: 24, alignment: .center)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Supervisor question")
+                Text(languageStore.t("sub.supervisorQuestion"))
                     .font(AppTheme.Font.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                 Text(request.title)
@@ -52,9 +53,9 @@ struct PiSubagentSupervisorRequestInlineNotice: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
-            Button("Cancel", action: onCancel)
+            Button(languageStore.t("common.cancel"), action: onCancel)
                 .appSecondaryButton()
-            Button("Respond", action: onRespond)
+            Button(languageStore.t("sub.respond"), action: onRespond)
                 .appPrimaryButton()
         }
         .padding(12)
@@ -70,6 +71,7 @@ struct PiSubagentSupervisorRequestSheet: View {
     let request: PiSubagentSupervisorRequest
     let onRespond: (String) -> Void
     let onCancel: () -> Void
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         PiAgentUIRequestSheet(
@@ -90,7 +92,7 @@ struct PiSubagentSupervisorRequestSheet: View {
             message: supervisorMessage,
             options: [],
             optionDescriptions: [:],
-            placeholder: "Response",
+            placeholder: languageStore.t("sub.responsePlaceholder"),
             prefill: nil,
             allowsFreeform: false,
             allowsComment: false,
@@ -105,9 +107,9 @@ struct PiSubagentSupervisorRequestSheet: View {
         }
         let intro = interview.prompt ?? interview.message ?? ""
         let questions = interview.questions.map { question -> String in
-            let suffix = question.required == false ? " (optional)" : ""
+            let suffix = question.required == false ? languageStore.t("sub.optionalSuffix") : ""
             if question.type == "info" {
-                return "• \(question.labelText): \(question.placeholder ?? "No response required.")"
+                return "• \(question.labelText): \(question.placeholder ?? languageStore.t("sub.noResponseRequired"))"
             }
             return "• \(question.labelText)\(suffix)"
         }
@@ -162,6 +164,7 @@ struct PiNativeSubagentRunCard: View {
     let onOpenChildTranscript: (UUID) -> Void
     let onStopChild: (UUID) -> Void
     @ObservedObject var imageStore: AgentImageStore
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var isDetailsPresented = false
     @State private var promptPopover: PromptPopover?
     @State private var memoryPopover: MemoryPopover?
@@ -256,7 +259,7 @@ struct PiNativeSubagentRunCard: View {
 
     private func parallelHeader(children: [PiSubagentChildRecord]) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("Parallel agents")
+            Text(languageStore.t("sub.parallelAgents"))
                 .font(AppTheme.Font.headline)
             Text("\(children.count)")
                 .font(AppTheme.Font.caption2.monospaced().weight(.bold))
@@ -280,40 +283,40 @@ struct PiNativeSubagentRunCard: View {
         }
         .buttonStyle(.borderless)
         .foregroundStyle(AppTheme.mutedText)
-        .help("Run details")
+        .help(languageStore.t("sub.runDetails"))
         .popover(isPresented: $isDetailsPresented, arrowEdge: .trailing) {
             detailsPopover
         }
         if run.children?.isEmpty == false {
-            Button("Graph", action: onOpenGraph)
+            Button(languageStore.t("sub.graph"), action: onOpenGraph)
                 .appSecondaryButton()
                 .controlSize(.small)
         }
         if !rootInjectedMemories.isEmpty {
             Button {
-                memoryPopover = .init(title: "Injected Memories", memories: rootInjectedMemories)
+                memoryPopover = .init(title: languageStore.t("sub.injectedMemories"), memories: rootInjectedMemories)
             } label: {
-                Label("Memory", systemImage: "brain")
+                Label(languageStore.t("sub.memory"), systemImage: "brain")
             }
             .appSecondaryButton()
             .controlSize(.small)
-            .help("Show memories injected into this Deck agent")
+            .help(languageStore.t("sub.memoryHelp"))
         }
-        Button("System Prompt") {
+        Button(languageStore.t("sub.systemPrompt")) {
             promptPopover = .init(
-                title: "Final Runtime System Prompt",
+                title: languageStore.t("sub.finalRuntimePrompt"),
                 text: promptFileText(path: artifactURL(named: "final-system-prompt.md").path)
             )
         }
         .appSecondaryButton()
         .controlSize(.small)
         .disabled(!canOpenArtifact(named: "final-system-prompt.md"))
-        .help("Show final runtime system prompt")
-        Button("Transcript", action: onOpenTranscript)
+        .help(languageStore.t("sub.finalRuntimePromptHelp"))
+        Button(languageStore.t("sub.transcript"), action: onOpenTranscript)
             .appSecondaryButton()
             .controlSize(.small)
         if run.status.isActive {
-            Button("Stop", action: onStop)
+            Button(languageStore.t("sub.stop"), action: onStop)
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .tint(.red)
@@ -327,41 +330,41 @@ struct PiNativeSubagentRunCard: View {
     private var detailRows: [(String, String)] {
         var rows: [(String, String)] = []
         if let turnIndex = run.child?.index, turnIndex > 0 {
-            rows.append(("Continuation", "Turn \(turnIndex + 1)"))
+            rows.append((languageStore.t("sub.continuation"), languageStore.t("sub.turnN", turnIndex + 1)))
         }
         if let duration = latestDurationMs {
-            rows.append(("Duration", formattedDuration(duration)))
+            rows.append((languageStore.t("sub.duration"), formattedDuration(duration)))
         }
         if let totalTokens {
-            rows.append(("Tokens", compactNumber(totalTokens)))
+            rows.append((languageStore.t("sub.tokens"), compactNumber(totalTokens)))
         }
         if let totalCost {
-            rows.append(("Cost", String(format: "$%.2f", totalCost)))
+            rows.append((languageStore.t("sub.cost"), String(format: "$%.2f", totalCost)))
         }
         if let toolCount {
-            rows.append(("Tools", "\(toolCount)"))
+            rows.append((languageStore.t("sub.tools"), "\(toolCount)"))
         }
         if let modelName {
-            rows.append(("Model", modelName))
+            rows.append((languageStore.t("sub.model"), modelName))
         }
         if let thinkingLevel {
-            rows.append(("Thinking", thinkingLevel))
+            rows.append((languageStore.t("sub.thinking"), thinkingLevel))
         }
         if let expectedOutcome = run.expectedOutcome {
-            rows.append(("Outcome", expectedOutcome.displayName + (run.requestedOutputPath.map { " · \($0)" } ?? "")))
+            rows.append((languageStore.t("sub.outcome"), expectedOutcome.displayName + (run.requestedOutputPath.map { " · \($0)" } ?? "")))
         }
         if let reads = run.readFirstPaths, !reads.isEmpty {
-            rows.append(("Read first", reads.joined(separator: ", ")))
+            rows.append((languageStore.t("sub.readFirst"), reads.joined(separator: ", ")))
         }
         if run.isWorktreeIsolated == true {
-            rows.append(("Worktree status", (run.worktreeStatus ?? .active).rawValue))
+            rows.append((languageStore.t("sub.worktreeStatus"), (run.worktreeStatus ?? .active).rawValue))
         }
         return rows
     }
 
     private var detailsPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Run details", systemImage: "info.circle")
+            Label(languageStore.t("sub.runDetails"), systemImage: "info.circle")
                 .font(AppTheme.Font.headline)
 
             AppKeyValueList(rows: detailRows)
@@ -369,12 +372,12 @@ struct PiNativeSubagentRunCard: View {
             if hasDetailActions {
                 Divider()
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Actions")
+                    Text(languageStore.t("sub.actions"))
                         .font(AppTheme.Font.caption.weight(.semibold))
                         .foregroundStyle(AppTheme.mutedText)
 
                     if !run.artifactDirectory.isEmpty {
-                        Button("Reveal Run Folder", action: onReveal)
+                        Button(languageStore.t("sub.revealRunFolder"), action: onReveal)
                     }
                 }
                 .appSecondaryButton()
@@ -547,19 +550,19 @@ struct PiNativeSubagentRunCard: View {
             let memories = injectedMemories(for: child)
             if !memories.isEmpty {
                 Button {
-                    memoryPopover = .init(title: "Injected Memories · \(child.agentName)", memories: memories)
+                    memoryPopover = .init(title: "\(languageStore.t("sub.injectedMemories")) · \(child.agentName)", memories: memories)
                 } label: {
-                    Label("Memory", systemImage: "brain")
+                    Label(languageStore.t("sub.memory"), systemImage: "brain")
                 }
                 .appSecondaryButton()
                 .controlSize(.small)
                 .fixedSize(horizontal: true, vertical: false)
-                .help("Show memories injected into this Deck agent")
+                .help(languageStore.t("sub.memoryHelp"))
             }
 
-            Button("System Prompt") {
+            Button(languageStore.t("sub.systemPrompt")) {
                 promptPopover = .init(
-                    title: "Final Runtime System Prompt",
+                    title: languageStore.t("sub.finalRuntimePrompt"),
                     text: promptFileText(path: childArtifactURL(child, named: "final-system-prompt.md").path)
                 )
             }
@@ -567,10 +570,10 @@ struct PiNativeSubagentRunCard: View {
             .controlSize(.small)
             .fixedSize(horizontal: true, vertical: false)
             .disabled(!canOpenChildArtifact(child, named: "final-system-prompt.md"))
-            .help("Show final runtime system prompt")
+            .help(languageStore.t("sub.finalRuntimePromptHelp"))
 
             if let executionRunID = child.executionRunID {
-                Button("Transcript") {
+                Button(languageStore.t("sub.transcript")) {
                     onOpenChildTranscript(executionRunID)
                 }
                 .appSecondaryButton()
@@ -578,7 +581,7 @@ struct PiNativeSubagentRunCard: View {
                 .fixedSize(horizontal: true, vertical: false)
 
                 if child.status.isActive {
-                    Button("Stop") {
+                    Button(languageStore.t("sub.stop")) {
                         onStopChild(executionRunID)
                     }
                     .buttonStyle(.glass)
@@ -954,7 +957,7 @@ struct PiNativeSubagentGraphSheet: View {
                     AppLabelTag(text: child.status.rawValue, color: color(for: child.status))
                     Spacer()
                     if child.status.isActive {
-                        Button("Stop") { onStopChild(child) }
+                        Button(LanguageStore.shared.t("sub.stop")) { onStopChild(child) }
                             .controlSize(.small)
                     }
                     if [.failed, .stopped, .disconnected].contains(child.status) {
