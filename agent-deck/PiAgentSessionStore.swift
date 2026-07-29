@@ -124,6 +124,8 @@ final class PiAgentSessionStore {
     /// token — only when the badges could actually have changed.
     private(set) var gitActivityRevision: Int = 0
     private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
+    /// In-memory only: extension `notify` popups. Never written to transcript / disk.
+    private(set) var extensionNotifiesBySessionID: [UUID: [PiAgentExtensionNotify]] = [:]
     private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:] {
         didSet { subagentRunsRevision &+= 1 }
     }
@@ -454,6 +456,12 @@ final class PiAgentSessionStore {
         return uiRequestsBySessionID[session.id]
     }
 
+    /// Head of the selected session's ephemeral extension-notify queue (FIFO).
+    var selectedExtensionNotify: PiAgentExtensionNotify? {
+        guard let session = selectedSession else { return nil }
+        return extensionNotifiesBySessionID[session.id]?.first
+    }
+
     func composerDraft(for sessionID: UUID) -> (text: String, pasteAttachments: [PiAgentPasteAttachment], images: [PiAgentImageAttachment], files: [PiAgentFileAttachment], folders: [PiAgentFolderAttachment]) {
         (
             composerTextDraftsBySessionID[sessionID] ?? "",
@@ -587,6 +595,7 @@ final class PiAgentSessionStore {
         transcriptsBySessionID[record.id] = []
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
+        extensionNotifiesBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
@@ -712,6 +721,7 @@ final class PiAgentSessionStore {
         transcriptsBySessionID[record.id] = []
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
+        extensionNotifiesBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
@@ -803,6 +813,7 @@ final class PiAgentSessionStore {
         transcriptsBySessionID[record.id] = []
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
+        extensionNotifiesBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
@@ -938,6 +949,47 @@ final class PiAgentSessionStore {
         if uiRequestsBySessionID[sessionID]?.id == id {
             uiRequestsBySessionID[sessionID] = nil
         }
+    }
+
+    /// Enqueue an extension notify for popup presentation. Does not touch transcript.
+    ///
+    /// - Parameter notify: Ephemeral notification. Required.
+    func presentExtensionNotify(_ notify: PiAgentExtensionNotify) {
+        guard !deletedSessionIDs.contains(notify.sessionID) else { return }
+        var queue = extensionNotifiesBySessionID[notify.sessionID] ?? []
+        // De-dupe identical back-to-back payloads (same id or same body).
+        if queue.contains(where: { $0.id == notify.id }) { return }
+        queue.append(notify)
+        // Bound memory if an extension spam-notifies.
+        if queue.count > 8 {
+            queue.removeFirst(queue.count - 8)
+        }
+        extensionNotifiesBySessionID[notify.sessionID] = queue
+    }
+
+    /// Dismiss the head (or matching id) extension notify for a session.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Owning session. Required.
+    ///   - id: Optional notify id; when nil, drops the head of the queue.
+    func dismissExtensionNotify(sessionID: UUID, id: String? = nil) {
+        guard var queue = extensionNotifiesBySessionID[sessionID], !queue.isEmpty else {
+            extensionNotifiesBySessionID[sessionID] = nil
+            return
+        }
+        if let id {
+            queue.removeAll { $0.id == id }
+        } else {
+            queue.removeFirst()
+        }
+        extensionNotifiesBySessionID[sessionID] = queue.isEmpty ? nil : queue
+    }
+
+    /// Clear all pending extension notifies for a session (e.g. session delete).
+    ///
+    /// - Parameter sessionID: Owning session. Required.
+    func clearExtensionNotifies(sessionID: UUID) {
+        extensionNotifiesBySessionID[sessionID] = nil
     }
 
     func subagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {
@@ -2991,6 +3043,8 @@ final class PiAgentSessionStore {
             sessionPlansBySessionID[sessionID] = nil
             sessionPlanEventsBySessionID[sessionID] = nil
             processingActivityBySessionID[sessionID] = nil
+            uiRequestsBySessionID[sessionID] = nil
+            extensionNotifiesBySessionID[sessionID] = nil
             deleteGeneralChatScratchFolders(for: sessionID)
             deleteTranscriptImages(for: sessionID)
             sessionsTouchedThisRun.remove(sessionID)

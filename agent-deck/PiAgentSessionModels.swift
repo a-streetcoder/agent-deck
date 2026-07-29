@@ -1387,6 +1387,46 @@ enum PiAgentProcessingActivity: Equatable, Hashable {
     case applyingConfigurationChange(summary: String)
 }
 
+/// Ephemeral extension notification (`ctx.ui.notify` / RPC `method: "notify"`).
+/// Not part of the session transcript and never persisted to disk.
+struct PiAgentExtensionNotify: Identifiable, Hashable {
+    enum Level: String, Hashable {
+        case info
+        case warning
+        case error
+
+        init(raw: String?) {
+            switch (raw ?? "info").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "error": self = .error
+            case "warning": self = .warning
+            default: self = .info
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .info: return "Extension"
+            case .warning: return "Extension Warning"
+            case .error: return "Extension Error"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .info: return "bell.badge"
+            case .warning: return "exclamationmark.triangle.fill"
+            case .error: return "xmark.octagon.fill"
+            }
+        }
+    }
+
+    let id: String
+    let sessionID: UUID
+    let level: Level
+    let message: String
+    let timestamp: Date
+}
+
 struct PiAgentUIRequest: Identifiable, Hashable {
     enum Method: String, Hashable {
         case select

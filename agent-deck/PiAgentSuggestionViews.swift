@@ -541,6 +541,80 @@ struct ShortcutComboHint: View {
     }
 }
 
+/// Ephemeral popup for `ctx.ui.notify` — not part of the chat transcript.
+struct PiAgentExtensionNotifySheet: View {
+    let notify: PiAgentExtensionNotify
+    let onDismiss: () -> Void
+
+    private let sheetWidth: CGFloat = 560
+    private let sheetHeight: CGFloat = 420
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                Text(notify.message)
+                    .font(AppTheme.Font.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider()
+            footer
+        }
+        .frame(width: sheetWidth, height: sheetHeight, alignment: .topLeading)
+        .presentationSizing(.fitted)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: notify.level.systemImage)
+                .font(AppTheme.Font.headline)
+                .foregroundStyle(headerColor)
+                .frame(width: 22, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notify.level.title)
+                    .font(AppTheme.Font.headline)
+                    .fontWidth(.expanded)
+                Text(notify.timestamp.formatted(date: .omitted, time: .standard))
+                    .font(AppTheme.Font.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            AppCopyIconButton(
+                text: notify.message,
+                help: "Copy notification",
+                size: CGSize(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
+            )
+            Spacer(minLength: 0)
+            Button("OK", action: onDismiss)
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+    }
+
+    private var headerColor: Color {
+        switch notify.level {
+        case .info: return AppTheme.brandAccent
+        case .warning: return .orange
+        case .error: return AppTheme.roleError
+        }
+    }
+}
+
 struct PiAgentUIRequestInlineNotice: View {
     let request: PiAgentUIRequest
     let onRespond: () -> Void
