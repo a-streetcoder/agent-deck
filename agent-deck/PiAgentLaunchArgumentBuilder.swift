@@ -98,24 +98,24 @@ enum PiAgentLaunchArgumentBuilder {
             + packageExtensionArguments(settings: settings, projectURL: projectURL, discoveryService: discoveryService)
     }
 
-    /// Explicit `--extension` paths for enabled `settings.json` packages.
+    /// Early `--extension` paths for enabled **model/auth provider** packages only
+    /// (e.g. `pi-grok-cli`). Emit after `--no-extensions` and **before** Deck bridges so
+    /// providers exist when the model is selected.
     ///
-    /// - **Managed mode**: only model/auth provider packages (e.g. `pi-grok-cli`).
-    /// - **Use my extensions**: every enabled package extension (user opted into full package load).
-    ///
-    /// Always emit after `--no-extensions` and before (or with) Deck bridges.
+    /// Non-provider packages (tools/UI) are **not** loaded here — they either conflict with
+    /// Deck bridges (`pi-ask-user` vs `ask_user`) or belong after bridges via
+    /// `userSelectedExtensionArguments` when mode is `.useMyExtensions`.
     static func packageExtensionArguments(
         settings: AppSettings,
         projectURL: URL?,
         discoveryService: PiExtensionDiscoveryService = PiExtensionDiscoveryService()
     ) -> [String] {
-        let includeAllPackages = settings.piAgentExtensionLoadingMode.usesCustomPiExtensionSelection
         var args: [String] = []
         var seen = Set<String>()
         for candidate in discoveryService.enabledCandidates(settings: settings, projectRoot: projectURL)
             where candidate.discoveryKind == .package
         {
-            if !includeAllPackages, !isModelProviderPackage(candidate) { continue }
+            guard isModelProviderPackage(candidate) else { continue }
             let source = candidate.launchSource
             guard seen.insert(source).inserted else { continue }
             args.append(contentsOf: ["--extension", source])
@@ -123,11 +123,13 @@ enum PiAgentLaunchArgumentBuilder {
         return args
     }
 
-    /// The `--extension <path>` pairs for the user's *enabled* non-package Pi extensions.
-    /// Empty unless the mode is `.useMyExtensions`. Packages are handled by
-    /// `packageExtensionArguments` so they are not double-loaded.
-    /// These MUST be appended AFTER Agent Deck's own bridge `--extension`s so the
-    /// bridges register first and win any tool-name conflict (first-registration-wins).
+    /// Trailing user-opted extensions for `.useMyExtensions`:
+    /// 1. non-provider packages (tool/UI packages the user enabled),
+    /// 2. then path/file extensions under `~/.pi/agent/extensions`.
+    ///
+    /// Packages that Deck already supersedes (`pi-ask-user`, web bridges, …) are skipped so
+    /// Pi does not fail the whole launch with "Tool X conflicts with …".
+    /// Emit **after** all Agent Deck bridge `--extension`s (first-registration-wins).
     static func userSelectedExtensionArguments(
         settings: AppSettings,
         projectURL: URL?,
@@ -136,9 +138,12 @@ enum PiAgentLaunchArgumentBuilder {
         guard settings.piAgentExtensionLoadingMode.usesCustomPiExtensionSelection else { return [] }
         var args: [String] = []
         var seen = Set<String>()
-        for candidate in discoveryService.enabledCandidates(settings: settings, projectRoot: projectURL)
-            where candidate.discoveryKind != .package
-        {
+        for candidate in discoveryService.enabledCandidates(settings: settings, projectRoot: projectURL) {
+            if candidate.discoveryKind == .package {
+                // Model providers already injected early; Deck-owned tools must not reload.
+                if isModelProviderPackage(candidate) { continue }
+                if isDeckSupersededPackage(candidate) { continue }
+            }
             let source = candidate.launchSource
             guard seen.insert(source).inserted else { continue }
             args.append(contentsOf: ["--extension", source])
@@ -149,9 +154,8 @@ enum PiAgentLaunchArgumentBuilder {
     /// Packages that register chat model providers (not tools/UI).
     /// Keep this conservative so managed mode does not pull in pi-subagents / MCP / etc.
     static func isModelProviderPackage(_ candidate: PiExtensionCandidate) -> Bool {
-        let name = (candidate.packageName ?? "").lowercased()
-        guard !name.isEmpty else { return false }
-        let baseName = name.split(separator: "/").last.map(String.init) ?? name
+        let baseName = packageBaseName(candidate)
+        guard !baseName.isEmpty else { return false }
         let knownBaseNames: Set<String> = [
             "pi-grok-cli",
             "pi-xai-oauth",
@@ -161,6 +165,28 @@ enum PiAgentLaunchArgumentBuilder {
         if baseName.contains("oauth") { return true }
         if baseName.contains("grok") && !baseName.contains("web") { return true }
         return false
+    }
+
+    /// Packages whose tools Deck already injects as first-party bridges.
+    /// Loading them (before or after) causes hard launch failures: tool name conflicts.
+    static func isDeckSupersededPackage(_ candidate: PiExtensionCandidate) -> Bool {
+        let baseName = packageBaseName(candidate)
+        guard !baseName.isEmpty else { return false }
+        let knownBaseNames: Set<String> = [
+            "pi-ask-user",
+            "pi-web-access",
+        ]
+        if knownBaseNames.contains(baseName) { return true }
+        // Scoped npm names like `rpiv-ask-user-question` still register ask_* tools.
+        if baseName.contains("ask-user") { return true }
+        return false
+    }
+
+    /// Lowercased last path segment of `packageName` (`@scope/name` → `name`).
+    private static func packageBaseName(_ candidate: PiExtensionCandidate) -> String {
+        let name = (candidate.packageName ?? "").lowercased()
+        guard !name.isEmpty else { return "" }
+        return name.split(separator: "/").last.map(String.init) ?? name
     }
 
     // MARK: - Internal

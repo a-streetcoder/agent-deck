@@ -133,7 +133,7 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
         XCTAssertTrue(user.isEmpty)
     }
 
-    func testUseMyExtensionsLoadsAllPackagesSeparatelyFromUserFiles() throws {
+    func testUseMyExtensionsDefersNonProviderPackagesAfterBridges() throws {
         let home = try makeTempHomeWithPackages(
             packages: [("pi-subagents", isProvider: false)],
             extensionFileNames: ["alpha.ts"]
@@ -143,16 +143,36 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
         var settings = AppSettings()
         settings.piAgentExtensionLoadingMode = .useMyExtensions
 
-        let packages = PiAgentLaunchArgumentBuilder.packageExtensionArguments(
+        // Early list is model providers only — tool packages must not precede Deck bridges.
+        let early = PiAgentLaunchArgumentBuilder.packageExtensionArguments(
             settings: settings, projectURL: nil, discoveryService: service
         )
-        XCTAssertTrue(packages.contains { $0.contains("pi-subagents") })
+        XCTAssertFalse(early.contains { $0.contains("pi-subagents") })
 
         let user = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
             settings: settings, projectURL: nil, discoveryService: service
         )
+        XCTAssertTrue(user.contains { $0.contains("pi-subagents") }, "non-provider packages load with trailing user list")
         XCTAssertTrue(user.contains { $0.hasSuffix("alpha.ts") })
-        XCTAssertFalse(user.contains { $0.contains("pi-subagents") }, "packages must not double-load via userSelected")
+    }
+
+    func testUseMyExtensionsSkipsDeckSupersededPackages() throws {
+        let home = try makeTempHomeWithPackages(
+            packages: [
+                ("pi-ask-user", isProvider: false),
+                ("pi-subagents", isProvider: false),
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+        let service = PiExtensionDiscoveryService(homeDirectory: home)
+        var settings = AppSettings()
+        settings.piAgentExtensionLoadingMode = .useMyExtensions
+
+        let user = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
+            settings: settings, projectURL: nil, discoveryService: service
+        )
+        XCTAssertFalse(user.contains { $0.contains("pi-ask-user") }, "Deck owns ask_user; skip pi-ask-user")
+        XCTAssertTrue(user.contains { $0.contains("pi-subagents") })
     }
 
     func testIsModelProviderPackageHeuristic() {
@@ -174,6 +194,36 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
         )
         XCTAssertTrue(PiAgentLaunchArgumentBuilder.isModelProviderPackage(grok))
         XCTAssertFalse(PiAgentLaunchArgumentBuilder.isModelProviderPackage(sub))
+    }
+
+    func testIsDeckSupersededPackage() {
+        let ask = PiExtensionCandidate(
+            id: "path:/tmp/ask",
+            name: "index",
+            launchSource: "/tmp/ask",
+            source: ScopeID(kind: .package, path: "npm:pi-ask-user"),
+            discoveryKind: .package,
+            packageName: "pi-ask-user"
+        )
+        let scopedAsk = PiExtensionCandidate(
+            id: "path:/tmp/ask2",
+            name: "index",
+            launchSource: "/tmp/ask2",
+            source: ScopeID(kind: .package, path: "npm:@juicesharp/rpiv-ask-user-question"),
+            discoveryKind: .package,
+            packageName: "@juicesharp/rpiv-ask-user-question"
+        )
+        let sub = PiExtensionCandidate(
+            id: "path:/tmp/sub",
+            name: "index",
+            launchSource: "/tmp/sub",
+            source: ScopeID(kind: .package, path: "npm:pi-subagents"),
+            discoveryKind: .package,
+            packageName: "pi-subagents"
+        )
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(ask))
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(scopedAsk))
+        XCTAssertFalse(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(sub))
     }
 
     // MARK: - Injected bridge list (Session resources popover)
