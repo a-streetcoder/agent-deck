@@ -1573,26 +1573,26 @@ struct ContentView: View {
                     get: { viewModel.appSettings.agentMemoryEnabled },
                     set: { viewModel.setAgentMemoryEnabled($0) }
                 )) {
-                    Label("Project Memory", systemImage: SidebarItem.memory.systemImage)
+                    Label(languageStore.t("memory.toolbar.toggle"), systemImage: SidebarItem.memory.systemImage)
                 }
                 .toggleStyle(.button)
                 .symbolRenderingMode(.monochrome)
                 .foregroundStyle(viewModel.appSettings.agentMemoryEnabled ? AppTheme.brandAccent : .secondary)
                 .tint(AppTheme.brandAccent)
-                .help(viewModel.appSettings.agentMemoryEnabled ? "Project memory is on. Click to pause." : "Project memory is paused. Click to turn it on.")
+                .help(viewModel.appSettings.agentMemoryEnabled ? languageStore.t("memory.toolbar.onHelp") : languageStore.t("memory.toolbar.offHelp"))
 
                 Button {
                     isMemoryInfoPresented.toggle()
                 } label: {
-                    Label("Info", systemImage: "info.circle")
+                    Label(languageStore.t("memory.toolbar.info"), systemImage: "info.circle")
                 }
                 .toolbarNeutralChrome()
-                .help("Explain Agent Deck memory")
+                .help(languageStore.t("memory.toolbar.infoHelp"))
                 .popover(isPresented: $isMemoryInfoPresented, arrowEdge: .bottom) {
                     let counts = memoryInfoCounts()
                     MemoryInfoPopover(
                         enabled: viewModel.appSettings.agentMemoryEnabled,
-                        projectName: viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "No project selected",
+                        projectName: viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? languageStore.t("memory.info.noProject"),
                         recordCount: counts.total,
                         injectableCount: counts.injectable,
                         staleCount: counts.stale
@@ -1602,10 +1602,10 @@ struct ContentView: View {
                 Button {
                     NotificationCenter.default.post(name: .agentDeckNewMemoryRequested, object: nil)
                 } label: {
-                    Label("New Memory", systemImage: "plus")
+                    Label(languageStore.t("memory.toolbar.new"), systemImage: "plus")
                 }
                 .toolbarPrimaryActionChrome()
-                .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
+                .help(viewModel.selectedProjectPath == nil ? languageStore.t("memory.toolbar.newDisabled") : languageStore.t("memory.toolbar.newHelp"))
                 .disabled(viewModel.selectedProjectPath == nil)
             }
         }
@@ -1759,7 +1759,7 @@ struct ContentView: View {
             return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Coding Agent"
         case .memory:
             // Mirrors the toolbar toggle so the state reads at a glance.
-            return viewModel.appSettings.agentMemoryEnabled ? "Memory: On" : "Memory: Off"
+            return viewModel.appSettings.agentMemoryEnabled ? languageStore.t("memory.title.on") : languageStore.t("memory.title.off")
         case .agents:
             // Same at-a-glance state as Memory, driven by the same toolbar toggle.
             return viewModel.appSettings.nativeSubagentsEnabledForNewSessions ? "Agents: On" : "Agents: Off"

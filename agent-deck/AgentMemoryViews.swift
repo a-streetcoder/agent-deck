@@ -3,6 +3,7 @@ import SwiftUI
 struct MemoryScreen: View {
     var viewModel: AppViewModel
     @ObservedObject var memoryStore: AgentMemoryStore
+    @ObservedObject private var languageStore = LanguageStore.shared
     @Binding var searchText: String
     @State private var selectedRecordID: String?
     @State private var isNewMemoryPresented = false
@@ -32,7 +33,7 @@ struct MemoryScreen: View {
         }
         .sheet(isPresented: $isNewMemoryPresented) {
             MemoryEditorSheet(
-                title: "New Memory",
+                title: languageStore.t("memory.new"),
                 initialTitle: "",
                 initialSummary: "",
                 initialBody: "",
@@ -43,27 +44,32 @@ struct MemoryScreen: View {
                 }
             )
         }
-        .alert("Delete Memory?", isPresented: Binding(
+        .alert(languageStore.t("memory.deleteConfirmTitle"), isPresented: Binding(
             get: { recordPendingDeletion != nil },
             set: { if !$0 { recordPendingDeletion = nil } }
         ), presenting: recordPendingDeletion) { record in
-            Button("Delete", role: .destructive) {
+            Button(languageStore.t("common.delete"), role: .destructive) {
                 deleteMemory(record)
             }
-            Button("Cancel", role: .cancel) {
+            Button(languageStore.t("common.cancel"), role: .cancel) {
                 recordPendingDeletion = nil
             }
         } message: { record in
-            Text("Delete \"\(record.title.isEmpty ? "Untitled Memory" : record.title)\"? The memory file is removed from disk and agents stop recalling it.")
+            let name = record.title.isEmpty ? languageStore.t("memory.untitled") : record.title
+            Text(languageStore.t("memory.deleteConfirmBody", name))
         }
-        .alert("Delete Stale Memories?", isPresented: $isStaleCleanupPresented) {
-            Button("Delete", role: .destructive) {
+        .alert(languageStore.t("memory.deleteStaleTitle"), isPresented: $isStaleCleanupPresented) {
+            Button(languageStore.t("common.delete"), role: .destructive) {
                 deleteStaleMemories()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(languageStore.t("common.cancel"), role: .cancel) {}
         } message: {
             let count = staleVisibleCount
-            Text("Delete \(count) stale memor\(count == 1 ? "y" : "ies")? The memory files are removed from disk.")
+            if count == 1 {
+                Text(languageStore.t("memory.deleteStaleBodyOne"))
+            } else {
+                Text(languageStore.t("memory.deleteStaleBody", count))
+            }
         }
         .task(id: cacheKey) { recomputeCachedLayout() }
         .task {
@@ -93,7 +99,11 @@ struct MemoryScreen: View {
             visible = current
         } else {
             visible = current.filter { record in
-                ([record.title, record.summary, record.kind.displayName, record.status.displayName, record.scope.displayName, record.filePath] + record.tags)
+                ([record.title, record.summary,
+                  record.kind.displayName, record.kind.localizedDisplayName,
+                  record.status.displayName, record.status.localizedDisplayName,
+                  record.scope.displayName, languageStore.t("memory.scope.project"),
+                  record.filePath] + record.tags)
                     .contains { $0.lowercased().contains(query) }
             }
         }
@@ -106,7 +116,7 @@ struct MemoryScreen: View {
             if !items.isEmpty {
                 sections.append(AppListSection(
                     id: status.rawValue,
-                    title: status.displayName,
+                    title: status.localizedDisplayName,
                     info: status.sectionInfo,
                     accessory: status == .stale ? AnyView(staleCleanupButton) : nil,
                     items: items
@@ -116,9 +126,9 @@ struct MemoryScreen: View {
         if sections.isEmpty {
             sections.append(AppListSection(
                 id: "empty",
-                title: "Memories",
+                title: languageStore.t("memory.sectionMemories"),
                 items: [],
-                emptyMessage: current.isEmpty ? emptyLibraryMessage : "No memories match your search."
+                emptyMessage: current.isEmpty ? emptyLibraryMessage : languageStore.t("memory.noMatch")
             ))
         }
 
@@ -139,8 +149,8 @@ struct MemoryScreen: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Delete all stale memories")
-        .help("Delete all stale memories")
+        .accessibilityLabel(languageStore.t("memory.deleteAllStale"))
+        .help(languageStore.t("memory.deleteAllStale"))
     }
 
     private var staleVisibleCount: Int {
@@ -158,8 +168,8 @@ struct MemoryScreen: View {
 
     private var emptyLibraryMessage: String {
         viewModel.selectedProjectPath == nil
-            ? "Select a project to inspect its memory."
-            : "No memories yet."
+            ? languageStore.t("memory.emptySelectProject")
+            : languageStore.t("memory.emptyNone")
     }
 
     private func ensureSelection() {
@@ -204,9 +214,9 @@ struct MemoryScreen: View {
     private var embeddingStatusRow: some View {
         switch memoryStore.embeddingStatus {
         case .unavailable:
-            statusLine("exclamationmark.triangle.fill", .orange, "Recall model unavailable (offline?). It will retry automatically.")
+            statusLine("exclamationmark.triangle.fill", .orange, languageStore.t("memory.embedUnavailable"))
         case .unsupported:
-            statusLine("xmark.circle", .secondary, "On-device recall isn't supported on this Mac.")
+            statusLine("xmark.circle", .secondary, languageStore.t("memory.embedUnsupported"))
         case .unknown, .ready:
             EmptyView()
         }
@@ -230,12 +240,12 @@ struct MemoryScreen: View {
                 .foregroundStyle(record.status.tint)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 5) {
-                Text(record.title.isEmpty ? "Untitled Memory" : record.title)
+                Text(record.title.isEmpty ? languageStore.t("memory.untitled") : record.title)
                     .font(AppTheme.Font.sectionTitle)
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(record.summary.isEmpty ? "No summary provided." : record.summary)
+                Text(record.summary.isEmpty ? languageStore.t("memory.noSummary") : record.summary)
                     .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
@@ -261,7 +271,7 @@ struct MemoryScreen: View {
             Button(role: .destructive) {
                 recordPendingDeletion = record
             } label: {
-                Label("Delete Memory", systemImage: "trash")
+                Label(languageStore.t("memory.delete"), systemImage: "trash")
             }
         }
     }
@@ -279,18 +289,18 @@ struct MemoryScreen: View {
             )
         } else if !cachedLayout.hasAny {
             AppEmptyState(
-                "No Memories Yet",
+                languageStore.t("memory.emptyTitle"),
                 systemImage: "brain",
                 description: viewModel.selectedProjectPath == nil
-                    ? "Select a project to inspect its memory."
-                    : "Create a memory manually or let agents write durable project memories from sessions.",
+                    ? languageStore.t("memory.emptySelectProject")
+                    : languageStore.t("memory.emptyBody"),
                 layout: .fill
             )
         } else {
             AppEmptyState(
-                "No Matching Memories",
+                languageStore.t("memory.noMatchTitle"),
                 systemImage: "line.3.horizontal.decrease.circle",
-                description: "Try a different search.",
+                description: languageStore.t("memory.noMatchBody"),
                 layout: .fill
             )
         }
@@ -307,6 +317,7 @@ struct MemoryScreen: View {
 
 
 struct MemoryInfoPopover: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
     let enabled: Bool
     let projectName: String
     let recordCount: Int
@@ -318,24 +329,24 @@ struct MemoryInfoPopover: View {
             HStack(spacing: 10) {
                 Image(systemName: SidebarItem.memory.systemImage)
                     .foregroundStyle(AppTheme.brandAccent)
-                Text("Agent Deck Memory")
+                Text(languageStore.t("memory.infoTitle", AppBrand.displayName))
                     .font(.headline)
                     .fontWidth(.expanded)
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("What is stored", "Project-scoped, durable facts: architecture notes, decisions, preferences, runbooks, and recurring failures.")
-                infoRow("When agents see it", "Active and pinned memories are eligible to be included in Pi sessions when relevant to the task. Stale and archived memories are not included automatically.")
-                infoRow("Current project", projectName)
+                infoRow(languageStore.t("memory.info.what"), languageStore.t("memory.info.whatBody"))
+                infoRow(languageStore.t("memory.info.when"), languageStore.t("memory.info.whenBody"))
+                infoRow(languageStore.t("memory.info.project"), projectName)
             }
 
             Divider()
 
             HStack(spacing: 10) {
-                stat("Status", enabled ? "Enabled" : "Paused", color: enabled ? .green : .orange)
-                stat("Memories", "\(recordCount)", color: AppTheme.brandAccent)
-                stat("Eligible", "\(injectableCount)", color: .green)
-                stat("Stale", "\(staleCount)", color: .yellow)
+                stat(languageStore.t("memory.stat.status"), enabled ? languageStore.t("memory.enabled") : languageStore.t("memory.paused"), color: enabled ? .green : .orange)
+                stat(languageStore.t("memory.stat.memories"), "\(recordCount)", color: AppTheme.brandAccent)
+                stat(languageStore.t("memory.stat.eligible"), "\(injectableCount)", color: .green)
+                stat(languageStore.t("memory.stat.stale"), "\(staleCount)", color: .yellow)
             }
         }
         .padding(16)
@@ -374,6 +385,7 @@ struct MemoryInfoPopover: View {
 private struct MemoryDetailView: View {
     let record: AgentMemoryRecord
     @ObservedObject var memoryStore: AgentMemoryStore
+    @ObservedObject private var languageStore = LanguageStore.shared
     var viewModel: AppViewModel
     let onDelete: (AgentMemoryRecord) -> Void
     @State private var isEditing = false
@@ -382,8 +394,8 @@ private struct MemoryDetailView: View {
     @State private var bodyText = ""
 
     var body: some View {
-        AppPage(record.title.isEmpty ? "Untitled Memory" : record.title, lazy: true) {
-            AppCard(title: record.title.isEmpty ? "Untitled Memory" : record.title, trailing: { statusPicker }) {
+        AppPage(record.title.isEmpty ? languageStore.t("memory.untitled") : record.title, lazy: true) {
+            AppCard(title: record.title.isEmpty ? languageStore.t("memory.untitled") : record.title, trailing: { statusPicker }) {
                 if !record.summary.isEmpty {
                     Text(record.summary)
                         .foregroundStyle(AppTheme.mutedText)
@@ -393,31 +405,31 @@ private struct MemoryDetailView: View {
             }
 
             LazyMarkdownCard(
-                title: "Memory Body",
-                source: bodyText.isEmpty ? "_No body._" : bodyText,
+                title: languageStore.t("memory.body"),
+                source: bodyText.isEmpty ? languageStore.t("memory.noBody") : bodyText,
                 minimumHeight: 120,
                 trailing: {
                     Button {
                         isEditing = true
                     } label: {
-                        Label("Edit", systemImage: "square.and.pencil")
+                        Label(languageStore.t("common.edit"), systemImage: "square.and.pencil")
                             .font(.caption.weight(.semibold))
                             .labelStyle(.titleAndIcon)
                     }
                     .appSmallSecondaryButton()
-                    .help("Edit memory")
+                    .help(languageStore.t("memory.editHelp"))
                 }
             )
 
-            AppCard(title: "Delete Memory") {
+            AppCard(title: languageStore.t("memory.delete")) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Remove this memory from the project. The memory file is deleted from disk and agents stop recalling it.")
+                    Text(languageStore.t("memory.deleteBody"))
                         .font(.callout)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Button("Delete Memory", role: .destructive) {
+                    Button(languageStore.t("memory.delete"), role: .destructive) {
                         onDelete(record)
                     }
                     .appDestructiveButton()
@@ -429,7 +441,7 @@ private struct MemoryDetailView: View {
         }
         .sheet(isPresented: $isEditing) {
             MemoryEditorSheet(
-                title: "Edit Memory",
+                title: languageStore.t("memory.edit"),
                 initialTitle: record.title,
                 initialSummary: record.summary,
                 initialBody: bodyText,
@@ -444,12 +456,12 @@ private struct MemoryDetailView: View {
     }
 
     private var statusPicker: some View {
-        Picker("Status", selection: Binding(
+        Picker(languageStore.t("memory.stat.status"), selection: Binding(
             get: { record.status },
             set: { viewModel.setAgentMemoryStatus(record.id, status: $0) }
         )) {
             ForEach(AgentMemoryStatus.allCases) { status in
-                Label(status.displayName, systemImage: status.systemImage).tag(status)
+                Label(status.localizedDisplayName, systemImage: status.systemImage).tag(status)
             }
         }
         .labelsHidden()
@@ -459,20 +471,21 @@ private struct MemoryDetailView: View {
 
     private var metadataRows: [(String, String)] {
         var rows: [(String, String)] = [
-            ("Type", record.kind.displayName),
-            ("Scope", record.scope.displayName),
-            ("Created", record.createdAt.formatted(date: .abbreviated, time: .shortened)),
-            ("Updated", record.updatedAt.formatted(date: .abbreviated, time: .shortened))
+            (languageStore.t("memory.meta.type"), record.kind.localizedDisplayName),
+            (languageStore.t("memory.meta.scope"), languageStore.t("memory.scope.project")),
+            (languageStore.t("memory.meta.created"), record.createdAt.formatted(date: .abbreviated, time: .shortened)),
+            (languageStore.t("memory.meta.updated"), record.updatedAt.formatted(date: .abbreviated, time: .shortened))
         ]
         if let sourceAgentName = record.sourceAgentName, !sourceAgentName.isEmpty {
-            rows.append(("Source", sourceAgentName))
+            rows.append((languageStore.t("memory.meta.source"), sourceAgentName))
         }
-        rows.append(("File", record.filePath))
+        rows.append((languageStore.t("memory.meta.file"), record.filePath))
         return rows
     }
 }
 
 private struct MemoryEditorSheet: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
     let title: String
     let initialTitle: String
     let initialSummary: String
@@ -511,7 +524,7 @@ private struct MemoryEditorSheet: View {
                     Text(title)
                         .font(.headline)
                         .fontWidth(.expanded)
-                    Text("Give agents concise, reusable context. Good memories are specific, durable, and easy to verify.")
+                    Text(languageStore.t("memory.editorHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -524,18 +537,18 @@ private struct MemoryEditorSheet: View {
 
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
                 GridRow {
-                    Text("Title").foregroundStyle(AppTheme.mutedText)
-                    AppTextField(text: $memoryTitle, placeholder: "Short descriptive title")
+                    Text(languageStore.t("memory.field.title")).foregroundStyle(AppTheme.mutedText)
+                    AppTextField(text: $memoryTitle, placeholder: languageStore.t("memory.placeholder.title"))
                 }
                 GridRow {
-                    Text("Summary").foregroundStyle(AppTheme.mutedText)
-                    AppTextField(text: $summary, placeholder: "One sentence agents can scan")
+                    Text(languageStore.t("memory.field.summary")).foregroundStyle(AppTheme.mutedText)
+                    AppTextField(text: $summary, placeholder: languageStore.t("memory.placeholder.summary"))
                 }
                 GridRow {
-                    Text("Type").foregroundStyle(AppTheme.mutedText)
-                    Picker("Type", selection: $kind) {
+                    Text(languageStore.t("memory.field.type")).foregroundStyle(AppTheme.mutedText)
+                    Picker(languageStore.t("memory.field.type"), selection: $kind) {
                         ForEach(AgentMemoryKind.allCases) { kind in
-                            Label(kind.displayName, systemImage: kind.systemImage).tag(kind)
+                            Label(kind.localizedDisplayName, systemImage: kind.systemImage).tag(kind)
                         }
                     }
                     .labelsHidden()
@@ -543,8 +556,8 @@ private struct MemoryEditorSheet: View {
                     .frame(maxWidth: 260, alignment: .leading)
                 }
                 GridRow {
-                    Text("Tags").foregroundStyle(AppTheme.mutedText)
-                    AppTextField(text: $tags, placeholder: "Comma-separated tags")
+                    Text(languageStore.t("memory.field.tags")).foregroundStyle(AppTheme.mutedText)
+                    AppTextField(text: $tags, placeholder: languageStore.t("memory.placeholder.tags"))
                 }
             }
             .padding(18)
@@ -561,9 +574,9 @@ private struct MemoryEditorSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(languageStore.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
-                Button("Save") {
+                Button(languageStore.t("common.save")) {
                     onSave(memoryTitle.trimmedForMemory, summary.trimmedForMemory, bodyText, kind, parsedTags)
                     dismiss()
                 }
@@ -584,6 +597,7 @@ private struct MemoryEditorSheet: View {
 }
 
 struct PiAgentMemoryActivityCard: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
     let event: AgentMemoryTranscriptEvent
 
     var body: some View {
@@ -607,7 +621,9 @@ struct PiAgentMemoryActivityCard: View {
                             .foregroundStyle(AppTheme.mutedText)
                             .padding(.top, 3)
                         if !event.memoryIDs.isEmpty {
-                            Text("\(event.memoryIDs.count) memor\(event.memoryIDs.count == 1 ? "y" : "ies")")
+                            Text(event.memoryIDs.count == 1
+                                 ? languageStore.t("memory.countOne")
+                                 : languageStore.t("memory.countMany", event.memoryIDs.count))
                                 .font(AppTheme.Font.caption.weight(.medium))
                                 .foregroundStyle(AppTheme.mutedText)
                                 .padding(.top, 6)
@@ -640,7 +656,7 @@ struct PiAgentMemoryActivityCard: View {
             )
         } label: {
             HStack(spacing: 6) {
-                Text(title.isEmpty ? "Untitled Memory" : title)
+                Text(title.isEmpty ? languageStore.t("memory.untitled") : title)
                     .font(AppTheme.Font.caption.weight(.medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -665,6 +681,10 @@ private extension AgentMemoryKind {
         case .preference: return "slider.horizontal.3"
         }
     }
+
+    var localizedDisplayName: String {
+        LanguageStore.shared.t("memory.kind.\(rawValue)")
+    }
 }
 
 private extension AgentMemoryStatus {
@@ -686,24 +706,18 @@ private extension AgentMemoryStatus {
         }
     }
 
+    var localizedDisplayName: String {
+        LanguageStore.shared.t("memory.status.\(rawValue)")
+    }
+
     /// Context-menu verb for moving a record into this status.
     var actionTitle: String {
-        switch self {
-        case .active: return "Mark Active"
-        case .pinned: return "Pin"
-        case .stale: return "Mark Stale"
-        case .archived: return "Archive"
-        }
+        LanguageStore.shared.t("memory.action.\(rawValue)")
     }
 
     /// Help-popover copy for the status section headers in the library list.
     var sectionInfo: String {
-        switch self {
-        case .pinned: return "Eligible for recall into sessions, and ranked ahead of equally relevant active memories."
-        case .active: return "Eligible for recall into sessions when relevant to the task."
-        case .stale: return "Marked as possibly outdated. Not recalled into sessions."
-        case .archived: return "Kept for reference only. Not recalled into sessions."
-        }
+        LanguageStore.shared.t("memory.sectionInfo.\(rawValue)")
     }
 }
 
