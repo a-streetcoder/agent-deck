@@ -206,6 +206,11 @@ struct NativeBubblePayload {
     var showInlineImagePreviews: Bool = true
     /// Optional thinking block nested above the assistant body (merged turn).
     var thinkingMarkdownSource: String? = nil
+    /// When true, nested/standalone thinking defaults expanded (still streaming).
+    /// When false, thinking is fully collapsed until the user opens it.
+    var thinkingLive: Bool = false
+    /// Stable id for disclosure state across streaming reconfigures of the same block.
+    var thinkingBlockID: String = ""
     /// Small bold label above the body (e.g. "Reasoning" for thinking rows).
     var bodyPrefix: String?
     var copyText: String
@@ -493,7 +498,13 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
 
     private var payload: NativeBubblePayload?
 
-    /// Bubbles have fixed height per content; never fired (satisfies the protocol).
+    /// Thinking disclosure: user override survives streaming reconfigure of the same block.
+    private var thinkingExpansionKey: String = ""
+    private var thinkingUserExpanded: Bool?
+    private var thinkingExpanded: Bool = false
+    private var thinkingBodyViews: [NSView] = []
+
+    /// Fired when nested thinking expands/collapses so the table re-tiles the row.
     var onIntrinsicHeightChange: (() -> Void)?
 
     private let headerSpacing: CGFloat = 8
@@ -712,6 +723,10 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             contentTopC.isActive = true
         }
 
+        // Thinking disclosure: new content key resets; live streams default open,
+        // finished thinking defaults fully collapsed until the user expands.
+        resolveThinkingExpansion(for: payload)
+
         // Body — split around image tokens so attachments appear near their source.
         configureContentBlocks(payload: payload, innerWidth: max(1, cardW - hPad * 2))
 
@@ -809,14 +824,36 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         }
         if let thinking = payload?.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines),
            !thinking.isEmpty {
-            // "Thinking" caption + nested markdown + thin divider.
-            addBlockHeight(ceil(NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold).ascender
-                - NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold).descender) + 2)
-            let container = markdownContainer(at: markdownIndex)
-            markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
-            markdownIndex += 1
-            addBlockHeight(container.measureHeight(forWidth: inner))
-            addBlockHeight(9) // spacing + 1pt divider
+            // Collapsed: one disclosure row. Expanded: disclosure + markdown + divider.
+            addBlockHeight(Self.thinkingDisclosureRowHeight)
+            if thinkingExpanded {
+                let container = markdownContainer(at: markdownIndex)
+                markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
+                markdownIndex += 1
+                addBlockHeight(container.measureHeight(forWidth: inner))
+                addBlockHeight(9) // spacing + 1pt divider
+            }
+        } else if payload?.role == .thinking {
+            // Standalone thinking bubble uses the same collapse rules via payload.thinkingLive.
+            addBlockHeight(Self.thinkingDisclosureRowHeight)
+            if thinkingExpanded {
+                let presentation = imagePresentation()
+                let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
+                for block in blocks {
+                    switch block {
+                    case .markdown(let text):
+                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                        let container = markdownContainer(at: markdownIndex)
+                        markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                        markdownIndex += 1
+                        addBlockHeight(container.measureHeight(forWidth: inner))
+                    case .image(let reference, _):
+                        addBlockHeight(PiAgentNativeTranscriptImageAttachmentView.measuredHeight(reference: reference, width: inner))
+                    }
+                }
+            }
+            h += vPad
+            return ceil(h)
         }
         let presentation = imagePresentation()
         let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
@@ -847,31 +884,121 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         case image(PiAgentTranscriptImageReference, caption: String)
     }
 
+    private static let thinkingDisclosureRowHeight: CGFloat = 22
+
+    private func resolveThinkingExpansion(for payload: NativeBubblePayload) {
+        let nest = payload.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let isStandaloneThinking = payload.role == .thinking
+        guard !nest.isEmpty || isStandaloneThinking else {
+            thinkingExpansionKey = ""
+            thinkingUserExpanded = nil
+            thinkingExpanded = false
+            return
+        }
+        let key = payload.thinkingBlockID.isEmpty
+            ? "\(payload.role)-\((isStandaloneThinking ? payload.markdownSource : nest).prefix(32))"
+            : payload.thinkingBlockID
+        if key != thinkingExpansionKey {
+            thinkingExpansionKey = key
+            thinkingUserExpanded = nil
+        }
+        if let user = thinkingUserExpanded {
+            thinkingExpanded = user
+        } else {
+            // Live stream: open. Finished: fully collapsed until opened.
+            thinkingExpanded = payload.thinkingLive
+        }
+    }
+
+    @objc private func toggleThinkingExpansion(_ sender: Any?) {
+        thinkingExpanded.toggle()
+        thinkingUserExpanded = thinkingExpanded
+        guard let payload else {
+            onIntrinsicHeightChange?()
+            return
+        }
+        let cardW = cardWidthC?.constant ?? bounds.width
+        configureContentBlocks(payload: payload, innerWidth: max(1, cardW - hPad * 2))
+        needsLayout = true
+        onIntrinsicHeightChange?()
+    }
+
+    private func makeThinkingDisclosureButton(title: String) -> NSButton {
+        let button = NSButton(title: "", target: self, action: #selector(toggleThinkingExpansion(_:)))
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.imagePosition = .imageLeading
+        button.alignment = .left
+        button.font = NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold)
+        button.contentTintColor = AppTheme.ns(AppTheme.roleThinking)
+        let chevron = thinkingExpanded ? "chevron.down" : "chevron.right"
+        button.image = NSImage(systemSymbolName: chevron, accessibilityDescription: nil)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        button.title = title
+        button.toolTip = thinkingExpanded ? "Hide thinking" : "Show thinking"
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.heightAnchor.constraint(equalToConstant: Self.thinkingDisclosureRowHeight).isActive = true
+        return button
+    }
+
     private func configureContentBlocks(payload: NativeBubblePayload, innerWidth: CGFloat) {
         contentStack.arrangedSubviews.forEach { view in
             contentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        thinkingBodyViews = []
         var markdownIndex = 0
+
         if let thinking = payload.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines),
            !thinking.isEmpty {
-            let caption = NSTextField(labelWithString: "Thinking")
-            caption.font = NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold)
-            caption.textColor = AppTheme.ns(AppTheme.roleThinking)
-            caption.lineBreakMode = .byTruncatingTail
-            contentStack.addArrangedSubview(caption)
+            contentStack.addArrangedSubview(makeThinkingDisclosureButton(title: "Thinking"))
+            if thinkingExpanded {
+                let container = markdownContainer(at: markdownIndex)
+                markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
+                container.alphaValue = 0.88
+                markdownIndex += 1
+                contentStack.addArrangedSubview(container)
+                thinkingBodyViews.append(container)
 
-            let container = markdownContainer(at: markdownIndex)
-            markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
-            container.alphaValue = 0.88
-            markdownIndex += 1
-            contentStack.addArrangedSubview(container)
-
-            let divider = NSBox()
-            divider.boxType = .separator
-            divider.translatesAutoresizingMaskIntoConstraints = false
-            contentStack.addArrangedSubview(divider)
+                let divider = NSBox()
+                divider.boxType = .separator
+                divider.translatesAutoresizingMaskIntoConstraints = false
+                contentStack.addArrangedSubview(divider)
+                thinkingBodyViews.append(divider)
+            }
+        } else if payload.role == .thinking {
+            contentStack.addArrangedSubview(
+                makeThinkingDisclosureButton(title: thinkingExpanded ? "Hide thinking" : "Show thinking")
+            )
+            if thinkingExpanded {
+                let presentation = imagePresentation()
+                let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
+                for block in blocks {
+                    switch block {
+                    case .markdown(let text):
+                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                        let container = markdownContainer(at: markdownIndex)
+                        container.alphaValue = 0.95
+                        markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                        markdownIndex += 1
+                        contentStack.addArrangedSubview(container)
+                        thinkingBodyViews.append(container)
+                    case .image(let reference, let caption):
+                        let image = PiAgentNativeTranscriptImageAttachmentView()
+                        image.configure(reference: reference, caption: caption, width: innerWidth)
+                        contentStack.addArrangedSubview(image)
+                        thinkingBodyViews.append(image)
+                    }
+                }
+            }
+            while markdownContainers.count > markdownIndex {
+                markdownAppliers.removeLast().cancel()
+                markdownContainers.removeLast()
+            }
+            return
         }
+
         let presentation = imagePresentation()
         let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
         for block in blocks {

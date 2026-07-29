@@ -1253,6 +1253,7 @@ struct PiAgentTranscriptThreadCard: View {
             PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills, commandSlashNames: commandSlashNames)
                 .id(entry.id)
         case .assistantWithThinking(let thinking, let assistant):
+            let replyEmpty = assistant.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             PiAgentTranscriptCard(
                 entry: assistant,
                 style: childStyle,
@@ -1260,7 +1261,8 @@ struct PiAgentTranscriptThreadCard: View {
                 commandSlashNames: commandSlashNames,
                 nestedThinkingText: visibility.showThinking
                     ? thinking.map(\.text).joined(separator: "\n\n")
-                    : nil
+                    : nil,
+                nestedThinkingLive: replyEmpty
             )
             .id(assistant.id)
         case .toolGroup(let group):
@@ -3734,6 +3736,10 @@ struct PiAgentTranscriptCard: View {
     var showInlineImagePreviews: Bool = true
     /// When set on an assistant card, thinking is nested above the reply (no separate bubble).
     var nestedThinkingText: String? = nil
+    /// When true, nested thinking starts expanded (streaming). Finished turns collapse.
+    var nestedThinkingLive: Bool = false
+
+    @State private var nestedThinkingExpanded: Bool?
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -3799,25 +3805,52 @@ struct PiAgentTranscriptCard: View {
         if entry.role == .tool {
             PiAgentToolTranscriptView(entry: entry)
         } else if entry.role == .thinking {
-            // Mirrors the native thinking bubble: a single MarkdownTextView, no
-            // subhead. Both renderers MUST stay in lockstep — see
-            // `nativeReplyPayload(for:)` for the production path.
+            // Collapsible body — matches native thinking disclosure.
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            let expanded = nestedThinkingExpanded ?? nestedThinkingLive
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    nestedThinkingExpanded = !expanded
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(expanded ? "Hide thinking" : "Show thinking")
+                            .font(AppTheme.Font.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(AppTheme.roleThinking)
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         } else if entry.role == .user {
             PiAgentUserMessageContent(entry: entry, skills: skills, commandSlashNames: commandSlashNames)
         } else if entry.role == .assistant {
             if let nested = nestedThinkingText?.trimmingCharacters(in: .whitespacesAndNewlines),
                !nested.isEmpty {
+                let expanded = nestedThinkingExpanded ?? nestedThinkingLive
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Thinking")
-                        .font(AppTheme.Font.caption.weight(.semibold))
+                    Button {
+                        nestedThinkingExpanded = !expanded
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Thinking")
+                                .font(AppTheme.Font.caption.weight(.semibold))
+                        }
                         .foregroundStyle(AppTheme.roleThinking)
-                    MarkdownTextView(source: nested)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .opacity(0.85)
-                    Divider().opacity(0.35)
+                    }
+                    .buttonStyle(.plain)
+                    if expanded {
+                        MarkdownTextView(source: nested)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .opacity(0.85)
+                        Divider().opacity(0.35)
+                    }
                     MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

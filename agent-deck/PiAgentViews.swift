@@ -6531,6 +6531,8 @@ struct PiAgentScreen: View {
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
                 thinkingMarkdownSource: nil,
+                thinkingLive: false,
+                thinkingBlockID: "",
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
                 copySide: .trailing,
@@ -6541,6 +6543,10 @@ struct PiAgentScreen: View {
             let think = thinking.map(\.text).joined(separator: "\n\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let nest = showThinking && !think.isEmpty ? think : nil
+            let replyEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // Nested thinking: open only while reply has not started; then fully collapse.
+            let live = nest != nil && replyEmpty
+            let blockID = thinking.map(\.id.uuidString).joined(separator: ",") + "|" + entry.id.uuidString
             let copy: String
             if let nest {
                 copy = "Thinking\n\n\(nest)\n\n\(text)".trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6555,6 +6561,8 @@ struct PiAgentScreen: View {
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
                 thinkingMarkdownSource: nest,
+                thinkingLive: live,
+                thinkingBlockID: blockID,
                 bodyPrefix: nil,
                 copyText: copy,
                 copySide: .trailing,
@@ -6562,6 +6570,7 @@ struct PiAgentScreen: View {
             )
         case .thinking(let entry):
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sessionRunning = store.selectedSession?.status == .running
             return NativeBubblePayload(
                 role: .thinking,
                 headerTitle: entry.title,
@@ -6570,6 +6579,8 @@ struct PiAgentScreen: View {
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
                 thinkingMarkdownSource: nil,
+                thinkingLive: sessionRunning,
+                thinkingBlockID: entry.id.uuidString,
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,
@@ -6584,13 +6595,16 @@ struct PiAgentScreen: View {
         let cardWidth = max(width - 32, 200)
         let charsPerLine = max(Int(cardWidth / 7), 20)
         switch child {
-        case let .assistant(entry), let .steering(entry), let .thinking(entry):
+        case let .assistant(entry), let .steering(entry):
             let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
             return CGFloat(min(lines, 40)) * 18 + 48
-        case .assistantWithThinking(let thinking, let entry):
-            let thinkChars = thinking.reduce(0) { $0 + $1.text.count }
-            let lines = max(1, (entry.text.count + thinkChars + charsPerLine - 1) / charsPerLine)
-            return CGFloat(min(lines, 60)) * 18 + 64
+        case .thinking:
+            // Collapsed-by-default thinking row: header + disclosure line.
+            return 56
+        case .assistantWithThinking(_, let entry):
+            // Nested thinking collapses after the reply starts; estimate reply only.
+            let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
+            return CGFloat(min(lines, 40)) * 18 + 70
         case .toolGroup:
             // Estimate from the same capped display model the native tool card
             // renders, not from raw activity count. MCP/web/diff groups can contain
