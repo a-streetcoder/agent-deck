@@ -1531,9 +1531,11 @@ private struct SlashCommandKeyCap: View {
 // MARK: - Shortcuts
 
 private struct ShortcutsSettingsTab: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
     private let sections = AgentDeckShortcutSection.all
 
     var body: some View {
+        let _ = languageStore.language
         SettingsForm {
             ForEach(sections) { section in
                 SettingsSection {

@@ -31,67 +31,78 @@ enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
 
 struct AgentDeckShortcutItem: Identifiable {
     let action: AgentDeckShortcutAction
-    let title: String
+    /// `Localizable.strings` key for the menu / shortcuts title.
+    let titleKey: String
     let key: String
     let modifiers: EventModifiers
-    let description: String
+    /// `Localizable.strings` key for the longer help description.
+    let descriptionKey: String
 
     var id: AgentDeckShortcutAction { action }
+
+    @MainActor
+    var title: String { LanguageStore.shared.t(titleKey) }
+
+    @MainActor
+    var description: String { LanguageStore.shared.t(descriptionKey) }
 }
 
 struct AgentDeckShortcutSection: Identifiable {
-    let title: String
+    let titleKey: String
     let items: [AgentDeckShortcutItem]
 
-    var id: String { title }
+    var id: String { titleKey }
+
+    @MainActor
+    var title: String { LanguageStore.shared.t(titleKey) }
 }
 
 extension AgentDeckShortcutItem {
-    init(_ action: AgentDeckShortcutAction, _ title: String, key: String, modifiers: EventModifiers, description: String) {
+    init(_ action: AgentDeckShortcutAction, _ titleKey: String, key: String, modifiers: EventModifiers, descriptionKey: String) {
         self.action = action
-        self.title = title
+        self.titleKey = titleKey
         self.key = key
         self.modifiers = modifiers
-        self.description = description
+        self.descriptionKey = descriptionKey
     }
 }
 
 extension AgentDeckShortcutSection {
     static let all: [AgentDeckShortcutSection] = [
-        AgentDeckShortcutSection(title: "Navigation", items: [
-            .init(.openPiAgent, "Open Pi Agent", key: "1", modifiers: [.command], description: "Jump to the Pi Agent screen."),
-            .init(.toggleSessionsPanel, "Toggle Sessions Panel", key: "s", modifiers: [.command], description: "Expand or collapse the sessions panel in the sidebar."),
-            .init(.openProjects, "Open Projects", key: "2", modifiers: [.command], description: "Jump to the Projects screen."),
-            .init(.openAgents, "Open Agents", key: "4", modifiers: [.command], description: "Jump to the Agents screen."),
-            .init(.openSkills, "Open Skills", key: "5", modifiers: [.command], description: "Jump to the Skills screen."),
-            .init(.openPrompts, "Open Prompts", key: "6", modifiers: [.command], description: "Jump to the Prompts screen.")
+        AgentDeckShortcutSection(titleKey: "shortcut.section.navigation", items: [
+            .init(.openPiAgent, "menu.openPiAgent", key: "1", modifiers: [.command], descriptionKey: "shortcut.openPiAgent.desc"),
+            .init(.toggleSessionsPanel, "menu.toggleSessions", key: "s", modifiers: [.command], descriptionKey: "shortcut.toggleSessions.desc"),
+            .init(.openProjects, "menu.openProjects", key: "2", modifiers: [.command], descriptionKey: "shortcut.openProjects.desc"),
+            .init(.openAgents, "menu.openAgents", key: "4", modifiers: [.command], descriptionKey: "shortcut.openAgents.desc"),
+            .init(.openSkills, "menu.openSkills", key: "5", modifiers: [.command], descriptionKey: "shortcut.openSkills.desc"),
+            .init(.openPrompts, "menu.openPrompts", key: "6", modifiers: [.command], descriptionKey: "shortcut.openPrompts.desc")
         ]),
-        AgentDeckShortcutSection(title: "Session", items: [
-            .init(.newSession, "New Session", key: "n", modifiers: [.command], description: "Create a new Pi Agent session for the current project."),
-            .init(.nextSession, "Next Session", key: "]", modifiers: [.command], description: "Select the next session in the current project."),
-            .init(.previousSession, "Previous Session", key: "[", modifiers: [.command], description: "Select the previous session in the current project."),
-            .init(.previousQuestion, "Previous Question", key: "upArrow", modifiers: [.shift], description: "Jump to the previous user question when the Pi Agent transcript is focused."),
-            .init(.nextQuestion, "Next Question", key: "downArrow", modifiers: [.shift], description: "Jump to the next user question when the Pi Agent transcript is focused."),
-            .init(.stopSession, "Stop Session", key: ".", modifiers: [.command], description: "Stop the currently running session."),
-            .init(.deleteSession, "Delete Session", key: "delete", modifiers: [.command], description: "Delete the selected session."),
-            .init(.resumeInTerminal, "Resume in Terminal", key: "t", modifiers: [.command, .option], description: "Resume the selected session in your configured terminal."),
-            .init(.startComposerDictation, "Start Composer Dictation", key: "d", modifiers: [.option], description: "Start macOS Dictation in the focused Pi Agent composer.")
+        AgentDeckShortcutSection(titleKey: "shortcut.section.session", items: [
+            .init(.newSession, "menu.newSession", key: "n", modifiers: [.command], descriptionKey: "shortcut.newSession.desc"),
+            .init(.nextSession, "menu.nextSession", key: "]", modifiers: [.command], descriptionKey: "shortcut.nextSession.desc"),
+            .init(.previousSession, "menu.previousSession", key: "[", modifiers: [.command], descriptionKey: "shortcut.previousSession.desc"),
+            .init(.previousQuestion, "shortcut.previousQuestion", key: "upArrow", modifiers: [.shift], descriptionKey: "shortcut.previousQuestion.desc"),
+            .init(.nextQuestion, "shortcut.nextQuestion", key: "downArrow", modifiers: [.shift], descriptionKey: "shortcut.nextQuestion.desc"),
+            .init(.stopSession, "menu.stopSession", key: ".", modifiers: [.command], descriptionKey: "shortcut.stopSession.desc"),
+            .init(.deleteSession, "menu.deleteSession", key: "delete", modifiers: [.command], descriptionKey: "shortcut.deleteSession.desc"),
+            .init(.resumeInTerminal, "menu.resumeTerminal", key: "t", modifiers: [.command, .option], descriptionKey: "shortcut.resumeTerminal.desc"),
+            .init(.startComposerDictation, "shortcut.dictation", key: "d", modifiers: [.option], descriptionKey: "shortcut.dictation.desc")
         ]),
-        AgentDeckShortcutSection(title: "Agents", items: [
-            .init(.newAgent, "New Agent", key: "n", modifiers: [.command, .shift], description: "Create a new custom agent.")
+        AgentDeckShortcutSection(titleKey: "shortcut.section.agents", items: [
+            .init(.newAgent, "menu.newAgent", key: "n", modifiers: [.command, .shift], descriptionKey: "shortcut.newAgent.desc")
         ]),
-        AgentDeckShortcutSection(title: "App", items: [
-            .init(.refresh, "Refresh", key: "r", modifiers: [.command], description: "Refresh projects, agents, prompts, and repository data.")
+        AgentDeckShortcutSection(titleKey: "shortcut.section.app", items: [
+            .init(.refresh, "menu.refresh", key: "r", modifiers: [.command], descriptionKey: "shortcut.refresh.desc")
         ]),
-        AgentDeckShortcutSection(title: "Git", items: [
-            .init(.refreshGitHub, "Refresh Git Status", key: "g", modifiers: [.command, .shift], description: "Refresh GitHub CLI status and repository change data."),
-            .init(.commitChanges, "Commit Changes", key: "c", modifiers: [.command, .option], description: "Commit the prepared repository changes."),
-            .init(.pushBranch, "Push Branch", key: "p", modifiers: [.command, .option], description: "Push the current branch.")
+        AgentDeckShortcutSection(titleKey: "shortcut.section.git", items: [
+            .init(.refreshGitHub, "menu.refreshGit", key: "g", modifiers: [.command, .shift], descriptionKey: "shortcut.refreshGit.desc"),
+            .init(.commitChanges, "menu.commit", key: "c", modifiers: [.command, .option], descriptionKey: "shortcut.commit.desc"),
+            .init(.pushBranch, "menu.push", key: "p", modifiers: [.command, .option], descriptionKey: "shortcut.push.desc")
         ]),
-        AgentDeckShortcutSection(title: "Projects & Resources", items: [
-            .init(.addProject, "Add Project…", key: "o", modifiers: [.command, .option], description: "Add a project folder."),
-            .init(.importSkills, "Import Skills…", key: "i", modifiers: [.command, .shift], description: "Import agent skills."),
-            .init(.newPrompt, "New Prompt", key: "n", modifiers: [.command, .option], description: "Create a new prompt template.")
+        AgentDeckShortcutSection(titleKey: "shortcut.section.projectsResources", items: [
+            .init(.addProject, "menu.addProject", key: "o", modifiers: [.command, .option], descriptionKey: "shortcut.addProject.desc"),
+            .init(.importSkills, "menu.importSkillsEllipsis", key: "i", modifiers: [.command, .shift], descriptionKey: "shortcut.importSkills.desc"),
+            .init(.newPrompt, "menu.newPrompt", key: "n", modifiers: [.command, .option], descriptionKey: "shortcut.newPrompt.desc")
         ])
     ]
 
@@ -99,6 +110,7 @@ extension AgentDeckShortcutSection {
         all.flatMap(\.items).first { $0.action == action }!
     }
 }
+
 
 private extension View {
     @ViewBuilder
@@ -216,34 +228,49 @@ struct AgentDeckCommands: Commands {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.agentDeckCommands) private var context
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some Commands {
         SidebarCommands()
 
         CommandGroup(replacing: .appInfo) {
-            Button("About \(AppBrand.displayName)") {
+            Button(languageStore.t("menu.about", AppBrand.displayName)) {
                 openWindow(id: AboutWindow.id)
             }
-            Button("Check for Updates…") {
+            Button(languageStore.t("menu.checkUpdates")) {
                 AgentDeckAppDelegate.shared?.updater.checkForUpdates()
             }
         }
 
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") {
+            Button(languageStore.t("menu.settings")) {
                 openSettings()
             }
             .keyboardShortcut(",", modifiers: [.command])
+
+            Menu(languageStore.t("menu.language")) {
+                ForEach(AppLanguage.allCases) { lang in
+                    Button {
+                        languageStore.setLanguage(lang)
+                    } label: {
+                        if languageStore.language == lang {
+                            Label(lang.menuLabel, systemImage: "checkmark")
+                        } else {
+                            Text(lang.menuLabel)
+                        }
+                    }
+                }
+            }
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("New Session") {
+            Button(languageStore.t("menu.newSession")) {
                 context?.createPiAgentSession()
             }
             .agentDeckShortcut(.newSession)
             .disabled(context?.canCreatePiAgentSession != true)
 
-            Button("New Agent") {
+            Button(languageStore.t("menu.newAgent")) {
                 context?.createAgent()
             }
             .agentDeckShortcut(.newAgent)
@@ -251,7 +278,7 @@ struct AgentDeckCommands: Commands {
         }
 
         CommandGroup(replacing: .printItem) {
-            Button("Open Pi Agent") {
+            Button(languageStore.t("menu.openPiAgent")) {
                 context?.openPiAgent()
             }
             .keyboardShortcut("p", modifiers: [.command])
@@ -259,21 +286,21 @@ struct AgentDeckCommands: Commands {
         }
 
         CommandGroup(after: .saveItem) {
-            Button("Refresh") {
+            Button(languageStore.t("menu.refresh")) {
                 context?.refresh()
             }
             .agentDeckShortcut(.refresh)
             .disabled(context == nil)
         }
 
-        CommandMenu("Agent") {
-            Button("Open Pi Agent") {
+        CommandMenu(languageStore.t("menu.agent")) {
+            Button(languageStore.t("menu.openPiAgent")) {
                 context?.openPiAgent()
             }
             .agentDeckShortcut(.openPiAgent)
             .disabled(context == nil)
 
-            Button("Toggle Sessions Panel") {
+            Button(languageStore.t("menu.toggleSessions")) {
                 context?.toggleSessionsPanel()
             }
             .agentDeckShortcut(.toggleSessionsPanel)
@@ -281,25 +308,25 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("Open Projects") {
+            Button(languageStore.t("menu.openProjects")) {
                 context?.openProjects()
             }
             .agentDeckShortcut(.openProjects)
             .disabled(context == nil)
 
-            Button("Open Agents") {
+            Button(languageStore.t("menu.openAgents")) {
                 context?.openAgents()
             }
             .agentDeckShortcut(.openAgents)
             .disabled(context == nil)
 
-            Button("Open Skills") {
+            Button(languageStore.t("menu.openSkills")) {
                 context?.openSkills()
             }
             .agentDeckShortcut(.openSkills)
             .disabled(context == nil)
 
-            Button("Open Prompts") {
+            Button(languageStore.t("menu.openPrompts")) {
                 context?.openPrompts()
             }
             .agentDeckShortcut(.openPrompts)
@@ -307,13 +334,13 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("Next Session") {
+            Button(languageStore.t("menu.nextSession")) {
                 context?.selectNextPiAgentSession()
             }
             .agentDeckShortcut(.nextSession)
             .disabled(context?.canNavigatePiAgentSessions != true)
 
-            Button("Previous Session") {
+            Button(languageStore.t("menu.previousSession")) {
                 context?.selectPreviousPiAgentSession()
             }
             .agentDeckShortcut(.previousSession)
@@ -321,13 +348,13 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("Stop Session") {
+            Button(languageStore.t("menu.stopSession")) {
                 context?.stopPiAgentSession()
             }
             .agentDeckShortcut(.stopSession)
             .disabled(context?.canStopPiAgentSession != true)
 
-            Button("Delete Session") {
+            Button(languageStore.t("menu.deleteSession")) {
                 context?.deletePiAgentSession()
             }
             .agentDeckShortcut(.deleteSession)
@@ -335,7 +362,7 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("Resume in Terminal") {
+            Button(languageStore.t("menu.resumeTerminal")) {
                 context?.resumePiAgentInTerminal()
             }
             .agentDeckShortcut(.resumeInTerminal)
@@ -343,44 +370,46 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("Open Agent File") {
+            Button(languageStore.t("menu.openAgentFile")) {
                 context?.openSelectedAgentFile()
             }
             .disabled(context?.canOpenSelectedAgentFile != true)
 
-            Button("Reveal Agent in Finder") {
+            Button(languageStore.t("menu.revealAgent")) {
                 context?.revealSelectedAgentFile()
             }
             .disabled(context?.canRevealSelectedAgentFile != true)
 
-            Button(context?.selectedAgentIsDisabled == true ? "Enable Agent" : "Disable Agent") {
+            Button(context?.selectedAgentIsDisabled == true
+                   ? languageStore.t("menu.enableAgent")
+                   : languageStore.t("menu.disableAgent")) {
                 context?.toggleSelectedAgentDisabled()
             }
             .disabled(context?.canToggleSelectedAgentDisabled != true)
         }
 
-        CommandMenu("Git") {
-            Button("Refresh Git Status") {
+        CommandMenu(languageStore.t("menu.git")) {
+            Button(languageStore.t("menu.refreshGit")) {
                 context?.refreshGitHub()
             }
             .agentDeckShortcut(.refreshGitHub)
             .disabled(context == nil)
 
-            Button("Commit Changes") {
+            Button(languageStore.t("menu.commit")) {
                 context?.commitGitHubChanges()
             }
             .agentDeckShortcut(.commitChanges)
             .disabled(context?.canCommitGitHubChanges != true)
 
-            Button("Push Branch") {
+            Button(languageStore.t("menu.push")) {
                 context?.pushGitHubBranch()
             }
             .agentDeckShortcut(.pushBranch)
             .disabled(context?.canPushGitHubBranch != true)
         }
 
-        CommandMenu("Projects") {
-            Button("Add Project…") {
+        CommandMenu(languageStore.t("menu.projects")) {
+            Button(languageStore.t("menu.addProject")) {
                 context?.addProject()
             }
             .agentDeckShortcut(.addProject)
@@ -388,19 +417,19 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("Enable All Projects") {
+            Button(languageStore.t("menu.enableAllProjects")) {
                 context?.enableAllProjects()
             }
             .disabled(context?.canEnableAllProjects != true)
 
-            Button("Disable All Projects") {
+            Button(languageStore.t("menu.disableAllProjects")) {
                 context?.disableAllProjects()
             }
             .disabled(context?.canDisableAllProjects != true)
         }
 
-        CommandMenu("Resources") {
-            Button("Import Skills") {
+        CommandMenu(languageStore.t("menu.resources")) {
+            Button(languageStore.t("menu.importSkills")) {
                 context?.importSkills()
             }
             .agentDeckShortcut(.importSkills)
@@ -408,23 +437,23 @@ struct AgentDeckCommands: Commands {
 
             Divider()
 
-            Button("New Prompt") {
+            Button(languageStore.t("menu.newPrompt")) {
                 context?.createPrompt()
             }
             .agentDeckShortcut(.newPrompt)
             .disabled(context?.canCreatePrompt != true)
 
-            Button("Copy Prompt Invocation") {
+            Button(languageStore.t("menu.copyPrompt")) {
                 context?.copyPromptInvocation()
             }
             .disabled(context?.canCopyPromptInvocation != true)
 
-            Button("Open Prompt File") {
+            Button(languageStore.t("menu.openPromptFile")) {
                 context?.openPromptFile()
             }
             .disabled(context?.canOpenPromptFile != true)
 
-            Button("Reveal Prompt in Finder") {
+            Button(languageStore.t("menu.revealPrompt")) {
                 context?.revealPromptFile()
             }
             .disabled(context?.canRevealPromptFile != true)
