@@ -44,37 +44,16 @@ struct GitHubCLIAuthService: GitHubAuthService {
         }
     }
 
+    /// Issues REST client is gone; connection only needs CLI account identity for Doctor UI.
     func connectUsingCLI() async throws -> GitHubSession {
         let status = await loadStatus()
-        let account: GitHubHostAccount
         switch status {
-        case let .available(value), let .connected(value):
-            account = value
+        case let .available(account), let .connected(account):
+            return GitHubSession(source: .ghCLI, account: account)
         default:
             throw GitHubCLIAuthError.notAuthenticated
         }
-
-        let tokenResult = try await commandRunner.run(
-            "gh",
-            arguments: ["auth", "token", "--hostname", account.host],
-            currentDirectoryURL: nil,
-            timeout: 10,
-            environment: nil
-        )
-
-        guard tokenResult.exitCode == 0 else {
-            throw CommandRunnerError.nonZeroExit(command: "gh auth token --hostname \(account.host)", exitCode: tokenResult.exitCode, stderr: tokenResult.stderr)
-        }
-
-        let token = tokenResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else {
-            throw GitHubCLIAuthError.emptyToken
-        }
-
-        return GitHubSession(source: .ghCLI, account: account, token: token)
     }
-
-    func disconnect() {}
 
     private func unavailableOrDisconnected(from result: CommandResult) -> GitHubConnectionState {
         let stderr = result.stderr.lowercased()
@@ -108,14 +87,11 @@ struct GitHubCLIAuthService: GitHubAuthService {
 
 enum GitHubCLIAuthError: LocalizedError {
     case notAuthenticated
-    case emptyToken
 
     var errorDescription: String? {
         switch self {
         case .notAuthenticated:
             return "GitHub CLI is not authenticated. Run `gh auth login` first, then reconnect."
-        case .emptyToken:
-            return "GitHub CLI returned an empty token."
         }
     }
 }

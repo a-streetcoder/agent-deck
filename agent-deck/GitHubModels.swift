@@ -36,7 +36,6 @@ nonisolated struct GitHubHostAccount: Hashable, Sendable {
 nonisolated struct GitHubSession: Hashable, Sendable {
     let source: GitHubSessionSource
     let account: GitHubHostAccount
-    let token: String
 }
 
 nonisolated enum GitHubSessionSource: String, Hashable, Sendable {
@@ -83,269 +82,6 @@ nonisolated enum GitHubConnectionState: Hashable, Sendable {
             return true
         }
         return false
-    }
-}
-
-/// Reason sent alongside `state: closed` when closing an issue via the
-/// GitHub REST API. Raw values match the `state_reason` field documented at
-/// https://docs.github.com/en/rest/issues/issues#update-an-issue.
-nonisolated enum GitHubIssueCloseReason: String, CaseIterable, Identifiable, Sendable {
-    case completed = "completed"
-    case notPlanned = "not_planned"
-    case duplicate = "duplicate"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .completed: return "Completed"
-        case .notPlanned: return "Not Planned"
-        case .duplicate: return "Duplicate"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .completed: return "Done, closed, fixed"
-        case .notPlanned: return "Won’t fix, can’t repro"
-        case .duplicate: return "Duplicate of another issue"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .completed: return "checkmark.circle"
-        case .notPlanned: return "slash.circle"
-        case .duplicate: return "doc.on.doc"
-        }
-    }
-
-    /// Qualifier for the GitHub search API. Matches `state_reason` on closed
-    /// issues; including it implicitly restricts results to closed issues.
-    var searchQualifier: String {
-        switch self {
-        case .completed: return "reason:completed"
-        case .notPlanned: return "reason:not-planned"
-        case .duplicate: return "reason:duplicate"
-        }
-    }
-}
-
-nonisolated enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
-    case open = "Open"
-    case closed = "Closed"
-    case all = "All"
-
-    var id: String { rawValue }
-
-    var searchQualifier: String? {
-        switch self {
-        case .open: return "is:open"
-        case .closed: return "is:closed"
-        case .all: return nil
-        }
-    }
-}
-
-nonisolated struct GitHubIssueRelationshipSummary: Hashable {
-    let blockedBy: Int
-    let totalBlockedBy: Int
-    let blocking: Int
-    let totalBlocking: Int
-
-    var hasRelationships: Bool {
-        blockedBy > 0 || totalBlockedBy > 0 || blocking > 0 || totalBlocking > 0
-    }
-}
-
-nonisolated struct GitHubSubIssuesSummary: Hashable {
-    let total: Int
-    let completed: Int
-    let percentCompleted: Int
-
-    var hasSubIssues: Bool { total > 0 }
-}
-
-nonisolated struct GitHubLabel: Identifiable, Hashable, Sendable {
-    let name: String
-    /// GitHub's 6-digit label color (hex, no leading `#`). `nil` when the API
-    /// omits it or returns an unparseable value.
-    let color: String?
-
-    var id: String { name }
-
-    init(name: String, color: String? = nil) {
-        self.name = name
-        self.color = color
-    }
-}
-
-nonisolated struct GitHubIssueReference: Identifiable, Hashable {
-    let id: Int
-    let number: Int
-    let title: String
-    let repository: String
-    let url: URL
-    let state: String
-    let type: String?
-}
-
-nonisolated struct GitHubWorkItem: Identifiable, Hashable {
-    let id: String
-    let number: Int
-    let title: String
-    let repository: String
-    let url: URL
-    let isPullRequest: Bool
-    let state: String
-    let stateReason: String?
-    let type: String?
-    let labels: [GitHubLabel]
-    let assignees: [String]
-    let author: String?
-    let body: String
-    let commentCount: Int
-    let createdAt: Date
-    let updatedAt: Date
-    let closedAt: Date?
-    let subIssuesSummary: GitHubSubIssuesSummary?
-    let issueDependenciesSummary: GitHubIssueRelationshipSummary?
-
-    var kindTitle: String { isPullRequest ? "Pull Request" : "Issue" }
-    var kindShortTitle: String { isPullRequest ? "PR" : "Issue" }
-
-    /// Cheap O(1) lookup of `state == "open"`. Cached so SwiftUI body reads
-    /// (e.g. row state indicator) don't re-allocate the lowercase string.
-    let isOpen: Bool
-    /// Parsed close reason; nil when the issue is open or `stateReason` is unknown.
-    let closedReason: GitHubIssueCloseReason?
-    /// Set form of `labels.map(\.name)` for O(1) label-filter membership checks.
-    /// Caches the per-item Set the audit-01 P0-1 filter pipeline used to
-    /// allocate per item per filter pass.
-    let labelNameSet: Set<String>
-    /// Pre-lowercased haystack used by the search filter in `IssuesScreen`.
-    /// Built once at snapshot time so per-keystroke search doesn't re-lowercase
-    /// the 5 source fields per item per render.
-    let searchableHaystack: String
-
-    init(
-        id: String,
-        number: Int,
-        title: String,
-        repository: String,
-        url: URL,
-        isPullRequest: Bool,
-        state: String,
-        stateReason: String?,
-        type: String?,
-        labels: [GitHubLabel],
-        assignees: [String],
-        author: String?,
-        body: String,
-        commentCount: Int,
-        createdAt: Date,
-        updatedAt: Date,
-        closedAt: Date?,
-        subIssuesSummary: GitHubSubIssuesSummary?,
-        issueDependenciesSummary: GitHubIssueRelationshipSummary?
-    ) {
-        self.id = id
-        self.number = number
-        self.title = title
-        self.repository = repository
-        self.url = url
-        self.isPullRequest = isPullRequest
-        self.state = state
-        self.stateReason = stateReason
-        self.type = type
-        self.labels = labels
-        self.assignees = assignees
-        self.author = author
-        self.body = body
-        self.commentCount = commentCount
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-        self.closedAt = closedAt
-        self.subIssuesSummary = subIssuesSummary
-        self.issueDependenciesSummary = issueDependenciesSummary
-
-        // Derived caches — computed once at construction.
-        self.isOpen = state.lowercased() == "open"
-        if state.lowercased() != "open", let raw = stateReason {
-            self.closedReason = GitHubIssueCloseReason(rawValue: raw)
-        } else {
-            self.closedReason = nil
-        }
-        self.labelNameSet = Set(labels.map(\.name))
-        let searchPieces: [String] = [title, body, author ?? "", repository, String(number)]
-            + assignees
-            + labels.map(\.name)
-        self.searchableHaystack = searchPieces.joined(separator: " ").lowercased()
-    }
-
-    func with(state: String, closedAt: Date?) -> GitHubWorkItem {
-        GitHubWorkItem(
-            id: id,
-            number: number,
-            title: title,
-            repository: repository,
-            url: url,
-            isPullRequest: isPullRequest,
-            state: state,
-            stateReason: stateReason,
-            type: type,
-            labels: labels,
-            assignees: assignees,
-            author: author,
-            body: body,
-            commentCount: commentCount,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-            closedAt: closedAt,
-            subIssuesSummary: subIssuesSummary,
-            issueDependenciesSummary: issueDependenciesSummary
-        )
-    }
-}
-
-nonisolated struct GitHubBoardColumn: Identifiable, Hashable {
-    let title: String
-    let items: [GitHubWorkItem]
-
-    var id: String { title }
-}
-
-nonisolated struct GitHubBoardSnapshot: Hashable {
-    let columns: [GitHubBoardColumn]
-    let totalCount: Int
-    let shownCount: Int
-    let incompleteResults: Bool
-    let queryDescription: String
-    let rateLimitRemaining: Int?
-    let rateLimitResetAt: Date?
-
-    var allItems: [GitHubWorkItem] {
-        columns
-            .flatMap(\.items)
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
-
-    func replacing(_ item: GitHubWorkItem) -> GitHubBoardSnapshot {
-        let updatedColumns = columns.map { column in
-            GitHubBoardColumn(
-                title: column.title,
-                items: column.items.map { $0.id == item.id ? item : $0 }
-            )
-        }
-        return GitHubBoardSnapshot(
-            columns: updatedColumns,
-            totalCount: totalCount,
-            shownCount: shownCount,
-            incompleteResults: incompleteResults,
-            queryDescription: queryDescription,
-            rateLimitRemaining: rateLimitRemaining,
-            rateLimitResetAt: rateLimitResetAt
-        )
     }
 }
 
@@ -404,55 +140,6 @@ nonisolated struct RepositoryChangesSnapshot: Hashable {
     }
 }
 
-nonisolated struct GitHubIssueComment: Identifiable, Hashable {
-    let id: Int
-    let author: String
-    let body: String
-    let createdAt: Date
-    let updatedAt: Date
-    let url: URL
-}
-
-nonisolated struct GitHubIssueDetail: Hashable {
-    let item: GitHubWorkItem
-    let body: String
-    let state: String
-    let stateReason: String?
-    let type: String?
-    let author: String?
-    let assignees: [String]
-    let labels: [GitHubLabel]
-    let createdAt: Date
-    let updatedAt: Date
-    let closedAt: Date?
-    let parent: GitHubIssueReference?
-    let subIssues: [GitHubIssueReference]
-    let blockedBy: [GitHubIssueReference]
-    let blocking: [GitHubIssueReference]
-    let comments: [GitHubIssueComment]
-
-    func with(state: String, closedAt: Date?) -> GitHubIssueDetail {
-        GitHubIssueDetail(
-            item: item.with(state: state, closedAt: closedAt),
-            body: body,
-            state: state,
-            stateReason: stateReason,
-            type: type,
-            author: author,
-            assignees: assignees,
-            labels: labels,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-            closedAt: closedAt,
-            parent: parent,
-            subIssues: subIssues,
-            blockedBy: blockedBy,
-            blocking: blocking,
-            comments: comments
-        )
-    }
-}
-
 nonisolated struct PiAgentIssueCommentAttachment: Identifiable, Codable, Hashable {
     let id: Int
     let author: String
@@ -460,15 +147,6 @@ nonisolated struct PiAgentIssueCommentAttachment: Identifiable, Codable, Hashabl
     let createdAt: Date
     let updatedAt: Date
     let url: URL
-
-    init(comment: GitHubIssueComment) {
-        self.id = comment.id
-        self.author = comment.author
-        self.body = comment.body
-        self.createdAt = comment.createdAt
-        self.updatedAt = comment.updatedAt
-        self.url = comment.url
-    }
 }
 
 nonisolated struct PiAgentIssueReferenceAttachment: Codable, Hashable {
@@ -478,17 +156,9 @@ nonisolated struct PiAgentIssueReferenceAttachment: Codable, Hashable {
     let url: URL
     let state: String
     let type: String?
-
-    init(reference: GitHubIssueReference) {
-        self.repository = reference.repository
-        self.number = reference.number
-        self.title = reference.title
-        self.url = reference.url
-        self.state = reference.state
-        self.type = reference.type
-    }
 }
 
+/// Historical transcript payload for issue/PR chips. Kept for decoding older sessions only.
 nonisolated struct PiAgentIssueAttachment: Identifiable, Codable, Hashable {
     let repository: String
     let number: Int
@@ -515,74 +185,33 @@ nonisolated struct PiAgentIssueAttachment: Identifiable, Codable, Hashable {
     var kindTitle: String { isPullRequest ? "Pull Request" : "Issue" }
     var kindShortTitle: String { isPullRequest ? "PR" : "Issue" }
 
-    init(detail: GitHubIssueDetail) {
-        self.repository = detail.item.repository
-        self.number = detail.item.number
-        self.title = detail.item.title
-        self.url = detail.item.url
-        self.state = detail.state
-        self.type = detail.type
-        self.isPullRequest = detail.item.isPullRequest
-        self.author = detail.author
-        self.labels = detail.labels.map(\.name)
-        self.assignees = detail.assignees
-        self.createdAt = detail.createdAt
-        self.updatedAt = detail.updatedAt
-        self.closedAt = detail.closedAt
-        self.stateReason = detail.stateReason
-        self.body = detail.body
-        self.parent = detail.parent.map(PiAgentIssueReferenceAttachment.init(reference:))
-        self.subIssues = detail.subIssues.map(PiAgentIssueReferenceAttachment.init(reference:))
-        self.blockedBy = detail.blockedBy.map(PiAgentIssueReferenceAttachment.init(reference:))
-        self.blocking = detail.blocking.map(PiAgentIssueReferenceAttachment.init(reference:))
-        self.comments = detail.comments.map(PiAgentIssueCommentAttachment.init(comment:))
-    }
-
     private enum CodingKeys: String, CodingKey {
-        case repository
-        case number
-        case title
-        case url
-        case state
-        case type
-        case isPullRequest
-        case author
-        case labels
-        case assignees
-        case createdAt
-        case updatedAt
-        case closedAt
-        case stateReason
-        case body
-        case parent
-        case subIssues
-        case blockedBy
-        case blocking
-        case comments
+        case repository, number, title, url, state, type, isPullRequest, author, labels, assignees
+        case createdAt, updatedAt, closedAt, stateReason, body, parent, subIssues, blockedBy, blocking, comments
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.repository = try container.decode(String.self, forKey: .repository)
-        self.number = try container.decode(Int.self, forKey: .number)
-        self.title = try container.decode(String.self, forKey: .title)
-        self.url = try container.decode(URL.self, forKey: .url)
-        self.state = try container.decode(String.self, forKey: .state)
-        self.type = try container.decodeIfPresent(String.self, forKey: .type)
-        self.isPullRequest = try container.decodeIfPresent(Bool.self, forKey: .isPullRequest) ?? false
-        self.author = try container.decodeIfPresent(String.self, forKey: .author)
-        self.labels = try container.decode([String].self, forKey: .labels)
-        self.assignees = try container.decode([String].self, forKey: .assignees)
-        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
-        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
-        self.closedAt = try container.decodeIfPresent(Date.self, forKey: .closedAt)
-        self.stateReason = try container.decodeIfPresent(String.self, forKey: .stateReason)
-        self.body = try container.decode(String.self, forKey: .body)
-        self.parent = try container.decodeIfPresent(PiAgentIssueReferenceAttachment.self, forKey: .parent)
-        self.subIssues = try container.decode([PiAgentIssueReferenceAttachment].self, forKey: .subIssues)
-        self.blockedBy = try container.decode([PiAgentIssueReferenceAttachment].self, forKey: .blockedBy)
-        self.blocking = try container.decode([PiAgentIssueReferenceAttachment].self, forKey: .blocking)
-        self.comments = try container.decode([PiAgentIssueCommentAttachment].self, forKey: .comments)
+        repository = try container.decode(String.self, forKey: .repository)
+        number = try container.decode(Int.self, forKey: .number)
+        title = try container.decode(String.self, forKey: .title)
+        url = try container.decode(URL.self, forKey: .url)
+        state = try container.decode(String.self, forKey: .state)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        isPullRequest = try container.decodeIfPresent(Bool.self, forKey: .isPullRequest) ?? false
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        labels = try container.decode([String].self, forKey: .labels)
+        assignees = try container.decode([String].self, forKey: .assignees)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        closedAt = try container.decodeIfPresent(Date.self, forKey: .closedAt)
+        stateReason = try container.decodeIfPresent(String.self, forKey: .stateReason)
+        body = try container.decode(String.self, forKey: .body)
+        parent = try container.decodeIfPresent(PiAgentIssueReferenceAttachment.self, forKey: .parent)
+        subIssues = try container.decode([PiAgentIssueReferenceAttachment].self, forKey: .subIssues)
+        blockedBy = try container.decode([PiAgentIssueReferenceAttachment].self, forKey: .blockedBy)
+        blocking = try container.decode([PiAgentIssueReferenceAttachment].self, forKey: .blocking)
+        comments = try container.decode([PiAgentIssueCommentAttachment].self, forKey: .comments)
     }
 
     func encode(to encoder: Encoder) throws {

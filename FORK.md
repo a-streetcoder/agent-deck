@@ -19,7 +19,7 @@
 2. 关闭或审查 PostHog analytics
 3. RPC 安全默认（offline / autoApprove）对齐 pi-app 经验
 4. 中文 l10n — **Phase 1–3 done**
-5. **移除 GitHub Issues 工作台** — done（侧栏/屏/Composer 附加 Issue/`startIssueSession`/board API；保留 Doctor `gh` 登录与会话 Git commit/push）
+5. **移除 GitHub Issues 工作台** — done；**死代码清理** — 删 `GitHubAPIClient`/`GitHubConnectionViews`、裁剪 board 模型，保留 Doctor `gh` 与 git commit/push
 6. 从 pi-app port：首条 optimistic、EEXIST、transcript cache、extension chrome 等（按需）
 
 ## l10n（Phase 1）

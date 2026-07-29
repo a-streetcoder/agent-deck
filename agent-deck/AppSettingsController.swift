@@ -45,7 +45,6 @@ final class AppSettingsController {
 
     /// Fixed issue-board cache lifetime. Was user-configurable; nobody needs
     /// to tune it, and Refresh bypasses the cache anyway.
-    var gitHubBoardCacheLifetime: TimeInterval { 15 * 60 }
 
     var piAgentNotificationDelayMinutes: Int {
         max(settings.piAgentNotificationDelayMinutes, 1)

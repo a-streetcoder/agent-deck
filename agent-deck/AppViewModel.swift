@@ -2039,14 +2039,6 @@ final class AppViewModel: NSObject {
 
         githubLastStatusCheckAt = Date()
     }
-
-    func connectGitHubUsingCLI() {
-        Task { [weak self] in
-            guard let self else { return }
-            await connectGitHubUsingCLIIfNeeded(forceReconnect: true)
-        }
-    }
-
     func connectGitHubUsingCLIIfNeeded(forceReconnect: Bool = false) async {
         if !forceReconnect, gitHubSession != nil, githubConnectionState.isConnected {
             return
@@ -2060,7 +2052,6 @@ final class AppViewModel: NSObject {
             gitHubSession = session
             githubConnectionState = .connected(session.account)
             githubLastStatusCheckAt = Date()
-            refreshGitHubConnectionScopedState()
         } catch {
             gitHubSession = nil
             githubConnectionState = .failed(message: error.localizedDescription)
@@ -2095,38 +2086,6 @@ final class AppViewModel: NSObject {
             }
         }
     }
-
-    func disconnectGitHub() {
-        let availableAccount = githubConnectionState.account ?? gitHubSession?.account
-
-        gitHubAuthService.disconnect()
-        gitHubSession = nil
-        githubRepositoryChangesRequestID += 1
-        githubRepositoryChanges = nil
-        githubRepositoryChangesProjectPath = nil
-        repositoryChangesCache.removeAll()
-        githubSelectedChangePaths = []
-        githubDiffCache.removeAll()
-        githubDiffCacheOrder.removeAll()
-        githubSelectedDiffFilePath = nil
-        githubSelectedDiffKind = nil
-        githubSelectedDiffText = nil
-        githubIsLoadingRepositoryChanges = false
-        githubLastError = nil
-        githubConnectionState = availableAccount.map(GitHubConnectionState.available) ?? .disconnected
-    }
-
-
-
-
-
-
-
-
-
-
-
-
     func refreshRepositoryChanges(preservingDiffSelection: Bool = false, force: Bool = true) {
         guard let project = selectedDiscoveredProject, project.isGitRepository else {
             githubRepositoryChangesRequestID += 1
@@ -5932,16 +5891,6 @@ final class AppViewModel: NSObject {
             prepareRepoChangesForSelectedPiAgentSession(force: true)
         }
     }
-
-
-
-
-
-
-    private func refreshGitHubConnectionScopedState() {
-        // Issue board caches removed; connection changes only affect API session.
-    }
-
     private func refreshGitHubProjectScopedState() {
         githubRepositoryChangesRequestID += 1
         githubRepositoryChanges = nil
@@ -6887,11 +6836,6 @@ final class AppViewModel: NSObject {
     var currentGitHubAccount: GitHubHostAccount? {
         githubConnectionState.account ?? gitHubSession?.account
     }
-
-    var shouldShowGitHubConnectionCard: Bool {
-        currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
-    }
-
     /// Cached — see `cachedAllDisplayAgents`. Rebuilt by `rebuildWarningCaches()`.
     var allDisplayAgents: [EffectiveAgentRecord] { cachedAllDisplayAgents }
 
