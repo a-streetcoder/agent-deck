@@ -70,7 +70,123 @@
 "common.done" = "Done";
 "common.save" = "Save";
 "common.delete" = "Delete";
+"common.edit" = "Edit";
 "common.open" = "Open";
 "common.close" = "Close";
 "common.refresh" = "Refresh";
 "common.loading" = "Loading…";
+"common.tryAgain" = "Try Again";
+"common.reveal" = "Reveal";
+"common.back" = "Back";
+"common.submit" = "Submit";
+"common.yes" = "Yes";
+"common.no" = "No";
+"common.unavailable" = "Unavailable";
+
+/* MARK: - Composer */
+"composer.placeholder.startSession" = "Start a new Pi Agent session…";
+"composer.placeholder.compacting" = "Compacting context…";
+"composer.placeholder.steer" = "Steer the current turn…";
+"composer.placeholder.noProject" = "Ask Pi to inspect, explain, or brainstorm…";
+"composer.placeholder.withProject" = "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts.";
+"composer.send" = "Send message";
+"composer.stop" = "Stop Pi Agent";
+"composer.attachIssueTitle" = "Attach GitHub Issue or Pull Request";
+"composer.attachIssueSearch" = "Search visible issues and pull requests";
+
+/* MARK: - Agent toolbar / git */
+"agent.commit" = "Commit";
+"agent.push" = "Push";
+"agent.commitAndPush" = "Commit & Push";
+"agent.merge" = "Merge";
+"agent.commitHelp" = "Stage all changes and create a commit with an AI-generated title and description";
+"agent.pushHelp" = "Push committed changes on the selected session's current branch";
+"agent.commitAndPushHelp" = "Stage all changes, commit, and push the selected session's current branch";
+"agent.mergeHelp" = "Switch the project to the source branch and merge the session branch back in";
+"agent.commitAlertTitle" = "Commit all changes?";
+"agent.commitAlertConfirm" = "Commit All Changes";
+"agent.commitAndPushAlertTitle" = "Commit and push all changes?";
+"agent.commitAndPushAlertConfirm" = "Commit & Push All Changes";
+"agent.mergeAlertTitle" = "Merge session branch?";
+"agent.resumeTerminal" = "Resume in Terminal";
+"agent.resumeTerminalAlertTitle" = "Resume in Terminal?";
+"agent.resumeTerminalHelp" = "Opens a terminal continuation from this session file. Terminal messages do not sync back into %@ yet.";
+"agent.resumeTerminalMessage" = "This opens a parallel terminal continuation from the session file. Messages sent in Terminal do not sync back into %@ yet.";
+
+/* MARK: - Sessions */
+"session.searchAll" = "Search all sessions";
+"session.clearSearch" = "Clear session search";
+"session.new" = "New Pi Agent session";
+"session.chatWithAgent" = "Chat with agent";
+"session.chatWithAgentHelp" = "Chat directly with an agent";
+"session.open" = "Open session";
+"session.delete" = "Delete session";
+"session.renameA11y" = "Rename session %@";
+"session.waitingResponse" = "Waiting for your response";
+"session.needsReview" = "Needs review";
+"session.loopRunning" = "Loop running";
+"session.loopActive" = "Loop active";
+"session.typing" = "Pi is typing";
+"session.activeBadge" = "ACTIVE";
+
+/* MARK: - Activity */
+"activity.title" = "Activity";
+"activity.close" = "Close activity panel";
+"activity.eventOne" = "1 event";
+"activity.eventMany" = "%d events";
+"activity.noPlan" = "No active plan items";
+"activity.deckAgents" = "Deck Agents";
+"activity.isolatedWorktree" = "Isolated worktree";
+"activity.webUnavailable" = "Web activity details are unavailable for this event.";
+"activity.diff" = "Diff";
+"activity.preparingDiff" = "Preparing diff...";
+"activity.diffTruncated" = "... %d more diff lines hidden for performance. Use Copy Diff for the full diff.";
+
+/* MARK: - Ask user / UI request */
+"ask.waiting" = "Pi is waiting for your response";
+"ask.respond" = "Respond…";
+"ask.title" = "Ask User";
+"ask.chooseContinue" = "Choose whether Pi should continue with this request.";
+"ask.customPlaceholder" = "Type your custom response…";
+"ask.noOptions" = "Pi requested a selection, but no options were provided.";
+
+/* MARK: - Environment */
+"env.pageTitle" = "Environment";
+"env.pageSubtitle" = "Manage the global keys Pi Deck injects into new Pi sessions";
+"env.cardTitle" = "Environment Keys";
+"env.cardBody" = "Pi Deck reads and writes global keys in `~/.pi/agent/.env`. Values stay hidden until revealed; new Pi sessions pick up saved changes automatically.";
+"env.resolutionOrder" = "Resolution order";
+"env.res1Title" = "1. App launch environment";
+"env.res1Body" = "Variables already present when Pi Deck launches are available first.";
+"env.res2Title" = "2. Global";
+"env.res2Body" = "Pi Deck reads keys from `~/.pi/agent/.env`.";
+"env.res3Title" = "3. Runtime";
+"env.res3Body" = "Pi Deck appends its own runtime variables last when starting new Pi sessions.";
+"env.existingSessionsNote" = "Existing sessions keep the environment they started with. Start a new session to use saved changes.";
+"env.deleteTitle" = "Delete environment key?";
+"env.deleteConfirm" = "Delete %@";
+"env.deleteMessage" = "This removes %@ from %@.";
+"env.emptyTitle" = "No environment keys yet";
+"env.emptyBody" = "Use the toolbar’s New Key button to add credentials like EXA_API_KEY. Pi Deck stores them in `~/.pi/agent/.env`.";
+
+/* MARK: - Doctor */
+"doctor.pageTitle" = "Doctor";
+"doctor.pageSubtitle" = "Runtime health, dependencies, and actionable warnings";
+"doctor.checkingPi" = "Checking Pi…";
+"doctor.installedVia" = "Installed via";
+"doctor.current" = "Current";
+"doctor.latestOfficial" = "Latest official";
+"doctor.latestVia" = "Latest via %@";
+"doctor.autoUpdate" = "Automatically update Pi";
+"doctor.autoUpdateHelp" = "Check for a newer Pi release available through the current installation source and install it in the background.";
+"doctor.coreRequirements" = "Core requirements for running local Pi workflows.";
+"doctor.checkingDeps" = "Checking dependencies...";
+"doctor.refreshDeps" = "Refresh dependencies";
+"doctor.setupGitHub" = "Set up GitHub";
+"doctor.addExaKey" = "Add EXA_API_KEY…";
+"doctor.urlFetchFallback" = "URL Fetch Fallback";
+"doctor.noSettings" = "No settings files found.";
+"doctor.packages" = "Packages";
+"doctor.builtinOverrides" = "Builtin Overrides";
+"doctor.allPassed" = "All checks passed.";
+"doctor.foundationModel" = "Foundation Model";

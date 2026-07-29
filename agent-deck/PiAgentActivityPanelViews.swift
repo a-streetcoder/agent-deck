@@ -9,6 +9,7 @@ private let activityPanelJSONDecoder = JSONDecoder()
 struct PiAgentActivityPanel: View {
     var store: PiAgentSessionStore
     @Binding var isPresented: Bool
+    @ObservedObject private var languageStore = LanguageStore.shared
     @StateObject private var activityCache = PiAgentActivityCache()
     @State private var filter: PiAgentActivityFilter = .files
     @State private var selectedID: UUID?
@@ -23,7 +24,7 @@ struct PiAgentActivityPanel: View {
     }
 
     var body: some View {
-        AppSidebarPane(title: "Activity", subtitle: subtitle) {
+        AppSidebarPane(title: languageStore.t("activity.title"), subtitle: subtitle) {
             VStack(alignment: .leading, spacing: 0) {
                 activityHeader
                     .padding(.horizontal, 14)
@@ -111,7 +112,7 @@ struct PiAgentActivityPanel: View {
                 .frame(width: 28, height: 28)
                 .background(Circle().fill(AppTheme.contentFill).stroke(AppTheme.contentStroke, lineWidth: 1))
             VStack(alignment: .leading, spacing: 2) {
-                Text("Activity")
+                Text(languageStore.t("activity.title"))
                     .font(AppTheme.Font.headline.weight(.semibold))
                 if let subtitle {
                     Text(subtitle)
@@ -129,15 +130,15 @@ struct PiAgentActivityPanel: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(AppTheme.mutedText)
-            .help("Close activity panel")
-            .accessibilityLabel("Close activity panel")
+            .help(languageStore.t("activity.close"))
+            .accessibilityLabel(languageStore.t("activity.close"))
         }
     }
 
     private var subtitle: String? {
         guard store.selectedSession != nil else { return nil }
         let count = items.count
-        return count == 1 ? "1 event" : "\(count) events"
+        return count == 1 ? languageStore.t("activity.eventOne") : languageStore.t("activity.eventMany", count)
     }
 
     private var selectedRootPath: String? {
@@ -277,7 +278,7 @@ struct PiAgentCurrentPlanCard: View {
             }
 
             if items.isEmpty {
-                Text("No active plan items")
+                Text(LanguageStore.shared.t("activity.noPlan"))
                     .font(AppTheme.Font.callout)
                     .foregroundStyle(AppTheme.mutedText)
             } else {
@@ -375,7 +376,7 @@ private struct PiAgentActivitySubagentsCard: View {
             HStack(spacing: 7) {
                 Image(systemName: "paperplane")
                     .foregroundStyle(AppTheme.mutedText)
-                Text("Deck Agents")
+                Text(LanguageStore.shared.t("activity.deckAgents"))
                     .font(AppTheme.Font.caption.weight(.semibold))
                 Spacer(minLength: 0)
                 Text("\(runs.count)")
@@ -412,7 +413,7 @@ private struct PiAgentActivitySubagentRow: View {
                     Image(systemName: "point.3.connected.trianglepath.dotted")
                         .font(AppTheme.Font.caption2)
                         .foregroundStyle(AppTheme.mutedText)
-                        .help("Isolated worktree")
+                        .help(LanguageStore.shared.t("activity.isolatedWorktree"))
                 }
             }
             Text(run.task)
@@ -911,11 +912,11 @@ private struct PiAgentActivityDetail: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            Button("Open") { if let url = resolvedURL(for: path) { NSWorkspace.shared.open(url) } }
+            Button(LanguageStore.shared.t("common.open")) { if let url = resolvedURL(for: path) { NSWorkspace.shared.open(url) } }
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .buttonStyle(.plain)
                 .disabled(resolvedURL(for: path) == nil)
-            Button("Reveal") { if let url = resolvedURL(for: path) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
+            Button(LanguageStore.shared.t("common.reveal")) { if let url = resolvedURL(for: path) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .buttonStyle(.plain)
                 .disabled(resolvedURL(for: path) == nil)
@@ -952,7 +953,7 @@ private struct PiAgentWebActivitySnippet: View {
         if let activity = PiAgentTranscriptActivity.make(from: [entry]).first {
             PiAgentWebActivitySummaryView(activities: [activity])
         } else {
-            Text("Web activity details are unavailable for this event.")
+            Text(LanguageStore.shared.t("activity.webUnavailable"))
                 .font(AppTheme.Font.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -1072,7 +1073,7 @@ private struct PiAgentDiffView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Diff")
+            Text(LanguageStore.shared.t("activity.diff"))
                 .font(AppTheme.Font.caption2.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
             ScrollView([.horizontal, .vertical], showsIndicators: false) {
@@ -1081,7 +1082,7 @@ private struct PiAgentDiffView: View {
                         HStack(spacing: 8) {
                             AppSpinner()
                                 .controlSize(.small)
-                            Text("Preparing diff...")
+                            Text(LanguageStore.shared.t("activity.preparingDiff"))
                                 .font(AppTheme.Font.code)
                                 .foregroundStyle(AppTheme.mutedText)
                         }
@@ -1107,7 +1108,7 @@ private struct PiAgentDiffView: View {
                             .background(line.background)
                         }
                         if omittedLineCount > 0 {
-                            Text("... \(omittedLineCount) more diff lines hidden for performance. Use Copy Diff for the full diff.")
+                            Text(LanguageStore.shared.t("activity.diffTruncated", omittedLineCount))
                                 .font(AppTheme.Font.code)
                                 .foregroundStyle(AppTheme.mutedText)
                                 .padding(8)

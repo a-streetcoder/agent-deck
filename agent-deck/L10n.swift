@@ -130,6 +130,29 @@ final class LanguageStore: ObservableObject {
         let format = L10n.string(key, language: language)
         return String(format: format, locale: language.locale, arguments: args)
     }
+
+    /**
+     Composer input placeholder for Pi Agent.
+
+     - Parameters:
+       - hasSelectedSession: Whether a session is selected.
+       - isCompacting: Whether context compaction is running.
+       - isRunning: Whether the agent turn is in progress.
+       - isNoProject: Session has no project root.
+     - Returns: Localized placeholder string.
+     */
+    func composerPlaceholder(
+        hasSelectedSession: Bool,
+        isCompacting: Bool,
+        isRunning: Bool,
+        isNoProject: Bool
+    ) -> String {
+        if !hasSelectedSession { return t("composer.placeholder.startSession") }
+        if isCompacting { return t("composer.placeholder.compacting") }
+        if isRunning { return t("composer.placeholder.steer") }
+        if isNoProject { return t("composer.placeholder.noProject") }
+        return t("composer.placeholder.withProject")
+    }
 }
 
 // MARK: - Bundle lookup

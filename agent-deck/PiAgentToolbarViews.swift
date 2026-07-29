@@ -3,12 +3,13 @@ import SwiftUI
 
 struct PiAgentCommitToolbarButton: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var isConfirmationPresented = false
 
     var body: some View {
         Button { commitTapped() } label: {
             Label {
-                Text("Commit")
+                Text(languageStore.t("agent.commit"))
             } icon: {
                 if viewModel.piAgentGitAutomationAction == .commit {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -27,12 +28,12 @@ struct PiAgentCommitToolbarButton: View {
                 }
             }
         }
-        .accessibilityLabel("Commit")
+        .accessibilityLabel(languageStore.t("agent.commit"))
         .disabled(!viewModel.canCommitSelectedPiAgentSession)
-        .help("Stage all changes and create a commit with an AI-generated title and description")
-        .alert("Commit all changes?", isPresented: $isConfirmationPresented) {
-            Button("Commit All Changes") { viewModel.commitSelectedPiAgentSession() }
-            Button("Cancel", role: .cancel) {}
+        .help(languageStore.t("agent.commitHelp"))
+        .alert(languageStore.t("agent.commitAlertTitle"), isPresented: $isConfirmationPresented) {
+            Button(languageStore.t("agent.commitAlertConfirm")) { viewModel.commitSelectedPiAgentSession() }
+            Button(languageStore.t("common.cancel"), role: .cancel) {}
         } message: {
             Text(piAgentGitAlertMessage(for: .commit, viewModel: viewModel))
         }
@@ -49,11 +50,12 @@ struct PiAgentCommitToolbarButton: View {
 
 struct PiAgentPushToolbarButton: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         Button { viewModel.pushSelectedPiAgentSession() } label: {
             Label {
-                Text("Push")
+                Text(languageStore.t("agent.push"))
             } icon: {
                 if viewModel.piAgentGitAutomationAction == .push {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -65,20 +67,21 @@ struct PiAgentPushToolbarButton: View {
                 }
             }
         }
-        .accessibilityLabel("Push")
+        .accessibilityLabel(languageStore.t("agent.push"))
         .disabled(!viewModel.canPushSelectedPiAgentSession)
-        .help("Push committed changes on the selected session's current branch")
+        .help(languageStore.t("agent.pushHelp"))
     }
 }
 
 struct PiAgentCommitAndPushToolbarButton: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var isConfirmationPresented = false
 
     var body: some View {
         Button { commitAndPushTapped() } label: {
             Label {
-                Text("Commit & Push")
+                Text(languageStore.t("agent.commitAndPush"))
             } icon: {
                 if viewModel.piAgentGitAutomationAction == .commitAndPush {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -88,12 +91,12 @@ struct PiAgentCommitAndPushToolbarButton: View {
                 }
             }
         }
-        .accessibilityLabel("Commit & Push")
+        .accessibilityLabel(languageStore.t("agent.commitAndPush"))
         .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
-        .help("Stage all changes, commit, and push the selected session's current branch")
-        .alert("Commit and push all changes?", isPresented: $isConfirmationPresented) {
-            Button("Commit & Push All Changes") { viewModel.commitAndPushSelectedPiAgentSession() }
-            Button("Cancel", role: .cancel) {}
+        .help(languageStore.t("agent.commitAndPushHelp"))
+        .alert(languageStore.t("agent.commitAndPushAlertTitle"), isPresented: $isConfirmationPresented) {
+            Button(languageStore.t("agent.commitAndPushAlertConfirm")) { viewModel.commitAndPushSelectedPiAgentSession() }
+            Button(languageStore.t("common.cancel"), role: .cancel) {}
         } message: {
             Text(piAgentGitAlertMessage(for: .commitAndPush, viewModel: viewModel))
         }
@@ -110,12 +113,13 @@ struct PiAgentCommitAndPushToolbarButton: View {
 
 struct PiAgentMergeToolbarButton: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var isConfirmationPresented = false
 
     var body: some View {
         Button { isConfirmationPresented = true } label: {
             Label {
-                Text("Merge")
+                Text(languageStore.t("agent.merge"))
             } icon: {
                 if viewModel.piAgentGitAutomationAction == .merge {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -127,12 +131,12 @@ struct PiAgentMergeToolbarButton: View {
                 }
             }
         }
-        .accessibilityLabel("Merge")
+        .accessibilityLabel(languageStore.t("agent.merge"))
         .disabled(!viewModel.canMergeSelectedPiAgentSession)
-        .help("Switch the project to the source branch and merge the session branch back in")
-        .alert("Merge session branch?", isPresented: $isConfirmationPresented) {
-            Button("Merge") { viewModel.mergeSelectedPiAgentSession() }
-            Button("Cancel", role: .cancel) {}
+        .help(languageStore.t("agent.mergeHelp"))
+        .alert(languageStore.t("agent.mergeAlertTitle"), isPresented: $isConfirmationPresented) {
+            Button(languageStore.t("agent.merge")) { viewModel.mergeSelectedPiAgentSession() }
+            Button(languageStore.t("common.cancel"), role: .cancel) {}
         } message: {
             Text(piAgentMergeAlertMessage(viewModel: viewModel))
         }
@@ -199,6 +203,7 @@ private enum PiAgentGitAction: Identifiable {
 struct PiAgentOpenTerminalToolbarButton: View {
     var viewModel: AppViewModel
     var store: PiAgentSessionStore
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var isParallelContinuationWarningPresented = false
     /// Cached result of `canOpen`. Refreshed via `.onChange` rather than
     /// computed per body — the previous computed property did a
@@ -215,19 +220,19 @@ struct PiAgentOpenTerminalToolbarButton: View {
                 viewModel.openSelectedPiAgentSessionInTerminal()
             }
         } label: {
-            Label("Resume in Terminal", systemImage: "terminal")
+            Label(languageStore.t("agent.resumeTerminal"), systemImage: "terminal")
         }
-        .accessibilityLabel("Resume in Terminal")
+        .accessibilityLabel(languageStore.t("agent.resumeTerminal"))
         .symbolRenderingMode(.monochrome)
         .foregroundStyle(.primary)
         .tint(.primary)
-        .help("Opens a terminal continuation from this session file. Terminal messages do not sync back into \(AppBrand.displayName) yet.")
+        .help(languageStore.t("agent.resumeTerminalHelp", AppBrand.displayName))
         .disabled(!canOpen)
-        .alert("Resume in Terminal?", isPresented: $isParallelContinuationWarningPresented) {
-            Button("Resume in Terminal") { viewModel.openSelectedPiAgentSessionInTerminal() }
-            Button("Cancel", role: .cancel) {}
+        .alert(languageStore.t("agent.resumeTerminalAlertTitle"), isPresented: $isParallelContinuationWarningPresented) {
+            Button(languageStore.t("agent.resumeTerminal")) { viewModel.openSelectedPiAgentSessionInTerminal() }
+            Button(languageStore.t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("This opens a parallel terminal continuation from the session file. Messages sent in Terminal do not sync back into \(AppBrand.displayName) yet.")
+            Text(languageStore.t("agent.resumeTerminalMessage", AppBrand.displayName))
         }
         .task(id: store.selectedSession?.id) { refreshCanOpen() }
         .onChange(of: store.selectedSession?.piSessionFile) { refreshCanOpen() }

@@ -883,10 +883,10 @@ private struct PiAgentIssuePickerPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Attach GitHub Issue or Pull Request")
+            Text(LanguageStore.shared.t("composer.attachIssueTitle"))
                 .font(AppTheme.Font.headline)
 
-            AppTextField(text: $query, placeholder: "Search visible issues and pull requests")
+            AppTextField(text: $query, placeholder: LanguageStore.shared.t("composer.attachIssueSearch"))
 
             if let errorText {
                 Text(errorText)
@@ -1344,6 +1344,7 @@ struct PiAgentSendButton: View {
     let canSend: Bool
     let sendAction: () -> Void
     let stopAction: () -> Void
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         Button(action: isRunning ? stopAction : sendAction) {
@@ -1354,10 +1355,10 @@ struct PiAgentSendButton: View {
         }
         .appPrimaryCircleButton(tint: tintColor, controlSize: .large)
         .disabled(!isRunning && !canSend)
-        .help(isRunning ? "Stop Pi Agent" : "Send message")
-        .accessibilityLabel(isRunning ? "Stop Pi Agent" : "Send message")
+        .help(isRunning ? languageStore.t("composer.stop") : languageStore.t("composer.send"))
+        .accessibilityLabel(isRunning ? languageStore.t("composer.stop") : languageStore.t("composer.send"))
         .background {
-            Button("Stop Pi Agent", action: stopAction)
+            Button(languageStore.t("composer.stop"), action: stopAction)
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(!isRunning)
                 .hidden()

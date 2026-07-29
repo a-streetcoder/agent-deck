@@ -2,19 +2,21 @@ import AppKit
 import SwiftUI
 
 struct EnvironmentInfoPopover: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Resolution order")
+            Text(languageStore.t("env.resolutionOrder"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("1. App launch environment", "Variables already present when Agent Deck launches are available first.")
-                infoRow("2. Global", "Agent Deck reads keys from `~/.pi/agent/.env`.")
-                infoRow("3. Runtime", "Agent Deck appends its own runtime variables last when starting new Pi sessions.")
+                infoRow(languageStore.t("env.res1Title"), languageStore.t("env.res1Body"))
+                infoRow(languageStore.t("env.res2Title"), languageStore.t("env.res2Body"))
+                infoRow(languageStore.t("env.res3Title"), languageStore.t("env.res3Body"))
             }
 
-            Text("Existing sessions keep the environment they started with. Start a new session to use saved changes.")
+            Text(languageStore.t("env.existingSessionsNote"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -40,14 +42,15 @@ struct EnvironmentScreen: View {
     let snapshot: ScanSnapshot
     let onEditKey: (EnvKeyRecord) -> Void
     let onDeleteKey: (EnvKeyRecord) -> Void
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var revealedKeys: Set<String> = []
     @State private var pendingDelete: EnvKeyRecord?
 
     var body: some View {
-        AppPage("Environment", subtitle: "Manage the global keys Agent Deck injects into new Pi sessions") {
-            AppCard(title: "Environment Keys") {
+        AppPage(languageStore.t("env.pageTitle"), subtitle: languageStore.t("env.pageSubtitle")) {
+            AppCard(title: languageStore.t("env.cardTitle")) {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Agent Deck reads and writes global keys in `~/.pi/agent/.env`. Values stay hidden until revealed; new Pi sessions pick up saved changes automatically.")
+                    Text(languageStore.t("env.cardBody"))
                         .font(AppTheme.Font.supporting)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -65,30 +68,30 @@ struct EnvironmentScreen: View {
             }
         }
         .confirmationDialog(
-            "Delete environment key?",
+            languageStore.t("env.deleteTitle"),
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
             ),
             presenting: pendingDelete
         ) { record in
-            Button("Delete \(record.key)", role: .destructive) {
+            Button(languageStore.t("env.deleteConfirm", record.key), role: .destructive) {
                 onDeleteKey(record)
                 pendingDelete = nil
             }
-            Button("Cancel", role: .cancel) {
+            Button(languageStore.t("common.cancel"), role: .cancel) {
                 pendingDelete = nil
             }
         } message: { record in
-            Text("This removes \(record.key) from \(record.source.path).")
+            Text(languageStore.t("env.deleteMessage", record.key, record.source.path))
         }
     }
 
     private var emptyEnvironmentState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("No environment keys yet", systemImage: "key")
+            Label(languageStore.t("env.emptyTitle"), systemImage: "key")
                 .font(AppTheme.Font.primary.weight(.semibold))
-            Text("Use the toolbar’s New Key button to add credentials like EXA_API_KEY. Agent Deck stores them in `~/.pi/agent/.env`.")
+            Text(languageStore.t("env.emptyBody"))
                 .font(AppTheme.Font.supporting)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -140,8 +143,8 @@ struct EnvironmentScreen: View {
                     .labelStyle(.iconOnly)
                     .help(revealedKeys.contains(record.key) ? "Hide value" : "Reveal value")
 
-                    Button("Edit") { onEditKey(record) }
-                    Button("Delete", role: .destructive) {
+                    Button(languageStore.t("common.edit")) { onEditKey(record) }
+                    Button(languageStore.t("common.delete"), role: .destructive) {
                         pendingDelete = record
                     }
                 }
@@ -165,6 +168,7 @@ struct EnvironmentScreen: View {
 
 struct DoctorScreen: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var setupItems: [SetupCheckItem] = []
     /// Shared with the launch auto-updater so manual and automatic updates use
     /// one installer, one `isRunning` guard, and one `phase`.
@@ -206,7 +210,7 @@ struct DoctorScreen: View {
     }
 
     var body: some View {
-        AppPage("Doctor", subtitle: "Runtime health, dependencies, and actionable warnings") {
+        AppPage(languageStore.t("doctor.pageTitle"), subtitle: languageStore.t("doctor.pageSubtitle")) {
             piAgentSection
             dependenciesSection
             githubAccessSection
@@ -332,7 +336,7 @@ struct DoctorScreen: View {
                         } else {
                             HStack(spacing: 8) {
                                 AppSpinner().controlSize(.small)
-                                Text("Checking Pi…").font(.caption).foregroundStyle(AppTheme.mutedText)
+                                Text(languageStore.t("doctor.checkingPi")).font(.caption).foregroundStyle(AppTheme.mutedText)
                             }
                         }
                     }
@@ -379,26 +383,26 @@ struct DoctorScreen: View {
         let sourceName = status.installationSource?.displayName ?? "Pi"
         return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
             GridRow {
-                Text("Installed via")
+                Text(languageStore.t("doctor.installedVia"))
                     .foregroundStyle(AppTheme.mutedText)
                 Text(sourceName)
             }
             GridRow {
-                Text("Current")
+                Text(languageStore.t("doctor.current"))
                     .foregroundStyle(AppTheme.mutedText)
-                Text(status.currentVersion ?? "Unavailable")
+                Text(status.currentVersion ?? languageStore.t("common.unavailable"))
                     .monospacedDigit()
             }
             GridRow {
-                Text("Latest official")
+                Text(languageStore.t("doctor.latestOfficial"))
                     .foregroundStyle(AppTheme.mutedText)
-                Text(status.latestOfficialVersion ?? "Unavailable")
+                Text(status.latestOfficialVersion ?? languageStore.t("common.unavailable"))
                     .monospacedDigit()
             }
             GridRow {
-                Text("Latest via \(sourceName)")
+                Text(languageStore.t("doctor.latestVia", sourceName))
                     .foregroundStyle(AppTheme.mutedText)
-                Text(status.latestSourceVersion ?? "Unavailable")
+                Text(status.latestSourceVersion ?? languageStore.t("common.unavailable"))
                     .monospacedDigit()
             }
         }
@@ -412,9 +416,9 @@ struct DoctorScreen: View {
     private var piAutoUpdateToggleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Automatically update Pi")
+                Text(languageStore.t("doctor.autoUpdate"))
                     .font(.callout.weight(.medium))
-                Text("Check for a newer Pi release available through the current installation source and install it in the background.")
+                Text(languageStore.t("doctor.autoUpdateHelp"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -465,7 +469,7 @@ struct DoctorScreen: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
-                    Button("Try Again") { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
+                    Button(languageStore.t("common.tryAgain")) { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
                         .appPrimaryButton()
                     Button(isUpdate ? "Update in Terminal" : "Install in Terminal") {
                         if isUpdate {
@@ -586,7 +590,7 @@ struct DoctorScreen: View {
                     HStack(spacing: 8) {
                         Image(systemName: "apple.logo")
                             .imageScale(.medium)
-                        Text("Foundation Model")
+                        Text(languageStore.t("doctor.foundationModel"))
                             .font(.body.weight(.semibold))
                             .fontWidth(.expanded)
                     }
@@ -631,10 +635,10 @@ struct DoctorScreen: View {
                 Image(systemName: "arrow.clockwise")
             }
             .disabled(isRefreshingSetup)
-            .help("Refresh dependencies")
+            .help(languageStore.t("doctor.refreshDeps"))
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Core requirements for running local Pi workflows.")
+                Text(languageStore.t("doctor.coreRequirements"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
 
@@ -642,7 +646,7 @@ struct DoctorScreen: View {
                     HStack(spacing: 10) {
                         AppSpinner()
                             .controlSize(.small)
-                        Text("Checking dependencies...")
+                        Text(languageStore.t("doctor.checkingDeps"))
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     .padding(.vertical, 8)
@@ -796,7 +800,7 @@ struct DoctorScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     if effectiveGitHubAccount == nil {
-                        Button("Set up GitHub") {
+                        Button(languageStore.t("doctor.setupGitHub")) {
                             viewModel.openGitHubSetupInTerminal()
                         }
                         .appPrimaryButton()
@@ -910,7 +914,7 @@ struct DoctorScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if title == "Exa Search", !hasExaAPIKey {
-                    Button("Add EXA_API_KEY…") {
+                    Button(languageStore.t("doctor.addExaKey")) {
                         envDraft = viewModel.makeNewEnvDraft(prefilledKey: "EXA_API_KEY")
                     }
                     .appPrimaryButton()
@@ -931,7 +935,7 @@ struct DoctorScreen: View {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("URL Fetch Fallback")
+                Text(languageStore.t("doctor.urlFetchFallback"))
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
 
@@ -1020,7 +1024,7 @@ struct DoctorScreen: View {
     private var settingsSection: some View {
         AppCard(title: "Settings Files") {
             if snapshot.settings.isEmpty {
-                Text("No settings files found.")
+                Text(languageStore.t("doctor.noSettings"))
                     .foregroundStyle(AppTheme.mutedText)
             } else {
                 VStack(alignment: .leading, spacing: 18) {
@@ -1043,9 +1047,9 @@ struct DoctorScreen: View {
                     .fontWidth(.expanded)
                     .textSelection(.enabled)
                 Spacer()
-                Button("Open") { openFile(settings.path) }
+                Button(languageStore.t("common.open")) { openFile(settings.path) }
                     .appSmallSecondaryButton()
-                Button("Reveal") { revealInFinder(settings.path) }
+                Button(languageStore.t("common.reveal")) { revealInFinder(settings.path) }
                     .appSmallSecondaryButton()
             }
 
@@ -1068,7 +1072,7 @@ struct DoctorScreen: View {
 
     private func packageListDetail(_ packages: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Packages")
+            Text(languageStore.t("doctor.packages"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
             ForEach(packages, id: \.self) { pkg in
@@ -1095,7 +1099,7 @@ struct DoctorScreen: View {
         // JSON-serialize per body eval inside the ForEach row builder.
         let rendered = overrides.map { RenderedOverride(agentName: $0.agentName, formatted: prettyJSON($0.values)) }
         return VStack(alignment: .leading, spacing: 6) {
-            Text("Builtin Overrides")
+            Text(languageStore.t("doctor.builtinOverrides"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
             VStack(alignment: .leading, spacing: 0) {
@@ -1124,7 +1128,7 @@ struct DoctorScreen: View {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                    Text("All checks passed.")
+                    Text(languageStore.t("doctor.allPassed"))
                         .font(AppTheme.Font.primary)
                         .foregroundStyle(AppTheme.mutedText)
                 }

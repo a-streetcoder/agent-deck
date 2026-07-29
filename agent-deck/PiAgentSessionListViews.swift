@@ -4,14 +4,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PiAgentSessionSearchField: View {
-    var placeholder = "Search all sessions"
+    var placeholder: String? = nil
     @Binding var text: String
+    @ObservedObject private var languageStore = LanguageStore.shared
+
+    private var resolvedPlaceholder: String {
+        placeholder ?? languageStore.t("session.searchAll")
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(AppTheme.mutedText)
-            TextField(placeholder, text: $text)
+            TextField(resolvedPlaceholder, text: $text)
                 .textFieldStyle(.plain)
                 .appBrandTint()
             if !text.isEmpty {
@@ -22,8 +27,8 @@ struct PiAgentSessionSearchField: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear session search")
-                .help("Clear session search")
+                .accessibilityLabel(languageStore.t("session.clearSearch"))
+                .help(languageStore.t("session.clearSearch"))
             }
         }
         .padding(.horizontal, 10)
@@ -50,7 +55,7 @@ struct PiAgentAddSessionButton: View {
         ) {
             Image(systemName: "plus")
         }
-        .accessibilityLabel("New Pi Agent session")
+        .accessibilityLabel(LanguageStore.shared.t("session.new"))
     }
 }
 
@@ -75,7 +80,7 @@ struct PiAgentAddSessionMenuButton: View {
         ) {
             Image(systemName: "plus")
         }
-        .accessibilityLabel("New Pi Agent session")
+        .accessibilityLabel(LanguageStore.shared.t("session.new"))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             PiAgentProjectPickerPopover(
                 projects: orderedProjects,
@@ -153,8 +158,8 @@ struct PiAgentNewSessionSplitButton: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Chat directly with an agent")
-            .accessibilityLabel("Chat with agent")
+            .help(LanguageStore.shared.t("session.chatWithAgentHelp"))
+            .accessibilityLabel(LanguageStore.shared.t("session.chatWithAgent"))
             .popover(isPresented: $isAgentPickerPresented, arrowEdge: .bottom) {
                 PiAgentChatWithAgentPopover(
                     project: resolvedProject,
@@ -182,7 +187,7 @@ struct PiAgentNewSessionSplitButton: View {
             }
             .buttonStyle(.plain)
             .help(selectedProject == nil ? "New Pi Agent session" : "New session in \(selectedProject!.repositoryDisplayName)")
-            .accessibilityLabel("New Pi Agent session")
+            .accessibilityLabel(LanguageStore.shared.t("session.new"))
             .popover(isPresented: $isProjectPickerPresented, arrowEdge: .bottom) {
                 PiAgentProjectPickerPopover(
                     projects: projects,
@@ -529,7 +534,7 @@ struct PiAgentSessionRow: View, Equatable {
         .simultaneousGesture(TapGesture().onEnded(onSelect))
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Open session \(sessionTitle)")
-        .accessibilityAction(named: Text("Open session"), onSelect)
+        .accessibilityAction(named: Text(LanguageStore.shared.t("session.open")), onSelect)
         .focusable()
         .onKeyPress(.space) {
             onSelect()
@@ -583,7 +588,7 @@ struct PiAgentSessionRow: View, Equatable {
                     .controlSize(.small)
                     .frame(width: 14, height: 14)
                     .help("Loop running")
-                    .accessibilityLabel("Loop running")
+                    .accessibilityLabel(LanguageStore.shared.t("session.loopRunning"))
                     .transition(.opacity)
             } else if isRunning {
                 PiAgentTypingIndicator()
@@ -604,7 +609,7 @@ struct PiAgentSessionRow: View, Equatable {
             .font(AppTheme.Font.caption.weight(.semibold))
             .foregroundStyle(AppTheme.brandAccent)
             .help("Pi Agent is waiting for your response")
-            .accessibilityLabel("Waiting for your response")
+            .accessibilityLabel(LanguageStore.shared.t("session.waitingResponse"))
     }
 
     private var needsAttentionBell: some View {
@@ -612,7 +617,7 @@ struct PiAgentSessionRow: View, Equatable {
             .font(AppTheme.Font.caption.weight(.semibold))
             .foregroundStyle(AppTheme.brandAccent)
             .help("Pi Agent finished and needs review")
-            .accessibilityLabel("Needs review")
+            .accessibilityLabel(LanguageStore.shared.t("session.needsReview"))
     }
 
     private var deleteButton: some View {
@@ -622,7 +627,7 @@ struct PiAgentSessionRow: View, Equatable {
         }
         .appSmallSecondaryButton()
         .help("Delete session")
-        .accessibilityLabel("Delete session")
+        .accessibilityLabel(LanguageStore.shared.t("session.delete"))
     }
 
     private var activeBackgroundGradient: LinearGradient {
@@ -746,7 +751,7 @@ private struct SessionGitActivityStrip: View {
                     .font(AppTheme.Font.caption2.weight(.semibold))
                     .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
                     .help("Loop active")
-                    .accessibilityLabel("Loop active")
+                    .accessibilityLabel(LanguageStore.shared.t("session.loopActive"))
             }
             pip(kind: .commit, date: activity.lastCommit, verb: "commit")
             pip(kind: .push,   date: activity.lastPush,   verb: "push")
@@ -795,7 +800,7 @@ private struct PiAgentSessionTelemetryStrip: View {
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.85).repeatForever(autoreverses: true).delay(Double(index % 6) * 0.055), value: isActive)
             }
             Spacer(minLength: 0)
-            Text("ACTIVE")
+            Text(LanguageStore.shared.t("session.activeBadge"))
                 .font(AppTheme.Font.smallLabel)
                 .tracking(1.2)
                 .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
@@ -889,6 +894,6 @@ struct PiAgentTypingIndicator: View {
                 }
             }
         }
-        .accessibilityLabel("Pi is typing")
+        .accessibilityLabel(LanguageStore.shared.t("session.typing"))
     }
 }

@@ -4873,6 +4873,7 @@ struct CodingAgentExpandedPanel: View {
 struct PiAgentScreen: View {
     var viewModel: AppViewModel
     var store: PiAgentSessionStore
+    @ObservedObject private var languageStore = LanguageStore.shared
     @Binding var sessionSearchText: String
     var showsSessionsColumn = true
     /// False when this screen is kept mounted but hidden (the user is on another
@@ -7211,7 +7212,7 @@ struct PiAgentScreen: View {
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 isDisabled: isCompacting,
-                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
+                placeholder: languageStore.composerPlaceholder(hasSelectedSession: hasSelectedSession, isCompacting: isCompacting, isRunning: isRunning, isNoProject: store.selectedSession?.isNoProject == true),
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || !slashSelections.isEmpty),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: piAgentNewSessionProjects,
@@ -8139,6 +8140,7 @@ private struct ComputerUseChatGPTStartSheet: View {
 private struct PiAgentComposerPanel: View {
     var viewModel: AppViewModel
     var store: PiAgentSessionStore
+    @ObservedObject private var languageStore = LanguageStore.shared
     /// Value snapshot used both for draft ownership and the Equatable boundary.
     /// The store reference is stable across selections, so identity alone cannot
     /// tell SwiftUI that the composer must save one session and restore another.
@@ -8262,7 +8264,7 @@ private struct PiAgentComposerPanel: View {
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     isDisabled: isCompacting,
-                    placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
+                    placeholder: languageStore.composerPlaceholder(hasSelectedSession: hasSelectedSession, isCompacting: isCompacting, isRunning: isRunning, isNoProject: store.selectedSession?.isNoProject == true),
                     canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || !slashSelections.isEmpty),
                     canCreateSession: !isCompacting && store.selectedSession == nil,
                     createSessionProjects: piAgentNewSessionProjects,

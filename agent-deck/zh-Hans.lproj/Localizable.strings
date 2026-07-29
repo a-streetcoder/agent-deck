@@ -70,7 +70,123 @@
 "common.done" = "完成";
 "common.save" = "保存";
 "common.delete" = "删除";
+"common.edit" = "编辑";
 "common.open" = "打开";
 "common.close" = "关闭";
 "common.refresh" = "刷新";
 "common.loading" = "加载中…";
+"common.tryAgain" = "重试";
+"common.reveal" = "显示";
+"common.back" = "返回";
+"common.submit" = "提交";
+"common.yes" = "是";
+"common.no" = "否";
+"common.unavailable" = "不可用";
+
+/* MARK: - Composer */
+"composer.placeholder.startSession" = "开始新的 Pi Agent 会话…";
+"composer.placeholder.compacting" = "正在压缩上下文…";
+"composer.placeholder.steer" = "引导当前回合…";
+"composer.placeholder.noProject" = "让 Pi 检查、解释或头脑风暴…";
+"composer.placeholder.withProject" = "让 Pi 实现、检查、解释或修复… 输入 / 选择 skill、loop、提示词。";
+"composer.send" = "发送消息";
+"composer.stop" = "停止 Pi Agent";
+"composer.attachIssueTitle" = "附加 GitHub Issue 或 PR";
+"composer.attachIssueSearch" = "搜索可见的 issue 与 pull request";
+
+/* MARK: - Agent toolbar / git */
+"agent.commit" = "提交";
+"agent.push" = "推送";
+"agent.commitAndPush" = "提交并推送";
+"agent.merge" = "合并";
+"agent.commitHelp" = "暂存全部更改，并用 AI 生成标题与说明后提交";
+"agent.pushHelp" = "推送所选会话当前分支上的已提交更改";
+"agent.commitAndPushHelp" = "暂存、提交并推送所选会话的当前分支";
+"agent.mergeHelp" = "切换到源分支并将会话分支合并回去";
+"agent.commitAlertTitle" = "提交全部更改？";
+"agent.commitAlertConfirm" = "提交全部更改";
+"agent.commitAndPushAlertTitle" = "提交并推送全部更改？";
+"agent.commitAndPushAlertConfirm" = "提交并推送全部更改";
+"agent.mergeAlertTitle" = "合并会话分支？";
+"agent.resumeTerminal" = "在终端继续";
+"agent.resumeTerminalAlertTitle" = "在终端继续？";
+"agent.resumeTerminalHelp" = "从该会话文件打开终端续写。终端中的消息目前不会同步回 %@。";
+"agent.resumeTerminalMessage" = "将从会话文件打开并行终端续写。在终端发送的消息目前不会同步回 %@。";
+
+/* MARK: - Sessions */
+"session.searchAll" = "搜索全部会话";
+"session.clearSearch" = "清除会话搜索";
+"session.new" = "新建 Pi Agent 会话";
+"session.chatWithAgent" = "与 agent 对话";
+"session.chatWithAgentHelp" = "直接与某个 agent 对话";
+"session.open" = "打开会话";
+"session.delete" = "删除会话";
+"session.renameA11y" = "重命名会话 %@";
+"session.waitingResponse" = "等待你的回复";
+"session.needsReview" = "需要审阅";
+"session.loopRunning" = "Loop 运行中";
+"session.loopActive" = "Loop 活跃";
+"session.typing" = "Pi 正在输入";
+"session.activeBadge" = "进行中";
+
+/* MARK: - Activity */
+"activity.title" = "活动";
+"activity.close" = "关闭活动面板";
+"activity.eventOne" = "1 个事件";
+"activity.eventMany" = "%d 个事件";
+"activity.noPlan" = "暂无活动计划项";
+"activity.deckAgents" = "Deck 子代理";
+"activity.isolatedWorktree" = "隔离 worktree";
+"activity.webUnavailable" = "此事件没有可用的 Web 活动详情。";
+"activity.diff" = "Diff";
+"activity.preparingDiff" = "正在准备 diff…";
+"activity.diffTruncated" = "… 另有 %d 行 diff 为性能隐藏。完整内容请用「复制 Diff」。";
+
+/* MARK: - Ask user / UI request */
+"ask.waiting" = "Pi 正在等待你的回复";
+"ask.respond" = "回复…";
+"ask.title" = "向用户提问";
+"ask.chooseContinue" = "选择是否让 Pi 继续处理此请求。";
+"ask.customPlaceholder" = "输入自定义回复…";
+"ask.noOptions" = "Pi 请求了选择，但未提供任何选项。";
+
+/* MARK: - Environment */
+"env.pageTitle" = "环境变量";
+"env.pageSubtitle" = "管理 Pi Deck 注入到新 Pi 会话的全局密钥";
+"env.cardTitle" = "环境密钥";
+"env.cardBody" = "Pi Deck 在 `~/.pi/agent/.env` 读写全局密钥。默认隐藏值；新建 Pi 会话会自动带上已保存的更改。";
+"env.resolutionOrder" = "解析顺序";
+"env.res1Title" = "1. 应用启动环境";
+"env.res1Body" = "Pi Deck 启动时已有的环境变量优先可用。";
+"env.res2Title" = "2. 全局";
+"env.res2Body" = "Pi Deck 从 `~/.pi/agent/.env` 读取密钥。";
+"env.res3Title" = "3. 运行时";
+"env.res3Body" = "启动新 Pi 会话时，Pi Deck 最后追加自己的运行时变量。";
+"env.existingSessionsNote" = "已有会话仍使用启动时的环境。请新建会话以使用已保存的更改。";
+"env.deleteTitle" = "删除环境密钥？";
+"env.deleteConfirm" = "删除 %@";
+"env.deleteMessage" = "这会移除 %@（位于 %@）。";
+"env.emptyTitle" = "还没有环境密钥";
+"env.emptyBody" = "用工具栏的「新建密钥」添加如 EXA_API_KEY 的凭证。Pi Deck 保存在 `~/.pi/agent/.env`。";
+
+/* MARK: - Doctor */
+"doctor.pageTitle" = "诊断";
+"doctor.pageSubtitle" = "运行时健康、依赖与可处理警告";
+"doctor.checkingPi" = "正在检查 Pi…";
+"doctor.installedVia" = "安装来源";
+"doctor.current" = "当前版本";
+"doctor.latestOfficial" = "官方最新";
+"doctor.latestVia" = "经 %@ 的最新";
+"doctor.autoUpdate" = "自动更新 Pi";
+"doctor.autoUpdateHelp" = "通过当前安装源检查更新的 Pi 版本，并在后台安装。";
+"doctor.coreRequirements" = "运行本地 Pi 工作流的核心依赖。";
+"doctor.checkingDeps" = "正在检查依赖…";
+"doctor.refreshDeps" = "刷新依赖";
+"doctor.setupGitHub" = "设置 GitHub";
+"doctor.addExaKey" = "添加 EXA_API_KEY…";
+"doctor.urlFetchFallback" = "URL 抓取回退";
+"doctor.noSettings" = "未找到 settings 文件。";
+"doctor.packages" = "包";
+"doctor.builtinOverrides" = "内置覆盖";
+"doctor.allPassed" = "全部检查通过。";
+"doctor.foundationModel" = "Foundation Model";

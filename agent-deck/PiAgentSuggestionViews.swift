@@ -545,13 +545,14 @@ struct PiAgentUIRequestInlineNotice: View {
     let request: PiAgentUIRequest
     let onRespond: () -> Void
     let onCancel: () -> Void
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "questionmark.bubble.fill")
                 .foregroundStyle(AppTheme.brandAccent)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Pi is waiting for your response")
+                Text(languageStore.t("ask.waiting"))
                     .font(AppTheme.Font.callout.weight(.semibold))
                 Text(request.title)
                     .font(AppTheme.Font.caption)
@@ -559,9 +560,9 @@ struct PiAgentUIRequestInlineNotice: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            Button("Cancel", action: onCancel)
+            Button(languageStore.t("common.cancel"), action: onCancel)
                 .appSecondaryButton()
-            Button("Respond…", action: onRespond)
+            Button(languageStore.t("ask.respond"), action: onRespond)
                 .appPrimaryButton()
         }
         .padding(.horizontal, 12)
@@ -576,6 +577,7 @@ struct PiAgentUIRequestInlineNotice: View {
 }
 
 struct PiAgentUIRequestSheet: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
     private let freeformSentinel = "✏️ Type custom response..."
     private let sheetWidth: CGFloat = 820
     private let sheetHeight: CGFloat = 600
@@ -638,7 +640,7 @@ struct PiAgentUIRequestSheet: View {
                 .foregroundStyle(AppTheme.brandAccent)
                 .frame(width: 22, alignment: .center)
 
-            Text("Ask User")
+            Text(languageStore.t("ask.title"))
                 .font(AppTheme.Font.headline)
                 .fontWidth(.expanded)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -696,7 +698,7 @@ struct PiAgentUIRequestSheet: View {
     }
 
     private var confirmBody: some View {
-        Text("Choose whether Pi should continue with this request.")
+        Text(languageStore.t("ask.chooseContinue"))
             .foregroundStyle(AppTheme.mutedText)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -825,7 +827,7 @@ struct PiAgentUIRequestSheet: View {
                 .scrollIndicators(.never, axes: .vertical)
                 .padding(14)
             if draft.isEmpty {
-                Text("Type your custom response…")
+                Text(languageStore.t("ask.customPlaceholder"))
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(AppTheme.mutedText.opacity(0.6))
                     .padding(14)
@@ -841,36 +843,36 @@ struct PiAgentUIRequestSheet: View {
     }
 
     private var emptyOptions: some View {
-        Text("Pi requested a selection, but no options were provided.")
+        Text(languageStore.t("ask.noOptions"))
             .foregroundStyle(AppTheme.mutedText)
     }
 
     private var footer: some View {
         HStack(spacing: 10) {
             if isComposingFreeform {
-                Button("Back") { isComposingFreeform = false }
+                Button(languageStore.t("common.back")) { isComposingFreeform = false }
                     .appSecondaryButton()
                 Spacer(minLength: 0)
-                Button("Cancel", action: onCancel)
+                Button(languageStore.t("common.cancel"), action: onCancel)
                     .appSecondaryButton()
-                Button("Submit") { submitFreeform() }
+                Button(languageStore.t("common.submit")) { submitFreeform() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSubmitFreeform)
             } else if request.method == .confirm {
                 Spacer(minLength: 0)
-                Button("No") { onConfirm(false) }
+                Button(languageStore.t("common.no")) { onConfirm(false) }
                     .appSecondaryButton()
-                Button("Yes") { onConfirm(true) }
+                Button(languageStore.t("common.yes")) { onConfirm(true) }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
-                Button("Cancel", action: onCancel)
+                Button(languageStore.t("common.cancel"), action: onCancel)
                     .appSecondaryButton()
             } else {
                 Spacer(minLength: 0)
-                Button("Cancel", action: onCancel)
+                Button(languageStore.t("common.cancel"), action: onCancel)
                     .appSecondaryButton()
-                Button("Submit") { submitCurrent() }
+                Button(languageStore.t("common.submit")) { submitCurrent() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSubmit)
