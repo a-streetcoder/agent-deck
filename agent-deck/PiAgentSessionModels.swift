@@ -2,6 +2,7 @@ import Foundation
 
 enum PiAgentSessionKind: String, Codable, CaseIterable, Identifiable {
     case project = "Project"
+    /// Historical: created by removed Issues workspace. Still decoded for old session stores.
     case issue = "Issue"
     case changesReview = "Changes Review"
     case agent = "Agent"
@@ -947,6 +948,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var projectPath: String
     var projectName: String
     var repository: String?
+    /// Historical Issues workspace metadata (optional; not set on new sessions).
     var issueNumber: Int?
     var issueURL: URL?
     var piSessionFile: String?

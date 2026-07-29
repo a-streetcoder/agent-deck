@@ -8,6 +8,6 @@ enum AgentDeckBuilderPrompt {
 
     Use the bundled Agent Deck skills already injected into this session for detailed rules. Keep changes scoped and explicit. Never edit bundled built-in resources in place; user edits must go through the app's override, global catalog, import, or persistence paths. For MCP setup, write only to ~/.pi/agent/mcp.json unless the user explicitly asks for a project-local MCP config.
 
-    This session is not project-backed. Deck-agent delegation, GitHub issue workflows, project memory, and project-specific resource catalogs are unavailable. If the user wants to modify a repository's source code, tell them to start a project-backed session for that repository.
+    This session is not project-backed. Deck-agent delegation, project memory, and project-specific resource catalogs are unavailable. If the user wants to modify a repository's source code, tell them to start a project-backed session for that repository.
     """
 }

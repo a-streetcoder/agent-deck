@@ -514,15 +514,13 @@ final class PiAgentSessionStore {
     }
 
     @discardableResult
-    func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil) -> PiAgentSessionRecord {
+    func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil) -> PiAgentSessionRecord {
         createSession(
             kind: kind,
             title: title,
             projectPath: project.path,
             projectName: project.name,
             repository: repository,
-            issueNumber: issueNumber,
-            issueURL: issueURL,
             model: model,
             worktreePath: worktreePath,
             branchName: branchName,
@@ -533,7 +531,7 @@ final class PiAgentSessionStore {
     }
 
     @discardableResult
-    private func createSession(kind: PiAgentSessionKind, title: String, projectPath: String, projectName: String, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil, subagentsEnabled: Bool, noProjectMode: PiAgentNoProjectMode? = nil) -> PiAgentSessionRecord {
+    private func createSession(kind: PiAgentSessionKind, title: String, projectPath: String, projectName: String, repository: String?, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil, subagentsEnabled: Bool, noProjectMode: PiAgentNoProjectMode? = nil) -> PiAgentSessionRecord {
         let now = Date()
         let record = PiAgentSessionRecord(
             id: UUID(),
@@ -542,8 +540,9 @@ final class PiAgentSessionStore {
             projectPath: projectPath,
             projectName: projectName,
             repository: repository,
-            issueNumber: issueNumber,
-            issueURL: issueURL,
+            // Historical only — Issues workspace removed; never set on new sessions.
+            issueNumber: nil,
+            issueURL: nil,
             piSessionFile: nil,
             piSessionId: nil,
             model: model,

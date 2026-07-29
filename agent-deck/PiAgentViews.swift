@@ -4733,7 +4733,7 @@ struct CodingAgentExpandedPanel: View {
 
     private var emptySessionsMessage: String {
         if let project = viewModel.selectedDiscoveredProject {
-            return "Use + to create a draft for \(project.name), or open from a GitHub issue."
+            return "Use + to create a draft for \(project.name)."
         }
         return "Use + to create a draft, or select a project to narrow the list."
     }
@@ -7884,7 +7884,7 @@ struct PiAgentScreen: View {
 
     private var emptySessionsMessage: String {
         if let project = viewModel.selectedDiscoveredProject {
-            return "Use + to create a draft for \(project.name), or open from a GitHub issue."
+            return "Use + to create a draft for \(project.name)."
         }
         return "Use + to create a draft, or select a project to narrow the list."
     }
