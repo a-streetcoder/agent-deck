@@ -1890,14 +1890,17 @@ final class PiAgentRunnerService {
         if let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID],
            let thinkingText = thinkingTextBySessionID[sessionID],
            !thinkingText.isEmpty {
-            store.upsert(.init(
-                id: thinkingEntryID,
-                sessionID: sessionID,
-                role: .thinking,
-                title: "Thinking",
-                text: thinkingText,
-                rawJSON: nil
-            ), before: assistantEntryIDsBySessionID[sessionID], persist: false, revisionPolicy: .immediateForSelectedSession)
+            let display = TextSanitizer.sanitizeThinking(thinkingText)
+            if !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.upsert(.init(
+                    id: thinkingEntryID,
+                    sessionID: sessionID,
+                    role: .thinking,
+                    title: "Thinking",
+                    text: display,
+                    rawJSON: nil
+                ), before: assistantEntryIDsBySessionID[sessionID], persist: false, revisionPolicy: .immediateForSelectedSession)
+            }
         }
 
         if let assistantEntryID = assistantEntryIDsBySessionID[sessionID],
@@ -1907,7 +1910,7 @@ final class PiAgentRunnerService {
                 sessionID: sessionID,
                 role: .assistant,
                 title: "Assistant",
-                text: assistantText,
+                text: TextSanitizer.sanitizeAnswer(assistantText),
                 rawJSON: nil
             ), persist: false, revisionPolicy: .immediateForSelectedSession)
         }
@@ -1951,12 +1954,35 @@ final class PiAgentRunnerService {
             // saw. Capture it before clearing the buffer so we can fall back to it
             // below when the end event omits the body.
             let streamedText = assistantTextBySessionID[sessionID] ?? ""
+            let streamedThinking = thinkingTextBySessionID[sessionID] ?? ""
             assistantEntryIDsBySessionID[sessionID] = nil
             assistantTextBySessionID[sessionID] = nil
             thinkingEntryIDsBySessionID[sessionID] = nil
             thinkingTextBySessionID[sessionID] = nil
             let visibleText = extractAssistantText(from: message)
-            RPCDebugLog.log("  finalize assistant: entryID=\(assistantEntryID.uuidString.prefix(8)) visibleLen=\(visibleText.count) streamedLen=\(streamedText.count) dedup=\(visibleText.isEmpty ? false : recentAssistantEntryExists(with: visibleText, sessionID: sessionID, excluding: assistantEntryID)) recentAssistantCount=\(store.transcript(for: sessionID).suffix(8).filter { $0.role == .assistant }.count)")
+            // Always resolve thinking: message content blocks first, then the
+            // streamed thinking_delta buffer. Previously thinking was only
+            // persisted when the assistant body was empty, so normal turns lost
+            // reasoning on message_end (and reload).
+            var thinkingText = extractAssistantThinking(from: message)
+            if thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                thinkingText = TextSanitizer.sanitizeThinking(streamedThinking)
+            }
+            if !thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.upsert(
+                    .init(
+                        id: thinkingEntryID,
+                        sessionID: sessionID,
+                        role: .thinking,
+                        title: "Thinking",
+                        text: thinkingText,
+                        rawJSON: nil
+                    ),
+                    before: thinkingBeforeID,
+                    revisionPolicy: .immediateForSelectedSession
+                )
+            }
+            RPCDebugLog.log("  finalize assistant: entryID=\(assistantEntryID.uuidString.prefix(8)) visibleLen=\(visibleText.count) streamedLen=\(streamedText.count) thinkingLen=\(thinkingText.count) dedup=\(visibleText.isEmpty ? false : recentAssistantEntryExists(with: visibleText, sessionID: sessionID, excluding: assistantEntryID)) recentAssistantCount=\(store.transcript(for: sessionID).suffix(8).filter { $0.role == .assistant }.count)")
             if !visibleText.isEmpty {
                 // Exclude the placeholder we're finalizing: streaming flushes already
                 // wrote the full text into that same entry id (persist:false, so it
@@ -1982,7 +2008,8 @@ final class PiAgentRunnerService {
                 // stream vanishes on reload. Persist the streamed buffer on the SAME
                 // entry id (updates the in-memory streamed entry in place, so no
                 // duplicate).
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: streamedText, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
+                let answer = TextSanitizer.sanitizeAnswer(streamedText)
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: answer, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
             } else if let errorText = assistantErrorMessage(from: message) {
                 // Pi aborted the turn (provider/auth failure, etc.). The final
                 // assistant message carries stopReason:"error" + errorMessage with
@@ -2001,11 +2028,6 @@ final class PiAgentRunnerService {
                     return
                 }
                 store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .error, title: "Model Error", text: errorText, rawJSON: rawLine), revisionPolicy: .immediateForSelectedSession)
-            } else {
-                let thinkingText = extractAssistantThinking(from: message)
-                if !thinkingText.isEmpty {
-                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: nil), before: thinkingBeforeID, revisionPolicy: .immediateForSelectedSession)
-                }
             }
             // `message_end` only completes one message. Pi may still continue the same
             // run with tools, compaction, retries, follow-ups, or another turn. Wait for
@@ -2329,14 +2351,17 @@ final class PiAgentRunnerService {
             thinkingTextBySessionID[sessionID] = nil
             return
         }
-        store.upsert(.init(
-            id: thinkingEntryID,
-            sessionID: sessionID,
-            role: .thinking,
-            title: "Thinking",
-            text: thinkingText,
-            rawJSON: nil
-        ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
+        let display = TextSanitizer.sanitizeThinking(thinkingText)
+        if !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.upsert(.init(
+                id: thinkingEntryID,
+                sessionID: sessionID,
+                role: .thinking,
+                title: "Thinking",
+                text: display,
+                rawJSON: nil
+            ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
+        }
         thinkingEntryIDsBySessionID[sessionID] = nil
         thinkingTextBySessionID[sessionID] = nil
     }
@@ -2845,21 +2870,23 @@ final class PiAgentRunnerService {
     private func extractAssistantText(from message: JSONValue) -> String {
         if let content = message["content"] {
             switch content {
-            case let .string(value): return value
+            case let .string(value):
+                return TextSanitizer.sanitizeAnswer(value)
             case let .array(blocks):
-                return blocks.compactMap { block in
+                let joined = blocks.compactMap { block -> String? in
                     let blockType = block["type"]?.stringValue
                     if blockType == nil || blockType == "text" || blockType == "output_text" || blockType == "message" {
                         return block["text"]?.stringValue
                     }
                     return nil
                 }.joined(separator: "\n")
+                return TextSanitizer.sanitizeAnswer(joined)
             default:
                 // Non-text assistant content is usually tool metadata. Do not turn it into a Pi answer.
                 return ""
             }
         }
-        return message["output"]?.stringValue ?? ""
+        return TextSanitizer.sanitizeAnswer(message["output"]?.stringValue ?? "")
     }
 
     /// The model/provider error carried on a final assistant message that
@@ -2880,10 +2907,14 @@ final class PiAgentRunnerService {
     private func extractAssistantThinking(from message: JSONValue) -> String {
         guard let content = message["content"] else { return "" }
         guard case let .array(blocks) = content else { return "" }
-        return blocks.compactMap { block in
-            guard block["type"]?.stringValue == "thinking" else { return nil }
-            return block["thinking"]?.stringValue
-        }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+        let joined = blocks.compactMap { block -> String? in
+            let blockType = block["type"]?.stringValue
+            guard blockType == "thinking" || blockType == "reasoning" else { return nil }
+            return block["thinking"]?.stringValue ?? block["text"]?.stringValue
+        }
+        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .joined(separator: "\n\n")
+        return TextSanitizer.sanitizeThinking(joined)
     }
 
     private func handleTermination(exitCode: Int32, sessionID: UUID, clientRunID: UUID) {

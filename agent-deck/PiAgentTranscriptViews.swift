@@ -3716,13 +3716,14 @@ struct PiAgentTranscriptCard: View {
             // Mirrors the native thinking bubble: a single MarkdownTextView, no
             // subhead. Both renderers MUST stay in lockstep — see
             // `nativeReplyPayload(for:)` for the production path.
-            let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let display = TextSanitizer.sanitizeThinking(entry.text)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if entry.role == .user {
             PiAgentUserMessageContent(entry: entry, skills: skills, commandSlashNames: commandSlashNames)
         } else if entry.role == .assistant {
-            MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
+            MarkdownTextView(source: Self.projectedImageSource(TextSanitizer.sanitizeAnswer(entry.text), references: entry.imageReferences, showImages: showInlineImagePreviews))
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(entry.text)

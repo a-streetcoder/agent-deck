@@ -482,7 +482,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
     }
 
     private func sanitizedAssistantText(_ text: String) -> String {
-        text
+        TextSanitizer.sanitizeAnswer(text)
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
             .filter { !piAgentLeakedToolNames.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
@@ -6565,7 +6565,7 @@ struct PiAgentScreen: View {
     private func nativeReplyPayload(for child: PiAgentThreadChild, showImages: Bool) -> NativeBubblePayload? {
         switch child {
         case .assistant(let entry):
-            let text = entry.text
+            let text = TextSanitizer.sanitizeAnswer(entry.text)
             return NativeBubblePayload(
                 role: .assistant,
                 headerTitle: "Coding Agent",
@@ -6579,7 +6579,8 @@ struct PiAgentScreen: View {
                 isThreadChild: true
             )
         case .thinking(let entry):
-            let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let display = TextSanitizer.sanitizeThinking(entry.text)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             return NativeBubblePayload(
                 role: .thinking,
                 headerTitle: entry.title,

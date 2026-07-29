@@ -632,14 +632,17 @@ final class PiSubagentRunService {
         if let thinkingEntryID = thinkingEntryIDsByRunID[runID],
            let thinkingText = thinkingTextByRunID[runID],
            !thinkingText.isEmpty {
-            store.upsertSubagentTranscript(.init(
-                id: thinkingEntryID,
-                sessionID: parentSessionID,
-                role: .thinking,
-                title: "Thinking",
-                text: thinkingText,
-                rawJSON: nil
-            ), runID: runID, parentSessionID: parentSessionID, before: assistantEntryIDsByRunID[runID], persist: persist)
+            let display = TextSanitizer.sanitizeThinking(thinkingText)
+            if !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.upsertSubagentTranscript(.init(
+                    id: thinkingEntryID,
+                    sessionID: parentSessionID,
+                    role: .thinking,
+                    title: "Thinking",
+                    text: display,
+                    rawJSON: nil
+                ), runID: runID, parentSessionID: parentSessionID, before: assistantEntryIDsByRunID[runID], persist: persist)
+            }
         }
 
         if let assistantEntryID = assistantEntryIDsByRunID[runID],
@@ -649,7 +652,7 @@ final class PiSubagentRunService {
                 sessionID: parentSessionID,
                 role: .assistant,
                 title: "Assistant",
-                text: assistantText,
+                text: TextSanitizer.sanitizeAnswer(assistantText),
                 rawJSON: nil
             ), runID: runID, parentSessionID: parentSessionID, persist: persist)
         }
@@ -754,18 +757,33 @@ final class PiSubagentRunService {
             let assistantEntryID = assistantEntryIDsByRunID[runID] ?? UUID()
             let thinkingEntryID = thinkingEntryIDsByRunID[runID] ?? UUID()
             let thinkingBeforeID = assistantEntryIDsByRunID[runID]
+            let streamedThinking = thinkingTextByRunID[runID] ?? ""
             assistantEntryIDsByRunID[runID] = nil
             assistantTextByRunID[runID] = nil
             thinkingEntryIDsByRunID[runID] = nil
             thinkingTextByRunID[runID] = nil
 
+            var thinkingText = extractAssistantThinking(from: message)
+            if thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                thinkingText = TextSanitizer.sanitizeThinking(streamedThinking)
+            }
+            if !thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.upsertSubagentTranscript(
+                    .init(
+                        id: thinkingEntryID,
+                        sessionID: parentSessionID,
+                        role: .thinking,
+                        title: "Thinking",
+                        text: thinkingText,
+                        rawJSON: nil
+                    ),
+                    runID: runID,
+                    parentSessionID: parentSessionID,
+                    before: thinkingBeforeID
+                )
+            }
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 store.upsertSubagentTranscript(.init(id: assistantEntryID, sessionID: parentSessionID, role: .assistant, title: "Assistant", text: text, rawJSON: nil), runID: runID, parentSessionID: parentSessionID)
-            } else {
-                let thinkingText = extractAssistantThinking(from: message)
-                if !thinkingText.isEmpty {
-                    store.upsertSubagentTranscript(.init(id: thinkingEntryID, sessionID: parentSessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: nil), runID: runID, parentSessionID: parentSessionID, before: thinkingBeforeID)
-                }
             }
         } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let transcriptRole = PiAgentTranscriptRole(rawValue: role) ?? .raw
@@ -1502,29 +1520,35 @@ final class PiSubagentRunService {
     private func extractAssistantText(from message: JSONValue) -> String {
         if let content = message["content"] {
             switch content {
-            case let .string(value): return value
+            case let .string(value):
+                return TextSanitizer.sanitizeAnswer(value)
             case let .array(blocks):
-                return blocks.compactMap { block in
+                let joined = blocks.compactMap { block -> String? in
                     let blockType = block["type"]?.stringValue
                     if blockType == nil || blockType == "text" || blockType == "output_text" || blockType == "message" {
                         return block["text"]?.stringValue
                     }
                     return nil
                 }.joined(separator: "\n")
+                return TextSanitizer.sanitizeAnswer(joined)
             default:
                 return ""
             }
         }
-        return message["output"]?.stringValue ?? ""
+        return TextSanitizer.sanitizeAnswer(message["output"]?.stringValue ?? "")
     }
 
     private func extractAssistantThinking(from message: JSONValue) -> String {
         guard let content = message["content"] else { return "" }
         guard case let .array(blocks) = content else { return "" }
-        return blocks.compactMap { block in
-            guard block["type"]?.stringValue == "thinking" else { return nil }
-            return block["thinking"]?.stringValue
-        }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+        let joined = blocks.compactMap { block -> String? in
+            let blockType = block["type"]?.stringValue
+            guard blockType == "thinking" || blockType == "reasoning" else { return nil }
+            return block["thinking"]?.stringValue ?? block["text"]?.stringValue
+        }
+        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .joined(separator: "\n\n")
+        return TextSanitizer.sanitizeThinking(joined)
     }
 }
 
