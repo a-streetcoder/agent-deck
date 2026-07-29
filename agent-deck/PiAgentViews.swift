@@ -6376,7 +6376,7 @@ struct PiAgentScreen: View {
         agentProfilesByName: [String: EffectiveAgentRecord]
     ) -> PiAgentTranscriptCellKind? {
         switch child {
-        case .assistant:
+        case .assistant, .assistantWithThinking:
             return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
         case .thinking:
             return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
@@ -6518,8 +6518,32 @@ struct PiAgentScreen: View {
                 markdownSource: text,
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
+                thinkingMarkdownSource: nil,
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                copySide: .trailing,
+                isThreadChild: true
+            )
+        case .assistantWithThinking(let thinking, let entry):
+            let text = entry.text
+            let think = thinking.map(\.text).joined(separator: "\n\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let copy: String
+            if think.isEmpty {
+                copy = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                copy = "Thinking\n\n\(think)\n\n\(text)".trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return NativeBubblePayload(
+                role: .assistant,
+                headerTitle: "Coding Agent",
+                iconSymbol: nil,
+                markdownSource: text,
+                imageReferences: entry.imageReferences,
+                showInlineImagePreviews: showImages,
+                thinkingMarkdownSource: think.isEmpty ? nil : think,
+                bodyPrefix: nil,
+                copyText: copy,
                 copySide: .trailing,
                 isThreadChild: true
             )
@@ -6532,6 +6556,7 @@ struct PiAgentScreen: View {
                 markdownSource: display.isEmpty ? "Pi has not emitted reasoning text yet." : display,
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
+                thinkingMarkdownSource: nil,
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,
@@ -6549,6 +6574,10 @@ struct PiAgentScreen: View {
         case let .assistant(entry), let .steering(entry), let .thinking(entry):
             let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
             return CGFloat(min(lines, 40)) * 18 + 48
+        case .assistantWithThinking(let thinking, let entry):
+            let thinkChars = thinking.reduce(0) { $0 + $1.text.count }
+            let lines = max(1, (entry.text.count + thinkChars + charsPerLine - 1) / charsPerLine)
+            return CGFloat(min(lines, 60)) * 18 + 64
         case .toolGroup:
             // Estimate from the same capped display model the native tool card
             // renders, not from raw activity count. MCP/web/diff groups can contain
@@ -6581,6 +6610,9 @@ struct PiAgentScreen: View {
         case let .steering(entry), let .thinking(entry), let .assistant(entry),
              let .error(entry):
             hashEntryRevision(entry, into: &hasher)
+        case let .assistantWithThinking(thinking, assistant):
+            for entry in thinking { hashEntryRevision(entry, into: &hasher) }
+            hashEntryRevision(assistant, into: &hasher)
         case let .status(entry):
             hashEntryRevision(entry, into: &hasher)
             // A status child fronting a Deck agent run renders the whole run

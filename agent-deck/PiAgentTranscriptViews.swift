@@ -49,6 +49,9 @@ enum PiAgentThreadChild: Hashable, Identifiable {
     case steering(PiAgentTranscriptEntry)
     case thinking(PiAgentTranscriptEntry)
     case assistant(PiAgentTranscriptEntry)
+    /// Thinking immediately followed by an assistant reply with no tool/status
+    /// between them — one bubble (thinking nested under Coding Agent).
+    case assistantWithThinking(thinking: [PiAgentTranscriptEntry], assistant: PiAgentTranscriptEntry)
     case toolGroup(PiAgentThreadToolGroup)
     case status(PiAgentTranscriptEntry)
     case error(PiAgentTranscriptEntry)
@@ -61,6 +64,7 @@ enum PiAgentThreadChild: Hashable, Identifiable {
         case .steering(let e): return "st-\(e.id.uuidString)"
         case .thinking(let e): return "th-\(e.id.uuidString)"
         case .assistant(let e): return "as-\(e.id.uuidString)"
+        case .assistantWithThinking(_, let e): return "as-\(e.id.uuidString)"
         case .toolGroup(let g): return "tg-\(g.id.uuidString)"
         case .status(let e): return "ss-\(e.id.uuidString)"
         case .error(let e): return "er-\(e.id.uuidString)"
@@ -286,7 +290,50 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
                 }
             }
             flushGroup()
-            return children
+            // Option A: fold thinking into the next assistant when nothing
+            // tool-like sits between them. Thinking that precedes a tool/status
+            // stays a standalone row so the timeline does not jump.
+            return Self.coalesceThinkingIntoFollowingAssistant(children)
+        }
+
+        /// Merges runs of `.thinking` immediately followed by `.assistant` into
+        /// `.assistantWithThinking`. Any intervening tool/status/error/retry/steering
+        /// flushes pending thinking as standalone children first.
+        private static func coalesceThinkingIntoFollowingAssistant(
+            _ children: [PiAgentThreadChild]
+        ) -> [PiAgentThreadChild] {
+            var out: [PiAgentThreadChild] = []
+            var pendingThinking: [PiAgentTranscriptEntry] = []
+
+            func flushPendingThinking() {
+                for entry in pendingThinking {
+                    out.append(.thinking(entry))
+                }
+                pendingThinking = []
+            }
+
+            for child in children {
+                switch child {
+                case .thinking(let entry):
+                    pendingThinking.append(entry)
+                case .assistant(let entry):
+                    if pendingThinking.isEmpty {
+                        out.append(child)
+                    } else {
+                        out.append(.assistantWithThinking(thinking: pendingThinking, assistant: entry))
+                        pendingThinking = []
+                    }
+                case .assistantWithThinking:
+                    // Already coalesced (defensive); keep as-is after flushing.
+                    flushPendingThinking()
+                    out.append(child)
+                case .steering, .toolGroup, .status, .error, .retry:
+                    flushPendingThinking()
+                    out.append(child)
+                }
+            }
+            flushPendingThinking()
+            return out
         }
 
         private func coalescedStatuses(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
@@ -1157,6 +1204,12 @@ struct PiAgentTranscriptThreadCard: View {
         case .steering(let entry), .thinking(let entry), .assistant(let entry),
              .status(let entry), .error(let entry):
             return entry.text
+        case .assistantWithThinking(let thinking, let assistant):
+            let think = thinking.map(\.text).joined(separator: "\n\n")
+            if think.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return assistant.text
+            }
+            return "Thinking\n\n\(think)\n\n\(assistant.text)"
         case .toolGroup(let group):
             return group.entries.map(\.text).joined(separator: "\n\n")
         case .retry(let entry, _):
@@ -1179,6 +1232,17 @@ struct PiAgentTranscriptThreadCard: View {
         case .assistant(let entry):
             PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills, commandSlashNames: commandSlashNames)
                 .id(entry.id)
+        case .assistantWithThinking(let thinking, let assistant):
+            PiAgentTranscriptCard(
+                entry: assistant,
+                style: childStyle,
+                skills: skills,
+                commandSlashNames: commandSlashNames,
+                nestedThinkingText: visibility.showThinking
+                    ? thinking.map(\.text).joined(separator: "\n\n")
+                    : nil
+            )
+            .id(assistant.id)
         case .toolGroup(let group):
             toolGroupView(group)
         case .status(let entry):
@@ -1294,7 +1358,7 @@ struct PiAgentTranscriptThreadCard: View {
                 // list: it would still emit a 0-height row that the inter-row inset
                 // pass pads on both sides, leaving a phantom gap between turns.
                 return toolGroupHasVisibleContent(group, visibility: visibility, projectPath: projectPath)
-            case .steering, .assistant, .retry: return true
+            case .steering, .assistant, .assistantWithThinking, .retry: return true
             }
         }
         return coalesceAdjacentToolGroups(filtered)
@@ -3648,6 +3712,8 @@ struct PiAgentTranscriptCard: View {
     /// Applies only to automatic transcript image markup; user attachment chips
     /// continue through `PiAgentUserMessageContent` unchanged.
     var showInlineImagePreviews: Bool = true
+    /// When set on an assistant card, thinking is nested above the reply (no separate bubble).
+    var nestedThinkingText: String? = nil
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -3722,8 +3788,23 @@ struct PiAgentTranscriptCard: View {
         } else if entry.role == .user {
             PiAgentUserMessageContent(entry: entry, skills: skills, commandSlashNames: commandSlashNames)
         } else if entry.role == .assistant {
-            MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let nested = nestedThinkingText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !nested.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Thinking")
+                        .font(AppTheme.Font.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.roleThinking)
+                    MarkdownTextView(source: nested)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .opacity(0.85)
+                    Divider().opacity(0.35)
+                    MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else {
             Text(entry.text)
                 .font(entry.role == .tool || entry.role == .stderr || entry.role == .raw ? AppTheme.Font.code : AppTheme.Font.body)

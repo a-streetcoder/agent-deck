@@ -204,6 +204,8 @@ struct NativeBubblePayload {
     var markdownSource: String
     var imageReferences: [PiAgentTranscriptImageReference] = []
     var showInlineImagePreviews: Bool = true
+    /// Optional thinking block nested above the assistant body (merged turn).
+    var thinkingMarkdownSource: String? = nil
     /// Small bold label above the body (e.g. "Reasoning" for thinking rows).
     var bodyPrefix: String?
     var copyText: String
@@ -798,10 +800,26 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         if let prefix = payload?.bodyPrefix, !prefix.isEmpty {
             h += ceil(prefixLabel.intrinsicContentSize.height) + prefixSpacing
         }
-        let presentation = imagePresentation()
-        let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
         var isFirst = true
         var markdownIndex = 0
+        func addBlockHeight(_ blockHeight: CGFloat) {
+            if !isFirst { h += contentStack.spacing }
+            h += blockHeight
+            isFirst = false
+        }
+        if let thinking = payload?.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !thinking.isEmpty {
+            // "Thinking" caption + nested markdown + thin divider.
+            addBlockHeight(ceil(NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold).ascender
+                - NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold).descender) + 2)
+            let container = markdownContainer(at: markdownIndex)
+            markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
+            markdownIndex += 1
+            addBlockHeight(container.measureHeight(forWidth: inner))
+            addBlockHeight(9) // spacing + 1pt divider
+        }
+        let presentation = imagePresentation()
+        let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
         for block in blocks {
             let blockHeight: CGFloat
             switch block {
@@ -814,9 +832,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             case .image(let reference, _):
                 blockHeight = PiAgentNativeTranscriptImageAttachmentView.measuredHeight(reference: reference, width: inner)
             }
-            if !isFirst { h += contentStack.spacing }
-            h += blockHeight
-            isFirst = false
+            addBlockHeight(blockHeight)
         }
         h += vPad
         return ceil(h)
@@ -836,14 +852,34 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             contentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        var markdownIndex = 0
+        if let thinking = payload.thinkingMarkdownSource?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !thinking.isEmpty {
+            let caption = NSTextField(labelWithString: "Thinking")
+            caption.font = NSFont.systemFont(ofSize: AppTheme.Font.captionSize, weight: .semibold)
+            caption.textColor = AppTheme.ns(AppTheme.roleThinking)
+            caption.lineBreakMode = .byTruncatingTail
+            contentStack.addArrangedSubview(caption)
+
+            let container = markdownContainer(at: markdownIndex)
+            markdownApplier(at: markdownIndex).apply(source: thinking, to: container)
+            container.alphaValue = 0.88
+            markdownIndex += 1
+            contentStack.addArrangedSubview(container)
+
+            let divider = NSBox()
+            divider.boxType = .separator
+            divider.translatesAutoresizingMaskIntoConstraints = false
+            contentStack.addArrangedSubview(divider)
+        }
         let presentation = imagePresentation()
         let blocks = Self.contentBlocks(source: presentation.source, references: presentation.references)
-        var markdownIndex = 0
         for block in blocks {
             switch block {
             case .markdown(let text):
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let container = markdownContainer(at: markdownIndex)
+                container.alphaValue = 1
                 markdownApplier(at: markdownIndex).apply(source: text, to: container)
                 markdownIndex += 1
                 contentStack.addArrangedSubview(container)
