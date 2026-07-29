@@ -9,22 +9,12 @@ enum AppFonts {
 
     private static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "Fonts")
 
-    static func registerBundledFonts() {
-        // Idempotent: if the font already resolves — registered earlier this
-        // launch, or installed in the user's Font Book — skip. Re-registering an
-        // already-registered URL trips a CoreText bug: CTFontManagerRegisterFontsForURL
-        // builds its "already registered" CFError with a nil NSLocalizedFailureReason
-        // and the NSDictionary insert throws NSInvalidArgumentException — a hard crash
-        // the exception unwinds before our `alreadyRegistered` guard can run.
-        guard NSFont(name: kemcoPixelBold, size: 1) == nil else { return }
-        registerFont(named: "Kemco Pixel Bold", extension: "ttf")
-    }
+    /// No-op: product chrome uses system fonts; bundled pixel font is unused.
+    static func registerBundledFonts() {}
 
+    /// Prefer system UI fonts for product chrome (pixel display font retired).
     static func kemcoPixelBold(size: CGFloat) -> Font {
-        if let font = NSFont(name: kemcoPixelBold, size: size) {
-            return Font(font)
-        }
-        return .system(size: size, weight: .bold)
+        .system(size: size, weight: .semibold, design: .default)
     }
 
     private static func registerFont(named name: String, extension ext: String) {

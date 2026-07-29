@@ -23,7 +23,6 @@ struct SidebarNavigationRow: View {
                         .accessibilityLabel(languageStore.t("sidebar.sectionWarningA11y"))
                 }
             }
-            .fontWidth(.expanded)
         } icon: {
             icon
         }
@@ -58,7 +57,6 @@ private struct SidebarNewFeatureBadge: View {
     var body: some View {
         Text("NEW")
             .font(AppTheme.Font.caption2.weight(.bold))
-            .fontWidth(.condensed)
             .foregroundStyle(isSelected ? .primary : AppTheme.brandAccent)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -76,7 +74,7 @@ private struct SidebarNewFeatureBadge: View {
 }
 
 
-/// Brand row at the top of the sidebar: pixel title on the left; on the right
+/// Brand row at the top of the sidebar: product title on the left; on the right
 /// the Sparkle update shortcut (only when an update is available), the
 /// refresh-everything button, and the Settings gear.
 struct SidebarTitleBar: View {
@@ -86,23 +84,12 @@ struct SidebarTitleBar: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            HStack(alignment: .center, spacing: 12) {
-                ForEach(AppBrand.titleWords, id: \.self) { word in
-                    Text(word)
-                        .font(AppFonts.kemcoPixelBold(size: 18))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        // Never wrap mid-word at narrow widths; the sidebar's
-                        // min column width is sized to fit the full title.
-                        .fixedSize()
-                }
-            }
-            .accessibilityElement(children: .combine)
-            // Optical centering: the pixel font's glyphs sit entirely above
-            // the baseline while its line box carries ~1.8pt of empty descent
-            // (at 18pt), so frame-centering renders the visible title ~0.9pt
-            // high next to the icons. Integral 1pt keeps the pixels crisp.
-            .offset(y: 1)
+            Text(AppBrand.displayName)
+                .font(.system(size: 15, weight: .semibold, design: .default))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .fixedSize()
+                .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 8)
 
