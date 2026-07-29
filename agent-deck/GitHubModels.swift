@@ -24,67 +24,6 @@ nonisolated struct GitHubRemote: Hashable, Sendable {
     }
 }
 
-nonisolated struct GitHubHostAccount: Hashable, Sendable {
-    let host: String
-    let login: String
-    let scopes: [String]
-    let gitProtocol: String?
-    let tokenSource: String?
-    let isActive: Bool
-}
-
-nonisolated struct GitHubSession: Hashable, Sendable {
-    let source: GitHubSessionSource
-    let account: GitHubHostAccount
-}
-
-nonisolated enum GitHubSessionSource: String, Hashable, Sendable {
-    case ghCLI = "GitHub CLI"
-    case nativeOAuth = "GitHub Sign-In"
-}
-
-nonisolated enum GitHubConnectionState: Hashable, Sendable {
-    case unavailable(reason: String)
-    case disconnected
-    case checking
-    case available(GitHubHostAccount)
-    case connected(GitHubHostAccount)
-    case failed(message: String)
-
-    var summary: String {
-        switch self {
-        case let .unavailable(reason):
-            return reason
-        case .disconnected:
-            return "Not connected"
-        case .checking:
-            return "Checking GitHub status…"
-        case let .available(account):
-            return "GitHub CLI authenticated as \(account.login)"
-        case let .connected(account):
-            return "Connected as \(account.login)"
-        case let .failed(message):
-            return message
-        }
-    }
-
-    var account: GitHubHostAccount? {
-        switch self {
-        case let .available(account), let .connected(account):
-            return account
-        default:
-            return nil
-        }
-    }
-
-    var isConnected: Bool {
-        if case .connected = self {
-            return true
-        }
-        return false
-    }
-}
-
 nonisolated enum GitDiffKind: String, Hashable {
     case staged = "Staged"
     case unstaged = "Unstaged"

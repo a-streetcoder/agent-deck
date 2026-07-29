@@ -185,7 +185,7 @@ struct DoctorScreen: View {
 
     /// Demo only: forced install states. When set, the Doctor runs the real
     /// `SetupDependencyService` against these (1:1 with reality) and shows the
-    /// runtime/GitHub/Web sections as not-installed.
+    /// runtime/Web sections as not-installed.
     private let demoSimulation: SetupSimulation?
     private var isDemo: Bool { demoSimulation != nil }
 
@@ -213,7 +213,6 @@ struct DoctorScreen: View {
         AppPage(languageStore.t("doctor.pageTitle"), subtitle: languageStore.t("doctor.pageSubtitle")) {
             piAgentSection
             dependenciesSection
-            githubAccessSection
             webAccessSection
             if !snapshot.warnings.isEmpty {
                 warningsSection
@@ -224,7 +223,6 @@ struct DoctorScreen: View {
             if let demoSimulation {
                 setupItems = await SetupDependencyService().loadItems(
                     projectRootPaths: viewModel.configuredProjectsRootPaths,
-                    githubAccount: viewModel.currentGitHubAccount,
                     selectedProjectPath: viewModel.selectedProjectPath,
                     hasConfirmedProjectsRootPaths: viewModel.hasConfirmedProjectsRootPaths,
                     suggestedProjectsRootPath: viewModel.suggestedProjectsRootPath,
@@ -244,21 +242,15 @@ struct DoctorScreen: View {
             }
             refreshWebFetchStatus()
         }
-        // Re-check Pi and GitHub after returning from Terminal so installs,
-        // updates, and interactive `gh auth login` appear without a manual
-        // refresh. `scenePhase` does not fire on macOS focus changes, so listen
-        // to AppKit's activation notification directly; when CLI auth is now
-        // available, reconnect the app state and refresh the setup rows.
+        // Re-check Pi after returning from Terminal so installs/updates appear
+        // without a manual refresh. `scenePhase` does not fire on macOS focus
+        // changes, so listen to AppKit's activation notification directly.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             if skipLiveChecksForPreview { return }
             guard !piInstaller.isRunning else { return }
             refreshWebFetchStatus()
             Task {
                 await refreshPiRuntimeStatus()
-                await viewModel.refreshGitHubStatus()
-                if case .available = viewModel.githubConnectionState {
-                    await viewModel.connectGitHubUsingCLIIfNeeded()
-                }
                 await refreshSetupChecks()
             }
         }
@@ -741,8 +733,6 @@ struct DoctorScreen: View {
             runPiAutoTask(isUpdate: false)
         case .connectProvider:
             isConnectProviderPresented = true // re-checks on sheet dismiss
-        case .setupGitHub:
-            viewModel.openGitHubSetupInTerminal()
         }
     }
 
@@ -752,7 +742,6 @@ struct DoctorScreen: View {
         defer { isRefreshingSetup = false }
         async let setup = SetupDependencyService().loadItems(
             projectRootPaths: viewModel.configuredProjectsRootPaths,
-            githubAccount: viewModel.currentGitHubAccount,
             selectedProjectPath: viewModel.selectedProjectPath,
             hasConfirmedProjectsRootPaths: viewModel.hasConfirmedProjectsRootPaths,
             suggestedProjectsRootPath: viewModel.suggestedProjectsRootPath
@@ -760,106 +749,6 @@ struct DoctorScreen: View {
         async let piRuntime = PiAgentUpdateService().loadStatus()
         setupItems = await setup
         piRuntimeStatus = await piRuntime
-    }
-
-    // MARK: - GitHub Access
-
-    private var githubAccessSection: some View {
-        // Connected: avatar centered against the title+detail block, so the
-        // few points of height difference split evenly instead of hanging off
-        // the bottom (and a wrapping detail line stays balanced too).
-        // Disconnected: top-aligned, the Connect button makes the text column
-        // much taller and the small glyph belongs beside the title.
-        AppCard(title: "GitHub") {
-            HStack(alignment: effectiveGitHubAccount == nil ? .top : .center, spacing: 14) {
-                if let account = effectiveGitHubAccount {
-                    SidebarGitHubAvatarView(url: githubAvatarURL(for: account), size: 40)
-                        .overlay(alignment: .bottomTrailing) {
-                            Circle()
-                                .fill(githubStatusColor)
-                                .frame(width: 10, height: 10)
-                                .overlay(Circle().stroke(AppTheme.contentFill, lineWidth: 2))
-                        }
-                } else {
-                    Image("github")
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 24, height: 24)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(effectiveGitHubAccount?.login ?? "GitHub CLI")
-                        .font(.body.weight(.semibold))
-                        .fontWidth(.expanded)
-
-                    Text(githubAccessDetail)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if effectiveGitHubAccount == nil {
-                        Button(languageStore.t("doctor.setupGitHub")) {
-                            viewModel.openGitHubSetupInTerminal()
-                        }
-                        .appPrimaryButton()
-                    }
-                }
-
-                Spacer(minLength: 8)
-                AppLabelTag(
-                    text: effectiveGitHubAccount == nil ? "Optional" : githubStatusText,
-                    color: effectiveGitHubAccount == nil ? .secondary : githubStatusColor
-                )
-            }
-            .padding(.vertical, 12)
-        }
-    }
-
-    /// GitHub account, forced to `nil` in the preview/demo so the row reads as
-    /// disconnected even on a machine where `gh` is signed in.
-    private var effectiveGitHubAccount: GitHubHostAccount? {
-        skipLiveChecksForPreview ? nil : viewModel.currentGitHubAccount
-    }
-
-    private var githubAccessDetail: String {
-        if let account = effectiveGitHubAccount {
-            return "Connected as \(account.login) on \(account.host). Enables commit and push workflows."
-        }
-        if isDemo {
-            return "Optional. Install the GitHub CLI and sign in to enable commit and push workflows."
-        }
-        return "Optional. Set up GitHub to install the GitHub CLI if needed and sign in for commit and push workflows."
-    }
-
-    private var githubStatusText: String {
-        if viewModel.githubIsRefreshingEverything {
-            return "Refreshing…"
-        }
-        switch viewModel.githubConnectionState {
-        case .connected: return "Connected"
-        case .checking: return "Connecting…"
-        case .failed: return "Error"
-        case .available: return "Ready"
-        case .unavailable: return "Unavailable"
-        case .disconnected: return "Inactive"
-        }
-    }
-
-    private var githubStatusColor: Color {
-        switch viewModel.githubConnectionState {
-        case .connected: return .green
-        case .failed: return .red
-        default: return .secondary
-        }
-    }
-
-    private func githubAvatarURL(for account: GitHubHostAccount) -> URL? {
-        guard account.host.caseInsensitiveCompare("github.com") == .orderedSame else { return nil }
-        // Server-resized avatar (~160px) instead of the full 460px source:
-        // crisper at 32pt and ~7x lighter to download.
-        return URL(string: "https://avatars.githubusercontent.com/\(account.login)?s=160")
     }
 
     // MARK: - Web Access

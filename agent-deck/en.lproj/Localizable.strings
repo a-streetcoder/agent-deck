@@ -182,7 +182,6 @@
 "doctor.coreRequirements" = "Core requirements for running local Pi workflows.";
 "doctor.checkingDeps" = "Checking dependencies...";
 "doctor.refreshDeps" = "Refresh dependencies";
-"doctor.setupGitHub" = "Set up GitHub";
 "doctor.addExaKey" = "Add EXA_API_KEY…";
 "doctor.urlFetchFallback" = "URL Fetch Fallback";
 "doctor.noSettings" = "No settings files found.";
@@ -886,7 +885,7 @@
 "shortcut.dictation.desc" = "Start macOS Dictation in the focused Pi Agent composer.";
 "shortcut.newAgent.desc" = "Create a new custom agent.";
 "shortcut.refresh.desc" = "Refresh projects, agents, prompts, and repository data.";
-"shortcut.refreshGit.desc" = "Refresh GitHub CLI status and repository change data.";
+"shortcut.refreshGit.desc" = "Refresh projects and repository change data.";
 "shortcut.commit.desc" = "Commit the prepared repository changes.";
 "shortcut.push.desc" = "Push the current branch.";
 "shortcut.addProject.desc" = "Add a project folder.";

@@ -99,9 +99,9 @@ enum AppCredits {
         ]),
         Section(title: "Services", entries: [
             Entry(
-                title: "GitHub",
-                detail: "GitHub CLI powers optional commit and push workflows in the agent toolbar.",
-                url: "https://github.com"
+                title: "Git",
+                detail: "Local git powers optional commit and push workflows in the agent toolbar.",
+                url: "https://git-scm.com"
             )
         ])
     ]

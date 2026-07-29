@@ -210,7 +210,6 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var cachedPiRuntimeSettingsModificationDate: Date?
     @ObservationIgnored private var lastPiRuntimeSettingsStatCheck: Date?
     @ObservationIgnored private var cachedPiRuntimeDefaults: (settingsModificationDate: Date?, provider: String?, model: String?, thinkingLevel: String?)?
-    var githubConnectionState: GitHubConnectionState = .checking
     var githubRepositoryChanges: RepositoryChangesSnapshot?
     var githubRepositoryChangesProjectPath: String?
     private var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
@@ -226,7 +225,6 @@ final class AppViewModel: NSObject {
     var piAgentGitAutomationAction: PiAgentGitAutomationAction?
     var githubIsRefreshingEverything = false
     var githubLastError: String?
-    var githubLastStatusCheckAt: Date?
     var loopDefinitions: [LoopDefinition] = []
     var selectedLoopDefinitionID: LoopDefinition.ID?
     var newLoopRequestID = UUID()
@@ -350,7 +348,6 @@ final class AppViewModel: NSObject {
     private let envPersistence = EnvPersistence()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsController = AppSettingsController()
-    private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
     private let shipService = PiAgentShipService()
     /// Tag-and-push release flow, scoped to the agent-deck repo itself.
@@ -392,10 +389,9 @@ final class AppViewModel: NSObject {
     }
     /// Always-global resource catalog snapshot, independent of `selectedProjectPath`.
     /// The Agents/Skills/Prompts management views read this so their listing is
-    /// global — project selection only drives Issues, Memory, GitHub, and
-    /// new-session context, never the resource catalog presentation.
+    /// global — project selection only drives Memory and new-session context,
+    /// never the resource catalog presentation.
     var globalCatalogSnapshot: ScanSnapshot { globalSnapshot }
-    private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
     private var watchFingerprintTask: Task<Void, Never>?
@@ -585,13 +581,6 @@ final class AppViewModel: NSObject {
         startAutoRefresh()
         cleanupOrphanedNativeSubagentArtifacts()
 
-        Task { [weak self] in
-            guard let self else { return }
-            await refreshGitHubStatus()
-            if case .available = githubConnectionState {
-                await connectGitHubUsingCLIIfNeeded()
-            }
-        }
     }
 
     deinit {
@@ -2017,49 +2006,6 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func refreshGitHubStatus() async {
-        githubConnectionState = .checking
-        githubLastError = nil
-
-        let state = await gitHubAuthService.loadStatus()
-        switch state {
-        case let .available(account):
-            if gitHubSession?.account == account {
-                githubConnectionState = .connected(account)
-            } else {
-                gitHubSession = nil
-                githubConnectionState = .available(account)
-            }
-        case let .connected(account):
-            githubConnectionState = .connected(account)
-        default:
-            gitHubSession = nil
-            githubConnectionState = state
-        }
-
-        githubLastStatusCheckAt = Date()
-    }
-    func connectGitHubUsingCLIIfNeeded(forceReconnect: Bool = false) async {
-        if !forceReconnect, gitHubSession != nil, githubConnectionState.isConnected {
-            return
-        }
-
-        githubConnectionState = .checking
-        githubLastError = nil
-
-        do {
-            let session = try await gitHubAuthService.connectUsingCLI()
-            gitHubSession = session
-            githubConnectionState = .connected(session.account)
-            githubLastStatusCheckAt = Date()
-        } catch {
-            gitHubSession = nil
-            githubConnectionState = .failed(message: error.localizedDescription)
-            githubLastError = error.localizedDescription
-            githubLastStatusCheckAt = Date()
-        }
-    }
-
 
     func refreshEverything() {
         guard !githubIsRefreshingEverything else { return }
@@ -2067,20 +2013,12 @@ final class AppViewModel: NSObject {
         githubIsRefreshingEverything = true
         githubLastError = nil
 
-        // The outer @MainActor class implicitly bounds this Task to the main
-        // actor, so the inner `await MainActor.run` blocks the previous
-        // implementation used were no-ops. Sync work runs inline; only the
-        // genuinely-async GitHub calls suspend.
         Task { [weak self] in
             guard let self else { return }
             defer {
                 self.githubIsRefreshingEverything = false
             }
             self.refresh(includeModels: true)
-            await self.refreshGitHubStatus()
-            if case .available = self.githubConnectionState {
-                await self.connectGitHubUsingCLIIfNeeded()
-            }
             if self.selectedDiscoveredProject?.isGitRepository == true {
                 self.refreshRepositoryChanges(preservingDiffSelection: true)
             }
@@ -3026,29 +2964,8 @@ final class AppViewModel: NSObject {
         }
     }
 
-    /// Installs the GitHub CLI if needed, then runs `gh auth login` — one
-    /// "Set up GitHub" action covering both steps in a single Terminal session.
-    func openGitHubSetupInTerminal() {
-        let body = """
-        if ! command -v gh >/dev/null 2>&1; then
-          if command -v brew >/dev/null 2>&1; then
-            brew install gh
-          else
-            echo "Homebrew not found. Install it from https://brew.sh or the GitHub CLI from https://cli.github.com."
-          fi
-        fi
-        if command -v gh >/dev/null 2>&1; then
-          gh auth login
-        fi
-        echo ""
-        echo "Press any key to close."
-        read -k 1
-        """
-        runShellScriptInTerminal(named: "gh-setup", body: body)
-    }
-
-    /// Writes a one-shot `.command` script and opens it in Terminal. Shared by
-    /// the GitHub install/login helpers (mirrors `openPiInstallInTerminal`).
+    /// Writes a one-shot `.command` script and opens it in Terminal
+    /// (mirrors `openPiInstallInTerminal`).
     private func runShellScriptInTerminal(named: String, body: String) {
         let operationID = UUID()
         let scriptURL = FileManager.default.temporaryDirectory
@@ -6833,9 +6750,6 @@ final class AppViewModel: NSObject {
         }
     }
 
-    var currentGitHubAccount: GitHubHostAccount? {
-        githubConnectionState.account ?? gitHubSession?.account
-    }
     /// Cached — see `cachedAllDisplayAgents`. Rebuilt by `rebuildWarningCaches()`.
     var allDisplayAgents: [EffectiveAgentRecord] { cachedAllDisplayAgents }
 
@@ -7451,15 +7365,6 @@ final class AppViewModel: NSObject {
         !hasConfirmedProjectsRootPaths
             || !configuredProjectsRootsExist
             || !snapshot.warnings.isEmpty
-            // The sidebar no longer shows the GitHub account/status card, so a
-            // broken connection surfaces here: warning triangle on Doctor, and
-            // Doctor's GitHub card explains.
-            || githubConnectionHasFailed
-    }
-
-    private var githubConnectionHasFailed: Bool {
-        if case .failed = githubConnectionState { return true }
-        return false
     }
 
     /// True only when every configured projects-root entry resolves to an

@@ -39,7 +39,7 @@ private enum WelcomeTourContent {
             WelcomeTourPage(
                 imageName: "pop-onb-6",
                 title: "Connect the Wider Workflow",
-                description: "Bring in GitHub, project folders, environment keys, and model setup when you need them. Setup checks confirm the workspace is ready."
+                description: "Bring in project folders, environment keys, and model setup when you need them. Setup checks confirm the workspace is ready."
             )
         ]
     }
@@ -130,15 +130,12 @@ struct WelcomeOnboardingSheet: View {
     private func startFinalSetupRecheck() {
         guard !setupSimulation.isActive else { return }
         let projectRootPaths = viewModel.configuredProjectsRootPaths
-        let githubAccount = viewModel.currentGitHubAccount
         let selectedProjectPath = viewModel.selectedProjectPath
         let hasConfirmedProjectsRootPaths = viewModel.hasConfirmedProjectsRootPaths
         let suggestedProjectsRootPath = viewModel.suggestedProjectsRootPath
         finalCheckTask = Task {
             await SetupDependencyService().loadItems(
-                projectRootPaths: projectRootPaths,
-                githubAccount: githubAccount,
-                selectedProjectPath: selectedProjectPath,
+                projectRootPaths: projectRootPaths,                selectedProjectPath: selectedProjectPath,
                 hasConfirmedProjectsRootPaths: hasConfirmedProjectsRootPaths,
                 suggestedProjectsRootPath: suggestedProjectsRootPath
             )
@@ -148,15 +145,12 @@ struct WelcomeOnboardingSheet: View {
     private func preloadSetupChecksIfNeeded() {
         guard setupItemsTask == nil, !setupSimulation.isActive else { return }
         let projectRootPaths = viewModel.configuredProjectsRootPaths
-        let githubAccount = viewModel.currentGitHubAccount
         let selectedProjectPath = viewModel.selectedProjectPath
         let hasConfirmedProjectsRootPaths = viewModel.hasConfirmedProjectsRootPaths
         let suggestedProjectsRootPath = viewModel.suggestedProjectsRootPath
         setupItemsTask = Task {
             await SetupDependencyService().loadItems(
-                projectRootPaths: projectRootPaths,
-                githubAccount: githubAccount,
-                selectedProjectPath: selectedProjectPath,
+                projectRootPaths: projectRootPaths,                selectedProjectPath: selectedProjectPath,
                 hasConfirmedProjectsRootPaths: hasConfirmedProjectsRootPaths,
                 suggestedProjectsRootPath: suggestedProjectsRootPath
             )
@@ -316,7 +310,7 @@ struct OnboardingFinalView: View {
                     infoCard(
                         icon: "stethoscope",
                         title: "Doctor",
-                        detail: "Check runtime health and install or fix anything that's missing — Pi, models, project folders, and GitHub."
+                        detail: "Check runtime health and install or fix anything that's missing — Pi, models, and project folders."
                     )
                     infoCard(
                         icon: "cpu",
@@ -440,7 +434,7 @@ struct SetupChecklistView: View {
             }
         }
         // Re-check when the user comes back from Terminal (after installing Pi
-        // or signing in to GitHub there). scenePhase never fires on macOS focus
+        // or installing Pi there). scenePhase never fires on macOS focus
         // changes, so listen to AppKit's activation notification directly; the
         // subscription lives and dies with this view, so nothing else churns.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -558,11 +552,8 @@ struct SetupChecklistView: View {
         isRefreshing = true
         defer { isRefreshing = false }
         let projectRootPaths = viewModel.configuredProjectsRootPaths
-        let githubAccount = viewModel.currentGitHubAccount
         items = await SetupDependencyService().loadItems(
-            projectRootPaths: projectRootPaths,
-            githubAccount: githubAccount,
-            selectedProjectPath: viewModel.selectedProjectPath,
+            projectRootPaths: projectRootPaths,            selectedProjectPath: viewModel.selectedProjectPath,
             hasConfirmedProjectsRootPaths: viewModel.hasConfirmedProjectsRootPaths,
             suggestedProjectsRootPath: viewModel.suggestedProjectsRootPath,
             simulation: simulation
@@ -633,7 +624,7 @@ struct SetupChecklistView: View {
     private func statusIcon(for item: SetupCheckItem) -> some View {
         #if DEBUG
         // Debug-only: tap the status icon to flip a row missing↔ready so the
-        // dependent UI (e.g. a "ready" Pi Models row, connected GitHub) can be
+        // dependent UI (e.g. a "ready" Pi Models row) can be
         // previewed without the real dependency installed.
         Button { debugToggleStatus(item) } label: { statusIconImage(item) }
             .buttonStyle(.plain)
@@ -653,7 +644,6 @@ struct SetupChecklistView: View {
         case "pi-cli": simulation.piInstalled = nowReady
         case "pi-models": simulation.modelsAvailable = nowReady
         case "project-root": simulation.projectsConfigured = nowReady
-        case "github": simulation.githubConnected = nowReady
         default: break
         }
         Task { await refresh() }
@@ -734,8 +724,6 @@ struct SetupChecklistView: View {
             runPiAutoInstall()
         case .connectProvider:
             showingConnectProvider = true // in-place; back returns to the checklist
-        case .setupGitHub:
-            viewModel.openGitHubSetupInTerminal()
         }
     }
 }
@@ -773,7 +761,6 @@ enum SetupCheckAction: Hashable {
     case useSuggestedProjectRoot
     case installPi
     case connectProvider
-    case setupGitHub
 
     var buttonTitle: String {
         switch self {
@@ -781,7 +768,6 @@ enum SetupCheckAction: Hashable {
         case .useSuggestedProjectRoot: "Use Suggested Folder"
         case .installPi: "Install Pi"
         case .connectProvider: "Connect a provider"
-        case .setupGitHub: "Set up GitHub"
         }
     }
 }
@@ -823,17 +809,13 @@ struct SetupSimulation: Equatable {
     var piInstalled: Bool?
     var modelsAvailable: Bool?
     var projectsConfigured: Bool?
-    var githubConnected: Bool?
-    var ghInstalled: Bool?
 
     var isActive: Bool {
         piInstalled != nil || modelsAvailable != nil || projectsConfigured != nil
-            || githubConnected != nil || ghInstalled != nil
     }
 
     static let nothingInstalled = SetupSimulation(
-        piInstalled: false, modelsAvailable: false, projectsConfigured: false,
-        githubConnected: false, ghInstalled: false
+        piInstalled: false, modelsAvailable: false, projectsConfigured: false
     )
 }
 
@@ -843,7 +825,6 @@ struct SetupDependencyService {
 
     func loadItems(
         projectRootPaths: [String],
-        githubAccount: GitHubHostAccount?,
         selectedProjectPath: String?,
         hasConfirmedProjectsRootPaths: Bool = true,
         suggestedProjectsRootPath: String? = nil,
@@ -851,12 +832,11 @@ struct SetupDependencyService {
     ) async -> [SetupCheckItem] {
         async let pi = piCheck(simulation)
         async let models = modelCheck(simulation)
-        let github = await githubCheck(account: githubAccount, simulation: simulation)
         let project = projectRootCheck(paths: projectRootPaths, isConfirmed: hasConfirmedProjectsRootPaths, suggestedPath: suggestedProjectsRootPath, simulation: simulation)
 
         // Web Access (optional Exa/URL-fetch fallback) lives in Doctor, not in
         // the first-run Setup Check — it's noise for onboarding.
-        return await [pi, models, project, github]
+        return await [pi, models, project]
     }
 
     // MARK: Pi
@@ -949,41 +929,6 @@ struct SetupDependencyService {
         )
     }
 
-    // MARK: GitHub
-
-    private func githubCheck(account: GitHubHostAccount?, simulation: SetupSimulation) async -> SetupCheckItem {
-        let resolvedAccount: GitHubHostAccount?
-        if let connected = simulation.githubConnected {
-            resolvedAccount = connected
-                ? (account ?? GitHubHostAccount(host: "github.com", login: "octocat", scopes: [], gitProtocol: nil, tokenSource: nil, isActive: true))
-                : nil
-        } else if let account {
-            resolvedAccount = account
-        } else {
-            resolvedAccount = await GitHubCLIAuthService(commandRunner: commandRunner).loadStatus().account
-        }
-
-        if let resolvedAccount {
-            return SetupCheckItem(id: "github", title: "GitHub", detail: "Connected as \(resolvedAccount.login) on \(resolvedAccount.host).", status: .passed, recovery: nil)
-        }
-
-        let ghInstalled: Bool
-        if let forced = simulation.ghInstalled {
-            ghInstalled = forced
-        } else {
-            ghInstalled = (try? await commandRunner.run("gh", arguments: ["--version"], timeout: 5))?.exitCode == 0
-        }
-        return SetupCheckItem(
-            id: "github",
-            title: "GitHub",
-            detail: ghInstalled
-                ? "Optional. Sign in with the GitHub CLI for commit and push workflows."
-                : "Optional. Install the GitHub CLI and sign in for commit and push workflows.",
-            status: .warning,
-            recovery: nil,
-            action: .setupGitHub
-        )
-    }
 }
 
 // MARK: - Preferences phase
@@ -1069,9 +1014,6 @@ struct OnboardingPreferencesView: View {
 
     // MARK: Gates & finish state
 
-    private var githubPassed: Bool {
-        setupItems.first { $0.id == "github" }?.status == .passed
-    }
 
     // No models + a finished discovery pass (modelsLastUpdatedAt set) means there
     // genuinely are none, not that we're still loading.
@@ -1195,9 +1137,7 @@ struct OnboardingPreferencesView: View {
             icon: "arrow.triangle.branch",
             title: "Git automation",
             caption: "Show Commit and Push actions in the session toolbar. Commit messages are drafted by a model.",
-            disabledHint: githubPassed ? nil : "Connect GitHub in Setup to enable.",
-            openSetup: githubPassed ? nil : onBack,
-            secondary: (viewModel.appSettings.piAgentGitAutomationEnabled && githubPassed) ? AnyView(commitMessageModelControl) : nil
+            secondary: viewModel.appSettings.piAgentGitAutomationEnabled ? AnyView(commitMessageModelControl) : nil
         ) {
             Toggle("", isOn: Binding(
                 get: { viewModel.appSettings.piAgentGitAutomationEnabled },
@@ -1205,7 +1145,6 @@ struct OnboardingPreferencesView: View {
             ))
             .appCheckbox()
             .labelsHidden()
-            .disabled(!githubPassed)
         }
     }
 

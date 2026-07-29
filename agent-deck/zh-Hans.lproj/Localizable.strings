@@ -182,7 +182,6 @@
 "doctor.coreRequirements" = "运行本地 Pi 工作流的核心依赖。";
 "doctor.checkingDeps" = "正在检查依赖…";
 "doctor.refreshDeps" = "刷新依赖";
-"doctor.setupGitHub" = "设置 GitHub";
 "doctor.addExaKey" = "添加 EXA_API_KEY…";
 "doctor.urlFetchFallback" = "URL 抓取回退";
 "doctor.noSettings" = "未找到 settings 文件。";
@@ -886,7 +885,7 @@
 "shortcut.dictation.desc" = "在聚焦的 Pi Agent 输入框启动 macOS 听写。";
 "shortcut.newAgent.desc" = "创建自定义 Agent。";
 "shortcut.refresh.desc" = "刷新项目、Agent、Prompt 与仓库数据。";
-"shortcut.refreshGit.desc" = "刷新 GitHub CLI 状态与仓库变更。";
+"shortcut.refreshGit.desc" = "刷新项目与仓库变更。";
 "shortcut.commit.desc" = "提交已准备的仓库更改。";
 "shortcut.push.desc" = "推送当前分支。";
 "shortcut.addProject.desc" = "添加项目文件夹。";

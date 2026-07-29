@@ -727,7 +727,7 @@ struct ContentView: View {
         }
     }
 
-    /// The navigation layer of the sidebar: brand title bar, GitHub account
+    /// The navigation layer of the sidebar: brand title bar,
     /// card, section list, and the collapsed Coding Agent panel. Extracted so
     /// it can live as a permanently-mounted ZStack layer underneath the
     /// expanded panel (see `mainContent`), which overlays all of it.
