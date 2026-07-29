@@ -540,6 +540,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
                 || entry.title == "Compaction"
                 || entry.title == "Retry"
                 || entry.title == "Subagent Started"
+                || entry.isExtensionUIStatus
                 || PiAgentGitEventKind.from(title: entry.title) != nil
         case .tool:
             return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
@@ -564,6 +565,19 @@ private extension PiAgentTranscriptEntry {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = object["type"] as? String else { return false }
         return type == "agent_deck_subagent_started" || type == "agent_deck_subagent_card"
+    }
+
+    /// Status rows produced by extension UI fire-and-forget methods (`notify` / `setStatus` / `setWidget`).
+    ///
+    /// Also keeps legacy title `"Pi"` so older sessions that stored notifies under that title still render.
+    var isExtensionUIStatus: Bool {
+        switch title {
+        case "Notify", "Notify Warning", "Notify Error",
+             "Extension Status", "Extension Widget", "Pi":
+            return true
+        default:
+            return title.hasPrefix("Notify") || title.hasPrefix("Extension Status") || title.hasPrefix("Extension Widget")
+        }
     }
 }
 

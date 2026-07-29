@@ -2520,11 +2520,137 @@ final class PiAgentRunnerService {
             return
         }
 
-        if method == "notify" {
-            store.append(.init(sessionID: sessionID, role: .status, title: "Pi", text: event.message?.compactDescription ?? title, rawJSON: rawLine))
-        } else if method != "setTitle" && method != "setStatus" && method != "setWidget" && method != "set_editor_text" {
+        // Fire-and-forget extension chrome (notify / setStatus / setWidget / setTitle / set_editor_text).
+        // These do not require extension_ui_response; surface them in the transcript so
+        // packages like pi-blackhole (ctx.ui.notify) are visible outside the TUI.
+        switch method {
+        case "notify":
+            appendExtensionNotify(event, rawLine: rawLine, sessionID: sessionID, fallbackTitle: title)
+        case "setStatus":
+            appendExtensionSetStatus(event, rawLine: rawLine, sessionID: sessionID)
+        case "setWidget":
+            appendExtensionSetWidget(event, rawLine: rawLine, sessionID: sessionID)
+        case "setTitle", "set_editor_text":
+            // Title / editor mutations are host chrome; no transcript noise.
+            break
+        default:
             store.append(.init(sessionID: sessionID, role: .status, title: "Pi UI · \(method)", text: title, rawJSON: rawLine))
         }
+    }
+
+    /// Append a transcript status row for `ctx.ui.notify` / RPC `method: "notify"`.
+    ///
+    /// - Parameters:
+    ///   - event: Decoded extension_ui_request. Required.
+    ///   - rawLine: Raw JSONL for debugging / reparse. Required.
+    ///   - sessionID: Owning Deck session. Required.
+    ///   - fallbackTitle: Title fallback when message is empty. Required.
+    private func appendExtensionNotify(
+        _ event: PiAgentRPCEvent,
+        rawLine: String,
+        sessionID: UUID,
+        fallbackTitle: String
+    ) {
+        let text = extensionNotifyMessage(from: event) ?? fallbackTitle
+        let level = (event.notifyType ?? extensionUIString("notifyType", from: event) ?? "info")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let title: String
+        switch level {
+        case "error": title = "Notify Error"
+        case "warning": title = "Notify Warning"
+        default: title = "Notify"
+        }
+        let body = TextSanitizer.sanitizeAnswer(text)
+        store.append(.init(sessionID: sessionID, role: .status, title: title, text: body, rawJSON: rawLine))
+    }
+
+    /// Append a status row for `ctx.ui.setStatus` / RPC `method: "setStatus"`.
+    ///
+    /// - Parameters:
+    ///   - event: Decoded extension_ui_request. Required.
+    ///   - rawLine: Raw JSONL. Required.
+    ///   - sessionID: Owning Deck session. Required.
+    private func appendExtensionSetStatus(
+        _ event: PiAgentRPCEvent,
+        rawLine: String,
+        sessionID: UUID
+    ) {
+        let key = nonEmptyBridgeString(event.statusKey)
+            ?? extensionUIString("statusKey", from: event)
+            ?? "status"
+        let text = nonEmptyBridgeString(event.statusText)
+            ?? extensionUIString("statusText", from: event)
+        let body: String
+        if let text, !text.isEmpty {
+            body = TextSanitizer.sanitizeAnswer("\(key): \(text)")
+        } else {
+            body = "\(key): (cleared)"
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "Extension Status", text: body, rawJSON: rawLine))
+    }
+
+    /// Append a status row for `ctx.ui.setWidget` / RPC `method: "setWidget"`.
+    ///
+    /// - Parameters:
+    ///   - event: Decoded extension_ui_request. Required.
+    ///   - rawLine: Raw JSONL. Required.
+    ///   - sessionID: Owning Deck session. Required.
+    private func appendExtensionSetWidget(
+        _ event: PiAgentRPCEvent,
+        rawLine: String,
+        sessionID: UUID
+    ) {
+        let key = nonEmptyBridgeString(event.widgetKey)
+            ?? extensionUIString("widgetKey", from: event)
+            ?? "widget"
+        let lines = extensionWidgetLines(from: event)
+        let body: String
+        if lines.isEmpty {
+            body = "\(key): (cleared)"
+        } else {
+            body = TextSanitizer.sanitizeAnswer("\(key)\n\(lines.joined(separator: "\n"))")
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "Extension Widget", text: body, rawJSON: rawLine))
+    }
+
+    /// Resolve the human-readable body of a notify request.
+    ///
+    /// - Parameter event: Decoded RPC event. Required.
+    /// - Returns: Message string when present.
+    private func extensionNotifyMessage(from event: PiAgentRPCEvent) -> String? {
+        if let message = event.message?.stringValue, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return message
+        }
+        if let message = extensionUIString("message", from: event) {
+            return message
+        }
+        if let message = event.message?.compactDescription,
+           !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           message != "null" {
+            return message
+        }
+        return nil
+    }
+
+    /// Extract widget line strings from a setWidget request.
+    ///
+    /// - Parameter event: Decoded RPC event. Required.
+    /// - Returns: Non-empty trimmed lines (may be empty when cleared).
+    private func extensionWidgetLines(from event: PiAgentRPCEvent) -> [String] {
+        let value = event.widgetLines ?? event.data?["widgetLines"] ?? event.message?["widgetLines"]
+        guard let value else { return [] }
+        if case let .array(items) = value {
+            return items.compactMap { item -> String? in
+                let line = item.stringValue ?? item.compactDescription
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        }
+        if let single = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !single.isEmpty {
+            return [single]
+        }
+        return []
     }
 
     private func handleMemoryMarkStaleBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {

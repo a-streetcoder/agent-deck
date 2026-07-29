@@ -1723,6 +1723,14 @@ nonisolated struct PiAgentRPCEvent: Decodable, Sendable {
     let options: JSONValue?
     let placeholder: String?
     let prefill: String?
+    /// Extension UI `notify` severity (`info` | `warning` | `error`).
+    let notifyType: String?
+    /// Extension UI `setStatus` key / text (fire-and-forget footer status).
+    let statusKey: String?
+    let statusText: String?
+    /// Extension UI `setWidget` key / lines (fire-and-forget chrome widget).
+    let widgetKey: String?
+    let widgetLines: JSONValue?
     let steering: JSONValue?
     let followUp: JSONValue?
     let reason: String?
