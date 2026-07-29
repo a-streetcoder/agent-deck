@@ -7527,9 +7527,32 @@ struct PiAgentScreen: View {
             break
         }
 
+        // Commands: no chip. Seed editable `/name ` into the composer so the
+        // user can append args (e.g. `status`) then send manually.
+        if case .command(let slashName, _) = currentItem.payload {
+            let existing = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Prefer a single trailing space so typing continues as args.
+            if existing.isEmpty {
+                composerText = slashName.hasSuffix(" ") ? slashName : "\(slashName) "
+            } else if existing.hasPrefix(slashName) {
+                // Already has the command; keep whatever the user typed after it.
+                composerText = existing.hasSuffix(" ") ? existing : "\(existing) "
+            } else {
+                // Leftover text becomes args after the chosen command.
+                composerText = "\(slashName) \(existing)"
+            }
+            slashSelections = []
+            slashState = SlashSuggestionState()
+            slashUniverse = .empty
+            slashUniverseRevision &+= 1
+            composerSuggestionsDismissed = true
+            clearSlashSuggestionCache()
+            return
+        }
+
         // For prompts, seed the editor with the body so the user can edit
-        // before sending. Commands and skills leave the editor alone — any
-        // text the user types becomes the args / message body.
+        // before sending. Skills leave the editor alone — any text the user
+        // types becomes the message body.
         if case .prompt(_, let body, _, _) = currentItem.payload {
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             composerText = composerText.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(composerText)"
@@ -7904,6 +7927,7 @@ struct PiAgentScreen: View {
             sendComposerMessage()
         }
     }
+
 
     private func sendComposerMessage() {
         let activePasteAttachments = PiAgentPasteMarkerCodec.activeAttachments(in: composerText, attachments: composerPasteAttachments)
@@ -8736,9 +8760,32 @@ private struct PiAgentComposerPanel: View {
             break
         }
 
+        // Commands: no chip. Seed editable `/name ` into the composer so the
+        // user can append args (e.g. `status`) then send manually.
+        if case .command(let slashName, _) = currentItem.payload {
+            let existing = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Prefer a single trailing space so typing continues as args.
+            if existing.isEmpty {
+                composerText = slashName.hasSuffix(" ") ? slashName : "\(slashName) "
+            } else if existing.hasPrefix(slashName) {
+                // Already has the command; keep whatever the user typed after it.
+                composerText = existing.hasSuffix(" ") ? existing : "\(existing) "
+            } else {
+                // Leftover text becomes args after the chosen command.
+                composerText = "\(slashName) \(existing)"
+            }
+            slashSelections = []
+            slashState = SlashSuggestionState()
+            slashUniverse = .empty
+            slashUniverseRevision &+= 1
+            composerSuggestionsDismissed = true
+            clearSlashSuggestionCache()
+            return
+        }
+
         // For prompts, seed the editor with the body so the user can edit
-        // before sending. Commands and skills leave the editor alone — any
-        // text the user types becomes the args / message body.
+        // before sending. Skills leave the editor alone — any text the user
+        // types becomes the message body.
         if case .prompt(_, let body, _, _) = currentItem.payload {
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             composerText = composerText.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(composerText)"
@@ -9032,6 +9079,7 @@ private struct PiAgentComposerPanel: View {
             sendComposerMessage()
         }
     }
+
 
     private func sendComposerMessage() {
         if let session = store.selectedSession, store.activeLoopRun(for: session.id) != nil {
