@@ -169,10 +169,7 @@ private enum QuestionChipExtractor {
                                attachment: .command(name: name)))
         }
         // Issue chip.
-        if let issue = payload?.issue {
-            chips.append(.init(kind: .issue, systemImage: "exclamationmark.circle", label: "\(issue.kindShortTitle) #\(issue.number) \(issue.title)",
-                               attachment: .issue(issue)))
-        }
+        // Historical issue attachments are ignored (Issues workspace removed).
 
         // Image chips (payload first, then legacy basename-only listings).
         let imageAttachments = payload?.images ?? []

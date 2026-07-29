@@ -81,12 +81,12 @@ extension AgentDeckShortcutSection {
             .init(.newAgent, "New Agent", key: "n", modifiers: [.command, .shift], description: "Create a new custom agent.")
         ]),
         AgentDeckShortcutSection(title: "App", items: [
-            .init(.refresh, "Refresh", key: "r", modifiers: [.command], description: "Refresh projects, agents, prompts, and GitHub data.")
+            .init(.refresh, "Refresh", key: "r", modifiers: [.command], description: "Refresh projects, agents, prompts, and repository data.")
         ]),
-        AgentDeckShortcutSection(title: "GitHub", items: [
-            .init(.refreshGitHub, "Refresh GitHub", key: "g", modifiers: [.command, .shift], description: "Refresh GitHub status and repository change data."),
-            .init(.commitChanges, "Commit Changes", key: "c", modifiers: [.command, .option], description: "Commit the prepared GitHub changes."),
-            .init(.pushBranch, "Push Branch", key: "p", modifiers: [.command, .option], description: "Push the current GitHub branch.")
+        AgentDeckShortcutSection(title: "Git", items: [
+            .init(.refreshGitHub, "Refresh Git Status", key: "g", modifiers: [.command, .shift], description: "Refresh GitHub CLI status and repository change data."),
+            .init(.commitChanges, "Commit Changes", key: "c", modifiers: [.command, .option], description: "Commit the prepared repository changes."),
+            .init(.pushBranch, "Push Branch", key: "p", modifiers: [.command, .option], description: "Push the current branch.")
         ]),
         AgentDeckShortcutSection(title: "Projects & Resources", items: [
             .init(.addProject, "Add Project…", key: "o", modifiers: [.command, .option], description: "Add a project folder."),
@@ -359,8 +359,8 @@ struct AgentDeckCommands: Commands {
             .disabled(context?.canToggleSelectedAgentDisabled != true)
         }
 
-        CommandMenu("GitHub") {
-            Button("Refresh GitHub") {
+        CommandMenu("Git") {
+            Button("Refresh Git Status") {
                 context?.refreshGitHub()
             }
             .agentDeckShortcut(.refreshGitHub)

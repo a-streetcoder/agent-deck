@@ -121,7 +121,7 @@ struct PiAgentAddSessionMenuButton: View {
 
 /// New-session control surfaced when Deck agents are enabled: a single glass
 /// capsule split into `+` (new session) and a paperplane (1:1 with an agent),
-/// separated by a hairline. Built like `GitHubIssuesViews.closeSplitButton` —
+/// separated by a hairline. Built as a split control —
 /// the glass sits on the `HStack` and each tap zone is a plain `Button`, so the
 /// fill renders reliably (a `Menu` label's glass does not, outside a toolbar).
 /// The agent list opens as a popover; with no scoped project the `+` opens the
@@ -708,7 +708,7 @@ struct PiAgentSessionRow: View, Equatable {
 
     private var sessionTitle: String {
         if session.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return session.issueNumber.map { "#\($0)" } ?? "Project agent"
+            return "Project agent"
         }
         return session.title
     }

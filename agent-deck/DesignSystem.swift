@@ -10,7 +10,7 @@ enum AppTheme {
     static let contentSpacing: CGFloat = 12
 
     /// Default geometry for the list/detail split shared by every resource and
-    /// workspace screen (Issues, Agents, Prompts, Skills), all built with
+    /// workspace screen (Agents, Prompts, Skills), all built with
     /// `SplitView`. One source of truth — tweak here to re-balance every split at
     /// once.
     enum Split {
@@ -1087,7 +1087,7 @@ extension View {
     }
 }
 
-/// The list/detail split used by every resource and workspace screen (Issues,
+/// The list/detail split used by every resource and workspace screen (
 /// Agents, Prompts, Skills). A plain `HStack`: the list pane takes
 /// `AppTheme.Split.listFraction` of the width, the detail fills the rest, and both
 /// panes scale proportionally when the window resizes. No divider, no drag — the

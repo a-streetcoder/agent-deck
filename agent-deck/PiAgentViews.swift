@@ -8059,7 +8059,6 @@ struct PiAgentScreen: View {
             session.projectName,
             session.projectPath,
             session.repository ?? "",
-            session.issueNumber.map(String.init) ?? "",
             session.lastSummary ?? ""
         ].joined(separator: " ")
         return haystack.localizedCaseInsensitiveContains(query)
@@ -8081,7 +8080,7 @@ struct PiAgentScreen: View {
 
     private func sessionKindTagColor(_ kind: PiAgentSessionKind) -> Color {
         switch kind {
-        case .issue: return .purple
+        case .issue: return .secondary // historical issue-backed sessions only
         case .agent: return .teal
         case .project, .changesReview: return .blue
         }

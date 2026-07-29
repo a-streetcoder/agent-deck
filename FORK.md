@@ -19,7 +19,7 @@
 2. 关闭或审查 PostHog analytics
 3. RPC 安全默认（offline / autoApprove）对齐 pi-app 经验
 4. 中文 l10n — **Phase 1–4 done**
-5. **移除 GitHub Issues 工作台** — done；**死代码清理** — API/ConnectionViews/board 模型/token；`createSession` 不再写 issue 字段；文案去 issue 入口（旧会话 kind/chip 仍可解码）
+5. **移除 GitHub Issues 工作台** — done；**死代码清理** — API/ConnectionViews/board 模型/token；`createSession` 不再写 issue 字段；UI 不再展示 issueNumber / issue chip（JSON 仍可解码）；菜单改 **Git**（commit/push）；Doctor/Onboarding 文案仅保留 commit/push
 6. 从 pi-app port：首条 optimistic、EEXIST、transcript cache、extension chrome 等（按需）
 
 ## l10n（Phase 1）

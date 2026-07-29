@@ -100,7 +100,7 @@ enum AppCredits {
         Section(title: "Services", entries: [
             Entry(
                 title: "GitHub",
-                detail: "GitHub CLI and GitHub APIs power optional issue, comment, commit, and push workflows.",
+                detail: "GitHub CLI powers optional commit and push workflows in the agent toolbar.",
                 url: "https://github.com"
             )
         ])

@@ -825,12 +825,12 @@ struct DoctorScreen: View {
 
     private var githubAccessDetail: String {
         if let account = effectiveGitHubAccount {
-            return "Connected as \(account.login) on \(account.host). Enables issue, comment, commit, and push workflows."
+            return "Connected as \(account.login) on \(account.host). Enables commit and push workflows."
         }
         if isDemo {
-            return "Optional. Install the GitHub CLI and sign in to enable issue, comment, commit, and push workflows."
+            return "Optional. Install the GitHub CLI and sign in to enable commit and push workflows."
         }
-        return "Optional. Set up GitHub to install the GitHub CLI if needed and sign in for issue, comment, commit, and push workflows."
+        return "Optional. Set up GitHub to install the GitHub CLI if needed and sign in for commit and push workflows."
     }
 
     private var githubStatusText: String {

@@ -120,8 +120,8 @@ struct SidebarTitleBar: View {
                     .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
             }
             .buttonStyle(.plain)
-            .help("Refresh GitHub status, project scans, and repo data")
-            .accessibilityLabel("Refresh GitHub and projects")
+            .help("Refresh projects, Git status, and repository data")
+            .accessibilityLabel("Refresh projects and Git status")
             .disabled(viewModel.githubIsRefreshingEverything)
 
             Button {

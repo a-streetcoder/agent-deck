@@ -1047,10 +1047,8 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     }
 
     var displayTitle: String {
-        if let issueNumber {
-            return "#\(issueNumber) \(title)"
-        }
-        return title
+        // issueNumber is historical-only (removed Issues workspace); never surface it in UI.
+        title
     }
 
     static let noProjectDisplayName = "General Chat"

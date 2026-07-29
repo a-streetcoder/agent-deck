@@ -29,7 +29,6 @@ extension PiAgentSessionRecord {
             projectName,
             projectPath,
             repository ?? "",
-            issueNumber.map(String.init) ?? "",
             lastSummary ?? ""
         ]
         .joined(separator: " ")

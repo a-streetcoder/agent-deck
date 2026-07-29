@@ -3276,7 +3276,10 @@ struct PiAgentUserMessageContent: View {
     }
 
     private static func issue(for entry: PiAgentTranscriptEntry) -> PiAgentIssueAttachment? {
-        attachmentPayload(for: entry)?.issue
+        // Issues workspace removed: still decode via AttachmentPayload for older JSONL,
+        // but never surface issue chips in the transcript UI.
+        _ = entry
+        return nil
     }
 
     private static func payloadFiles(for entry: PiAgentTranscriptEntry) -> [FileAttachmentPreview] {

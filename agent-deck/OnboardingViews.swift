@@ -977,8 +977,8 @@ struct SetupDependencyService {
             id: "github",
             title: "GitHub",
             detail: ghInstalled
-                ? "Optional. Sign in to GitHub for issue, comment, commit, and push workflows."
-                : "Optional. Install the GitHub CLI and sign in for issue, comment, commit, and push workflows.",
+                ? "Optional. Sign in with the GitHub CLI for commit and push workflows."
+                : "Optional. Install the GitHub CLI and sign in for commit and push workflows.",
             status: .warning,
             recovery: nil,
             action: .setupGitHub
