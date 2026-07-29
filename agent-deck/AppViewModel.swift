@@ -122,8 +122,9 @@ final class AppViewModel: NSObject {
     var selectedSidebarItem: SidebarItem = .agent
     /// Whether the Coding Agent pull-up panel covers the upper sidebar (full
     /// session list) or sits collapsed below RUNTIME (recent sessions only).
-    /// Defaults true so the app launches agent-first. Collapsed by selecting
-    /// any other sidebar item (see `ContentView.handleSidebarSelectionChange`).
+    /// Defaults **true** (session list expanded on launch / after store load).
+    /// Collapsed only when the user collapses it or selects another sidebar item
+    /// (see `ContentView.handleSidebarSelectionChange`).
     var isCodingAgentPanelExpanded = true
     var selectedAgentID: EffectiveAgentRecord.ID?
     var selectedSkillID: SkillRecord.ID?
@@ -470,10 +471,10 @@ final class AppViewModel: NSObject {
         piAgentSessionStore.onLoadApplied = { [weak self] in
             guard let self else { return }
             self.pruneNeverStartedDraftSessions()
-            // The persisted store is authoritative only after its async load
-            // and draft pruning. Keep useful history open; collapse an actually
-            // empty first-run store.
-            self.isCodingAgentPanelExpanded = !self.piAgentSessionStore.sessions.isEmpty
+            // Sessions panel stays expanded by default after the store finishes
+            // loading (including empty first-run). Users can still collapse via
+            // the header chevron / ⌘S; other sidebar items still hide the panel.
+            self.isCodingAgentPanelExpanded = true
         }
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()

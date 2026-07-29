@@ -1742,6 +1742,9 @@ struct ContentView: View {
         }
 
         if newValue == .agent {
+            // Coding Agent is session-first: re-selecting it always shows the
+            // full Sessions list (default expanded), not the collapsed recents strip.
+            viewModel.expandCodingAgentPanel()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         } else {
             viewModel.releaseTransientFocusedPiAgentSession()
