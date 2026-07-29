@@ -537,6 +537,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
                 || entry.isLoopRecapEntry
                 || LoopIterationSeparatorCodec.decode(from: entry) != nil
                 || entry.agentMemoryEvent != nil
+                || entry.isSystemNoticeStatus
                 || entry.title == "Compaction"
                 || entry.title == "Retry"
                 || entry.title == "Subagent Started"
@@ -5083,11 +5084,6 @@ struct PiAgentScreen: View {
                 )
             }
         }
-        .sheet(item: extensionNotifySheetItem) { notify in
-            PiAgentExtensionNotifySheet(notify: notify) {
-                store.dismissExtensionNotify(sessionID: notify.sessionID, id: notify.id)
-            }
-        }
         .sheet(isPresented: $isLoopLaunchSheetPresented) {
             if let session = store.selectedSession,
                let projectPath = session.projectPathForProjectFeatures {
@@ -5339,20 +5335,6 @@ struct PiAgentScreen: View {
                 } else {
                     isUIRequestSheetPresented = false
                 }
-            }
-        )
-    }
-
-    /// Ephemeral extension notify sheet. Yields when a blocking ask_user sheet is open.
-    private var extensionNotifySheetItem: Binding<PiAgentExtensionNotify?> {
-        Binding(
-            get: {
-                guard store.selectedUIRequest == nil else { return nil }
-                return store.selectedExtensionNotify
-            },
-            set: { newValue in
-                guard newValue == nil, let notify = store.selectedExtensionNotify else { return }
-                store.dismissExtensionNotify(sessionID: notify.sessionID, id: notify.id)
             }
         )
     }
@@ -6527,6 +6509,12 @@ struct PiAgentScreen: View {
                 )
                 return .native(.of(PiAgentNativeSubagentRunCardView.self) { view, width in
                     view.configure(payload: payload, width: width)
+                })
+            }
+            // Soft system notices (extension notify / compaction) — separate muted cards.
+            if let notice = NativeSystemNoticePayload.make(for: entry) {
+                return .native(.of(PiAgentNativeSystemNoticeView.self) { view, width in
+                    view.configure(payload: notice, width: width)
                 })
             }
             // "System Prompt Captured" / "Subagent Started" render as a native

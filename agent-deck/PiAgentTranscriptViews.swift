@@ -2378,8 +2378,12 @@ struct PiAgentStatusTranscriptRow: View {
         var text: String
     }
 
+    @State private var isSystemNoticeExpanded = false
+
     var body: some View {
-        if isDividerEntry {
+        if let notice = entry.systemNoticePresentation {
+            systemNoticeCard(tag: notice.tag, body: notice.body)
+        } else if isDividerEntry {
             compactionDivider
         } else {
             Button {
@@ -2399,6 +2403,55 @@ struct PiAgentStatusTranscriptRow: View {
                     PiAgentErrorDetailPopover(title: entry.title, text: entry.text)
                 }
         }
+    }
+
+    /// Soft Claude-style notice: `[tag]` + multi-line body in a muted card.
+    @ViewBuilder
+    private func systemNoticeCard(tag: String, body: String) -> some View {
+        let lines = body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let collapsedLimit = 8
+        let needsCollapse = lines.count > collapsedLimit
+        let shownBody: String = {
+            if needsCollapse && !isSystemNoticeExpanded {
+                return lines.prefix(collapsedLimit).joined(separator: "\n")
+            }
+            return body
+        }()
+        let accent: Color = {
+            switch entry.title {
+            case "Notify Warning": return .orange
+            case "Notify Error": return AppTheme.roleError
+            default: return .purple.opacity(0.9)
+            }
+        }()
+        VStack(alignment: .leading, spacing: 6) {
+            Text("[\(tag)]")
+                .font(AppTheme.Font.caption.weight(.semibold))
+                .foregroundStyle(accent)
+            Text(shownBody)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(AppTheme.mutedText)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if needsCollapse {
+                Button(isSystemNoticeExpanded ? "Show less" : "Show more…") {
+                    isSystemNoticeExpanded.toggle()
+                }
+                .buttonStyle(.plain)
+                .font(AppTheme.Font.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.brandAccent)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(accent.opacity(0.10))
+                .stroke(accent.opacity(0.18), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(tag). \(body)")
     }
 
     private var compactionDivider: some View {
@@ -2739,8 +2792,68 @@ extension PiAgentTranscriptEntry {
     /// not be inset to the assistant bubble width.
     var isDividerStatus: Bool {
         guard role == .status else { return false }
-        if title == "Compaction" || title == LoopIterationSeparatorCodec.title { return true }
+        // Compaction uses the soft system-notice card (Claude-style), not a hairline divider.
+        if title == LoopIterationSeparatorCodec.title { return true }
         return PiAgentGitEventKind.from(title: title) != nil
+    }
+
+    /// Soft in-timeline system notices: extension `notify`, compaction, host chrome status.
+    /// Rendered as a separate muted card with a `[tag]` header (not a chat bubble).
+    var isSystemNoticeStatus: Bool {
+        guard role == .status else { return false }
+        switch title {
+        case "Compaction",
+             "Notify", "Notify Warning", "Notify Error",
+             "Extension Status", "Extension Widget":
+            return true
+        default:
+            return title.hasPrefix("Notify")
+        }
+    }
+
+    /// Bracket tag + body for soft system-notice cards.
+    ///
+    /// - Returns: `(tag, body)` when this entry is a system notice; otherwise `nil`.
+    var systemNoticePresentation: (tag: String, body: String)? {
+        guard isSystemNoticeStatus else { return nil }
+        let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Prefer an explicit leading `[tag]` line from the extension payload.
+        if raw.hasPrefix("["),
+           let close = raw.firstIndex(of: "]"),
+           close > raw.startIndex {
+            let tag = String(raw[raw.index(after: raw.startIndex)..<close])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let after = raw[raw.index(after: close)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !tag.isEmpty {
+                return (tag.lowercased(), after.isEmpty ? raw : after)
+            }
+        }
+        let tag: String
+        switch title {
+        case "Compaction": tag = "compaction"
+        case "Notify Warning": tag = "warning"
+        case "Notify Error": tag = "error"
+        case "Extension Status": tag = "status"
+        case "Extension Widget": tag = "widget"
+        case "Notify": tag = "notify"
+        default:
+            tag = title
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: " ", with: "-")
+        }
+        let body: String
+        if title == "Compaction" {
+            body = raw
+                .replacingOccurrences(of: "Context compacted.", with: "Compacted.")
+                .replacingOccurrences(of: "Context compacted", with: "Compacted")
+                .replacingOccurrences(of: "Compacting conversation context (context)…", with: "Compacting…")
+                .replacingOccurrences(of: "Compacting context…", with: "Compacting…")
+        } else {
+            body = raw
+        }
+        return (tag, body)
     }
 }
 

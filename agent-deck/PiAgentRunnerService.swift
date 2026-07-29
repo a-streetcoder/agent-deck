@@ -2621,53 +2621,96 @@ final class PiAgentRunnerService {
             return
         }
 
-        // Fire-and-forget extension chrome. Do NOT write into transcript / disk:
-        // notify is a TUI toast equivalent → ephemeral popup; status/widget are host chrome.
+        // Fire-and-forget extension chrome → soft in-timeline system notices
+        // (Claude-style `[tag]` cards). Not chat bubbles; still session-local history.
         switch method {
         case "notify":
-            presentExtensionNotify(event, rawLine: rawLine, sessionID: sessionID)
-        case "setStatus", "setWidget", "setTitle", "set_editor_text":
-            // Footer/widget/title/editor chrome is not modeled as chat history.
+            appendExtensionSystemNotice(event, rawLine: rawLine, sessionID: sessionID, kind: .notify)
+        case "setStatus":
+            appendExtensionSystemNotice(event, rawLine: rawLine, sessionID: sessionID, kind: .status)
+        case "setWidget":
+            appendExtensionSystemNotice(event, rawLine: rawLine, sessionID: sessionID, kind: .widget)
+        case "setTitle", "set_editor_text":
+            // Title/editor chrome is not modeled in the transcript.
             break
         default:
-            // Unknown interactive UI methods stay out of transcript too (avoid noise).
             break
         }
     }
 
-    /// Present `ctx.ui.notify` as an ephemeral sheet (not transcript, not persisted).
+    private enum ExtensionSystemNoticeKind {
+        case notify
+        case status
+        case widget
+    }
+
+    /// Append a soft system-notice status row for extension UI chrome.
     ///
     /// - Parameters:
     ///   - event: Decoded extension_ui_request. Required.
-    ///   - rawLine: Raw JSONL used as a robust parse fallback. Required.
+    ///   - rawLine: Raw JSONL fallback for message parse. Required.
     ///   - sessionID: Owning Deck session. Required.
-    private func presentExtensionNotify(
+    ///   - kind: notify / setStatus / setWidget. Required.
+    private func appendExtensionSystemNotice(
         _ event: PiAgentRPCEvent,
         rawLine: String,
-        sessionID: UUID
+        sessionID: UUID,
+        kind: ExtensionSystemNoticeKind
     ) {
-        let rawMessage = extensionNotifyMessage(from: event, rawLine: rawLine)
-        let body = TextSanitizer.sanitizeAnswer(rawMessage ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let body: String
+        let title: String
+        switch kind {
+        case .notify:
+            let rawMessage = extensionNotifyMessage(from: event, rawLine: rawLine)
+            body = TextSanitizer.sanitizeAnswer(rawMessage ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let levelRaw = event.notifyType
+                ?? extensionUIString("notifyType", from: event)
+                ?? extensionNotifyTopLevelString("notifyType", from: rawLine)
+            switch (levelRaw ?? "").lowercased() {
+            case "warning", "warn": title = "Notify Warning"
+            case "error", "danger", "fail", "failure": title = "Notify Error"
+            default: title = "Notify"
+            }
+        case .status:
+            let key = event.statusKey
+                ?? extensionUIString("statusKey", from: event)
+                ?? extensionUIString("key", from: event)
+                ?? "status"
+            let text = event.statusText
+                ?? extensionUIString("statusText", from: event)
+                ?? extensionUIString("text", from: event)
+                ?? extensionNotifyMessage(from: event, rawLine: rawLine)
+                ?? ""
+            let sanitized = TextSanitizer.sanitizeAnswer(text)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            body = sanitized.isEmpty ? "" : "[\(key)]\n\(sanitized)"
+            title = "Extension Status"
+        case .widget:
+            let key = event.widgetKey
+                ?? extensionUIString("widgetKey", from: event)
+                ?? extensionUIString("key", from: event)
+                ?? "widget"
+            let lines = extensionUIStringList(event.widgetLines)
+                ?? extensionUIStringList(event.data?["widgetLines"])
+                ?? extensionUIStringList(event.data?["lines"])
+                ?? extensionUIStringList(event.message?["widgetLines"])
+                ?? []
+            let joined = lines
+                .map { TextSanitizer.sanitizeAnswer($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            body = joined.isEmpty ? "" : "[\(key)]\n\(joined)"
+            title = "Extension Widget"
+        }
         guard !body.isEmpty else { return }
-
-        let levelRaw = event.notifyType
-            ?? extensionUIString("notifyType", from: event)
-            ?? extensionNotifyTopLevelString("notifyType", from: rawLine)
-        let level = PiAgentExtensionNotify.Level(raw: levelRaw)
-        let id = nonEmptyBridgeString(event.id)
-            ?? extensionUIRequestID(from: event)
-            ?? UUID().uuidString
-
-        store.presentExtensionNotify(
-            .init(
-                id: id,
-                sessionID: sessionID,
-                level: level,
-                message: body,
-                timestamp: Date()
-            )
-        )
+        store.append(.init(
+            sessionID: sessionID,
+            role: .status,
+            title: title,
+            text: body,
+            rawJSON: rawLine
+        ))
     }
 
     /// Resolve notify message from decoded event, nested keys, then raw JSON.
@@ -2923,6 +2966,30 @@ final class PiAgentRunnerService {
         nonEmptyBridgeString(event.data?[key]?.stringValue)
             ?? nonEmptyBridgeString(event.message?[key]?.stringValue)
             ?? nonEmptyBridgeString(event.result?[key]?.stringValue)
+    }
+
+    /// Flatten a JSON string or string-array into display lines for setWidget.
+    ///
+    /// - Parameter value: Optional JSON value from RPC. Optional.
+    /// - Returns: Non-empty string list when parseable.
+    private func extensionUIStringList(_ value: JSONValue?) -> [String]? {
+        guard let value else { return nil }
+        switch value {
+        case .string(let s):
+            let lines = s.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            return lines.isEmpty ? nil : lines
+        case .array(let items):
+            let lines = items.compactMap { item -> String? in
+                switch item {
+                case .string(let s): return s
+                default: return item.stringValue
+                }
+            }
+            return lines.isEmpty ? nil : lines
+        default:
+            if let s = value.stringValue, !s.isEmpty { return [s] }
+            return nil
+        }
     }
 
     private func nonEmptyBridgeString(_ value: String?) -> String? {

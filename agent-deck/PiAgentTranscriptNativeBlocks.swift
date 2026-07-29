@@ -750,6 +750,183 @@ struct NativeDividerPayload {
     var isSpinning: Bool
 }
 
+// MARK: - Soft system notice (extension notify / compaction)
+
+/// Claude-style soft notice card: `[tag]` header + multi-line body in a muted box.
+/// Used for extension `notify` / compaction / setStatus chrome — not chat bubbles.
+final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
+    var onIntrinsicHeightChange: (() -> Void)?
+
+    private let surface = NativeCardSurface()
+    private let tagLabel = NSTextField(labelWithString: "")
+    private let bodyLabel = NSTextField(wrappingLabelWithString: "")
+    private let expandButton = NSButton()
+    private let stack = NSStackView()
+
+    private var payload: NativeSystemNoticePayload?
+    private var isExpanded = false
+    private var surfaceWidthC: NSLayoutConstraint!
+
+    private let hPad: CGFloat = 12
+    private let vPad: CGFloat = 10
+    private let collapsedLineLimit = 8
+
+    required init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.cardCornerRadius = 10
+        addSubview(surface)
+
+        tagLabel.font = NativeTranscriptFont.caption(.semibold)
+        tagLabel.textColor = NSColor.systemPurple.withAlphaComponent(0.95)
+        tagLabel.lineBreakMode = .byTruncatingTail
+        tagLabel.maximumNumberOfLines = 1
+        tagLabel.setContentHuggingPriority(.required, for: .vertical)
+
+        bodyLabel.font = NativeTranscriptFont.captionMono()
+        bodyLabel.textColor = AppTheme.ns(AppTheme.mutedText)
+        bodyLabel.lineBreakMode = .byWordWrapping
+        bodyLabel.maximumNumberOfLines = 0
+        bodyLabel.setContentHuggingPriority(.defaultLow, for: .vertical)
+
+        expandButton.bezelStyle = .inline
+        expandButton.isBordered = false
+        expandButton.font = NativeTranscriptFont.caption(.semibold)
+        expandButton.contentTintColor = AppTheme.ns(AppTheme.brandAccent)
+        expandButton.target = self
+        expandButton.action = #selector(toggleExpanded)
+        expandButton.setContentHuggingPriority(.required, for: .vertical)
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.addArrangedSubview(tagLabel)
+        stack.addArrangedSubview(bodyLabel)
+        stack.addArrangedSubview(expandButton)
+        surface.addSubview(stack)
+
+        surfaceWidthC = surface.widthAnchor.constraint(equalToConstant: 100)
+        let stackBottom = stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -vPad)
+        stackBottom.priority = NSLayoutConstraint.Priority(999)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: topAnchor),
+            surface.bottomAnchor.constraint(equalTo: bottomAnchor),
+            surface.leadingAnchor.constraint(equalTo: leadingAnchor),
+            surfaceWidthC,
+            stack.topAnchor.constraint(equalTo: surface.topAnchor, constant: vPad),
+            stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: hPad),
+            stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -hPad),
+            stackBottom
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var isFlipped: Bool { true }
+
+    /// Configure notice appearance for the given payload and row width.
+    ///
+    /// - Parameters:
+    ///   - payload: Tag + body + severity. Required.
+    ///   - rowWidth: Available transcript width. Required.
+    func configure(payload: NativeSystemNoticePayload, width rowWidth: CGFloat) {
+        let tagChanged = self.payload?.tag != payload.tag || self.payload?.body != payload.body
+        self.payload = payload
+        if tagChanged { isExpanded = false }
+
+        tagLabel.stringValue = "[\(payload.tag)]"
+        applySeverityColors(payload.severity)
+        applyBodyText()
+        surfaceWidthC.constant = max(1, rowWidth)
+        needsLayout = true
+    }
+
+    @objc private func toggleExpanded() {
+        isExpanded.toggle()
+        applyBodyText()
+        onIntrinsicHeightChange?()
+    }
+
+    private func applySeverityColors(_ severity: NativeSystemNoticePayload.Severity) {
+        let accent: NSColor
+        switch severity {
+        case .info: accent = NSColor.systemPurple
+        case .warning: accent = NSColor.systemOrange
+        case .error: accent = AppTheme.ns(AppTheme.roleError)
+        }
+        tagLabel.textColor = accent.withAlphaComponent(0.95)
+        surface.fillColor = accent.withAlphaComponent(0.10)
+        surface.strokeColor = accent.withAlphaComponent(0.18)
+    }
+
+    private func applyBodyText() {
+        guard let payload else { return }
+        let lines = payload.body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let needsCollapse = lines.count > collapsedLineLimit
+        if needsCollapse && !isExpanded {
+            bodyLabel.stringValue = lines.prefix(collapsedLineLimit).joined(separator: "\n")
+            expandButton.title = "Show more…"
+            expandButton.isHidden = false
+        } else if needsCollapse && isExpanded {
+            bodyLabel.stringValue = payload.body
+            expandButton.title = "Show less"
+            expandButton.isHidden = false
+        } else {
+            bodyLabel.stringValue = payload.body
+            expandButton.isHidden = true
+        }
+        setAccessibilityLabel("\(payload.tag). \(payload.body)")
+    }
+
+    func measuredHeight(forWidth rowWidth: CGFloat) -> CGFloat {
+        let textWidth = max(60, max(1, rowWidth) - hPad * 2)
+        tagLabel.preferredMaxLayoutWidth = textWidth
+        bodyLabel.preferredMaxLayoutWidth = textWidth
+        let tagH = ceil(tagLabel.intrinsicContentSize.height)
+        let bodyH = ceil(bodyLabel.intrinsicContentSize.height)
+        let expandH = expandButton.isHidden ? 0 : (6 + ceil(expandButton.intrinsicContentSize.height))
+        return ceil(vPad + tagH + 6 + bodyH + expandH + vPad)
+    }
+}
+
+/// Payload for soft system-notice cards.
+struct NativeSystemNoticePayload: Equatable {
+    enum Severity: Equatable {
+        case info
+        case warning
+        case error
+    }
+
+    var tag: String
+    var body: String
+    var severity: Severity
+
+    /// Build from a transcript status entry.
+    ///
+    /// - Parameter entry: Status entry. Required.
+    /// - Returns: Payload when entry is a system notice.
+    static func make(for entry: PiAgentTranscriptEntry) -> NativeSystemNoticePayload? {
+        guard let presentation = entry.systemNoticePresentation else { return nil }
+        let severity: Severity
+        switch entry.title {
+        case "Notify Warning": severity = .warning
+        case "Notify Error": severity = .error
+        default:
+            if presentation.tag.contains("error") { severity = .error }
+            else if presentation.tag.contains("warn") { severity = .warning }
+            else { severity = .info }
+        }
+        let body = presentation.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .init(
+            tag: presentation.tag.isEmpty ? "notice" : presentation.tag,
+            body: body.isEmpty ? presentation.tag : body,
+            severity: severity
+        )
+    }
+}
+
 // MARK: - Retry row
 
 /// Auto-retry burst row. Mirrors `PiAgentRetryCard`.
