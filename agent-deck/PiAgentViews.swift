@@ -6376,18 +6376,10 @@ struct PiAgentScreen: View {
         agentProfilesByName: [String: EffectiveAgentRecord]
     ) -> PiAgentTranscriptCellKind? {
         switch child {
-        case .assistant, .assistantWithThinking:
-            return nativeReplyPayload(
-                for: child,
-                showImages: visibility.showImages,
-                showThinking: visibility.showThinking
-            ).map { .bubble($0) }
+        case .assistant:
+            return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
         case .thinking:
-            return nativeReplyPayload(
-                for: child,
-                showImages: visibility.showImages,
-                showThinking: visibility.showThinking
-            ).map { .bubble($0) }
+            return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
         case .steering(let entry):
             // Steering messages and structured Ask User answers remain
             // right-aligned user-authored content, but have distinct labels.
@@ -6515,11 +6507,7 @@ struct PiAgentScreen: View {
     /// rows (assistant / thinking). Returns nil for anything that still renders
     /// through the hosted SwiftUI path (subagent summaries, tool groups, status,
     /// errors, retries, steering — handled in later stages).
-    private func nativeReplyPayload(
-        for child: PiAgentThreadChild,
-        showImages: Bool,
-        showThinking: Bool
-    ) -> NativeBubblePayload? {
+    private func nativeReplyPayload(for child: PiAgentThreadChild, showImages: Bool) -> NativeBubblePayload? {
         switch child {
         case .assistant(let entry):
             let text = entry.text
@@ -6530,47 +6518,13 @@ struct PiAgentScreen: View {
                 markdownSource: text,
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
-                thinkingMarkdownSource: nil,
-                thinkingLive: false,
-                thinkingBlockID: "",
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
                 copySide: .trailing,
                 isThreadChild: true
             )
-        case .assistantWithThinking(let thinking, let entry):
-            let text = entry.text
-            let think = thinking.map(\.text).joined(separator: "\n\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let nest = showThinking && !think.isEmpty ? think : nil
-            let replyEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            // Nested thinking: open only while reply has not started; then fully collapse.
-            let live = nest != nil && replyEmpty
-            let blockID = thinking.map(\.id.uuidString).joined(separator: ",") + "|" + entry.id.uuidString
-            let copy: String
-            if let nest {
-                copy = "Thinking\n\n\(nest)\n\n\(text)".trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                copy = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            return NativeBubblePayload(
-                role: .assistant,
-                headerTitle: "Coding Agent",
-                iconSymbol: nil,
-                markdownSource: text,
-                imageReferences: entry.imageReferences,
-                showInlineImagePreviews: showImages,
-                thinkingMarkdownSource: nest,
-                thinkingLive: live,
-                thinkingBlockID: blockID,
-                bodyPrefix: nil,
-                copyText: copy,
-                copySide: .trailing,
-                isThreadChild: true
-            )
         case .thinking(let entry):
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let sessionRunning = store.selectedSession?.status == .running
             return NativeBubblePayload(
                 role: .thinking,
                 headerTitle: entry.title,
@@ -6578,9 +6532,6 @@ struct PiAgentScreen: View {
                 markdownSource: display.isEmpty ? "Pi has not emitted reasoning text yet." : display,
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
-                thinkingMarkdownSource: nil,
-                thinkingLive: sessionRunning,
-                thinkingBlockID: entry.id.uuidString,
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,
@@ -6595,16 +6546,9 @@ struct PiAgentScreen: View {
         let cardWidth = max(width - 32, 200)
         let charsPerLine = max(Int(cardWidth / 7), 20)
         switch child {
-        case let .assistant(entry), let .steering(entry):
+        case let .assistant(entry), let .steering(entry), let .thinking(entry):
             let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
             return CGFloat(min(lines, 40)) * 18 + 48
-        case .thinking:
-            // Collapsed-by-default thinking row: header + disclosure line.
-            return 56
-        case .assistantWithThinking(_, let entry):
-            // Nested thinking collapses after the reply starts; estimate reply only.
-            let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
-            return CGFloat(min(lines, 40)) * 18 + 70
         case .toolGroup:
             // Estimate from the same capped display model the native tool card
             // renders, not from raw activity count. MCP/web/diff groups can contain
@@ -6637,9 +6581,6 @@ struct PiAgentScreen: View {
         case let .steering(entry), let .thinking(entry), let .assistant(entry),
              let .error(entry):
             hashEntryRevision(entry, into: &hasher)
-        case let .assistantWithThinking(thinking, assistant):
-            for entry in thinking { hashEntryRevision(entry, into: &hasher) }
-            hashEntryRevision(assistant, into: &hasher)
         case let .status(entry):
             hashEntryRevision(entry, into: &hasher)
             // A status child fronting a Deck agent run renders the whole run

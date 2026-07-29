@@ -49,9 +49,6 @@ enum PiAgentThreadChild: Hashable, Identifiable {
     case steering(PiAgentTranscriptEntry)
     case thinking(PiAgentTranscriptEntry)
     case assistant(PiAgentTranscriptEntry)
-    /// Thinking immediately followed by an assistant reply with no tool/status
-    /// between them — one bubble (thinking nested under Coding Agent).
-    case assistantWithThinking(thinking: [PiAgentTranscriptEntry], assistant: PiAgentTranscriptEntry)
     case toolGroup(PiAgentThreadToolGroup)
     case status(PiAgentTranscriptEntry)
     case error(PiAgentTranscriptEntry)
@@ -64,7 +61,6 @@ enum PiAgentThreadChild: Hashable, Identifiable {
         case .steering(let e): return "st-\(e.id.uuidString)"
         case .thinking(let e): return "th-\(e.id.uuidString)"
         case .assistant(let e): return "as-\(e.id.uuidString)"
-        case .assistantWithThinking(_, let e): return "as-\(e.id.uuidString)"
         case .toolGroup(let g): return "tg-\(g.id.uuidString)"
         case .status(let e): return "ss-\(e.id.uuidString)"
         case .error(let e): return "er-\(e.id.uuidString)"
@@ -290,70 +286,7 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
                 }
             }
             flushGroup()
-            // Keep thinking and assistant as separate timeline cards (original split).
-            // Nested merge (`coalesceThinkingIntoFollowingAssistant`) was tried and
-            // reverted because expand/collapse jittered the reply body under the same card.
             return children
-        }
-
-        /// Merges thinking into the next assistant when no **tool work** sits between
-        /// them. Plain status/error/retry rows are treated as transparent for this
-        /// adjacency check (they commonly sit between thinking and the reply and
-        /// would otherwise keep the two-card layout the user wants collapsed).
-        /// Tool groups (and steering) still break the merge so the timeline stays stable.
-        private static func coalesceThinkingIntoFollowingAssistant(
-            _ children: [PiAgentThreadChild]
-        ) -> [PiAgentThreadChild] {
-            var out: [PiAgentThreadChild] = []
-            var pendingThinking: [PiAgentTranscriptEntry] = []
-            /// Status/error/retry seen after thinking started, held until we know
-            /// whether the next hard boundary is an assistant (emit after merge)
-            /// or a tool/steering (emit before standalone thinking flush).
-            var deferredPassthrough: [PiAgentThreadChild] = []
-
-            func flushPendingThinking() {
-                for entry in pendingThinking {
-                    out.append(.thinking(entry))
-                }
-                pendingThinking = []
-                out.append(contentsOf: deferredPassthrough)
-                deferredPassthrough = []
-            }
-
-            for child in children {
-                switch child {
-                case .thinking(let entry):
-                    // If we had deferred rows and more thinking arrives, keep them deferred.
-                    pendingThinking.append(entry)
-                case .assistant(let entry):
-                    if pendingThinking.isEmpty {
-                        out.append(contentsOf: deferredPassthrough)
-                        deferredPassthrough = []
-                        out.append(child)
-                    } else {
-                        out.append(.assistantWithThinking(thinking: pendingThinking, assistant: entry))
-                        pendingThinking = []
-                        // Passthrough rows that sat between thinking and reply go after
-                        // the merged bubble (usually filtered out by visibleChildren).
-                        out.append(contentsOf: deferredPassthrough)
-                        deferredPassthrough = []
-                    }
-                case .assistantWithThinking:
-                    flushPendingThinking()
-                    out.append(child)
-                case .toolGroup, .steering:
-                    flushPendingThinking()
-                    out.append(child)
-                case .status, .error, .retry:
-                    if pendingThinking.isEmpty {
-                        out.append(child)
-                    } else {
-                        deferredPassthrough.append(child)
-                    }
-                }
-            }
-            flushPendingThinking()
-            return out
         }
 
         private func coalescedStatuses(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
@@ -1224,12 +1157,6 @@ struct PiAgentTranscriptThreadCard: View {
         case .steering(let entry), .thinking(let entry), .assistant(let entry),
              .status(let entry), .error(let entry):
             return entry.text
-        case .assistantWithThinking(let thinking, let assistant):
-            let think = thinking.map(\.text).joined(separator: "\n\n")
-            if think.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return assistant.text
-            }
-            return "Thinking\n\n\(think)\n\n\(assistant.text)"
         case .toolGroup(let group):
             return group.entries.map(\.text).joined(separator: "\n\n")
         case .retry(let entry, _):
@@ -1252,19 +1179,6 @@ struct PiAgentTranscriptThreadCard: View {
         case .assistant(let entry):
             PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills, commandSlashNames: commandSlashNames)
                 .id(entry.id)
-        case .assistantWithThinking(let thinking, let assistant):
-            let replyEmpty = assistant.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            PiAgentTranscriptCard(
-                entry: assistant,
-                style: childStyle,
-                skills: skills,
-                commandSlashNames: commandSlashNames,
-                nestedThinkingText: visibility.showThinking
-                    ? thinking.map(\.text).joined(separator: "\n\n")
-                    : nil,
-                nestedThinkingLive: replyEmpty
-            )
-            .id(assistant.id)
         case .toolGroup(let group):
             toolGroupView(group)
         case .status(let entry):
@@ -1380,7 +1294,7 @@ struct PiAgentTranscriptThreadCard: View {
                 // list: it would still emit a 0-height row that the inter-row inset
                 // pass pads on both sides, leaving a phantom gap between turns.
                 return toolGroupHasVisibleContent(group, visibility: visibility, projectPath: projectPath)
-            case .steering, .assistant, .assistantWithThinking, .retry: return true
+            case .steering, .assistant, .retry: return true
             }
         }
         return coalesceAdjacentToolGroups(filtered)
@@ -3734,12 +3648,6 @@ struct PiAgentTranscriptCard: View {
     /// Applies only to automatic transcript image markup; user attachment chips
     /// continue through `PiAgentUserMessageContent` unchanged.
     var showInlineImagePreviews: Bool = true
-    /// When set on an assistant card, thinking is nested above the reply (no separate bubble).
-    var nestedThinkingText: String? = nil
-    /// When true, nested thinking starts expanded (streaming). Finished turns collapse.
-    var nestedThinkingLive: Bool = false
-
-    @State private var nestedThinkingExpanded: Bool?
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -3805,70 +3713,17 @@ struct PiAgentTranscriptCard: View {
         if entry.role == .tool {
             PiAgentToolTranscriptView(entry: entry)
         } else if entry.role == .thinking {
-            // Collapsible body — matches native thinking disclosure.
+            // Mirrors the native thinking bubble: a single MarkdownTextView, no
+            // subhead. Both renderers MUST stay in lockstep — see
+            // `nativeReplyPayload(for:)` for the production path.
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let expanded = nestedThinkingExpanded ?? nestedThinkingLive
-            VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        nestedThinkingExpanded = !expanded
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .contentTransition(.symbolEffect(.replace))
-                        Text(expanded ? "Hide thinking" : "Show thinking")
-                            .font(AppTheme.Font.caption.weight(.semibold))
-                    }
-                    .foregroundStyle(AppTheme.roleThinking)
-                }
-                .buttonStyle(.plain)
-                if expanded {
-                    MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-            .animation(.easeInOut(duration: 0.18), value: expanded)
+            MarkdownTextView(source: Self.projectedImageSource(display.isEmpty ? "Pi has not emitted reasoning text yet." : display, references: entry.imageReferences, showImages: showInlineImagePreviews))
+                .frame(maxWidth: .infinity, alignment: .leading)
         } else if entry.role == .user {
             PiAgentUserMessageContent(entry: entry, skills: skills, commandSlashNames: commandSlashNames)
         } else if entry.role == .assistant {
-            if let nested = nestedThinkingText?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !nested.isEmpty {
-                let expanded = nestedThinkingExpanded ?? nestedThinkingLive
-                VStack(alignment: .leading, spacing: 8) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            nestedThinkingExpanded = !expanded
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .contentTransition(.symbolEffect(.replace))
-                            Text("Thinking")
-                                .font(AppTheme.Font.caption.weight(.semibold))
-                        }
-                        .foregroundStyle(AppTheme.roleThinking)
-                    }
-                    .buttonStyle(.plain)
-                    if expanded {
-                        MarkdownTextView(source: nested)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .opacity(0.85)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        Divider().opacity(0.35)
-                            .transition(.opacity)
-                    }
-                    MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .animation(.easeInOut(duration: 0.18), value: expanded)
-            } else {
-                MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            MarkdownTextView(source: Self.projectedImageSource(entry.text, references: entry.imageReferences, showImages: showInlineImagePreviews))
+                .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(entry.text)
                 .font(entry.role == .tool || entry.role == .stderr || entry.role == .raw ? AppTheme.Font.code : AppTheme.Font.body)
