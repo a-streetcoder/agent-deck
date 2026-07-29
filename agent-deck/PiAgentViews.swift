@@ -6377,9 +6377,17 @@ struct PiAgentScreen: View {
     ) -> PiAgentTranscriptCellKind? {
         switch child {
         case .assistant, .assistantWithThinking:
-            return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
+            return nativeReplyPayload(
+                for: child,
+                showImages: visibility.showImages,
+                showThinking: visibility.showThinking
+            ).map { .bubble($0) }
         case .thinking:
-            return nativeReplyPayload(for: child, showImages: visibility.showImages).map { .bubble($0) }
+            return nativeReplyPayload(
+                for: child,
+                showImages: visibility.showImages,
+                showThinking: visibility.showThinking
+            ).map { .bubble($0) }
         case .steering(let entry):
             // Steering messages and structured Ask User answers remain
             // right-aligned user-authored content, but have distinct labels.
@@ -6507,7 +6515,11 @@ struct PiAgentScreen: View {
     /// rows (assistant / thinking). Returns nil for anything that still renders
     /// through the hosted SwiftUI path (subagent summaries, tool groups, status,
     /// errors, retries, steering — handled in later stages).
-    private func nativeReplyPayload(for child: PiAgentThreadChild, showImages: Bool) -> NativeBubblePayload? {
+    private func nativeReplyPayload(
+        for child: PiAgentThreadChild,
+        showImages: Bool,
+        showThinking: Bool
+    ) -> NativeBubblePayload? {
         switch child {
         case .assistant(let entry):
             let text = entry.text
@@ -6528,11 +6540,12 @@ struct PiAgentScreen: View {
             let text = entry.text
             let think = thinking.map(\.text).joined(separator: "\n\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let nest = showThinking && !think.isEmpty ? think : nil
             let copy: String
-            if think.isEmpty {
-                copy = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let nest {
+                copy = "Thinking\n\n\(nest)\n\n\(text)".trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
-                copy = "Thinking\n\n\(think)\n\n\(text)".trimmingCharacters(in: .whitespacesAndNewlines)
+                copy = text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return NativeBubblePayload(
                 role: .assistant,
@@ -6541,7 +6554,7 @@ struct PiAgentScreen: View {
                 markdownSource: text,
                 imageReferences: entry.imageReferences,
                 showInlineImagePreviews: showImages,
-                thinkingMarkdownSource: think.isEmpty ? nil : think,
+                thinkingMarkdownSource: nest,
                 bodyPrefix: nil,
                 copyText: copy,
                 copySide: .trailing,

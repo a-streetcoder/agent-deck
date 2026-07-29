@@ -296,40 +296,60 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
             return Self.coalesceThinkingIntoFollowingAssistant(children)
         }
 
-        /// Merges runs of `.thinking` immediately followed by `.assistant` into
-        /// `.assistantWithThinking`. Any intervening tool/status/error/retry/steering
-        /// flushes pending thinking as standalone children first.
+        /// Merges thinking into the next assistant when no **tool work** sits between
+        /// them. Plain status/error/retry rows are treated as transparent for this
+        /// adjacency check (they commonly sit between thinking and the reply and
+        /// would otherwise keep the two-card layout the user wants collapsed).
+        /// Tool groups (and steering) still break the merge so the timeline stays stable.
         private static func coalesceThinkingIntoFollowingAssistant(
             _ children: [PiAgentThreadChild]
         ) -> [PiAgentThreadChild] {
             var out: [PiAgentThreadChild] = []
             var pendingThinking: [PiAgentTranscriptEntry] = []
+            /// Status/error/retry seen after thinking started, held until we know
+            /// whether the next hard boundary is an assistant (emit after merge)
+            /// or a tool/steering (emit before standalone thinking flush).
+            var deferredPassthrough: [PiAgentThreadChild] = []
 
             func flushPendingThinking() {
                 for entry in pendingThinking {
                     out.append(.thinking(entry))
                 }
                 pendingThinking = []
+                out.append(contentsOf: deferredPassthrough)
+                deferredPassthrough = []
             }
 
             for child in children {
                 switch child {
                 case .thinking(let entry):
+                    // If we had deferred rows and more thinking arrives, keep them deferred.
                     pendingThinking.append(entry)
                 case .assistant(let entry):
                     if pendingThinking.isEmpty {
+                        out.append(contentsOf: deferredPassthrough)
+                        deferredPassthrough = []
                         out.append(child)
                     } else {
                         out.append(.assistantWithThinking(thinking: pendingThinking, assistant: entry))
                         pendingThinking = []
+                        // Passthrough rows that sat between thinking and reply go after
+                        // the merged bubble (usually filtered out by visibleChildren).
+                        out.append(contentsOf: deferredPassthrough)
+                        deferredPassthrough = []
                     }
                 case .assistantWithThinking:
-                    // Already coalesced (defensive); keep as-is after flushing.
                     flushPendingThinking()
                     out.append(child)
-                case .steering, .toolGroup, .status, .error, .retry:
+                case .toolGroup, .steering:
                     flushPendingThinking()
                     out.append(child)
+                case .status, .error, .retry:
+                    if pendingThinking.isEmpty {
+                        out.append(child)
+                    } else {
+                        deferredPassthrough.append(child)
+                    }
                 }
             }
             flushPendingThinking()
