@@ -749,7 +749,11 @@ final class PiAgentRunnerService {
             }
             try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
             let launchSettings = AppSettingsStore.shared.settings
-            var extraArguments: [String] = PiAgentLaunchArgumentBuilder.noExtensionsArgument(settings: launchSettings)
+            // `--no-extensions` + re-inject model provider packages (pi-grok-cli, …).
+            var extraArguments: [String] = PiAgentLaunchArgumentBuilder.isolatedLaunchBaseArguments(
+                settings: launchSettings,
+                projectURL: projectURL
+            )
             if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", auditURL.path])
             }

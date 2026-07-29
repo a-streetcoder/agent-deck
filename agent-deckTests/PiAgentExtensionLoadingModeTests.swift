@@ -108,6 +108,74 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
         XCTAssertTrue(beta.contains { $0.hasSuffix("beta.ts") })
     }
 
+    func testManagedModeReinjectsModelProviderPackagesOnly() throws {
+        let home = try makeTempHomeWithPackages(
+            packages: [
+                ("pi-grok-cli", isProvider: true),
+                ("pi-subagents", isProvider: false),
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+        let service = PiExtensionDiscoveryService(homeDirectory: home)
+        var settings = AppSettings()
+        settings.piAgentExtensionLoadingMode = .agentDeckManaged
+
+        let base = PiAgentLaunchArgumentBuilder.isolatedLaunchBaseArguments(
+            settings: settings, projectURL: nil, discoveryService: service
+        )
+        XCTAssertEqual(base.first, "--no-extensions")
+        XCTAssertTrue(base.contains { $0.hasSuffix("pi-grok-cli/src/index.ts") || $0.contains("/pi-grok-cli/") })
+        XCTAssertFalse(base.contains { $0.contains("pi-subagents") })
+
+        let user = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
+            settings: settings, projectURL: nil, discoveryService: service
+        )
+        XCTAssertTrue(user.isEmpty)
+    }
+
+    func testUseMyExtensionsLoadsAllPackagesSeparatelyFromUserFiles() throws {
+        let home = try makeTempHomeWithPackages(
+            packages: [("pi-subagents", isProvider: false)],
+            extensionFileNames: ["alpha.ts"]
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+        let service = PiExtensionDiscoveryService(homeDirectory: home)
+        var settings = AppSettings()
+        settings.piAgentExtensionLoadingMode = .useMyExtensions
+
+        let packages = PiAgentLaunchArgumentBuilder.packageExtensionArguments(
+            settings: settings, projectURL: nil, discoveryService: service
+        )
+        XCTAssertTrue(packages.contains { $0.contains("pi-subagents") })
+
+        let user = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
+            settings: settings, projectURL: nil, discoveryService: service
+        )
+        XCTAssertTrue(user.contains { $0.hasSuffix("alpha.ts") })
+        XCTAssertFalse(user.contains { $0.contains("pi-subagents") }, "packages must not double-load via userSelected")
+    }
+
+    func testIsModelProviderPackageHeuristic() {
+        let grok = PiExtensionCandidate(
+            id: "path:/tmp/a",
+            name: "index",
+            launchSource: "/tmp/a",
+            source: ScopeID(kind: .package, path: "npm:pi-grok-cli"),
+            discoveryKind: .package,
+            packageName: "pi-grok-cli"
+        )
+        let sub = PiExtensionCandidate(
+            id: "path:/tmp/b",
+            name: "index",
+            launchSource: "/tmp/b",
+            source: ScopeID(kind: .package, path: "npm:pi-subagents"),
+            discoveryKind: .package,
+            packageName: "pi-subagents"
+        )
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isModelProviderPackage(grok))
+        XCTAssertFalse(PiAgentLaunchArgumentBuilder.isModelProviderPackage(sub))
+    }
+
     // MARK: - Injected bridge list (Session resources popover)
 
     private func bridgeIDs(
@@ -169,6 +237,38 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
         for name in extensionFileNames {
             try "export default {}\n".write(to: extDir.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
+        return home
+    }
+
+    private func makeTempHomeWithPackages(
+        packages: [(name: String, isProvider: Bool)],
+        extensionFileNames: [String] = []
+    ) throws -> URL {
+        let home = try makeTempHome(extensionFileNames: extensionFileNames)
+        let fm = FileManager.default
+        let agentDir = home.appendingPathComponent(".pi/agent", isDirectory: true)
+        try fm.createDirectory(at: agentDir, withIntermediateDirectories: true)
+
+        var packageRefs: [String] = []
+        for package in packages {
+            packageRefs.append("npm:\(package.name)")
+            let pkgDir = home.appendingPathComponent(".pi/agent/npm/node_modules/\(package.name)", isDirectory: true)
+            let srcDir = pkgDir.appendingPathComponent("src", isDirectory: true)
+            try fm.createDirectory(at: srcDir, withIntermediateDirectories: true)
+            try "export default {}\n".write(to: srcDir.appendingPathComponent("index.ts"), atomically: true, encoding: .utf8)
+            let packageJSON: [String: Any] = [
+                "name": package.name,
+                "pi": [
+                    "extensions": ["./src/index.ts"]
+                ]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: packageJSON, options: [.prettyPrinted])
+            try data.write(to: pkgDir.appendingPathComponent("package.json"))
+        }
+
+        let settings: [String: Any] = ["packages": packageRefs]
+        let settingsData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted])
+        try settingsData.write(to: agentDir.appendingPathComponent("settings.json"))
         return home
     }
 }

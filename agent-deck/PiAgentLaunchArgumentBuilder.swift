@@ -83,10 +83,51 @@ enum PiAgentLaunchArgumentBuilder {
         settings.piAgentExtensionLoadingMode.ambientPiExtensionArguments
     }
 
-    /// The `--extension <path>` pairs for the user's *enabled* discovered Pi extensions.
-    /// Empty unless the mode is `.useMyExtensions`. These MUST be appended AFTER Agent
-    /// Deck's own bridge `--extension`s so the bridges register first and win any
-    /// tool-name conflict (Pi resolves duplicate tool names first-registration-wins).
+    /// `--no-extensions` plus package model-provider extensions.
+    ///
+    /// Pi Deck always disables ambient extension discovery. That also drops
+    /// `settings.json` packages such as `npm:pi-grok-cli`, which register providers
+    /// like `grok-cli`. Without re-injecting those package entrypoints, launches fail with
+    /// `Unknown provider "grok-cli"` even though `pi --list-models` (ambient on) lists them.
+    static func isolatedLaunchBaseArguments(
+        settings: AppSettings,
+        projectURL: URL? = nil,
+        discoveryService: PiExtensionDiscoveryService = PiExtensionDiscoveryService()
+    ) -> [String] {
+        noExtensionsArgument(settings: settings)
+            + packageExtensionArguments(settings: settings, projectURL: projectURL, discoveryService: discoveryService)
+    }
+
+    /// Explicit `--extension` paths for enabled `settings.json` packages.
+    ///
+    /// - **Managed mode**: only model/auth provider packages (e.g. `pi-grok-cli`).
+    /// - **Use my extensions**: every enabled package extension (user opted into full package load).
+    ///
+    /// Always emit after `--no-extensions` and before (or with) Deck bridges.
+    static func packageExtensionArguments(
+        settings: AppSettings,
+        projectURL: URL?,
+        discoveryService: PiExtensionDiscoveryService = PiExtensionDiscoveryService()
+    ) -> [String] {
+        let includeAllPackages = settings.piAgentExtensionLoadingMode.usesCustomPiExtensionSelection
+        var args: [String] = []
+        var seen = Set<String>()
+        for candidate in discoveryService.enabledCandidates(settings: settings, projectRoot: projectURL)
+            where candidate.discoveryKind == .package
+        {
+            if !includeAllPackages, !isModelProviderPackage(candidate) { continue }
+            let source = candidate.launchSource
+            guard seen.insert(source).inserted else { continue }
+            args.append(contentsOf: ["--extension", source])
+        }
+        return args
+    }
+
+    /// The `--extension <path>` pairs for the user's *enabled* non-package Pi extensions.
+    /// Empty unless the mode is `.useMyExtensions`. Packages are handled by
+    /// `packageExtensionArguments` so they are not double-loaded.
+    /// These MUST be appended AFTER Agent Deck's own bridge `--extension`s so the
+    /// bridges register first and win any tool-name conflict (first-registration-wins).
     static func userSelectedExtensionArguments(
         settings: AppSettings,
         projectURL: URL?,
@@ -94,10 +135,32 @@ enum PiAgentLaunchArgumentBuilder {
     ) -> [String] {
         guard settings.piAgentExtensionLoadingMode.usesCustomPiExtensionSelection else { return [] }
         var args: [String] = []
-        for candidate in discoveryService.enabledCandidates(settings: settings, projectRoot: projectURL) {
-            args.append(contentsOf: ["--extension", candidate.launchSource])
+        var seen = Set<String>()
+        for candidate in discoveryService.enabledCandidates(settings: settings, projectRoot: projectURL)
+            where candidate.discoveryKind != .package
+        {
+            let source = candidate.launchSource
+            guard seen.insert(source).inserted else { continue }
+            args.append(contentsOf: ["--extension", source])
         }
         return args
+    }
+
+    /// Packages that register chat model providers (not tools/UI).
+    /// Keep this conservative so managed mode does not pull in pi-subagents / MCP / etc.
+    static func isModelProviderPackage(_ candidate: PiExtensionCandidate) -> Bool {
+        let name = (candidate.packageName ?? "").lowercased()
+        guard !name.isEmpty else { return false }
+        let baseName = name.split(separator: "/").last.map(String.init) ?? name
+        let knownBaseNames: Set<String> = [
+            "pi-grok-cli",
+            "pi-xai-oauth",
+        ]
+        if knownBaseNames.contains(baseName) { return true }
+        // Heuristic for future oauth/model provider packages.
+        if baseName.contains("oauth") { return true }
+        if baseName.contains("grok") && !baseName.contains("web") { return true }
+        return false
     }
 
     // MARK: - Internal

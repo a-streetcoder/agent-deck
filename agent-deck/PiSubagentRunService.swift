@@ -109,7 +109,12 @@ final class PiSubagentRunService {
         fileManager.createFile(atPath: artifactDirectory.appendingPathComponent("output.md").path, contents: nil)
 
         let childSessionDirectory = artifactDirectory.appendingPathComponent("sessions", isDirectory: true)
-        var extraArguments: [String] = PiAgentLaunchArgumentBuilder.noExtensionsArgument(settings: AppSettingsStore.shared.settings)
+        let launchSettings = AppSettingsStore.shared.settings
+        // `--no-extensions` + model provider packages so child agents can use grok-cli/etc.
+        var extraArguments: [String] = PiAgentLaunchArgumentBuilder.isolatedLaunchBaseArguments(
+            settings: launchSettings,
+            projectURL: childProjectURL
+        )
         if !isContinuation {
             extraArguments.append(contentsOf: ["--session-dir", childSessionDirectory.path])
         }

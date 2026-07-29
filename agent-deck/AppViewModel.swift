@@ -983,12 +983,17 @@ final class AppViewModel: NSObject {
         var resourcePaths: [String] = []
         if !session.isNoProject {
             resourcePaths.append(contentsOf: launchSystemPromptResourcePaths(projectURL: projectURL))
+            let packageArgs = PiAgentLaunchArgumentBuilder.packageExtensionArguments(
+                settings: appSettings,
+                projectURL: projectURL
+            )
             let extensionArgs = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
                 settings: appSettings,
                 projectURL: projectURL
             )
+            parts.append("packageArgs=\(packageArgs.joined(separator: "\u{1f}"))")
             parts.append("extensionArgs=\(extensionArgs.joined(separator: "\u{1f}"))")
-            resourcePaths.append(contentsOf: launchResourcePaths(in: extensionArgs, flags: ["--extension"]))
+            resourcePaths.append(contentsOf: launchResourcePaths(in: packageArgs + extensionArgs, flags: ["--extension"]))
         }
 
         if let boundAgent = boundAgent(for: session) {
