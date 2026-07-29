@@ -9584,11 +9584,32 @@ final class AppViewModel: NSObject {
     /// Materializes the full universe of Skills, Prompts, Commands, and Loops the
     /// composer's `/` browser can show. Build once when the panel opens and hold
     /// the result in `@State` — never call inside a SwiftUI `body`.
-    func slashUniverse(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> SlashUniverse {
+    ///
+    /// - Parameter runtimeSlashCommands: Pi `get_commands` for the active session
+    ///   (extension registerCommand list + runtime skills/prompts). Merged so
+    ///   user extensions appear in `/` even when not in Deck's Command Library.
+    func slashUniverse(
+        forProjectPath projectPath: String?,
+        useSelectedProjectFallback: Bool = true,
+        runtimeSlashCommands: [PiRuntimeSlashCommand]? = nil
+    ) -> SlashUniverse {
         let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
         let scopedPath = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         guard scopedPath != nil || useSelectedProjectFallback else { return .empty }
         let projectFeatureSlashEnabled = scopedPath != nil
+
+        let runtime = runtimeSlashCommands ?? []
+        let runtimeSkillNames: Set<String> = Set(runtime.compactMap { cmd in
+            guard cmd.isSkill else { return nil }
+            var bare = cmd.bareName
+            if bare.hasPrefix("skill:") { bare = String(bare.dropFirst("skill:".count)) }
+            return bare
+        })
+        let runtimePromptNames: Set<String> = Set(runtime.compactMap { cmd in
+            guard cmd.source == "prompt", !cmd.isSkill else { return nil }
+            return cmd.bareName
+        })
+        let runtimeExtensionCommands = runtime.filter(\.isExtensionCommand)
 
         // Skills
         let catalogSkillRecords: [SkillRecord]
@@ -9598,6 +9619,7 @@ final class AppViewModel: NSObject {
             catalogSkillRecords = globalSnapshot.skills
         }
         let activeSkillNames = activeParentSkillNames(forProjectPath: scopedPath, useSelectedProjectFallback: false)
+            .union(runtimeSkillNames)
         let activeCollectionIDs = appSettings.defaultSkillCollectionIDs.union(scopedPath.map { projectPreference(for: $0).assignedSkillCollectionIDs } ?? [])
         let disabledBundledSkillNames = appSettings.disabledBundledSkillNames
         var seenSkillName = Set<String>()
@@ -9639,6 +9661,7 @@ final class AppViewModel: NSObject {
             promptRecords = globalSnapshot.promptTemplates
         }
         let activePromptNames = activeParentPromptTemplateNames(forProjectPath: scopedPath, useSelectedProjectFallback: false)
+            .union(runtimePromptNames)
         let disabledBundledPromptNames = appSettings.disabledBundledPromptNames
         var seenPromptName = Set<String>()
         let prompts = promptRecords
@@ -9657,14 +9680,20 @@ final class AppViewModel: NSObject {
                 )
             }
 
-        // Commands — active only (inactive commands are TypeScript handlers
-        // that aren't loaded into the running Pi process, so we can't safely
-        // expand them client-side).
-        let commands = projectFeatureSlashEnabled
-            ? PiInjectedCommandCatalog.all
-                .filter { PiInjectedCommandCatalog.isEnabled($0, settings: appSettings) }
-                .sorted { $0.slashName.localizedStandardCompare($1.slashName) == .orderedAscending }
-                .map { command in
+        // Commands — Deck Command Library (when project-scoped) + Pi runtime
+        // extension `registerCommand` entries from `get_commands`.
+        var knownCommandSlash = Set<String>()
+        var commands: [SlashItem] = []
+        if projectFeatureSlashEnabled {
+            for command in PiInjectedCommandCatalog.all
+                .filter({ PiInjectedCommandCatalog.isEnabled($0, settings: appSettings) })
+                .sorted(by: { $0.slashName.localizedStandardCompare($1.slashName) == .orderedAscending }) {
+                knownCommandSlash.insert(command.slashName.lowercased())
+                let bare = command.slashName.hasPrefix("/")
+                    ? String(command.slashName.dropFirst()).lowercased()
+                    : command.slashName.lowercased()
+                knownCommandSlash.insert(bare)
+                commands.append(
                     SlashItem(
                         id: "command:\(command.id)",
                         kind: .command,
@@ -9674,8 +9703,31 @@ final class AppViewModel: NSObject {
                         isActive: true,
                         payload: .command(slashName: command.slashName, commandID: command.id)
                     )
-                }
-            : []
+                )
+            }
+        }
+        for cmd in runtimeExtensionCommands.sorted(by: {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }) {
+            let slashName = cmd.invocation
+            let bare = cmd.bareName.lowercased()
+            if knownCommandSlash.contains(slashName.lowercased()) || knownCommandSlash.contains(bare) {
+                continue
+            }
+            knownCommandSlash.insert(slashName.lowercased())
+            knownCommandSlash.insert(bare)
+            commands.append(
+                SlashItem(
+                    id: "runtime-command:\(cmd.bareName)",
+                    kind: .command,
+                    displayName: cmd.bareName,
+                    description: cmd.description,
+                    scopeLabel: "Extension",
+                    isActive: true,
+                    payload: .command(slashName: slashName, commandID: "runtime:\(cmd.bareName)")
+                )
+            )
+        }
 
         let createLoop = SlashItem(
             id: "loop:create-new",

@@ -7307,6 +7307,9 @@ struct PiAgentScreen: View {
             refreshSlashUniverseLifecycle()
             rebuildSlashSuggestionCache()
         }
+        .onChange(of: store.selectedSession?.commandInvocations) { _, _ in
+            refreshSlashUniverseFromRuntimeIfNeeded()
+        }
     }
 
     private var activeSuggestionToken: (token: String, range: Range<String.Index>)? {
@@ -7579,29 +7582,7 @@ struct PiAgentScreen: View {
         if case .slash = composerSuggestionTrigger { isSlashActive = true } else { isSlashActive = false }
 
         if isSlashActive && !lastSlashTriggerActive {
-            let projectPath: String?
-            let useSelectedProjectFallback: Bool
-            if let session = store.selectedSession {
-                projectPath = session.projectPathForProjectFeatures
-                useSelectedProjectFallback = false
-            } else {
-                projectPath = viewModel.selectedProjectPath
-                useSelectedProjectFallback = true
-            }
-#if DEBUG
-            SlashDebugLog.write("slash.lifecycle.enter", [
-                "query": slashQueryString,
-                "projectPath": projectPath
-            ])
-            SlashDebugLog.write("slash.universe.build.start", ["projectPath": projectPath])
-            let buildStart = Date()
-#endif
-            slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath, useSelectedProjectFallback: useSelectedProjectFallback)
-            slashUniverseRevision &+= 1
-#if DEBUG
-            let durationMS = Date().timeIntervalSince(buildStart) * 1000
-            SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
-#endif
+            rebuildSlashUniverseSnapshot(reason: "enter")
             slashState = SlashSuggestionState()
         } else if !isSlashActive && lastSlashTriggerActive {
 #if DEBUG
@@ -7613,6 +7594,44 @@ struct PiAgentScreen: View {
             clearSlashSuggestionCache()
         }
         lastSlashTriggerActive = isSlashActive
+    }
+
+    /// Rebuild `/` catalog while the panel is open (e.g. after `get_commands`).
+    private func refreshSlashUniverseFromRuntimeIfNeeded() {
+        guard case .slash = composerSuggestionTrigger else { return }
+        rebuildSlashUniverseSnapshot(reason: "runtime")
+        rebuildSlashSuggestionCache()
+    }
+
+    private func rebuildSlashUniverseSnapshot(reason: String) {
+        let projectPath: String?
+        let useSelectedProjectFallback: Bool
+        if let session = store.selectedSession {
+            projectPath = session.projectPathForProjectFeatures
+            useSelectedProjectFallback = false
+        } else {
+            projectPath = viewModel.selectedProjectPath
+            useSelectedProjectFallback = true
+        }
+#if DEBUG
+        SlashDebugLog.write("slash.lifecycle.\(reason)", [
+            "query": slashQueryString,
+            "projectPath": projectPath,
+            "runtimeCount": store.selectedSession?.runtimeSlashCommands?.count ?? 0
+        ])
+        SlashDebugLog.write("slash.universe.build.start", ["projectPath": projectPath, "reason": reason])
+        let buildStart = Date()
+#endif
+        slashUniverse = viewModel.slashUniverse(
+            forProjectPath: projectPath,
+            useSelectedProjectFallback: useSelectedProjectFallback,
+            runtimeSlashCommands: store.selectedSession?.runtimeSlashCommands
+        )
+        slashUniverseRevision &+= 1
+#if DEBUG
+        let durationMS = Date().timeIntervalSince(buildStart) * 1000
+        SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
+#endif
     }
 
     private var slashSuggestions: [String] {
@@ -8412,6 +8431,9 @@ private struct PiAgentComposerPanel: View {
             // the view tree). `onAppear` below restores it into the new tree.
             saveComposerDraft(for: selectedSessionID)
         }
+        .onChange(of: store.selectedSession?.commandInvocations) { _, _ in
+            refreshSlashUniverseFromRuntimeIfNeeded()
+        }
         .onAppear {
             syncRuntimeFooterSnapshot()
             loadComposerDraft(for: selectedSessionID)
@@ -8769,29 +8791,7 @@ private struct PiAgentComposerPanel: View {
         if case .slash = composerSuggestionTrigger { isSlashActive = true } else { isSlashActive = false }
 
         if isSlashActive && !lastSlashTriggerActive {
-            let projectPath: String?
-            let useSelectedProjectFallback: Bool
-            if let session = store.selectedSession {
-                projectPath = session.projectPathForProjectFeatures
-                useSelectedProjectFallback = false
-            } else {
-                projectPath = viewModel.selectedProjectPath
-                useSelectedProjectFallback = true
-            }
-#if DEBUG
-            SlashDebugLog.write("slash.lifecycle.enter", [
-                "query": slashQueryString,
-                "projectPath": projectPath
-            ])
-            SlashDebugLog.write("slash.universe.build.start", ["projectPath": projectPath])
-            let buildStart = Date()
-#endif
-            slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath, useSelectedProjectFallback: useSelectedProjectFallback)
-            slashUniverseRevision &+= 1
-#if DEBUG
-            let durationMS = Date().timeIntervalSince(buildStart) * 1000
-            SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
-#endif
+            rebuildSlashUniverseSnapshot(reason: "enter")
             slashState = SlashSuggestionState()
         } else if !isSlashActive && lastSlashTriggerActive {
 #if DEBUG
@@ -8803,6 +8803,44 @@ private struct PiAgentComposerPanel: View {
             clearSlashSuggestionCache()
         }
         lastSlashTriggerActive = isSlashActive
+    }
+
+    /// Rebuild `/` catalog while the panel is open (e.g. after `get_commands`).
+    private func refreshSlashUniverseFromRuntimeIfNeeded() {
+        guard case .slash = composerSuggestionTrigger else { return }
+        rebuildSlashUniverseSnapshot(reason: "runtime")
+        rebuildSlashSuggestionCache()
+    }
+
+    private func rebuildSlashUniverseSnapshot(reason: String) {
+        let projectPath: String?
+        let useSelectedProjectFallback: Bool
+        if let session = store.selectedSession {
+            projectPath = session.projectPathForProjectFeatures
+            useSelectedProjectFallback = false
+        } else {
+            projectPath = viewModel.selectedProjectPath
+            useSelectedProjectFallback = true
+        }
+#if DEBUG
+        SlashDebugLog.write("slash.lifecycle.\(reason)", [
+            "query": slashQueryString,
+            "projectPath": projectPath,
+            "runtimeCount": store.selectedSession?.runtimeSlashCommands?.count ?? 0
+        ])
+        SlashDebugLog.write("slash.universe.build.start", ["projectPath": projectPath, "reason": reason])
+        let buildStart = Date()
+#endif
+        slashUniverse = viewModel.slashUniverse(
+            forProjectPath: projectPath,
+            useSelectedProjectFallback: useSelectedProjectFallback,
+            runtimeSlashCommands: store.selectedSession?.runtimeSlashCommands
+        )
+        slashUniverseRevision &+= 1
+#if DEBUG
+        let durationMS = Date().timeIntervalSince(buildStart) * 1000
+        SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
+#endif
     }
 
     private var slashSuggestions: [String] {

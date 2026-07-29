@@ -1615,8 +1615,12 @@ final class PiAgentRunnerService {
         }
 
         if event.command == "get_commands", let data = event.data {
+            let runtime = parseRuntimeSlashCommands(from: data)
             store.updateSession(sessionID) { record in
-                record.commandInvocations = parseCommandInvocations(from: data)
+                record.runtimeSlashCommands = runtime.isEmpty ? nil : runtime
+                record.commandInvocations = runtime.isEmpty
+                    ? nil
+                    : Array(Set(runtime.map(\.invocation))).sorted()
             }
             return
         }
@@ -1894,7 +1898,11 @@ final class PiAgentRunnerService {
         }
     }
 
-    private func parseCommandInvocations(from value: JSONValue) -> [String] {
+    /// Parses Pi RPC `get_commands` payload into rich slash catalog entries.
+    ///
+    /// - Parameter value: RPC `data` object (`{ commands: [...] }`) or a bare array.
+    /// - Returns: Deduplicated commands keyed by bare name (first wins), sorted by name.
+    private func parseRuntimeSlashCommands(from value: JSONValue) -> [PiRuntimeSlashCommand] {
         let commands: [JSONValue]
         if case let .array(items) = value {
             commands = items
@@ -1904,11 +1912,33 @@ final class PiAgentRunnerService {
             commands = []
         }
 
-        return Array(Set(commands.compactMap { item -> String? in
+        var seen = Set<String>()
+        var parsed: [PiRuntimeSlashCommand] = []
+        for item in commands {
             let raw = item["name"]?.stringValue ?? item["invocation"]?.stringValue ?? item.stringValue
-            guard let raw, !raw.isEmpty else { return nil }
-            return raw.hasPrefix("/") ? raw : "/\(raw)"
-        })).sorted()
+            guard let raw else { continue }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let bare = trimmed.hasPrefix("/") ? String(trimmed.dropFirst()) : trimmed
+            guard seen.insert(bare).inserted else { continue }
+            let description = item["description"]?.stringValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let source = (item["source"]?.stringValue ?? "extension")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            parsed.append(
+                PiRuntimeSlashCommand(
+                    name: bare,
+                    description: (description?.isEmpty == false) ? description : nil,
+                    source: source.isEmpty ? "extension" : source
+                )
+            )
+        }
+        return parsed.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func parseCommandInvocations(from value: JSONValue) -> [String] {
+        Array(Set(parseRuntimeSlashCommands(from: value).map(\.invocation))).sorted()
     }
 
     private func stringArray(from value: JSONValue?) -> [String]? {

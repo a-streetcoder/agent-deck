@@ -941,6 +941,33 @@ struct PiAgentSessionAgentLaunchOverride: Codable, Hashable {
     var isEmpty: Bool { model == nil && thinking == nil }
 }
 
+/// One slash target returned by Pi RPC `get_commands` (extension / prompt / skill).
+/// Names are stored without a leading `/` (skills use `skill:name`).
+nonisolated struct PiRuntimeSlashCommand: Codable, Hashable, Sendable {
+    var name: String
+    var description: String?
+    /// Pi source: `extension` | `prompt` | `skill`
+    var source: String
+
+    /// Leading-slash form used in the composer (`/blackhole-memory`, `/skill:foo`).
+    var invocation: String {
+        name.hasPrefix("/") ? name : "/\(name)"
+    }
+
+    var isSkill: Bool {
+        source == "skill" || name.hasPrefix("skill:") || name.hasPrefix("/skill:")
+    }
+
+    var isExtensionCommand: Bool {
+        source == "extension" && !isSkill
+    }
+
+    var bareName: String {
+        let trimmed = name.hasPrefix("/") ? String(name.dropFirst()) : name
+        return trimmed
+    }
+}
+
 nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     let id: UUID
     var kind: PiAgentSessionKind
@@ -960,7 +987,10 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var modelProvider: String?
     var modelOverrideID: String?
     var modelOverrideProvider: String?
+    /// Leading-slash invocations from last `get_commands` (compat / chip matching).
     var commandInvocations: [String]?
+    /// Rich catalog from last `get_commands` (descriptions + source for `/` panel).
+    var runtimeSlashCommands: [PiRuntimeSlashCommand]?
     var thinkingLevel: String?
     var launchCommand: String?
     var branchName: String?
@@ -1105,7 +1135,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, ownedPiSessionFiles, piSessionId
-        case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath, sourceBranch
+        case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, runtimeSlashCommands, thinkingLevel, launchCommand, branchName, worktreePath, sourceBranch
         case status, lastError, lastSummary, needsAttention, lastNotificationAt, lastUserMessageAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost, costBreakdown
         case finalSystemPrompt, finalSystemPromptCapturedAt
@@ -1130,6 +1160,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         modelOverrideID: String?,
         modelOverrideProvider: String?,
         commandInvocations: [String]? = nil,
+        runtimeSlashCommands: [PiRuntimeSlashCommand]? = nil,
         thinkingLevel: String?,
         launchCommand: String?,
         branchName: String?,
@@ -1195,6 +1226,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.modelOverrideID = modelOverrideID
         self.modelOverrideProvider = modelOverrideProvider
         self.commandInvocations = commandInvocations
+        self.runtimeSlashCommands = runtimeSlashCommands
         self.thinkingLevel = thinkingLevel
         self.launchCommand = launchCommand
         self.branchName = branchName
@@ -1262,6 +1294,7 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             modelOverrideID: try container.decodeIfPresent(String.self, forKey: .modelOverrideID),
             modelOverrideProvider: try container.decodeIfPresent(String.self, forKey: .modelOverrideProvider),
             commandInvocations: try container.decodeIfPresent([String].self, forKey: .commandInvocations),
+            runtimeSlashCommands: try container.decodeIfPresent([PiRuntimeSlashCommand].self, forKey: .runtimeSlashCommands),
             thinkingLevel: try container.decodeIfPresent(String.self, forKey: .thinkingLevel),
             launchCommand: try container.decodeIfPresent(String.self, forKey: .launchCommand),
             branchName: try container.decodeIfPresent(String.self, forKey: .branchName),
