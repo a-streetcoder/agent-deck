@@ -44,15 +44,16 @@ struct CodingAgentPanelHeader<Trailing: View>: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     @ViewBuilder var trailing: Trailing
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Button("Sessions", action: onToggle)
+            Button(languageStore.t("session.title"), action: onToggle)
                 .buttonStyle(.plain)
                 .font(AppTheme.Font.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .help(isExpanded ? "Collapse sessions" : "Expand sessions")
+                .help(isExpanded ? languageStore.t("session.collapse") : languageStore.t("session.expand"))
 
             Spacer(minLength: 8)
 
@@ -61,12 +62,12 @@ struct CodingAgentPanelHeader<Trailing: View>: View {
             AppCircleIconButton(
                 style: .neutral,
                 size: 30,
-                help: isExpanded ? "Collapse to navigation" : "Show all sessions",
+                help: isExpanded ? languageStore.t("session.collapseToNav") : languageStore.t("session.showAll"),
                 action: onToggle
             ) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
             }
-            .accessibilityLabel(isExpanded ? "Collapse sessions" : "Expand sessions")
+            .accessibilityLabel(isExpanded ? languageStore.t("session.collapse") : languageStore.t("session.expand"))
         }
     }
 }
@@ -192,16 +193,16 @@ struct CodingAgentCollapsedPanel: View {
             guard !viewModel.isCodingAgentPanelExpanded, let newID else { return }
             recentScrollRequest = newID
         }
-        .alert("Delete Pi Agent session?", isPresented: $isDeleteSessionAlertPresented) {
-            Button("Delete", role: .destructive) {
+        .alert(LanguageStore.shared.t("session.deleteTitle"), isPresented: $isDeleteSessionAlertPresented) {
+            Button(LanguageStore.shared.t("common.delete"), role: .destructive) {
                 if let id = pendingDeleteSessionID {
                     viewModel.deletePiAgentSessions([id])
                 }
                 pendingDeleteSessionID = nil
             }
-            Button("Cancel", role: .cancel) { pendingDeleteSessionID = nil }
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { pendingDeleteSessionID = nil }
         } message: {
-            Text("This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac.")
+            Text(LanguageStore.shared.t("session.deleteMessage"))
         }
     }
 
@@ -348,13 +349,18 @@ private struct CodingAgentRecentList: View, Equatable {
                 Button {
                     onSetPinned(session.id, session.pinnedAt == nil)
                 } label: {
-                    Label(session.pinnedAt == nil ? "Pin Session" : "Unpin Session", systemImage: session.pinnedAt == nil ? "pin" : "pin.slash")
+                    Label(
+                        session.pinnedAt == nil
+                            ? LanguageStore.shared.t("session.pin")
+                            : LanguageStore.shared.t("session.unpin"),
+                        systemImage: session.pinnedAt == nil ? "pin" : "pin.slash"
+                    )
                 }
                 Divider()
                 Button(role: .destructive) {
                     onDelete(session.id)
                 } label: {
-                    Label("Delete Session", systemImage: "trash")
+                    Label(LanguageStore.shared.t("session.delete"), systemImage: "trash")
                 }
             }
         }
@@ -416,7 +422,7 @@ struct CodingAgentRecentRow: View, Equatable {
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(width: 11, height: 11)
                     .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
-                    .help("Pinned")
+                    .help(LanguageStore.shared.t("session.pinned"))
                     .accessibilityHidden(true)
             }
 
@@ -470,22 +476,22 @@ struct CodingAgentRecentRow: View, Equatable {
             Image(systemName: "questionmark.bubble.fill")
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.brandAccent)
-                .help("Pi Agent is waiting for your response")
-                .accessibilityLabel("Waiting for your response")
+                .help(LanguageStore.shared.t("session.waitingHelp"))
+                .accessibilityLabel(LanguageStore.shared.t("session.waitingResponse"))
         } else if hasActiveLoop {
             AppSpinner()
                 .controlSize(.small)
                 .frame(width: 14, height: 14)
-                .help("Loop running")
-                .accessibilityLabel("Loop running")
+                .help(LanguageStore.shared.t("session.loopRunning"))
+                .accessibilityLabel(LanguageStore.shared.t("session.loopRunning"))
         } else if isRunning {
             PiAgentTypingIndicator()
         } else if session.needsAttention {
             Image(systemName: "bell.fill")
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.brandAccent)
-                .help("Pi Agent finished and needs review")
-                .accessibilityLabel("Needs review")
+                .help(LanguageStore.shared.t("session.needsReviewHelp"))
+                .accessibilityLabel(LanguageStore.shared.t("session.needsReview"))
         }
     }
 
@@ -495,7 +501,7 @@ struct CodingAgentRecentRow: View, Equatable {
                 .font(AppTheme.Font.caption.weight(.semibold))
         }
         .appSmallSecondaryButton()
-        .help("Delete session")
-        .accessibilityLabel("Delete session")
+        .help(LanguageStore.shared.t("session.delete"))
+        .accessibilityLabel(LanguageStore.shared.t("session.delete"))
     }
 }

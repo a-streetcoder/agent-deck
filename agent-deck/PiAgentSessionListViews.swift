@@ -50,7 +50,7 @@ struct PiAgentAddSessionButton: View {
             style: .soft,
             tint: isEnabled ? AppTheme.brandAccent : AppTheme.mutedText,
             size: 30,
-            help: "New Pi Agent session",
+            help: LanguageStore.shared.t("session.new"),
             action: action
         ) {
             Image(systemName: "plus")
@@ -74,8 +74,8 @@ struct PiAgentAddSessionMenuButton: View {
             tint: isEnabled ? AppTheme.brandAccent : AppTheme.mutedText,
             size: 30,
             help: projects.isEmpty
-                ? "New General Chat Pi Agent session"
-                : "Choose a project or General Chat for the new Pi Agent session",
+                ? LanguageStore.shared.t("session.newGeneralHelp")
+                : LanguageStore.shared.t("session.newChoose"),
             action: primaryAction
         ) {
             Image(systemName: "plus")
@@ -186,7 +186,11 @@ struct PiAgentNewSessionSplitButton: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(selectedProject == nil ? "New Pi Agent session" : "New session in \(selectedProject!.repositoryDisplayName)")
+            .help(
+                selectedProject == nil
+                    ? LanguageStore.shared.t("session.new")
+                    : LanguageStore.shared.t("session.newInProject", selectedProject!.repositoryDisplayName)
+            )
             .accessibilityLabel(LanguageStore.shared.t("session.new"))
             .popover(isPresented: $isProjectPickerPresented, arrowEdge: .bottom) {
                 PiAgentProjectPickerPopover(
@@ -256,8 +260,8 @@ private struct PiAgentChatWithAgentPopover: View {
 
     var body: some View {
         AppPopoverContainer(
-            title: "Start a 1:1 session",
-            subtitle: project.map { "Pick an agent in \($0.repositoryDisplayName)." }
+            title: LanguageStore.shared.t("session.start1on1"),
+            subtitle: project.map { LanguageStore.shared.t("session.pickAgentIn", $0.repositoryDisplayName) }
         ) {
             if let project, !agents.isEmpty {
                 AppPopoverScrollList {
@@ -271,7 +275,11 @@ private struct PiAgentChatWithAgentPopover: View {
                     }
                 }
             } else {
-                AppPopoverEmptyState(text: project == nil ? "No project available." : "No agents available in this project.")
+                AppPopoverEmptyState(
+                    text: project == nil
+                        ? LanguageStore.shared.t("session.noProject")
+                        : LanguageStore.shared.t("session.noAgents")
+                )
             }
         }
     }
@@ -353,14 +361,17 @@ private struct PiAgentProjectPickerPopover: View {
     let onSelectProject: (DiscoveredProject) -> Void
 
     var body: some View {
-        AppPopoverContainer(title: "New Session", subtitle: "Choose a project or start a general chat.") {
+        AppPopoverContainer(
+            title: LanguageStore.shared.t("session.newSessionTitle"),
+            subtitle: LanguageStore.shared.t("session.newSessionSubtitle")
+        ) {
             AppProjectPickerPopoverList {
                 AppPopoverProjectRow(
                     imageURL: nil,
                     symbolName: "bubble.left.and.bubble.right",
                     assetName: nil,
                     title: PiAgentSessionRecord.noProjectDisplayName,
-                    path: "Pi runs in an app-owned General Chats scratch folder.",
+                    path: LanguageStore.shared.t("session.generalChatsPath"),
                     isCurrent: false
                 ) {
                     onSelectNoProject()
@@ -371,7 +382,7 @@ private struct PiAgentProjectPickerPopover: View {
                     symbolName: "hammer",
                     assetName: nil,
                     title: PiAgentSessionRecord.agentDeckBuilderDisplayName,
-                    path: "Agents, skills, loops, MCP...",
+                    path: LanguageStore.shared.t("session.deckBuilderPath"),
                     isCurrent: false
                 ) {
                     onSelectAgentDeckBuilder()
@@ -439,7 +450,7 @@ struct PiAgentSessionRow: View, Equatable {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(width: 11, height: 11)
-                        .help("Pinned")
+                        .help(LanguageStore.shared.t("session.pinned"))
                         .accessibilityHidden(true)
                 }
 
@@ -533,7 +544,7 @@ struct PiAgentSessionRow: View, Equatable {
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded(onSelect))
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open session \(sessionTitle)")
+        .accessibilityLabel(LanguageStore.shared.t("session.openA11y", sessionTitle))
         .accessibilityAction(named: Text(LanguageStore.shared.t("session.open")), onSelect)
         .focusable()
         .onKeyPress(.space) {
@@ -587,7 +598,7 @@ struct PiAgentSessionRow: View, Equatable {
                 AppSpinner()
                     .controlSize(.small)
                     .frame(width: 14, height: 14)
-                    .help("Loop running")
+                    .help(LanguageStore.shared.t("session.loopRunning"))
                     .accessibilityLabel(LanguageStore.shared.t("session.loopRunning"))
                     .transition(.opacity)
             } else if isRunning {
@@ -608,7 +619,7 @@ struct PiAgentSessionRow: View, Equatable {
         Image(systemName: "questionmark.bubble.fill")
             .font(AppTheme.Font.caption.weight(.semibold))
             .foregroundStyle(AppTheme.brandAccent)
-            .help("Pi Agent is waiting for your response")
+            .help(LanguageStore.shared.t("session.waitingHelp"))
             .accessibilityLabel(LanguageStore.shared.t("session.waitingResponse"))
     }
 
@@ -616,7 +627,7 @@ struct PiAgentSessionRow: View, Equatable {
         Image(systemName: "bell.fill")
             .font(AppTheme.Font.caption.weight(.semibold))
             .foregroundStyle(AppTheme.brandAccent)
-            .help("Pi Agent finished and needs review")
+            .help(LanguageStore.shared.t("session.needsReviewHelp"))
             .accessibilityLabel(LanguageStore.shared.t("session.needsReview"))
     }
 
@@ -626,7 +637,7 @@ struct PiAgentSessionRow: View, Equatable {
                 .font(AppTheme.Font.caption.weight(.semibold))
         }
         .appSmallSecondaryButton()
-        .help("Delete session")
+        .help(LanguageStore.shared.t("session.delete"))
         .accessibilityLabel(LanguageStore.shared.t("session.delete"))
     }
 
@@ -645,7 +656,7 @@ struct PiAgentSessionRow: View, Equatable {
     @ViewBuilder
     private var titleView: some View {
         if isRenaming {
-            TextField("Session name", text: $draftTitle)
+            TextField(LanguageStore.shared.t("session.namePlaceholder"), text: $draftTitle)
                 .textFieldStyle(.plain)
                 .font(AppTheme.Font.footnote.weight(.medium))
                 .fontWidth(.expanded)
@@ -675,7 +686,7 @@ struct PiAgentSessionRow: View, Equatable {
                     .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Rename session \(sessionTitle)")
+            .accessibilityLabel(LanguageStore.shared.t("session.renameA11y", sessionTitle))
             // Fixed (not min/max) so the row's height never depends on the title's
             // text layout. Measuring a wrapping title requires a full text layout
             // pass; with a single line in a stable box the row is cheap to measure,
@@ -684,7 +695,7 @@ struct PiAgentSessionRow: View, Equatable {
             // one line of the footnote title, so the row carries no dead space
             // above or below it.
             .frame(height: 18, alignment: .center)
-            .help("Rename session")
+            .help(LanguageStore.shared.t("session.renameHelp"))
         }
     }
 
@@ -708,7 +719,7 @@ struct PiAgentSessionRow: View, Equatable {
 
     private var sessionTitle: String {
         if session.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Project agent"
+            return LanguageStore.shared.t("session.projectAgent")
         }
         return session.title
     }
@@ -722,9 +733,9 @@ struct PiAgentSessionRow: View, Equatable {
     }
 
     private var statusHelp: String {
-        if hasUIRequest { return "Waiting for your response" }
-        if hasActiveLoop { return "Loop running" }
-        if isRunning { return "Active" }
+        if hasUIRequest { return LanguageStore.shared.t("session.waitingResponse") }
+        if hasActiveLoop { return LanguageStore.shared.t("session.loopRunning") }
+        if isRunning { return LanguageStore.shared.t("session.statusActive") }
         return session.status.rawValue
     }
 
@@ -750,7 +761,7 @@ private struct SessionGitActivityStrip: View {
                 Image(systemName: "infinity")
                     .font(AppTheme.Font.caption2.weight(.semibold))
                     .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
-                    .help("Loop active")
+                    .help(LanguageStore.shared.t("session.loopActive"))
                     .accessibilityLabel(LanguageStore.shared.t("session.loopActive"))
             }
             pip(kind: .commit, date: activity.lastCommit, verb: "commit")
@@ -765,7 +776,7 @@ private struct SessionGitActivityStrip: View {
             icon(for: kind)
                 .font(AppTheme.Font.caption2.weight(.semibold))
                 .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
-                .help("Last \(verb) at \(date.formatted(date: .omitted, time: .shortened))")
+                .help(LanguageStore.shared.t("session.lastVerbAt", verb, date.formatted(date: .omitted, time: .shortened)))
         }
     }
 

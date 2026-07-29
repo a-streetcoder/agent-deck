@@ -4036,16 +4036,37 @@ private struct SessionListContent: View, Equatable {
             Button {
                 onSetPinned(session.id, session.pinnedAt == nil)
             } label: {
-                Label(session.pinnedAt == nil ? "Pin Session" : "Unpin Session", systemImage: session.pinnedAt == nil ? "pin" : "pin.slash")
+                Label(
+                    session.pinnedAt == nil
+                        ? LanguageStore.shared.t("session.pin")
+                        : LanguageStore.shared.t("session.unpin"),
+                    systemImage: session.pinnedAt == nil ? "pin" : "pin.slash"
+                )
             }
             Divider()
             Button(role: .destructive) {
                 onDelete(session.id)
             } label: {
-                Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
+                Label(
+                    selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1
+                        ? LanguageStore.shared.t("session.deleteSelected")
+                        : LanguageStore.shared.t("session.delete"),
+                    systemImage: "trash"
+                )
             }
         }
     }
+}
+
+/// Localized help/a11y for the session-group “+” control.
+private func sectionCreateSessionHelp(for section: PiAgentSessionListSection) -> String {
+    if section.id == PiAgentSessionGrouping.noProjectSectionID {
+        return LanguageStore.shared.t("session.newGeneralChat")
+    }
+    if section.id == PiAgentSessionGrouping.agentDeckBuilderSectionID {
+        return LanguageStore.shared.t("session.newDeckBuilder")
+    }
+    return LanguageStore.shared.t("session.newInProject", section.title)
 }
 
 /// Per-project group header for the All-Projects session list: a disclosure
@@ -4097,7 +4118,7 @@ private struct PiAgentSessionGroupHeader: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help(section.isCollapsed ? "Expand" : "Collapse")
+            .help(section.isCollapsed ? LanguageStore.shared.t("session.expandSection") : LanguageStore.shared.t("session.collapseSection"))
 
             if section.canCreateSession {
                 Button(action: onCreateSession) {
@@ -4110,8 +4131,8 @@ private struct PiAgentSessionGroupHeader: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 30, height: 30, alignment: .center)
-                .help(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : (section.id == PiAgentSessionGrouping.agentDeckBuilderSectionID ? "New Agent Deck Builder" : "New session in \(section.title)"))
-                .accessibilityLabel(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : (section.id == PiAgentSessionGrouping.agentDeckBuilderSectionID ? "New Agent Deck Builder" : "New session in \(section.title)"))
+                .help(sectionCreateSessionHelp(for: section))
+                .accessibilityLabel(sectionCreateSessionHelp(for: section))
             }
         }
         // Aligns the icon's leading edge with the session row title (row text
@@ -4130,7 +4151,7 @@ private struct PiAgentSessionGroupFooter: View {
 
     var body: some View {
         Button(action: onToggleShowMore) {
-            Text(section.isShowMoreActive ? "Show less" : "Show more")
+            Text(section.isShowMoreActive ? LanguageStore.shared.t("session.showLess") : LanguageStore.shared.t("session.showMore"))
                 .font(AppTheme.Font.footnote.weight(.semibold))
                 .foregroundStyle(isHovering ? AppTheme.brandAccentBright : AppTheme.brandAccent)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -4144,7 +4165,14 @@ private struct PiAgentSessionGroupFooter: View {
                 .fill(isHovering ? AppTheme.brandAccent.opacity(0.10) : Color.clear)
         )
         .onHover { isHovering = $0 }
-        .help(section.isShowMoreActive ? "Show fewer" : "Show \(section.hiddenCount) hidden session\(section.hiddenCount == 1 ? "" : "s")")
+        .help(
+            section.isShowMoreActive
+                ? LanguageStore.shared.t("session.showFewer")
+                : LanguageStore.shared.t(
+                    section.hiddenCount == 1 ? "session.showHiddenOne" : "session.showHiddenMany",
+                    section.hiddenCount
+                )
+        )
     }
 }
 
@@ -4155,7 +4183,7 @@ private struct PiAgentPreviousSessionsHeader: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text("Previous Sessions")
+            Text(LanguageStore.shared.t("session.previous"))
                 .font(AppTheme.Font.footnote.weight(.semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(.primary)
@@ -4198,8 +4226,8 @@ private struct PiAgentPreviousSessionsDeleteButton: View {
         .foregroundStyle(.red)
         .opacity((isHovering || isHoveredExternally || isFocused) && onDelete != nil ? 1 : 0)
         .allowsHitTesting((isHovering || isHoveredExternally || isFocused) && onDelete != nil)
-        .help("Delete all previous sessions")
-        .accessibilityLabel("Delete all previous sessions")
+        .help(LanguageStore.shared.t("session.deleteAllPrevious"))
+        .accessibilityLabel(LanguageStore.shared.t("session.deleteAllPrevious"))
         .onHover { isHovering = $0 }
     }
 }
@@ -4211,7 +4239,7 @@ private struct PiAgentPreviousSessionsFooter: View {
 
     var body: some View {
         Button(action: onShowMore) {
-            Text("Show more")
+            Text(LanguageStore.shared.t("session.showMore"))
                 .font(AppTheme.Font.footnote.weight(.semibold))
                 .foregroundStyle(isHovering ? AppTheme.brandAccentBright : AppTheme.brandAccent)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -4225,7 +4253,12 @@ private struct PiAgentPreviousSessionsFooter: View {
                 .fill(isHovering ? AppTheme.brandAccent.opacity(0.10) : Color.clear)
         )
         .onHover { isHovering = $0 }
-        .help("Show \(min(hiddenCount, PiAgentSessionGrouping.previousSessionsPageSize)) more previous sessions")
+        .help(
+            LanguageStore.shared.t(
+                "session.showMorePrevious",
+                min(hiddenCount, PiAgentSessionGrouping.previousSessionsPageSize)
+            )
+        )
     }
 }
 
@@ -4300,9 +4333,9 @@ struct CodingAgentExpandedPanel: View {
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !hasAnyScopedSessions {
-                AppEmptyState("No sessions yet", systemImage: "square.and.pencil", description: emptySessionsMessage, layout: .fill)
+                AppEmptyState(LanguageStore.shared.t("session.empty"), systemImage: "square.and.pencil", description: emptySessionsMessage, layout: .fill)
             } else if visibleSections.isEmpty {
-                AppEmptyState("No sessions found", systemImage: "magnifyingglass", description: "Try another search.", layout: .fill)
+                AppEmptyState(LanguageStore.shared.t("session.noneFound"), systemImage: "magnifyingglass", description: LanguageStore.shared.t("session.trySearch"), layout: .fill)
             } else {
                 SessionListContent(
                     sections: visibleSections,
@@ -4427,7 +4460,7 @@ struct CodingAgentExpandedPanel: View {
             if isActive { rebuildSessionActivityCache() }
         }
         .alert(deleteSessionsAlertTitle, isPresented: $isDeleteSessionsAlertPresented) {
-            Button("Delete", role: .destructive) {
+            Button(LanguageStore.shared.t("common.delete"), role: .destructive) {
                 let deleteIDs = pendingDeleteSessionIDs
                 let nextID = PiAgentSessionGrouping.nextSelectionAfterDeletion(
                     visibleSessions: visibleSessions,
@@ -4437,7 +4470,7 @@ struct CodingAgentExpandedPanel: View {
                 viewModel.deletePiAgentSessions(deleteIDs, fallbackSelectionID: nextID)
                 resetPendingSessionDelete()
             }
-            Button("Cancel", role: .cancel) { resetPendingSessionDelete() }
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { resetPendingSessionDelete() }
         } message: {
             Text(deleteSessionsAlertMessage)
         }
@@ -4457,7 +4490,7 @@ struct CodingAgentExpandedPanel: View {
                         .background(Circle().fill(Color.red.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
-                .help("Delete selected sessions")
+                .help(LanguageStore.shared.t("session.deleteSelected"))
             } else if rendersPreviousSessionsInline {
                 PiAgentPreviousSessionsDeleteButton(
                     onDelete: requestDeletePreviousSessions,
@@ -4650,7 +4683,7 @@ struct CodingAgentExpandedPanel: View {
             )
             sections.append(PiAgentSessionListSection(
                 id: PiAgentSessionGrouping.previousSessionsSectionID,
-                title: "Previous Sessions",
+                title: LanguageStore.shared.t("session.previous"),
                 subtitle: nil,
                 iconFileURL: nil,
                 fallbackSymbolName: "clock",
@@ -4733,33 +4766,42 @@ struct CodingAgentExpandedPanel: View {
 
     private var emptySessionsMessage: String {
         if let project = viewModel.selectedDiscoveredProject {
-            return "Use + to create a draft for \(project.name)."
+            return LanguageStore.shared.t("session.emptyForProject", project.name)
         }
-        return "Use + to create a draft, or select a project to narrow the list."
+        return LanguageStore.shared.t("session.emptyHint")
     }
 
     private var deleteSessionsAlertTitle: String {
         if pendingDeleteIsPreviousSessions {
             return pendingDeleteSessionIDs.count == 1
-                ? "Delete previous session?"
-                : "Delete \(pendingDeleteSessionIDs.count) previous sessions?"
+                ? LanguageStore.shared.t("session.deletePreviousTitle")
+                : LanguageStore.shared.t("session.deletePreviousTitleMany", pendingDeleteSessionIDs.count)
         }
-        return pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
+        return pendingDeleteSessionIDs.count == 1
+            ? LanguageStore.shared.t("session.deleteTitle")
+            : LanguageStore.shared.t("session.deleteTitleMany", pendingDeleteSessionIDs.count)
     }
 
     private var deleteSessionsAlertMessage: String {
         if pendingDeleteIsPreviousSessions {
             let scope: String
             if let query = pendingDeletePreviousSearchQuery {
-                scope = "the \(pendingDeleteSessionIDs.count) previous sessions matching “\(query)”"
+                scope = LanguageStore.shared.t(
+                    "session.deletePreviousScopeMatch",
+                    pendingDeleteSessionIDs.count,
+                    query
+                )
             } else {
-                scope = "the \(pendingDeleteSessionIDs.count) previous sessions"
+                scope = LanguageStore.shared.t(
+                    "session.deletePreviousScope",
+                    pendingDeleteSessionIDs.count
+                )
             }
-            return "This removes \(scope) captured when you chose Delete All Previous Sessions, including any hidden by pagination, along with their local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+            return LanguageStore.shared.t("session.deletePreviousMessage", scope)
         }
         return pendingDeleteSessionIDs.count == 1
-            ? "This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
-            : "This removes the selected sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+            ? LanguageStore.shared.t("session.deleteMessage")
+            : LanguageStore.shared.t("session.deleteMessageMany")
     }
 
     private func requestDeleteSessions(_ ids: Set<UUID>) {
@@ -5157,8 +5199,14 @@ struct PiAgentScreen: View {
             )
         }
         .alert(deleteSessionsAlertTitle, isPresented: $isDeleteSessionsAlertPresented) {
-            Button(pendingDeleteIsClearAll ? "Clear" : "Delete", role: .destructive, action: deletePendingSessions)
-            Button("Cancel", role: .cancel) {
+            Button(
+                pendingDeleteIsClearAll
+                    ? LanguageStore.shared.t("common.clear")
+                    : LanguageStore.shared.t("common.delete"),
+                role: .destructive,
+                action: deletePendingSessions
+            )
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {
                 resetPendingSessionDelete()
             }
         } message: {
@@ -5244,24 +5292,26 @@ struct PiAgentScreen: View {
 
     private var deleteSessionsAlertTitle: String {
         if pendingDeleteIsClearAll {
-            if pendingDeleteClearAllProjects { return "Clear all Pi Agent sessions?" }
-            let projectName = pendingDeleteProjectName ?? "this project"
-            return "Clear Pi Agent sessions for \(projectName)?"
+            if pendingDeleteClearAllProjects { return LanguageStore.shared.t("session.clearAllTitle") }
+            let projectName = pendingDeleteProjectName ?? LanguageStore.shared.t("session.thisProject")
+            return LanguageStore.shared.t("session.clearProjectTitle", projectName)
         }
-        return pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
+        return pendingDeleteSessionIDs.count == 1
+            ? LanguageStore.shared.t("session.deleteTitle")
+            : LanguageStore.shared.t("session.deleteTitleMany", pendingDeleteSessionIDs.count)
     }
 
     private var deleteSessionsAlertMessage: String {
         if pendingDeleteIsClearAll {
             if pendingDeleteClearAllProjects {
-                return "This removes all sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+                return LanguageStore.shared.t("session.clearAllMessage")
             }
-            let projectName = pendingDeleteProjectName ?? "the current project"
-            return "This removes local conversation data, saved MCP images, and Deck agent artifacts for \(projectName) from this Mac. Other projects are not affected."
+            let projectName = pendingDeleteProjectName ?? LanguageStore.shared.t("session.currentProject")
+            return LanguageStore.shared.t("session.clearProjectMessage", projectName)
         }
         return pendingDeleteSessionIDs.count == 1
-            ? "This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
-            : "This removes the selected sessions’ local conversation data, saved MCP images, and Deck agent artifacts from this Mac."
+            ? LanguageStore.shared.t("session.deleteMessage")
+            : LanguageStore.shared.t("session.deleteMessageMany")
     }
 
     private var sessionDeleteTargets: Set<UUID> {
@@ -5313,7 +5363,7 @@ struct PiAgentScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text("Sessions")
+                    Text(LanguageStore.shared.t("session.title"))
                         .font(.title2.bold())
                         .fontWidth(.expanded)
                         .lineLimit(1)
@@ -5331,8 +5381,8 @@ struct PiAgentScreen: View {
                                 .background(Circle().fill(Color.red.opacity(0.12)))
                         }
                         .buttonStyle(.plain)
-                        .help("Delete selected sessions")
-                        .accessibilityLabel("Delete selected sessions")
+                        .help(LanguageStore.shared.t("session.deleteSelected"))
+                        .accessibilityLabel(LanguageStore.shared.t("session.deleteSelected"))
                     }
                     if viewModel.appSettings.nativeSubagentsEnabledForNewSessions {
                         PiAgentNewSessionSplitButton(
@@ -5366,7 +5416,7 @@ struct PiAgentScreen: View {
 
             if scopedSessions.isEmpty {
                 AppEmptyState(
-                    "No sessions yet",
+                    LanguageStore.shared.t("session.empty"),
                     systemImage: "square.and.pencil",
                     description: emptySessionsMessage,
                     layout: .fill
@@ -5374,7 +5424,12 @@ struct PiAgentScreen: View {
             } else {
                 VStack(spacing: 10) {
                     if visibleSessions.isEmpty {
-                        AppEmptyState("No sessions found", systemImage: "magnifyingglass", description: "Try another search.", layout: .fill)
+                        AppEmptyState(
+                            LanguageStore.shared.t("session.noneFound"),
+                            systemImage: "magnifyingglass",
+                            description: LanguageStore.shared.t("session.trySearch"),
+                            layout: .fill
+                        )
                     } else {
                         SessionListContent(
                             sections: visibleSections,
@@ -7884,9 +7939,9 @@ struct PiAgentScreen: View {
 
     private var emptySessionsMessage: String {
         if let project = viewModel.selectedDiscoveredProject {
-            return "Use + to create a draft for \(project.name)."
+            return LanguageStore.shared.t("session.emptyForProject", project.name)
         }
-        return "Use + to create a draft, or select a project to narrow the list."
+        return LanguageStore.shared.t("session.emptyHint")
     }
 
     private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {
