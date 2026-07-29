@@ -21,15 +21,17 @@ struct SkillImportSheet: View {
         var id: String { rawValue }
 
         var label: String {
+            let t = LanguageStore.shared.t
             switch self {
-            case .localFolder: return "Local Folder"
-            case .claudeCodex: return "Claude / Codex"
-            case .gitRepository: return "Git / skills.sh"
+            case .localFolder: return t("skillImport.mode.local")
+            case .claudeCodex: return t("skillImport.mode.claudeCodex")
+            case .gitRepository: return t("skillImport.mode.git")
             }
         }
     }
 
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
     @Binding var isPresented: Bool
     var onImported: (SkillImportResult) -> Void
 
@@ -149,10 +151,10 @@ struct SkillImportSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Import Skills")
+            Text(languageStore.t("skillImport.title"))
                 .font(.headline)
                 .fontWidth(.expanded)
-            Text("Add skills from a local folder, Claude / Codex folders, or a GitHub / skills.sh repository.")
+            Text(languageStore.t("skillImport.subtitle"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -162,7 +164,7 @@ struct SkillImportSheet: View {
     private var content: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("Source", selection: $mode) {
+                Picker(languageStore.t("skillImport.source"), selection: $mode) {
                     ForEach(Mode.allCases) { mode in
                         Text(mode.label).tag(mode)
                     }
@@ -178,7 +180,7 @@ struct SkillImportSheet: View {
                     }
                 }
 
-                AppCard(title: "Skills") {
+                AppCard(title: languageStore.t("skillImport.skills")) {
                     VStack(alignment: .leading, spacing: 12) {
                         skillsCardHeader
                         skillsCardBody
@@ -199,7 +201,7 @@ struct SkillImportSheet: View {
                     .lineLimit(2)
             }
             Spacer()
-            Button("Cancel") { cancelAndDismiss() }
+            Button(languageStore.t("common.cancel")) { cancelAndDismiss() }
                 .appSecondaryButton()
                 .keyboardShortcut(.cancelAction)
             Button {
@@ -208,7 +210,7 @@ struct SkillImportSheet: View {
                 if isImporting {
                     AppSpinner().controlSize(.small)
                 } else {
-                    Text("Import")
+                    Text(languageStore.t("skillImport.import"))
                 }
             }
             .appPrimaryButton()
@@ -220,9 +222,9 @@ struct SkillImportSheet: View {
 
     private var sourceCardTitle: String {
         switch mode {
-        case .localFolder: return "Source Folder"
-        case .claudeCodex: return "Known Skill Folders"
-        case .gitRepository: return "Repository"
+        case .localFolder: return languageStore.t("skillImport.sourceFolder")
+        case .claudeCodex: return languageStore.t("skillImport.knownFolders")
+        case .gitRepository: return languageStore.t("skillImport.repository")
         }
     }
 
@@ -230,11 +232,11 @@ struct SkillImportSheet: View {
 
     private var localSourceCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(localSourceURL?.path ?? "No folder selected")
+            Text(localSourceURL?.path ?? languageStore.t("skillImport.noFolder"))
                 .textSelection(.enabled)
                 .font(.caption.monospaced())
                 .foregroundStyle(AppTheme.mutedText)
-            Button(localSourceURL == nil ? "Choose Folder" : "Choose Different Folder") {
+            Button(localSourceURL == nil ? languageStore.t("skillImport.chooseFolder") : languageStore.t("skillImport.chooseDifferentFolder")) {
                 DispatchQueue.main.async { chooseLocalFolder() }
             }
         }
@@ -244,21 +246,21 @@ struct SkillImportSheet: View {
 
     private var claudeCodexSourceCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Scans Claude and Codex skill folders plus installed Codex plugin skills. Plugin files stay read-only and are followed across active versions.")
+            Text(languageStore.t("skillImport.claudeCodexBody"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
 
             HStack(spacing: 8) {
                 sourceBadge(provider: "anthropic", label: "Claude")
                 sourceBadge(provider: "openai-codex", label: "Codex")
-                Label("Global / Project", systemImage: "folder.badge.gearshape")
+                Label(languageStore.t("skillImport.globalProject"), systemImage: "folder.badge.gearshape")
                     .font(AppTheme.Font.micro.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(AppTheme.contentSubtleFill, in: Capsule())
                 Spacer()
-                Button(claudeCodexCandidates.isEmpty ? "Scan" : "Rescan") { startClaudeCodexScan() }
+                Button(claudeCodexCandidates.isEmpty ? languageStore.t("skillImport.scan") : languageStore.t("skillImport.rescan")) { startClaudeCodexScan() }
                     .appSecondaryButton()
                     .disabled(isBusy)
             }
@@ -285,7 +287,7 @@ struct SkillImportSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: "link")
                         .foregroundStyle(AppTheme.mutedText)
-                    TextField("Paste a GitHub or skills.sh URL", text: $gitURLInput)
+                    TextField(languageStore.t("skillImport.pasteURL"), text: $gitURLInput)
                         .textFieldStyle(.plain)
                         .onSubmit { fetchRemoteSkills() }
                 }
@@ -297,7 +299,7 @@ struct SkillImportSheet: View {
                         .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
                 )
 
-                Button("Fetch Skills") { fetchRemoteSkills() }
+                Button(languageStore.t("skillImport.fetchSkills")) { fetchRemoteSkills() }
                     .appPrimaryButton()
                     .disabled(gitURLInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isFetchingRemote)
             }
@@ -306,11 +308,11 @@ struct SkillImportSheet: View {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundStyle(.green)
-                    Text("\(remoteContext.source.displayName) · \(remoteContext.resolvedRef) · \(remoteContext.candidates.count) skill\(remoteContext.candidates.count == 1 ? "" : "s")")
+                    Text(String(format: languageStore.t(remoteContext.candidates.count == 1 ? "skillImport.remoteMetaOne" : "skillImport.remoteMeta"), remoteContext.source.displayName, remoteContext.resolvedRef, remoteContext.candidates.count))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                     if remoteContext.existingRepository != nil {
-                        Text("Already synced — adds to it")
+                        Text(languageStore.t("skillImport.alreadySynced"))
                             .font(AppTheme.Font.micro.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 7)
@@ -320,7 +322,7 @@ struct SkillImportSheet: View {
                 }
             }
 
-            Text("Examples: github.com/owner/repo · owner/repo · skills.sh/owner/repo/skill")
+            Text(languageStore.t("skillImport.examples"))
                 .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -344,7 +346,7 @@ struct SkillImportSheet: View {
             .appSecondaryButton()
             .disabled(isBusy || visibleImportableIDs.isEmpty)
 
-            Button("Clear") { selectedIDs.removeAll() }
+            Button(languageStore.t("skillImport.clear")) { selectedIDs.removeAll() }
                 .appSecondaryButton()
                 .disabled(isBusy || selectedIDs.isEmpty)
         }
@@ -353,11 +355,11 @@ struct SkillImportSheet: View {
     private var skillsCardHint: String {
         switch mode {
         case .localFolder:
-            return "Select skill roots to add to the catalog. Files stay in place and are passed to Pi by path."
+            return languageStore.t("skillImport.hint.local")
         case .claudeCodex:
-            return "Select Claude/Codex skills to add by path, or installed Codex Plugin skills to follow by stable reference. Files stay in place."
+            return languageStore.t("skillImport.hint.claudeCodex")
         case .gitRepository:
-            return "Select skills to sparse-check-out. Reference files inside each skill folder are synced with it."
+            return languageStore.t("skillImport.hint.git")
         }
     }
 
@@ -395,11 +397,11 @@ struct SkillImportSheet: View {
         VStack(spacing: 12) {
             AppSpinner().controlSize(.regular)
             VStack(spacing: 4) {
-                Text("Scanning \(localSourceURL?.lastPathComponent ?? "folder") for skills…")
+                Text(String(format: languageStore.t("skillImport.scanningNamed"), localSourceURL?.lastPathComponent ?? languageStore.t("skillImport.folderFallback")))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                 if let progress = localScanProgress {
-                    Text("\(progress.directoriesScanned) folder\(progress.directoriesScanned == 1 ? "" : "s") scanned • \(progress.skillsFound) skill\(progress.skillsFound == 1 ? "" : "s") found")
+                    Text(String(format: languageStore.t((progress.directoriesScanned == 1 && progress.skillsFound == 1) ? "skillImport.scanProgressOne" : "skillImport.scanProgress"), progress.directoriesScanned, progress.skillsFound))
                         .font(AppTheme.Font.micro)
                         .foregroundStyle(AppTheme.mutedText)
                         .monospacedDigit()
@@ -412,7 +414,7 @@ struct SkillImportSheet: View {
     private var claudeCodexScanningView: some View {
         VStack(spacing: 12) {
             AppSpinner().controlSize(.regular)
-            Text(claudeCodexScanProgress.isEmpty ? "Scanning known skill folders…" : claudeCodexScanProgress)
+            Text(claudeCodexScanProgress.isEmpty ? languageStore.t("skillImport.scanningKnown") : claudeCodexScanProgress)
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -422,7 +424,7 @@ struct SkillImportSheet: View {
     private var remoteFetchingView: some View {
         VStack(spacing: 12) {
             AppSpinner().controlSize(.regular)
-            Text(remoteFetchPhase.isEmpty ? "Fetching repository…" : remoteFetchPhase)
+            Text(remoteFetchPhase.isEmpty ? languageStore.t("skillImport.fetchingRepo") : remoteFetchPhase)
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -434,7 +436,7 @@ struct SkillImportSheet: View {
             Image(systemName: "shippingbox")
                 .font(.system(size: 30))
                 .foregroundStyle(AppTheme.mutedText)
-            Text("Paste a repository URL above and choose Fetch Skills.")
+            Text(languageStore.t("skillImport.remotePlaceholder"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -446,7 +448,7 @@ struct SkillImportSheet: View {
             Image(systemName: "folder")
                 .font(.system(size: 30))
                 .foregroundStyle(AppTheme.mutedText)
-            Text("Choose a folder above to scan it for skills.")
+            Text(languageStore.t("skillImport.localPlaceholder"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -458,7 +460,7 @@ struct SkillImportSheet: View {
             Image(systemName: "tray")
                 .font(.system(size: 30))
                 .foregroundStyle(AppTheme.mutedText)
-            Text("Choose Scan to find Claude and Codex skills in known folders.")
+            Text(languageStore.t("skillImport.claudePlaceholder"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -471,7 +473,7 @@ struct SkillImportSheet: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.mutedText)
-                TextField("Search skills by name, description, or path", text: $searchText)
+                TextField(languageStore.t("skillImport.searchPlaceholder"), text: $searchText)
                     .textFieldStyle(.plain)
                     .appBrandTint()
                 if isSearchActive {
@@ -482,7 +484,7 @@ struct SkillImportSheet: View {
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Clear skill search")
+                    .accessibilityLabel(languageStore.t("skillImport.clearSearchA11y"))
                 }
             }
             .padding(.horizontal, 10)
@@ -503,8 +505,8 @@ struct SkillImportSheet: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if filteredCandidates.isEmpty {
                     Text(isSearchActive
-                         ? "No importable skills match your search."
-                         : "No new importable skills were found. Skills already in your catalog are hidden.")
+                         ? languageStore.t("skillImport.noMatch")
+                         : languageStore.t("skillImport.noneNew"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, minHeight: 120)
@@ -745,18 +747,31 @@ struct SkillImportSheet: View {
 
     private var selectionButtonTitle: String {
         if isSearchActive {
-            return allVisibleImportableSelected ? "Deselect Visible" : "Select Visible"
+            return allVisibleImportableSelected
+                ? languageStore.t("skillImport.deselectVisible")
+                : languageStore.t("skillImport.selectVisible")
         }
-        return allVisibleImportableSelected ? "Deselect All" : "Select All"
+        return allVisibleImportableSelected
+            ? languageStore.t("skillImport.deselectAll")
+            : languageStore.t("skillImport.selectAll")
     }
 
     private var candidateCountSummary: String {
-        var parts = ["Showing \(filteredCandidates.count) of \(importableCandidates.count) importable skill\(importableCandidates.count == 1 ? "" : "s")"]
+        let showingKey = importableCandidates.count == 1
+            ? "skillImport.showingCountOne"
+            : "skillImport.showingCount"
+        var parts = [
+            String(
+                format: languageStore.t(showingKey),
+                filteredCandidates.count,
+                importableCandidates.count
+            )
+        ]
         if hiddenAlreadyImportedCount > 0 {
-            parts.append("\(hiddenAlreadyImportedCount) already in catalog hidden")
+            parts.append(String(format: languageStore.t("skillImport.hiddenCatalog"), hiddenAlreadyImportedCount))
         }
         if !selectedIDs.isEmpty {
-            parts.append("\(selectedIDs.count) selected")
+            parts.append(String(format: languageStore.t("skillImport.selectedCount"), selectedIDs.count))
         }
         return parts.joined(separator: " • ")
     }
@@ -774,17 +789,17 @@ struct SkillImportSheet: View {
                     }
                 }
             )) {
-                Text("Import as collection")
+                Text(languageStore.t("skillImport.asCollection"))
                     .font(.caption.weight(.semibold))
             }
             .appCheckbox()
             .disabled(isBusy || selectedIDs.isEmpty)
 
             HStack(spacing: 8) {
-                Text("Collection name")
+                Text(languageStore.t("skillImport.collectionName"))
                     .font(AppTheme.Font.micro.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
-                TextField("Collection name", text: Binding(
+                TextField(languageStore.t("skillImport.collectionName"), text: Binding(
                     get: { collectionName },
                     set: { newValue in
                         didEditCollectionName = true
@@ -805,8 +820,8 @@ struct SkillImportSheet: View {
             .opacity(importAsCollection ? 1 : 0.55)
 
             Text(importAsCollection
-                 ? "Creates a reusable collection for the selected skills; skills are still imported as individual catalog entries."
-                 : "Imports the selected skills as flat catalog entries only.")
+                 ? languageStore.t("skillImport.collectionOn")
+                 : languageStore.t("skillImport.collectionOff"))
                 .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -1177,7 +1192,7 @@ struct SkillImportSheet: View {
 
                         if let description = candidate.description {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Description")
+                                Text(LanguageStore.shared.t("skillImport.description"))
                                     .font(AppTheme.Font.micro.weight(.semibold))
                                     .foregroundStyle(AppTheme.mutedText)
                                 Text(description)
@@ -1235,7 +1250,7 @@ struct SkillImportSheet: View {
             case .loading:
                 HStack(spacing: 6) {
                     AppSpinner().controlSize(.small)
-                    Text("Summarising with AI…")
+                    Text(LanguageStore.shared.t("skillImport.summarising"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -1245,7 +1260,7 @@ struct SkillImportSheet: View {
                         Image(systemName: "sparkles")
                             .symbolRenderingMode(.hierarchical)
                             .foregroundStyle(AppTheme.brandAccent)
-                        Text("AI summary")
+                        Text(LanguageStore.shared.t("skillImport.aiSummary"))
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     .font(AppTheme.Font.micro.weight(.semibold))
