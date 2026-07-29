@@ -211,27 +211,6 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var lastPiRuntimeSettingsStatCheck: Date?
     @ObservationIgnored private var cachedPiRuntimeDefaults: (settingsModificationDate: Date?, provider: String?, model: String?, thinkingLevel: String?)?
     var githubConnectionState: GitHubConnectionState = .checking
-    var githubIssueStateFilter: GitHubIssueStateFilter = .open
-    /// Server-side `state_reason` qualifier; only applied when the state filter
-    /// is `.closed` (the underlying GitHub field is closed-only).
-    var githubCloseReasonFilter: GitHubIssueCloseReason?
-    var githubAuthorFilter: String?
-    var githubAssigneeFilter: String?
-    var githubTypeFilter: String?
-    var githubLabelFilters: Set<String> = []
-    var githubAggregateBoard: GitHubBoardSnapshot?
-    var githubComposerBoard: GitHubBoardSnapshot?
-    var githubComposerBoardCacheKey: String?
-    var githubComposerBoardFetchedAt: Date?
-    var githubIsLoadingComposerBoard = false
-    private var githubComposerBoardRequestID = 0
-    var githubProjectBoard: GitHubBoardSnapshot? {
-        didSet { githubProjectBoardRevision &+= 1 }
-    }
-    /// Bumped on every `githubProjectBoard` assignment. Cheap change signal
-    /// for cached layouts (e.g. `IssuesScreen.visibleItems`) — avoids hashing
-    /// the full board snapshot per `.task(id:)` evaluation.
-    private(set) var githubProjectBoardRevision: Int = 0
     var githubRepositoryChanges: RepositoryChangesSnapshot?
     var githubRepositoryChangesProjectPath: String?
     private var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
@@ -241,15 +220,7 @@ final class AppViewModel: NSObject {
     var githubSelectedDiffText: String?
     var githubCommitMessage = ""
     var githubCommitDescription = ""
-    var githubSelectedWorkItem: GitHubWorkItem?
-    var githubIssueDetail: GitHubIssueDetail?
-    var githubCommentDraft = ""
-    var githubIsLoadingAggregateBoard = false
-    var githubIsLoadingProjectBoard = false
     var githubIsLoadingRepositoryChanges = false
-    var githubIsLoadingIssueDetail = false
-    var githubIsSubmittingComment = false
-    var githubIsClosingIssue = false
     var githubIsCommitting = false
     var githubIsPushing = false
     var piAgentGitAutomationAction: PiAgentGitAutomationAction?
@@ -367,7 +338,6 @@ final class AppViewModel: NSObject {
     var collapsedProjects: Set<String> = []
     private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
     private(set) var piAgentPendingComposerText: String?
-    private(set) var piAgentPendingIssueAttachment: PiAgentIssueAttachment?
     let piAgentSessionStore = PiAgentSessionStore()
     let agentMemoryStore = AgentMemoryStore()
     let agentImageStore = AgentImageStore()
@@ -439,10 +409,8 @@ final class AppViewModel: NSObject {
     private var launchResourceFingerprintTask: Task<Void, Never>?
     private var launchResourceFingerprintsBySessionID: [UUID: String] = [:]
     private var isRefreshingModels = false
-    private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
     private var githubDiffRequestID = 0
-    private var githubIssueDetailRequestID = 0
     private var githubDiffCache: [GitDiffCacheKey: String] = [:]
     private var githubDiffCacheOrder: [GitDiffCacheKey] = []
     private let githubDiffCacheLimit = 64
@@ -452,8 +420,6 @@ final class AppViewModel: NSObject {
     private let fallbackAutoRefreshInterval: TimeInterval = 300
     private var nativeParallelSchedulersByID: [UUID: NativeParallelGraphScheduler] = [:]
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
-    private var githubProjectBoardCacheKey: String?
-    private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
     /// In-flight first-send worktree provisioning, shared per session so a
     /// rapid second send awaits the same task instead of provisioning twice.
@@ -2103,16 +2069,6 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func prepareGitHubScreen() async {
-        if githubConnectionState.isConnected, gitHubSession != nil {
-            return
-        }
-
-        await refreshGitHubStatus()
-        if case .available = githubConnectionState {
-            await connectGitHubUsingCLIIfNeeded()
-        }
-    }
 
     func refreshEverything() {
         guard !githubIsRefreshingEverything else { return }
@@ -2134,14 +2090,8 @@ final class AppViewModel: NSObject {
             if case .available = self.githubConnectionState {
                 await self.connectGitHubUsingCLIIfNeeded()
             }
-            if self.gitHubSession != nil, self.githubConnectionState.isConnected {
-                self.refreshProjectBoard(force: true)
-            }
             if self.selectedDiscoveredProject?.isGitRepository == true {
                 self.refreshRepositoryChanges(preservingDiffSelection: true)
-            }
-            if let selectedItem = self.githubSelectedWorkItem, self.gitHubSession != nil {
-                self.loadIssueDetail(for: selectedItem)
             }
         }
     }
@@ -2151,13 +2101,7 @@ final class AppViewModel: NSObject {
 
         gitHubAuthService.disconnect()
         gitHubSession = nil
-        githubProjectBoardRequestID += 1
         githubRepositoryChangesRequestID += 1
-        githubIssueDetailRequestID += 1
-        githubAggregateBoard = nil
-        githubProjectBoard = nil
-        githubProjectBoardCacheKey = nil
-        githubProjectBoardFetchedAt = nil
         githubRepositoryChanges = nil
         githubRepositoryChangesProjectPath = nil
         repositoryChangesCache.removeAll()
@@ -2167,255 +2111,21 @@ final class AppViewModel: NSObject {
         githubSelectedDiffFilePath = nil
         githubSelectedDiffKind = nil
         githubSelectedDiffText = nil
-        githubSelectedWorkItem = nil
-        githubIssueDetail = nil
-        githubCommentDraft = ""
-        githubIsLoadingAggregateBoard = false
-        githubIsLoadingProjectBoard = false
         githubIsLoadingRepositoryChanges = false
-        githubIsLoadingIssueDetail = false
-        githubIsSubmittingComment = false
-        githubIsClosingIssue = false
         githubLastError = nil
         githubConnectionState = availableAccount.map(GitHubConnectionState.available) ?? .disconnected
-        githubLastStatusCheckAt = Date()
     }
 
-    func refreshAggregateBoard(force: Bool = false) {
-        guard let session = gitHubSession else {
-            githubLastError = "Connect GitHub first."
-            githubAggregateBoard = nil
-            return
-        }
 
-        let repos = gitHubProjects.compactMap(\.gitHubRemote)
-        githubIsLoadingAggregateBoard = true
-        githubLastError = nil
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
-                let snapshot = try await service.fetchAggregateIssues(
-                    repos: repos,
-                    state: self.githubIssueStateFilter,
-                    closeReason: self.effectiveCloseReasonFilter,
-                    bypassCache: force
-                )
 
-                await MainActor.run {
-                    self.githubAggregateBoard = snapshot
-                    self.githubIsLoadingAggregateBoard = false
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubAggregateBoard = nil
-                    self.githubIsLoadingAggregateBoard = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
 
-    func refreshProjectBoard(force: Bool = false) {
-        guard let session = gitHubSession else {
-            githubIsLoadingProjectBoard = false
-            githubLastError = "Connect GitHub first."
-            githubProjectBoard = nil
-            githubProjectBoardCacheKey = nil
-            githubProjectBoardFetchedAt = nil
-            return
-        }
 
-        guard let remote = selectedGitHubProject?.gitHubRemote else {
-            githubIsLoadingProjectBoard = false
-            githubLastError = nil
-            githubProjectBoard = nil
-            githubProjectBoardCacheKey = nil
-            githubProjectBoardFetchedAt = nil
-            return
-        }
 
-        let state = githubIssueStateFilter
-        let closeReason = effectiveCloseReasonFilter
-        let cacheKey = boardCacheKey(for: remote, state: state, closeReason: closeReason)
-        if !force,
-           githubProjectBoard != nil,
-           githubProjectBoardCacheKey == cacheKey,
-           !isGitHubBoardCacheStale(fetchedAt: githubProjectBoardFetchedAt) {
-            return
-        }
 
-        githubProjectBoardRequestID += 1
-        let requestID = githubProjectBoardRequestID
-        githubIsLoadingProjectBoard = true
-        githubLastError = nil
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
-                let snapshot = try await service.fetchRepositoryIssues(
-                    repo: remote,
-                    state: state,
-                    closeReason: closeReason,
-                    bypassCache: force
-                )
 
-                await MainActor.run {
-                    guard self.githubProjectBoardRequestID == requestID,
-                          self.selectedGitHubProject?.gitHubRemote == remote,
-                          self.githubIssueStateFilter == state,
-                          self.effectiveCloseReasonFilter == closeReason else { return }
 
-                    // Compute selection before publishing the board so the first
-                    // render of boardContent already has a selection (avoids a
-                    // "no-selection" layout pass that jumps the split divider).
-                    let visibleItems = self.filteredBoardItems(from: snapshot)
-                    let visibleItemIDs = Set(visibleItems.map(\.id))
-
-                    if let selectedID = self.githubSelectedWorkItem?.id,
-                       !visibleItemIDs.contains(selectedID) {
-                        self.githubIssueDetailRequestID += 1
-                        self.githubSelectedWorkItem = nil
-                        self.githubIssueDetail = nil
-                        self.githubCommentDraft = ""
-                        self.githubIsLoadingIssueDetail = false
-                        self.githubIsSubmittingComment = false
-                    }
-
-                    var autoSelectItem: GitHubWorkItem?
-                    if self.githubSelectedWorkItem == nil, let first = visibleItems.first {
-                        self.githubSelectedWorkItem = first
-                        self.githubIssueDetail = nil
-                        self.githubCommentDraft = ""
-                        autoSelectItem = first
-                    }
-
-                    self.githubProjectBoard = snapshot
-                    self.githubProjectBoardCacheKey = cacheKey
-                    self.githubProjectBoardFetchedAt = Date()
-                    self.githubIsLoadingProjectBoard = false
-
-                    if let item = autoSelectItem {
-                        self.loadIssueDetail(for: item, bypassCache: force)
-                    } else if force, let selected = self.githubSelectedWorkItem {
-                        // An explicit refresh should also pull fresh comments for
-                        // the issue already open in the detail pane.
-                        self.loadIssueDetail(for: selected, bypassCache: true)
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.githubProjectBoardRequestID == requestID,
-                          self.selectedGitHubProject?.gitHubRemote == remote,
-                          self.githubIssueStateFilter == state,
-                          self.effectiveCloseReasonFilter == closeReason else { return }
-
-                    self.githubProjectBoard = nil
-                    self.githubProjectBoardCacheKey = nil
-                    self.githubProjectBoardFetchedAt = nil
-                    self.githubIsLoadingProjectBoard = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    /// Applies the author, assignee, type, and label filters on top of the board
-    /// snapshot. State is already applied server-side via `githubIssueStateFilter`.
-    /// Uses `item.labelNameSet` (precomputed at snapshot time) so the
-    /// label-disjoint check no longer allocates a fresh `Set` per item per call.
-    func filteredBoardItems(from board: GitHubBoardSnapshot?) -> [GitHubWorkItem] {
-        guard let board else { return [] }
-        let author = githubAuthorFilter
-        let assignee = githubAssigneeFilter
-        let type = githubTypeFilter
-        let labels = githubLabelFilters
-        return board.allItems.filter { item in
-            if let author, item.author != author { return false }
-            if let assignee, !item.assignees.contains(assignee) { return false }
-            if let type, item.type != type { return false }
-            if !labels.isEmpty, labels.isDisjoint(with: item.labelNameSet) { return false }
-            return true
-        }
-    }
-
-    var githubVisibleBoardItems: [GitHubWorkItem] {
-        filteredBoardItems(from: githubProjectBoard)
-    }
-
-    var githubComposerIssueItems: [GitHubWorkItem] {
-        githubComposerIssueItems(for: nil)
-    }
-
-    func githubComposerIssueItems(for session: PiAgentSessionRecord?) -> [GitHubWorkItem] {
-        guard let remote = composerGitHubProject(for: session)?.gitHubRemote else {
-            return filteredBoardItems(from: githubAggregateBoard)
-        }
-
-        let boardKey = boardCacheKey(for: remote, state: githubIssueStateFilter, closeReason: effectiveCloseReasonFilter)
-        let composerKey = "composer|\(boardKey)"
-        if let githubComposerBoard, githubComposerBoardCacheKey == composerKey {
-            return filteredBoardItems(from: githubComposerBoard)
-        }
-        if let githubProjectBoard, githubProjectBoardCacheKey == boardKey {
-            return filteredBoardItems(from: githubProjectBoard)
-        }
-        if let githubAggregateBoard {
-            let filtered = filteredBoardItems(from: githubAggregateBoard)
-            return filtered.filter { $0.repository.caseInsensitiveCompare(remote.nameWithOwner) == .orderedSame }
-        }
-        return []
-    }
-
-    var githubAvailableAuthors: [String] {
-        guard let board = githubProjectBoard else { return [] }
-        var seen: Set<String> = []
-        var ordered: [String] = []
-        for item in board.allItems {
-            guard let author = item.author, !seen.contains(author) else { continue }
-            seen.insert(author)
-            ordered.append(author)
-        }
-        return ordered.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    var githubAvailableAssignees: [String] {
-        guard let board = githubProjectBoard else { return [] }
-        var seen: Set<String> = []
-        for item in board.allItems { seen.formUnion(item.assignees) }
-        return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    var githubAvailableTypes: [String] {
-        guard let board = githubProjectBoard else { return [] }
-        var seen: Set<String> = []
-        for item in board.allItems {
-            if let type = item.type, !type.isEmpty { seen.insert(type) }
-        }
-        return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    var githubAvailableLabels: [GitHubLabel] {
-        guard let board = githubProjectBoard else { return [] }
-        var seen: Set<String> = []
-        var ordered: [GitHubLabel] = []
-        for item in board.allItems {
-            for label in item.labels where seen.insert(label.name).inserted {
-                ordered.append(label)
-            }
-        }
-        return ordered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    func resetIssueFilters() {
-        githubAuthorFilter = nil
-        githubAssigneeFilter = nil
-        githubTypeFilter = nil
-        githubLabelFilters = []
-        githubCloseReasonFilter = nil
-    }
 
     func refreshRepositoryChanges(preservingDiffSelection: Bool = false, force: Bool = true) {
         guard let project = selectedDiscoveredProject, project.isGitRepository else {
@@ -2703,203 +2413,13 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func selectWorkItem(_ item: GitHubWorkItem) {
-        githubSelectedWorkItem = item
-        githubIssueDetail = nil
-        githubCommentDraft = ""
-        loadIssueDetail(for: item)
-    }
 
-    func selectIssueReference(_ reference: GitHubIssueReference) {
-        if let matchingProject = discoveredProjects.first(where: {
-            $0.gitHubRemote?.nameWithOwner.caseInsensitiveCompare(reference.repository) == .orderedSame
-        }), selectedProjectPath != matchingProject.path {
-            setSelectedProject(matchingProject.url)
-        }
 
-        if let existing = githubProjectBoard?.allItems.first(where: { $0.repository == reference.repository && $0.number == reference.number }) {
-            selectWorkItem(existing)
-            return
-        }
 
-        let item = GitHubWorkItem(
-            id: "\(reference.repository)-\(reference.number)",
-            number: reference.number,
-            title: reference.title,
-            repository: reference.repository,
-            url: reference.url,
-            isPullRequest: false,
-            state: reference.state,
-            stateReason: nil,
-            type: reference.type,
-            labels: [],
-            assignees: [],
-            author: nil,
-            body: "",
-            commentCount: 0,
-            createdAt: .distantPast,
-            updatedAt: .distantPast,
-            closedAt: nil,
-            subIssuesSummary: nil,
-            issueDependenciesSummary: nil
-        )
-        selectWorkItem(item)
-    }
 
-    func loadIssueDetail(for item: GitHubWorkItem, bypassCache: Bool = false) {
-        guard let session = gitHubSession else {
-            githubIsLoadingIssueDetail = false
-            githubLastError = "Connect GitHub first."
-            return
-        }
 
-        githubIssueDetailRequestID += 1
-        let requestID = githubIssueDetailRequestID
-        githubIsLoadingIssueDetail = true
-        githubLastError = nil
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                let detail = try await service.fetchDetail(for: item, bypassCache: bypassCache)
-                await MainActor.run {
-                    guard self.githubIssueDetailRequestID == requestID,
-                          self.githubSelectedWorkItem == item else { return }
 
-                    self.githubIssueDetail = detail
-                    self.githubIsLoadingIssueDetail = false
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.githubIssueDetailRequestID == requestID,
-                          self.githubSelectedWorkItem == item else { return }
-
-                    self.githubIssueDetail = nil
-                    self.githubIsLoadingIssueDetail = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func fetchPiAgentIssueAttachment(for item: GitHubWorkItem, completion: @escaping (Result<PiAgentIssueAttachment, Error>) -> Void) {
-        guard let session = gitHubSession else {
-            completion(.failure(GitHubAPIClient.APIError.requestFailed(statusCode: 0, message: "Connect GitHub first.")))
-            return
-        }
-
-        Task { [weak self] in
-            // Bail out early if the view model has been deallocated. The body
-            // below doesn't reference `self`, so a boolean test is enough.
-            guard self != nil else { return }
-            do {
-                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                let detail = try await service.fetchDetail(for: item, bypassCache: true)
-                await MainActor.run {
-                    completion(.success(PiAgentIssueAttachment(detail: detail)))
-                }
-            } catch {
-                await MainActor.run {
-                    completion(.failure(error))
-                }
-            }
-        }
-    }
-
-    func composerGitHubProject(for session: PiAgentSessionRecord?) -> DiscoveredProject? {
-        guard let session else { return selectedGitHubProject }
-        guard let project = projectByPath[session.projectPath], project.isGitHubRepository else { return nil }
-        return project
-    }
-
-    func ensureComposerIssuesLoaded(for session: PiAgentSessionRecord? = nil, force: Bool = false) {
-        let projectPath = session?.projectPathForProjectFeatures
-        Task { [weak self] in
-            guard let self else { return }
-            await prepareGitHubScreen()
-            await MainActor.run {
-                if let remote = composerGitHubProject(forProjectPath: projectPath)?.gitHubRemote {
-                    refreshComposerBoard(for: remote, force: force)
-                } else if (force || githubAggregateBoard == nil), !gitHubProjects.isEmpty {
-                    refreshAggregateBoard(force: force)
-                }
-            }
-        }
-    }
-
-    private func composerGitHubProject(forProjectPath projectPath: String?) -> DiscoveredProject? {
-        guard let projectPath else { return selectedGitHubProject }
-        guard let project = projectByPath[projectPath], project.isGitHubRepository else { return nil }
-        return project
-    }
-
-    func refreshComposerBoard(for remote: GitHubRemote? = nil, force: Bool = false) {
-        guard let session = gitHubSession else {
-            githubIsLoadingComposerBoard = false
-            githubComposerBoard = nil
-            githubComposerBoardCacheKey = nil
-            githubComposerBoardFetchedAt = nil
-            return
-        }
-
-        guard let remote = remote ?? selectedGitHubProject?.gitHubRemote else {
-            githubIsLoadingComposerBoard = false
-            githubComposerBoard = nil
-            githubComposerBoardCacheKey = nil
-            githubComposerBoardFetchedAt = nil
-            return
-        }
-
-        let state = githubIssueStateFilter
-        let closeReason = effectiveCloseReasonFilter
-        let cacheKey = "composer|\(boardCacheKey(for: remote, state: state, closeReason: closeReason))"
-        if !force,
-           githubComposerBoard != nil,
-           githubComposerBoardCacheKey == cacheKey,
-           !isGitHubBoardCacheStale(fetchedAt: githubComposerBoardFetchedAt) {
-            return
-        }
-
-        githubComposerBoardRequestID += 1
-        let requestID = githubComposerBoardRequestID
-        githubIsLoadingComposerBoard = true
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
-                let snapshot = try await service.fetchRepositoryIssues(
-                    repo: remote,
-                    state: state,
-                    closeReason: closeReason,
-                    includePullRequests: true,
-                    bypassCache: force
-                )
-
-                await MainActor.run {
-                    guard self.githubComposerBoardRequestID == requestID,
-                          self.githubIssueStateFilter == state,
-                          self.effectiveCloseReasonFilter == closeReason else { return }
-                    self.githubComposerBoard = snapshot
-                    self.githubComposerBoardCacheKey = cacheKey
-                    self.githubComposerBoardFetchedAt = Date()
-                    self.githubIsLoadingComposerBoard = false
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.githubComposerBoardRequestID == requestID,
-                          self.githubIssueStateFilter == state,
-                          self.effectiveCloseReasonFilter == closeReason else { return }
-                    self.githubComposerBoard = nil
-                    self.githubComposerBoardCacheKey = nil
-                    self.githubComposerBoardFetchedAt = nil
-                    self.githubIsLoadingComposerBoard = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
 
     func openPiAgentForSelectedProject() {
         selectedSidebarItem = .agent
@@ -3009,7 +2529,7 @@ final class AppViewModel: NSObject {
                 guard let self else { return }
                 await self.provisionWorktreeIfEnabled(for: session.id, project: project)
                 guard let refreshed = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }) else { return }
-                let prompt = PiIssuePromptBuilder.projectPrompt(project: project, initialInstruction: initialInstruction)
+                let prompt = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.piAgentRunner.resume(session: refreshed, initialPrompt: prompt)
             }
             return
@@ -3018,54 +2538,7 @@ final class AppViewModel: NSObject {
         piAgentRunner.startProjectSession(project: project, initialInstruction: initialInstruction)
     }
 
-    func startPiAgentForIssue(_ detail: GitHubIssueDetail) {
-        guard let project = selectedDiscoveredProject else {
-            githubLastError = "Select the local project for this issue before starting Pi Agent."
-            return
-        }
-        selectedSidebarItem = .agent
-        let session = piAgentSessionStore.createSession(
-            kind: .issue,
-            title: detail.item.title,
-            project: project,
-            repository: detail.item.repository,
-            issueNumber: detail.item.number,
-            issueURL: detail.item.url
-        )
-        revealSessionGroup(session)
-        selectPiAgentSession(session.id)
-        piAgentPendingComposerText = PiIssuePromptBuilder.issueDraft(detail: detail, project: project)
-        piAgentPendingIssueAttachment = PiAgentIssueAttachment(detail: detail)
-    }
 
-    /// Context-menu entry point from the issue list: the row only carries a
-    /// `GitHubWorkItem`, so fetch the full detail before handing off to the
-    /// shared `startPiAgentForIssue` flow.
-    func startPiAgentForWorkItem(_ item: GitHubWorkItem) {
-        guard let session = gitHubSession else {
-            githubLastError = "Connect GitHub first."
-            return
-        }
-        guard selectedDiscoveredProject != nil else {
-            githubLastError = "Select the local project for this issue before starting Pi Agent."
-            return
-        }
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                let detail = try await service.fetchDetail(for: item, bypassCache: false)
-                await MainActor.run {
-                    self.startPiAgentForIssue(detail)
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
 
     func consumePendingPiAgentComposerText() -> String? {
         guard let pending = piAgentPendingComposerText else { return nil }
@@ -3073,11 +2546,6 @@ final class AppViewModel: NSObject {
         return pending
     }
 
-    func consumePendingPiAgentIssueAttachment() -> PiAgentIssueAttachment? {
-        let pending = piAgentPendingIssueAttachment
-        piAgentPendingIssueAttachment = nil
-        return pending
-    }
 
     func openPiAgentScreen() {
         selectedSidebarItem = .agent
@@ -5681,7 +5149,7 @@ final class AppViewModel: NSObject {
     }
 
     @discardableResult
-    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, titleSource: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil, beforeStart: () -> Void = {}) -> Bool {
+    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, titleSource: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], beforeStart: () -> Void = {}) -> Bool {
         guard let session = piAgentSessionStore.selectedSession else { return false }
         if shouldPromptToOpenChatGPT(for: session, mode: mode) {
             let sessionID = session.id
@@ -5690,7 +5158,7 @@ final class AppViewModel: NSObject {
                       let originalSession = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
                 self.enqueuePiAgentMessage(
                     text, mode: mode, transcriptText: transcriptText, titleSource: titleSource,
-                    images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment,
+                    images: images, pasteAttachments: pasteAttachments,
                     session: originalSession
                 )
             }
@@ -5700,13 +5168,13 @@ final class AppViewModel: NSObject {
         beforeStart()
         enqueuePiAgentMessage(
             text, mode: mode, transcriptText: transcriptText, titleSource: titleSource,
-            images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment,
+            images: images, pasteAttachments: pasteAttachments,
             session: session
         )
         return true
     }
 
-    private func enqueuePiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], issueAttachment: PiAgentIssueAttachment?, session: PiAgentSessionRecord) {
+    private func enqueuePiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], session: PiAgentSessionRecord) {
         // Worktree isolation materializes on the first message, reading the
         // global setting at send time. Until then the draft is a pure record,
         // so the user can change their mind (or the setting) freely. The
@@ -5729,11 +5197,11 @@ final class AppViewModel: NSObject {
                 guard let self else { return }
                 self.worktreeProvisionTasksBySessionID.removeValue(forKey: session.id)
                 guard let refreshed = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }) else { return }
-                self.deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: refreshed)
+                self.deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, session: refreshed)
             }
             return
         }
-        deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: session)
+        deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, session: session)
     }
 
     func continuePendingComputerUseSessionStart(openChatGPT: Bool, beforeStart: () -> Void) async -> UUID? {
@@ -5766,61 +5234,24 @@ final class AppViewModel: NSObject {
         )
     }
 
-    private func deliverPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], issueAttachment: PiAgentIssueAttachment?, session: PiAgentSessionRecord) {
+    private func deliverPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], session: PiAgentSessionRecord) {
+        let effectiveText = text
         let visibleText = (transcriptText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
-        var effectiveText: String
-        if let issueAttachment, let projectPath = session.projectPathForProjectFeatures {
-            effectiveText = PiIssuePromptBuilder.rpcMessage(
-                userText: text,
-                issue: issueAttachment,
-                projectName: session.projectName,
-                projectPath: session.worktreePath ?? projectPath
-            )
-        } else {
-            effectiveText = text
-        }
-        if images.isEmpty, visibleText == "/compact" || visibleText.hasPrefix("/compact ") {
-            let instructions = visibleText.hasPrefix("/compact ") ? String(visibleText.dropFirst("/compact ".count)) : nil
-            piAgentRunner.compact(session: session, customInstructions: instructions)
+        let displayOverride = transcriptText
+        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: piAgentTitleGenerationSource(titleSource: titleSource, visibleText: visibleText, effectiveText: effectiveText))
+        if !piAgentRunner.isRunning(sessionID: session.id), session.piSessionFile != nil || session.status == .draft {
+            piAgentRunner.resume(session: session, initialPrompt: effectiveText, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments)
             return
         }
-        // A 1:1 agent chat forked from a session starts with NO replayed history
-        // (the agent's system prompt is incompatible with the parent's), so the
-        // agent would have amnesia about the conversation it was forked from.
-        // Embed the captured parent transcript into the FIRST message's RPC text
-        // as foreign context; the visible transcript keeps just the user's text.
-        var displayOverride = transcriptText
-        if session.kind == .agent,
-           let snapshot = session.forkedFromTranscriptSnapshot, !snapshot.isEmpty,
-           !piAgentSessionStore.transcript(for: session.id).contains(where: \.isProviderBackedUserMessage) {
-            displayOverride = displayOverride ?? text
-            effectiveText = """
-            <forked_conversation_context>
-            This chat was forked from a previous conversation. The transcript of that conversation follows as background context. It is not your own dialogue history; treat it as information the user expects you to know.
-
-            \(snapshot)
-            </forked_conversation_context>
-
-            \(effectiveText)
-            """
-        }
-        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: piAgentTitleGenerationSource(titleSource: titleSource, visibleText: visibleText, effectiveText: effectiveText, issueAttachment: issueAttachment))
-        if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
-            piAgentRunner.resume(session: session, initialPrompt: effectiveText, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
-            return
-        }
-        piAgentRunner.send(effectiveText, mode: mode, to: session.id, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
+        piAgentRunner.send(effectiveText, mode: mode, to: session.id, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments)
     }
 
-    private func piAgentTitleGenerationSource(titleSource: String?, visibleText: String, effectiveText: String, issueAttachment: PiAgentIssueAttachment?) -> String {
-        let userSource = (titleSource ?? visibleText).trimmingCharacters(in: .whitespacesAndNewlines)
-        if let issueAttachment {
-            let prefix = "\(issueAttachment.isPullRequest ? "PR" : "Issue") #\(issueAttachment.number): \(issueAttachment.title)"
-            return [prefix, userSource].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    private func piAgentTitleGenerationSource(titleSource: String?, visibleText: String, effectiveText: String) -> String {
+        if let titleSource, !titleSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return titleSource
         }
-        if let titleSource { return titleSource.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if !userSource.isEmpty { return userSource }
-        return effectiveText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !visibleText.isEmpty { return visibleText }
+        return effectiveText
     }
 
     private func schedulePiAgentTitleUpdateIfNeeded(sessionID: UUID, plan: PiSessionPlanRecord) {
@@ -5974,8 +5405,7 @@ final class AppViewModel: NSObject {
             rerun: .init(
                 transcriptText: entry.text,
                 images: attachments?.images ?? [],
-                pasteAttachments: attachments?.pastes ?? [],
-                issueAttachment: attachments?.issue
+                pasteAttachments: attachments?.pastes ?? []
             )
         )
     }
@@ -6503,147 +5933,17 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func submitComment() {
-        guard let item = githubSelectedWorkItem, let session = gitHubSession else {
-            githubLastError = "Select an issue or pull request first."
-            return
-        }
 
-        let body = githubCommentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else {
-            githubLastError = "Enter a comment first."
-            return
-        }
 
-        githubIsSubmittingComment = true
-        githubLastError = nil
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                try await service.postComment(body: body, for: item)
-                await MainActor.run {
-                    guard self.githubSelectedWorkItem == item,
-                          self.gitHubSession == session else {
-                        self.githubIsSubmittingComment = false
-                        return
-                    }
 
-                    self.githubCommentDraft = ""
-                    self.githubIsSubmittingComment = false
-                    self.githubProjectBoardFetchedAt = nil
-                    self.loadIssueDetail(for: item, bypassCache: true)
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.githubSelectedWorkItem == item else {
-                        self.githubIsSubmittingComment = false
-                        return
-                    }
-
-                    self.githubIsSubmittingComment = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func closeSelectedIssue(reason: GitHubIssueCloseReason = .completed) {
-        guard let item = githubSelectedWorkItem else {
-            githubLastError = "Select an issue first."
-            return
-        }
-        closeIssue(item, reason: reason)
-    }
-
-    func closeIssue(_ item: GitHubWorkItem, reason: GitHubIssueCloseReason = .completed) {
-        setIssueState(item, open: false, reason: reason)
-    }
-
-    func reopenIssue(_ item: GitHubWorkItem) {
-        setIssueState(item, open: true, reason: nil)
-    }
-
-    /// Closes or reopens an issue on GitHub and reconciles the cached board,
-    /// selection, and open detail with the new state. `githubIsClosingIssue`
-    /// doubles as the in-flight flag for both directions.
-    private func setIssueState(_ item: GitHubWorkItem, open: Bool, reason: GitHubIssueCloseReason?) {
-        guard let session = gitHubSession else {
-            githubLastError = "Connect GitHub first."
-            return
-        }
-        githubIsClosingIssue = true
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                if open {
-                    try await service.reopenIssue(item)
-                } else {
-                    try await service.closeIssue(item, reason: reason ?? .completed)
-                }
-                await MainActor.run {
-                    self.githubIsClosingIssue = false
-                    let updated = item.with(state: open ? "open" : "closed", closedAt: open ? nil : Date())
-                    if let board = self.githubProjectBoard {
-                        self.githubProjectBoard = board.replacing(updated)
-                    }
-                    if let board = self.githubComposerBoard {
-                        self.githubComposerBoard = board.replacing(updated)
-                    }
-                    if self.githubSelectedWorkItem?.id == updated.id {
-                        self.githubSelectedWorkItem = updated
-                    }
-                    if let detail = self.githubIssueDetail, detail.item.id == updated.id {
-                        self.githubIssueDetail = detail.with(state: updated.state, closedAt: updated.closedAt)
-                    }
-                    // Mark the board cache stale so the next user-initiated refresh
-                    // re-syncs with the server.
-                    self.githubProjectBoardFetchedAt = nil
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubIsClosingIssue = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
 
     private func refreshGitHubConnectionScopedState() {
-        githubProjectBoardRequestID += 1
-        githubIssueDetailRequestID += 1
-        githubAggregateBoard = nil
-        githubComposerBoard = nil
-        githubComposerBoardCacheKey = nil
-        githubComposerBoardFetchedAt = nil
-        githubProjectBoard = nil
-        githubProjectBoardCacheKey = nil
-        githubProjectBoardFetchedAt = nil
-        githubSelectedWorkItem = nil
-        githubIssueDetail = nil
-        githubCommentDraft = ""
-        githubIsLoadingAggregateBoard = false
-        githubIsLoadingComposerBoard = false
-        githubIsLoadingProjectBoard = false
-        githubIsLoadingIssueDetail = false
-        githubIsSubmittingComment = false
-        githubIsClosingIssue = false
+        // Issue board caches removed; connection changes only affect API session.
     }
 
     private func refreshGitHubProjectScopedState() {
-        githubProjectBoardRequestID += 1
         githubRepositoryChangesRequestID += 1
-        githubIssueDetailRequestID += 1
-        githubProjectBoard = nil
-        githubProjectBoardCacheKey = nil
-        githubProjectBoardFetchedAt = nil
-        githubComposerBoard = nil
-        githubComposerBoardCacheKey = nil
-        githubComposerBoardFetchedAt = nil
         githubRepositoryChanges = nil
         githubRepositoryChangesProjectPath = nil
         repositoryChangesCache.removeAll()
@@ -6653,38 +5953,7 @@ final class AppViewModel: NSObject {
         githubSelectedDiffText = nil
         githubCommitMessage = ""
         githubCommitDescription = ""
-        githubSelectedWorkItem = nil
-        githubIssueDetail = nil
-        githubCommentDraft = ""
-        githubIsLoadingProjectBoard = false
-        githubIsLoadingComposerBoard = false
         githubIsLoadingRepositoryChanges = false
-        githubIsLoadingIssueDetail = false
-        githubIsSubmittingComment = false
-        githubIsClosingIssue = false
-        githubAuthorFilter = nil
-        githubLabelFilters = []
-    }
-
-    private func boardCacheKey(for remote: GitHubRemote, state: GitHubIssueStateFilter, closeReason: GitHubIssueCloseReason?) -> String {
-        let reasonPart = closeReason?.rawValue ?? "any"
-        return "\(remote.host.lowercased())|\(remote.nameWithOwner.lowercased())|\(state.rawValue.lowercased())|\(reasonPart)"
-    }
-
-    /// The reason filter only applies server-side when the state filter is
-    /// Closed — GitHub's `state_reason` is closed-only, and combining it with
-    /// `is:open` would always return zero results.
-    private var effectiveCloseReasonFilter: GitHubIssueCloseReason? {
-        githubIssueStateFilter == .closed ? githubCloseReasonFilter : nil
-    }
-
-    private func isGitHubBoardCacheStale(fetchedAt: Date?) -> Bool {
-        guard let fetchedAt else { return true }
-        return Date().timeIntervalSince(fetchedAt) >= gitHubBoardCacheLifetime
-    }
-
-    private var gitHubBoardCacheLifetime: TimeInterval {
-        appSettingsController.gitHubBoardCacheLifetime
     }
 
     var piAgentNotificationDelayMinutes: Int {

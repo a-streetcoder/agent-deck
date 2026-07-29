@@ -401,7 +401,6 @@ struct ContentView: View {
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
     @State private var agentSearchText = ""
-    @State private var issueSearchText = ""
     @State private var memorySearchText = ""
     @State private var projectSearchText = ""
     @State private var skillSearchText = ""
@@ -423,9 +422,7 @@ struct ContentView: View {
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
-    @State private var isIssuesProjectPopoverPresented = false
     @State private var isMemoryProjectPopoverPresented = false
-    @State private var isIssuesFilterPopoverPresented = false
     @State private var isAgentsFilterPopoverPresented = false
     #if DEBUG
     @State private var sidebarExpandBenchTask: Task<Void, Never>?
@@ -793,7 +790,7 @@ struct ContentView: View {
 
     private var toolbarSearchIsVisible: Bool {
         switch viewModel.selectedSidebarItem {
-        case .projects, .agents, .issues, .memory, .skills, .prompts, .loops, .agent:
+        case .projects, .agents, .memory, .skills, .prompts, .loops, .agent:
             return true
         default:
             return false
@@ -804,7 +801,6 @@ struct ContentView: View {
         switch viewModel.selectedSidebarItem {
         case .projects: return languageStore.t("search.projects")
         case .agents: return languageStore.t("search.agents")
-        case .issues: return languageStore.t("search.issues")
         case .memory: return languageStore.t("search.memory")
         case .skills: return languageStore.t("search.skills")
         case .prompts: return languageStore.t("search.prompts")
@@ -820,7 +816,6 @@ struct ContentView: View {
                 switch viewModel.selectedSidebarItem {
                 case .projects: return projectSearchText
                 case .agents: return agentSearchText
-                case .issues: return issueSearchText
                 case .memory: return memorySearchText
                 case .skills: return skillSearchText
                 case .prompts: return promptSearchText
@@ -833,7 +828,6 @@ struct ContentView: View {
                 switch viewModel.selectedSidebarItem {
                 case .projects: projectSearchText = value
                 case .agents: agentSearchText = value
-                case .issues: issueSearchText = value
                 case .memory: memorySearchText = value
                 case .skills: skillSearchText = value
                 case .prompts: promptSearchText = value
@@ -923,7 +917,6 @@ struct ContentView: View {
             }
         }
         ctx.openProjects = { viewModel.selectedSidebarItem = .projects }
-        ctx.openIssues = { viewModel.selectedSidebarItem = .issues }
         ctx.openAgents = { viewModel.selectedSidebarItem = .agents }
         ctx.openSkills = { viewModel.selectedSidebarItem = .skills }
         ctx.openPrompts = { viewModel.selectedSidebarItem = .prompts }
@@ -973,13 +966,6 @@ struct ContentView: View {
         ctx.toggleSelectedAgentDisabled = {
             setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
         }
-    }
-
-    private var issuesFiltersAreActive: Bool {
-        viewModel.githubAuthorFilter != nil
-            || viewModel.githubAssigneeFilter != nil
-            || viewModel.githubTypeFilter != nil
-            || !viewModel.githubLabelFilters.isEmpty
     }
 
     /// Extracted from `mainContent` so the type-checker doesn't choke on the
@@ -1076,9 +1062,6 @@ struct ContentView: View {
     private var workspaceToolbarItems: some ToolbarContent {
         if viewModel.selectedSidebarItem == .projects {
             projectsPrimaryToolbarContent
-        }
-        if viewModel.selectedSidebarItem == .issues {
-            issuesPrimaryToolbarContent
         }
         if viewModel.selectedSidebarItem == .memory {
             memoryPrimaryToolbarContent
@@ -1565,28 +1548,6 @@ struct ContentView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private var issuesPrimaryToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            ProjectToolbarSelector(
-                viewModel: viewModel,
-                isPresented: $isIssuesProjectPopoverPresented
-            )
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        // One ControlGroup so the two buttons share an island with the same
-        // spacing as every other view (Memory, Projects, …), instead of the
-        // narrower separate-items + ToolbarSpacer look.
-        ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                issuesFilterButton
-                issuesRefreshButton
-            }
-        }
-    }
-
     // Memory's toolbar lives here in the central switch — same level as every
     // other view — so its button island sits in the same place and doesn't jump
     // when switching to/from Projects. The "New Memory" action is posted to
@@ -1663,32 +1624,6 @@ struct ContentView: View {
         return (records.count, injectable, stale)
     }
 
-    private var issuesFilterButton: some View {
-        Button {
-            isIssuesFilterPopoverPresented.toggle()
-        } label: {
-            Label("Filter", systemImage: issuesFiltersAreActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-        }
-        .toolbarNeutralChrome()
-        .help("Filter issues")
-        .disabled(viewModel.selectedGitHubProject?.gitHubRemote == nil)
-        .popover(isPresented: $isIssuesFilterPopoverPresented, arrowEdge: .bottom) {
-            IssuesFiltersPopover(viewModel: viewModel)
-        }
-    }
-
-    private var issuesRefreshButton: some View {
-        Button {
-            viewModel.refreshProjectBoard(force: true)
-        } label: {
-            Label(viewModel.githubIsLoadingProjectBoard ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
-        }
-        .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsLoadingProjectBoard)
-        .toolbarNeutralChrome()
-        .help("Refresh issues")
-        .disabled(!viewModel.githubConnectionState.isConnected || viewModel.githubIsLoadingProjectBoard)
-    }
-
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {
         AgentModelQuickEditorContext(
             title: "Agent Models",
@@ -1760,8 +1695,6 @@ struct ContentView: View {
             SystemInstructionsScreen(viewModel: viewModel)
         case .memory:
             MemoryScreen(viewModel: viewModel, memoryStore: viewModel.agentMemoryStore, searchText: $memorySearchText)
-        case .issues:
-            IssuesScreen(viewModel: viewModel, searchText: $issueSearchText)
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,

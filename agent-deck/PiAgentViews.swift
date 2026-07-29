@@ -4918,7 +4918,6 @@ struct PiAgentScreen: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
-    @State private var composerIssueAttachment: PiAgentIssueAttachment?
     @State private var composerAttachmentError: String?
     @State private var composerHistoryIndex: Int?
     @State private var composerHistoryDraft = ""
@@ -7207,13 +7206,12 @@ struct PiAgentScreen: View {
                 images: $composerImages,
                 files: $composerFiles,
                 folders: $composerFolders,
-                issueAttachment: $composerIssueAttachment,
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 isDisabled: isCompacting,
                 placeholder: languageStore.composerPlaceholder(hasSelectedSession: hasSelectedSession, isCompacting: isCompacting, isRunning: isRunning, isNoProject: store.selectedSession?.isNoProject == true),
-                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || !slashSelections.isEmpty),
+                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || !slashSelections.isEmpty),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: piAgentNewSessionProjects,
                 onFiles: addFileAttachments,
@@ -7751,7 +7749,6 @@ struct PiAgentScreen: View {
         resetComposerHistoryNavigation()
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
-            composerIssueAttachment = viewModel.consumePendingPiAgentIssueAttachment()
             composerPasteAttachments = []
             nextComposerPasteID = 1
             composerImages = []
@@ -7773,7 +7770,6 @@ struct PiAgentScreen: View {
         composerImages = draft.images
         composerFiles = draft.files
         composerFolders = draft.folders
-        composerIssueAttachment = nil
         composerAttachmentError = nil
     }
 
@@ -7790,7 +7786,6 @@ struct PiAgentScreen: View {
         composerImages = []
         composerFiles = []
         composerFolders = []
-        composerIssueAttachment = nil
         composerAttachmentError = nil
         slashSelections = []
         slashState = SlashSuggestionState()
@@ -7810,7 +7805,7 @@ struct PiAgentScreen: View {
     private func createSessionFromComposer(for project: DiscoveredProject?) {
         guard store.selectedSession == nil else { return }
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
-        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil
+        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
         if let project {
             viewModel.createPiAgentDraft(for: project)
         } else {
@@ -7833,14 +7828,14 @@ struct PiAgentScreen: View {
         let message = SlashItem.materialize(selections: currentSlashSelections, userText: baseMessage)
         let transcriptMessage = SlashItem.materialize(selections: currentSlashSelections, userText: baseTranscript)
         let titleSource = SlashItem.titleGenerationSource(selections: currentSlashSelections, userText: baseTranscript)
-        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
-        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment, beforeStart: beginTranscriptAutoScrollTurn)
+        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, beforeStart: beginTranscriptAutoScrollTurn)
         guard accepted else { return }
         requestTranscriptBottomScroll()
         clearComposerInput()
@@ -8172,7 +8167,6 @@ private struct PiAgentComposerPanel: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
-    @State private var composerIssueAttachment: PiAgentIssueAttachment?
     @State private var composerAttachmentError: String?
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
     @State private var loopDetailsRun: LoopRun?
@@ -8259,13 +8253,12 @@ private struct PiAgentComposerPanel: View {
                     images: $composerImages,
                     files: $composerFiles,
                     folders: $composerFolders,
-                    issueAttachment: $composerIssueAttachment,
-                    attachmentError: $composerAttachmentError,
+                        attachmentError: $composerAttachmentError,
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     isDisabled: isCompacting,
                     placeholder: languageStore.composerPlaceholder(hasSelectedSession: hasSelectedSession, isCompacting: isCompacting, isRunning: isRunning, isNoProject: store.selectedSession?.isNoProject == true),
-                    canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || !slashSelections.isEmpty),
+                    canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || !slashSelections.isEmpty),
                     canCreateSession: !isCompacting && store.selectedSession == nil,
                     createSessionProjects: piAgentNewSessionProjects,
                     onFiles: addFileAttachments,
@@ -8874,7 +8867,6 @@ private struct PiAgentComposerPanel: View {
 
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
-            composerIssueAttachment = viewModel.consumePendingPiAgentIssueAttachment()
             composerPasteAttachments = []
             nextComposerPasteID = 1
             composerImages = []
@@ -8896,7 +8888,6 @@ private struct PiAgentComposerPanel: View {
         composerImages = draft.images
         composerFiles = draft.files
         composerFolders = draft.folders
-        composerIssueAttachment = nil
         composerAttachmentError = nil
     }
 
@@ -8912,7 +8903,6 @@ private struct PiAgentComposerPanel: View {
         composerImages = []
         composerFiles = []
         composerFolders = []
-        composerIssueAttachment = nil
         composerAttachmentError = nil
         slashSelections = []
         slashState = SlashSuggestionState()
@@ -8925,7 +8915,7 @@ private struct PiAgentComposerPanel: View {
     private func createSessionFromComposer(for project: DiscoveredProject?) {
         guard store.selectedSession == nil else { return }
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
-        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil
+        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
         if let project {
             viewModel.createPiAgentDraft(for: project)
         } else {
@@ -8952,14 +8942,14 @@ private struct PiAgentComposerPanel: View {
         let message = SlashItem.materialize(selections: currentSlashSelections, userText: baseMessage)
         let transcriptMessage = SlashItem.materialize(selections: currentSlashSelections, userText: baseTranscript)
         let titleSource = SlashItem.titleGenerationSource(selections: currentSlashSelections, userText: baseTranscript)
-        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
-        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment, beforeStart: onWillSend)
+        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, beforeStart: onWillSend)
         guard accepted else { return }
         onDidSend()
         clearComposerInput()

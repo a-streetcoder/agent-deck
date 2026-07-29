@@ -58,7 +58,6 @@ struct PiAgentComposerBox: View {
     @Binding var images: [PiAgentImageAttachment]
     @Binding var files: [PiAgentFileAttachment]
     @Binding var folders: [PiAgentFolderAttachment]
-    @Binding var issueAttachment: PiAgentIssueAttachment?
     @Binding var attachmentError: String?
     @Binding var inputMode: PiAgentInputMode
     let isRunning: Bool
@@ -84,7 +83,6 @@ struct PiAgentComposerBox: View {
     let onClear: () -> Void
     var suggestionKeyBridge: ComposerSuggestionKeyBridge = ComposerSuggestionKeyBridge()
     @State private var isDropTargeted = false
-    @State private var isIssuePickerPresented = false
     // Non-worktree sessions don't carry `branchName`; resolve the project's
     // current branch off the body hot path via `.task(id:)`.
     @State private var resolvedBranch: String?
@@ -151,17 +149,12 @@ struct PiAgentComposerBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !slashSelections.isEmpty || !images.isEmpty || !files.isEmpty || !folders.isEmpty || issueAttachment != nil {
+            if !slashSelections.isEmpty || !images.isEmpty || !files.isEmpty || !folders.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(slashSelections) { slashSelection in
                             PiAgentSlashSelectionChip(item: slashSelection) {
                                 onRemoveSlashSelection(slashSelection)
-                            }
-                        }
-                        if let issueAttachment {
-                            PiAgentIssueAttachmentChip(issue: issueAttachment) {
-                                self.issueAttachment = nil
                             }
                         }
                         ForEach(images) { image in
@@ -332,9 +325,6 @@ struct PiAgentComposerBox: View {
             }
             return true
         }
-        .task(id: footerSession?.id) {
-            viewModel.ensureComposerIssuesLoaded(for: footerSession)
-        }
         .task(id: metricsSession?.id) {
             // For worktree-on sessions `branchName` is set at creation; for
             // worktree-off sessions resolve the project's current branch via git.
@@ -361,35 +351,6 @@ struct PiAgentComposerBox: View {
 
     private var composerActionControls: some View {
         AppControlGroup(spacing: 6) {
-            if viewModel.githubConnectionState.isConnected && viewModel.composerGitHubProject(for: footerSession)?.gitHubRemote != nil {
-                Button {
-                    isIssuePickerPresented.toggle()
-                } label: {
-                    Image("github")
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .frame(width: 12, height: 12)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
-                        .appGlassCircle()
-                }
-                .buttonStyle(.plain)
-                .help("Attach GitHub issue or pull request")
-                .accessibilityLabel("Attach GitHub issue or pull request")
-                .popover(isPresented: $isIssuePickerPresented, arrowEdge: .bottom) {
-                    PiAgentIssuePickerPopover(
-                        viewModel: viewModel,
-                        session: footerSession,
-                        onSelect: { issue in
-                            issueAttachment = issue
-                            attachmentError = nil
-                            isIssuePickerPresented = false
-                        }
-                    )
-                }
-            }
-
             Button(action: attachImagesFromOpenPanel) {
                 Image(systemName: "paperclip")
                     .font(AppTheme.Font.caption.weight(.semibold))
@@ -829,140 +790,6 @@ struct PiAgentFolderAttachmentChip: View {
         )
     }
 }
-
-struct PiAgentIssueAttachmentChip: View {
-    let issue: PiAgentIssueAttachment
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image("github")
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .frame(width: 13, height: 13)
-                .foregroundStyle(AppTheme.mutedText)
-            Text("\(issue.kindShortTitle) #\(issue.number) \(issue.title)")
-                .lineLimit(1)
-                .truncationMode(.head)
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-            .buttonStyle(.plain)
-        }
-        .font(AppTheme.Font.caption.weight(.medium))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .appGlassCapsule()
-        .help(issue.repository)
-    }
-}
-
-private struct PiAgentIssuePickerPopover: View {
-    var viewModel: AppViewModel
-    let session: PiAgentSessionRecord?
-    let onSelect: (PiAgentIssueAttachment) -> Void
-
-    @State private var query = ""
-    @State private var isLoading = false
-    @State private var loadingIssueID: String?
-    @State private var errorText: String?
-
-    private var items: [GitHubWorkItem] {
-        let source = viewModel.githubComposerIssueItems(for: session)
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return source }
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return source.filter { item in
-            item.searchableHaystack.contains(needle)
-            || "#\(item.number)".contains(needle)
-            || item.kindTitle.lowercased().contains(needle)
-            || item.kindShortTitle.lowercased().contains(needle)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(LanguageStore.shared.t("composer.attachIssueTitle"))
-                .font(AppTheme.Font.headline)
-
-            AppTextField(text: $query, placeholder: LanguageStore.shared.t("composer.attachIssueSearch"))
-
-            if let errorText {
-                Text(errorText)
-                    .font(AppTheme.Font.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            if items.isEmpty {
-                Text(emptyStateText)
-                    .font(AppTheme.Font.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 400, alignment: .leading)
-            } else {
-                let visibleItems = items.prefix(20)
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(visibleItems) { item in
-                            ZStack(alignment: .topTrailing) {
-                                GitHubIssueListRow(
-                                    item: item,
-                                    isSelected: false,
-                                    onSelect: { attach(item) },
-                                    showsKindBadge: true
-                                )
-                                if loadingIssueID == item.id && isLoading {
-                                    AppSpinner()
-                                        .controlSize(.small)
-                                        .padding(12)
-                                }
-                            }
-                            .disabled(isLoading)
-                        }
-                    }
-                }
-                .defaultScrollAnchor(.top)
-                .frame(width: 420, height: 320)
-            }
-        }
-        .padding(12)
-        .onAppear {
-            viewModel.ensureComposerIssuesLoaded(for: session, force: true)
-        }
-    }
-
-    private var emptyStateText: String {
-        if !viewModel.githubConnectionState.isConnected {
-            return "Connect GitHub first to attach an issue or pull request."
-        }
-        if viewModel.composerGitHubProject(for: session)?.gitHubRemote != nil {
-            return viewModel.githubIsLoadingComposerBoard
-                ? "Loading issues and pull requests for the selected repository…"
-                : "No issues or pull requests loaded for the selected repository yet."
-        }
-        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "No matching issues or pull requests."
-        }
-        return "Select a GitHub project to attach one of its issues or pull requests."
-    }
-
-    private func attach(_ item: GitHubWorkItem) {
-        isLoading = true
-        loadingIssueID = item.id
-        errorText = nil
-        viewModel.fetchPiAgentIssueAttachment(for: item) { result in
-            isLoading = false
-            loadingIssueID = nil
-            switch result {
-            case .success(let issue):
-                onSelect(issue)
-            case .failure(let error):
-                errorText = error.localizedDescription
-            }
-        }
-    }
-}
-
 private struct PiAgentPathAttachmentChip: View {
     let title: String
     let path: String

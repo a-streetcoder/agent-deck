@@ -132,7 +132,6 @@ final class PiAgentRunnerService {
         var transcriptText: String?
         var images: [PiAgentImageAttachment] = []
         var pasteAttachments: [PiAgentPasteAttachment] = []
-        var issueAttachment: PiAgentIssueAttachment?
     }
 
     private struct ForkProgress {
@@ -236,28 +235,13 @@ final class PiAgentRunnerService {
             project: project,
             repository: project.gitHubRemote?.nameWithOwner
         )
-        let prompt = PiIssuePromptBuilder.projectPrompt(project: project, initialInstruction: initialInstruction)
+        let prompt = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
         Task { @MainActor [weak self] in
             await self?.start(session: session, projectURL: project.url, initialPrompt: prompt)
         }
     }
 
-    func startIssueSession(detail: GitHubIssueDetail, project: DiscoveredProject) {
-        let session = store.createSession(
-            kind: .issue,
-            title: detail.item.title,
-            project: project,
-            repository: detail.item.repository,
-            issueNumber: detail.item.number,
-            issueURL: detail.item.url
-        )
-        let issueAttachment = PiAgentIssueAttachment(detail: detail)
-        let draft = PiIssuePromptBuilder.issueDraft(detail: detail, project: project)
-        let prompt = PiIssuePromptBuilder.rpcMessage(userText: draft, issue: issueAttachment, projectName: project.name, projectPath: project.path)
-        Task { @MainActor [weak self] in
-            await self?.start(session: session, projectURL: project.url, initialPrompt: prompt, initialTranscriptText: draft, initialIssueAttachment: issueAttachment)
-        }
-    }
+
 
     /// Create and launch a new 1:1 chat session bound to a specific agent.
     /// Pi is spawned with the agent's system prompt, tool allowlist, and
@@ -283,18 +267,18 @@ final class PiAgentRunnerService {
         }
     }
 
-    func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
+    func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
         let projectURL = session.launchWorkingDirectory
         // If Pi has already created a session file, always resume it before sending a new prompt.
         // Otherwise an idle follow-up (or a model change followed by Send) starts a fresh Pi session
         // and the chat appears to lose context.
         let canResumePiSession = session.piSessionFile != nil
         Task { @MainActor [weak self] in
-            await self?.start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialTranscriptText: transcriptText, initialImages: images, initialPasteAttachments: pasteAttachments, initialIssueAttachment: issueAttachment, resumeExisting: canResumePiSession)
+            await self?.start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialTranscriptText: transcriptText, initialImages: images, initialPasteAttachments: pasteAttachments, resumeExisting: canResumePiSession)
         }
     }
 
-    private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
+    private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
         let projectURL = session.launchWorkingDirectory
         Task { @MainActor [weak self] in
             await self?.start(
@@ -304,7 +288,6 @@ final class PiAgentRunnerService {
                 initialTranscriptText: transcriptText,
                 initialImages: images,
                 initialPasteAttachments: pasteAttachments,
-                initialIssueAttachment: issueAttachment,
                 resumeExisting: session.piSessionFile != nil,
                 recordStopTranscript: false
             )
@@ -328,7 +311,7 @@ final class PiAgentRunnerService {
         restartForLaunchConfiguration(session: session)
     }
 
-    func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, transcriptText displayText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
+    func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, transcriptText displayText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
         let message = userMessage(trimmed, images: images)
@@ -344,7 +327,7 @@ final class PiAgentRunnerService {
             // treating that small window as a stopped session.
             let effectiveMode: PiAgentInputMode = .steer
             let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
-            store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: true), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)))
+            store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: true), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments)))
             pendingStartupInputsBySessionID[sessionID, default: []].append(.init(message: message, images: images))
             return
         }
@@ -353,11 +336,11 @@ final class PiAgentRunnerService {
         if effectiveMode == .prompt,
            pendingConfigurationRestartSessionIDs.remove(sessionID) != nil,
            let session = store.sessions.first(where: { $0.id == sessionID }) {
-            restartForLaunchConfiguration(session: session, initialPrompt: text, transcriptText: displayText, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
+            restartForLaunchConfiguration(session: session, initialPrompt: text, transcriptText: displayText, images: images, pasteAttachments: pasteAttachments)
             return
         }
         let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
-        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)))
+        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: images, pasteAttachments: pasteAttachments)))
         // Harmless when Pi is idle, but prevents dropped messages if our local
         // status lags behind Pi's authoritative streaming state. Routed through
         // `prompt` + streamingBehavior rather than the dedicated `steer` type so
@@ -653,7 +636,6 @@ final class PiAgentRunnerService {
                     transcriptText: rerun.transcriptText,
                     images: rerun.images,
                     pasteAttachments: rerun.pasteAttachments,
-                    issueAttachment: rerun.issueAttachment
                 )
             }
             return
@@ -710,7 +692,7 @@ final class PiAgentRunnerService {
         }
     }
 
-    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialTranscriptText: String? = nil, initialImages: [PiAgentImageAttachment] = [], initialPasteAttachments: [PiAgentPasteAttachment] = [], initialIssueAttachment: PiAgentIssueAttachment? = nil, resumeExisting: Bool = false, recordStopTranscript: Bool = true) async {
+    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialTranscriptText: String? = nil, initialImages: [PiAgentImageAttachment] = [], initialPasteAttachments: [PiAgentPasteAttachment] = [], resumeExisting: Bool = false, recordStopTranscript: Bool = true) async {
         // stop() → clearStreamingState wipes processing activity, so capture the
         // pending summary first and re-apply it below once the new run is staged.
         let configurationChangeSummary = pendingConfigurationChangeSummariesBySessionID.removeValue(forKey: session.id)
@@ -729,7 +711,7 @@ final class PiAgentRunnerService {
         if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
             let message = userMessage(trimmedInitialPrompt, images: initialImages)
             let transcriptMessage = initialTranscriptText.map { userMessage($0, images: initialImages) } ?? message
-            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: initialImages, pasteAttachments: initialPasteAttachments, issueAttachment: initialIssueAttachment)))
+            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: initialImages, pasteAttachments: initialPasteAttachments)))
         }
 
         // For agent-chat sessions, resolve the bound agent up-front so we can
@@ -1286,7 +1268,7 @@ final class PiAgentRunnerService {
         visibleUserText(text, imageReferences: Set(images.compactMap { $0.fileReference ?? $0.name }))
     }
 
-    private func transcriptAttachmentJSON(messageText: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) -> String? {
+    private func transcriptAttachmentJSON(messageText: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment] = []) -> String? {
         var payload: [String: Any] = [:]
         if !images.isEmpty,
            let imageData = try? JSONEncoder().encode(images),
@@ -1297,11 +1279,6 @@ final class PiAgentRunnerService {
            let pasteData = try? JSONEncoder().encode(pasteAttachments),
            let pasteObject = try? JSONSerialization.jsonObject(with: pasteData) {
             payload["pastes"] = pasteObject
-        }
-        if let issueAttachment,
-           let issueData = try? JSONEncoder().encode(issueAttachment),
-           let issueObject = try? JSONSerialization.jsonObject(with: issueData) {
-            payload["issue"] = issueObject
         }
         if let messageText {
             let files = extractedFileAttachments(in: messageText, imageReferences: Set(images.compactMap { $0.fileReference ?? $0.name }))

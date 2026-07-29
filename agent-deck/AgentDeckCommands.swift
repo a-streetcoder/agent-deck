@@ -5,7 +5,6 @@ enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
     case openPiAgent
     case toggleSessionsPanel
     case openProjects
-    case openIssues
     case openAgents
     case openSkills
     case openPrompts
@@ -63,7 +62,6 @@ extension AgentDeckShortcutSection {
             .init(.openPiAgent, "Open Pi Agent", key: "1", modifiers: [.command], description: "Jump to the Pi Agent screen."),
             .init(.toggleSessionsPanel, "Toggle Sessions Panel", key: "s", modifiers: [.command], description: "Expand or collapse the sessions panel in the sidebar."),
             .init(.openProjects, "Open Projects", key: "2", modifiers: [.command], description: "Jump to the Projects screen."),
-            .init(.openIssues, "Open Issues", key: "3", modifiers: [.command], description: "Jump to the Issues screen."),
             .init(.openAgents, "Open Agents", key: "4", modifiers: [.command], description: "Jump to the Agents screen."),
             .init(.openSkills, "Open Skills", key: "5", modifiers: [.command], description: "Jump to the Skills screen."),
             .init(.openPrompts, "Open Prompts", key: "6", modifiers: [.command], description: "Jump to the Prompts screen.")
@@ -154,7 +152,6 @@ final class AgentDeckCommandContext {
     var openPiAgent: () -> Void = {}
     var toggleSessionsPanel: () -> Void = {}
     var openProjects: () -> Void = {}
-    var openIssues: () -> Void = {}
     var openAgents: () -> Void = {}
     var openSkills: () -> Void = {}
     var openPrompts: () -> Void = {}
@@ -288,12 +285,6 @@ struct AgentDeckCommands: Commands {
                 context?.openProjects()
             }
             .agentDeckShortcut(.openProjects)
-            .disabled(context == nil)
-
-            Button("Open Issues") {
-                context?.openIssues()
-            }
-            .agentDeckShortcut(.openIssues)
             .disabled(context == nil)
 
             Button("Open Agents") {
