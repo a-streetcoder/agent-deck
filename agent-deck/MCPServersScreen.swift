@@ -8,6 +8,7 @@ import SwiftUI
 /// `@State`; the SwiftUI body performs no filesystem I/O (mirrors ExtensionsScreen).
 struct MCPServersScreen: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     /// All configured servers (merged across mcp.json locations), loaded off-main and
     /// cached. Never read via a body-time load.
@@ -78,9 +79,9 @@ struct MCPServersScreen: View {
                 } catch { NSSound.beep() }
             }
         }
-        .alert("Remove MCP server?", isPresented: Binding(get: { pendingDeleteName != nil }, set: { if !$0 { pendingDeleteName = nil } })) {
-            Button("Cancel", role: .cancel) { pendingDeleteName = nil }
-            Button("Remove", role: .destructive) {
+        .alert(LanguageStore.shared.t("mcp.removeConfirmTitle"), isPresented: Binding(get: { pendingDeleteName != nil }, set: { if !$0 { pendingDeleteName = nil } })) {
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { pendingDeleteName = nil }
+            Button(LanguageStore.shared.t("mcp.remove"), role: .destructive) {
                 if let name = pendingDeleteName {
                     if selectedServerID == name { selectedServerID = nil }
                     do { try viewModel.removeMCPServer(named: name); reloadTick += 1 }
@@ -89,7 +90,7 @@ struct MCPServersScreen: View {
                 pendingDeleteName = nil
             }
         } message: {
-            Text("This removes “\(pendingDeleteName ?? "")” from ~/.pi/agent/mcp.json and clears it from any project and agent assignments.")
+            Text(LanguageStore.shared.t("mcp.removeConfirmBody", pendingDeleteName ?? ""))
         }
     }
 
@@ -113,17 +114,17 @@ struct MCPServersScreen: View {
         var sections: [AppListSection<MCPServerEntry>] = [
             AppListSection(
                 id: "default",
-                title: "Default MCP Servers",
-                info: "Available to every project when MCP is on.",
+                title: LanguageStore.shared.t("mcp.defaultSection"),
+                info: LanguageStore.shared.t("mcp.defaultSectionInfo"),
                 items: defaultServers,
-                emptyMessage: "No default MCP servers."
+                emptyMessage: LanguageStore.shared.t("mcp.defaultEmpty")
             )
         ]
         if !catalogServers.isEmpty {
             sections.append(AppListSection(
                 id: "catalog",
-                title: "Catalog",
-                info: "Configured servers. Dimmed until they are connected or their tools are loaded.",
+                title: LanguageStore.shared.t("mcp.catalogSection"),
+                info: LanguageStore.shared.t("mcp.catalogSectionInfo"),
                 items: catalogServers
             ))
         }
@@ -136,12 +137,12 @@ struct MCPServersScreen: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label {
-                Text(isLoading ? "Loading MCP servers…" : "No MCP servers")
+                Text(isLoading ? LanguageStore.shared.t("mcp.loading") : LanguageStore.shared.t("mcp.emptyTitle"))
             } icon: {
                 Image(AppSymbols.mcp)
             }
         } description: {
-            Text("Add a server from the toolbar — paste a config or fill the form. Servers are read from mcp.json in ~/.config/mcp, ~/.pi/agent, and the project's .mcp.json / .pi/mcp.json.")
+            Text(LanguageStore.shared.t("mcp.emptyBody"))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -172,7 +173,7 @@ struct MCPServersScreen: View {
         Button {
             Task { await probe(entry) }
         } label: {
-            Label(isServerConnected(entry) ? "Refresh Tools" : "Connect", systemImage: "bolt.horizontal")
+            Label(isServerConnected(entry) ? LanguageStore.shared.t("mcp.refreshTools") : LanguageStore.shared.t("mcp.connect"), systemImage: "bolt.horizontal")
         }
         .disabled(statusByServer[entry.name] == .probing)
 
@@ -180,7 +181,7 @@ struct MCPServersScreen: View {
             Button {
                 revealInFinder(entry)
             } label: {
-                Label("Reveal Config in Finder", systemImage: "finder")
+                Label(LanguageStore.shared.t("mcp.revealConfig"), systemImage: "finder")
             }
         }
 
@@ -189,12 +190,12 @@ struct MCPServersScreen: View {
             Button {
                 editorModel = .edit(entry)
             } label: {
-                Label("Edit Server", systemImage: "square.and.pencil")
+                Label(LanguageStore.shared.t("mcp.editServer"), systemImage: "square.and.pencil")
             }
             Button(role: .destructive) {
                 pendingDeleteName = entry.name
             } label: {
-                Label("Remove Server", systemImage: "trash")
+                Label(LanguageStore.shared.t("mcp.removeServer"), systemImage: "trash")
             }
         }
     }
@@ -228,7 +229,7 @@ struct MCPServersScreen: View {
                 }
             }
         } else {
-            AppPage("MCP", subtitle: "Connect Model Context Protocol servers and assign them to projects and agents") {
+            AppPage(LanguageStore.shared.t("mcp.pageTitle"), subtitle: LanguageStore.shared.t("mcp.pageSubtitle")) {
                 detailPlaceholder
             }
         }
@@ -236,9 +237,9 @@ struct MCPServersScreen: View {
 
     private var detailPlaceholder: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Select a server")
+            Text(LanguageStore.shared.t("mcp.selectTitle"))
                 .font(AppTheme.Font.sectionTitle)
-            Text("Pick a server on the left to see its tools, test the connection, and assign it to projects.")
+            Text(LanguageStore.shared.t("mcp.selectBody"))
                 .font(AppTheme.Font.supporting).foregroundStyle(AppTheme.mutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -253,18 +254,18 @@ struct MCPServersScreen: View {
     }
 
     private var computerUsePolicyCard: some View {
-        AppCard(title: "Computer Use controls") {
+        AppCard(title: LanguageStore.shared.t("mcp.computerUse")) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("ChatGPT must be running, signed in, and have Computer Use available for the account.")
                     .fontWeight(.semibold)
                 HStack(spacing: 8) {
                     Label(
-                        isChatGPTRunning ? "ChatGPT: Running" : "ChatGPT: Not running",
+                        isChatGPTRunning ? LanguageStore.shared.t("mcp.chatgptRunning") : LanguageStore.shared.t("mcp.chatgptNotRunning"),
                         systemImage: isChatGPTRunning ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
                     )
                     .foregroundStyle(isChatGPTRunning ? Color.green : Color.orange)
                     Spacer()
-                    Button("Open ChatGPT") {
+                    Button(LanguageStore.shared.t("mcp.openChatGPT")) {
                         Task { _ = await ComputerUseChatGPTRuntime.openAndWaitUntilRunning() }
                     }
                         .controlSize(.small)
@@ -272,11 +273,11 @@ struct MCPServersScreen: View {
                 Text("Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_text, scroll, drag, press_key, and type_text.")
                 Text("Automatic authority: assigning Computer Use gives sessions in this scope access to all ten methods—including clicking, typing, scrolling, dragging, and key presses—without an Agent Deck approval prompt. Signed OpenAI app-server requests are accepted automatically.")
                 Divider()
-                Toggle("General Chat", isOn: Binding(
+                Toggle(LanguageStore.shared.t("mcp.generalChat"), isOn: Binding(
                     get: { viewModel.computerUseIsEnabledForNoProjectMode(.general) },
                     set: { viewModel.setComputerUseEnabledForNoProjectMode(.general, enabled: $0) }
                 ))
-                Toggle("Agent Deck Builder", isOn: Binding(
+                Toggle(LanguageStore.shared.t("mcp.deckBuilder"), isOn: Binding(
                     get: { viewModel.computerUseIsEnabledForNoProjectMode(.agentDeckBuilder) },
                     set: { viewModel.setComputerUseEnabledForNoProjectMode(.agentDeckBuilder, enabled: $0) }
                 ))
@@ -290,7 +291,7 @@ struct MCPServersScreen: View {
     }
 
     private func connectionCard(_ entry: MCPServerEntry) -> some View {
-        AppCard(title: "Connection") {
+        AppCard(title: LanguageStore.shared.t("mcp.connection")) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     detailStatusTag(entry)
@@ -304,7 +305,7 @@ struct MCPServersScreen: View {
                     } else if connectedByServer[entry.name] ?? false {
                         // Remote servers authorize via OAuth first; offer tool loading once
                         // signed in, plus Sign out.
-                        Button("Sign out") { Task { await signOut(entry) } }.controlSize(.small)
+                        Button(LanguageStore.shared.t("mcp.signOut")) { Task { await signOut(entry) } }.controlSize(.small)
                         probeButton(entry, disconnectedTitle: "Load tools")
                     } else {
                         Button("Connect") { Task { await connect(entry) } }.controlSize(.small)
@@ -349,7 +350,7 @@ struct MCPServersScreen: View {
         let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseAutoAccept
         switch statusByServer[entry.name] {
         case .probing:
-            HStack(spacing: 6) { AppSpinner().controlSize(.small); Text("Connecting…").font(.caption).foregroundStyle(.secondary) }
+            HStack(spacing: 6) { AppSpinner().controlSize(.small); Text(LanguageStore.shared.t("mcp.connecting")).font(.caption).foregroundStyle(.secondary) }
         case let .ok(tools) where isComputerUse:
             let ready = Set(tools.map(\.name)).isSuperset(of: MCPServerToolPolicy.computerUseKnownTools)
             AppLabelTag(text: ready ? "Control ready" : "Control status unknown", color: ready ? .green : .orange)
@@ -417,7 +418,7 @@ struct MCPServersScreen: View {
     private func projectAssignmentCard(_ entry: MCPServerEntry) -> some View {
         let name = entry.name
         let isGlobal = viewModel.isMcpServerEnabledForAllProjects(name)
-        return AppCard(title: "Project assignment") {
+        return AppCard(title: LanguageStore.shared.t("mcp.projectAssignment")) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Enable this server for every project, or pick specific ones. A session only gets a server assigned to its project (or to a Deck agent's `mcpServers`).")
                     .font(.caption).foregroundStyle(AppTheme.mutedText).fixedSize(horizontal: false, vertical: true)
@@ -453,7 +454,7 @@ struct MCPServersScreen: View {
     @ViewBuilder
     private func removeCard(_ entry: MCPServerEntry) -> some View {
         if viewModel.mcpServerIsEditable(entry) {
-            AppCard(title: "Remove Server") {
+            AppCard(title: LanguageStore.shared.t("mcp.removeServer")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Remove “\(entry.name)” from ~/.pi/agent/mcp.json and clear it from every project and agent assignment.")
                         .font(.callout)
@@ -461,14 +462,14 @@ struct MCPServersScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Button("Remove Server", role: .destructive) {
+                    Button(LanguageStore.shared.t("mcp.removeServer"), role: .destructive) {
                         pendingDeleteName = entry.name
                     }
                     .appDestructiveButton()
                 }
             }
         } else {
-            AppCard(title: "Read-only") {
+            AppCard(title: LanguageStore.shared.t("mcp.readOnly")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(entry.sourcePath.isEmpty
                          ? "This Codex Plugin server is discovered read-only. Its resolved helper is transient and cannot be edited or removed here."
@@ -479,7 +480,7 @@ struct MCPServersScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if !entry.sourcePath.isEmpty {
                         detailRow(icon: "doc", text: URL(fileURLWithPath: entry.sourcePath).path)
-                        Button("Reveal in Finder") { revealInFinder(entry) }
+                        Button(LanguageStore.shared.t("mcp.revealFinder")) { revealInFinder(entry) }
                             .appSecondaryButton()
                     }
                 }
@@ -527,7 +528,7 @@ struct MCPServersScreen: View {
         case .config:
             return viewModel.mcpServerIsEditable(entry) ? "~/.pi/agent/mcp.json" : URL(fileURLWithPath: entry.sourcePath).lastPathComponent + " (read-only)"
         case let .codexPlugin(version, availability):
-            return "Codex Plugin · \(availability ?? "Read-only")\(version.map { " · v\($0)" } ?? "")"
+            return "Codex Plugin · \(availability ?? LanguageStore.shared.t("mcp.readOnly"))\(version.map { " · v\($0)" } ?? "")"
         }
     }
 
@@ -627,7 +628,7 @@ private struct MCPServerListRowView<Status: View>: View {
                 }
                 .appSmallSecondaryButton()
                 .opacity(isHovered ? 1 : 0)
-                .help("Edit MCP server")
+                .help(LanguageStore.shared.t("mcp.editMCPServer"))
                 .animation(.easeInOut(duration: 0.15), value: isHovered)
             }
 
@@ -751,10 +752,10 @@ private struct MCPServerEditorSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(isEditing ? "Edit MCP server" : "Add MCP server")
+                    Text(isEditing ? LanguageStore.shared.t("mcp.editMCPServer") : "Add MCP server")
                         .font(.headline)
                         .fontWidth(.expanded)
-                    Text("Written to ~/.pi/agent/mcp.json")
+                    Text(LanguageStore.shared.t("mcp.writtenTo"))
                         .font(.caption.monospaced())
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -784,7 +785,7 @@ private struct MCPServerEditorSheet: View {
                         manualSection
                     }
 
-                    Text("Assign this server to your projects or agents after saving.")
+                    Text(LanguageStore.shared.t("mcp.assignAfterSave"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -867,7 +868,7 @@ private struct MCPServerEditorSheet: View {
         }
         field("Type") {
             Picker("Type", selection: $isRemote) {
-                Text("Local (stdio)").tag(false)
+                Text(LanguageStore.shared.t("mcp.localStdio")).tag(false)
                 Text("Remote (HTTP)").tag(true)
             }
             .appSegmentedPicker()
@@ -881,7 +882,7 @@ private struct MCPServerEditorSheet: View {
             field("Headers (KEY: VALUE per line, optional)") {
                 editorBox($headersText, field: .headers, placeholder: "Authorization: Bearer …")
             }
-            AppCard(title: "OAuth client (optional)") {
+            AppCard(title: LanguageStore.shared.t("mcp.oauthClient")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Only fill these fields when the MCP provider gives you a client ID because it does not support Dynamic Client Registration. Secrets are saved in ~/.pi/agent/mcp-auth.json, not mcp.json.")
                         .font(.caption)
@@ -921,7 +922,7 @@ private struct MCPServerEditorSheet: View {
 
     @ViewBuilder
     private var importSection: some View {
-        AppCard(title: "Available MCP Servers") {
+        AppCard(title: LanguageStore.shared.t("mcp.available")) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Scans Claude Desktop, Claude Code, and Codex config files read-only. Selected servers are copied into ~/.pi/agent/mcp.json.")
                     .font(.caption)
@@ -934,10 +935,10 @@ private struct MCPServerEditorSheet: View {
                             .font(AppTheme.Font.micro)
                             .foregroundStyle(AppTheme.mutedText)
                         Spacer(minLength: 0)
-                        Button("Select All") { selectedImportIDs = importCandidateIDs }
+                        Button(LanguageStore.shared.t("mcp.selectAll")) { selectedImportIDs = importCandidateIDs }
                             .appSmallSecondaryButton()
                             .disabled(isScanningImports || importCandidateIDs.isSubset(of: selectedImportIDs))
-                        Button("Deselect All") { selectedImportIDs.removeAll() }
+                        Button(LanguageStore.shared.t("mcp.deselectAll")) { selectedImportIDs.removeAll() }
                             .appSmallSecondaryButton()
                             .disabled(isScanningImports || selectedImportIDs.isEmpty)
                     }
@@ -946,7 +947,7 @@ private struct MCPServerEditorSheet: View {
                 if isScanningImports {
                     HStack(spacing: 8) {
                         AppSpinner().controlSize(.small)
-                        Text("Scanning known config files…")
+                        Text(LanguageStore.shared.t("mcp.scanning"))
                             .font(.callout)
                             .foregroundStyle(AppTheme.mutedText)
                     }

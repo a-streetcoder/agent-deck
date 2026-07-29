@@ -18,7 +18,7 @@
 1. 品牌：Bundle ID / 显示名 / 图标 / 关于页 — **done（基础）**
 2. 关闭或审查 PostHog analytics
 3. RPC 安全默认（offline / autoApprove）对齐 pi-app 经验
-4. 中文 l10n — **Phase 1–3 done**
+4. 中文 l10n — **Phase 1–4 done**
 5. **移除 GitHub Issues 工作台** — done；**死代码清理** — API/ConnectionViews/board 模型/token；`createSession` 不再写 issue 字段；文案去 issue 入口（旧会话 kind/chip 仍可解码）
 6. 从 pi-app port：首条 optimistic、EEXIST、transcript cache、extension chrome 等（按需）
 
@@ -29,8 +29,8 @@
 | 引擎 | `L10n.swift` + `LanguageStore`（`UserDefaults` key `pi.deck.appLanguage`） |
 | 资源 | `agent-deck/en.lproj/Localizable.strings` · `agent-deck/zh-Hans.lproj/Localizable.strings` |
 | 切换 | Settings → General → Language（English / 中文），**即时**生效 |
-| 已覆盖 | Phase1–3：侧栏/Settings/搜索；Composer/工具栏/会话列表/Activity/Ask；Environment/Doctor；Subagents/Models/Deck agents/Startup/转录显示（Issues 屏已移除） |
-| 未覆盖 | Skills/Prompts/Loops/MCP/Extensions/Agents 管理长文案、Git merge 详细说明等 — 继续按屏扩表 |
+| 已覆盖 | Phase1–4：侧栏/Settings/Composer/Doctor；Subagents/Models/Startup；**Skills/MCP/Prompts/Loops/Extensions/Agents 管理高频** |
+| 未覆盖 | Loop 启动器细文案、Skill Import 全量、Agents 编辑器深层、Git merge 详细说明等 — 继续按屏扩表 |
 
 **加文案**：两端 `.strings` 同步加 key → UI 用 `LanguageStore.shared.t("key")`（View 内需 `@ObservedObject`/`environmentObject` 才能刷新）。
 

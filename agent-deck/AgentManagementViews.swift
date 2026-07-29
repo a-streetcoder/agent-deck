@@ -11,7 +11,7 @@ struct AgentsFilterPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Filter agents")
+                Text(LanguageStore.shared.t("agents.filter"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                 Spacer()
@@ -336,7 +336,7 @@ private struct EditAgentAvatarSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
             }
@@ -387,7 +387,7 @@ private struct AgentWarningPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Agent warnings", systemImage: "exclamationmark.triangle.fill")
+            Label(LanguageStore.shared.t("agents.warnings"), systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
                 .foregroundStyle(.orange)
 
@@ -477,7 +477,7 @@ private struct AgentListRow: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                                 .imageScale(.small)
-                                .accessibilityLabel("Agent warnings")
+                                .accessibilityLabel(LanguageStore.shared.t("agents.warnings"))
                         }
                         .buttonStyle(.plain)
                         .popover(isPresented: Binding(
@@ -503,7 +503,7 @@ private struct AgentListRow: View {
             }
             .appSmallSecondaryButton()
             .opacity(isHovered ? 1 : 0)
-            .help("Edit agent")
+            .help(LanguageStore.shared.t("agents.editHelp"))
             .animation(.easeInOut(duration: 0.15), value: isHovered)
         }
         .onHover { isHovered = $0 }
@@ -612,10 +612,10 @@ private struct AgentLibraryPane: View {
             get: { pendingDeleteAgentRecord != nil },
             set: { if !$0 { pendingDeleteAgentID = nil } }
         ), presenting: pendingDeleteAgentRecord) { record in
-            Button("Move to Trash", role: .destructive) {
+            Button(LanguageStore.shared.t("agents.moveTrash"), role: .destructive) {
                 deleteAgent(record)
             }
-            Button("Cancel", role: .cancel) {
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {
                 pendingDeleteAgentID = nil
             }
         } message: { record in
@@ -845,14 +845,14 @@ private struct AgentLibraryPane: View {
             Button {
                 openFile(filePath)
             } label: {
-                Label("Open Raw File", systemImage: "doc.text")
+                Label(LanguageStore.shared.t("agents.openRaw"), systemImage: "doc.text")
             }
             .disabled(filePath == nil)
 
             Button {
                 revealInFinder(filePath)
             } label: {
-                Label("Reveal in Finder", systemImage: "finder")
+                Label(LanguageStore.shared.t("agents.revealFinder"), systemImage: "finder")
             }
             .disabled(filePath == nil)
 
@@ -866,7 +866,7 @@ private struct AgentLibraryPane: View {
                         NSSound.beep()
                     }
                 } label: {
-                    Label("Enable Agent", systemImage: "checkmark.circle")
+                    Label(LanguageStore.shared.t("agents.enable"), systemImage: "checkmark.circle")
                 }
             } else {
                 Button(role: .destructive) {
@@ -876,7 +876,7 @@ private struct AgentLibraryPane: View {
                         NSSound.beep()
                     }
                 } label: {
-                    Label("Disable Agent", systemImage: "nosign")
+                    Label(LanguageStore.shared.t("agents.disable"), systemImage: "nosign")
                 }
             }
 
@@ -885,7 +885,7 @@ private struct AgentLibraryPane: View {
             Button(role: .destructive) {
                 pendingDeleteAgentID = agent.id
             } label: {
-                Label("Delete Agent", systemImage: "trash")
+                Label(LanguageStore.shared.t("agents.delete"), systemImage: "trash")
             }
             .disabled(!canDeleteAgent(agent))
         }
@@ -1043,7 +1043,7 @@ private struct AgentDetailView: View {
             isPresented: $isDeleteConfirmationPresented,
             presenting: deletableAgentRecord
         ) { record in
-            Button("Move to Trash", role: .destructive) {
+            Button(LanguageStore.shared.t("agents.moveTrash"), role: .destructive) {
                 do {
                     deleteErrorMessage = nil
                     try deleteAgent(record)
@@ -1052,7 +1052,7 @@ private struct AgentDetailView: View {
                     NSSound.beep()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
         } message: { _ in
             Text("This moves the agent file to the Trash and removes its global and project assignments.")
         }
@@ -1317,7 +1317,7 @@ private struct AgentDetailView: View {
                         if let path = agent.sourcePath {
                             readOnlyFieldRow("File", value: path, isLast: true)
                         } else if rows.isEmpty {
-                            Text("Using Pi defaults")
+                            Text(LanguageStore.shared.t("agents.usingDefaults"))
                                 .foregroundStyle(AppTheme.mutedText)
                         }
                     }
@@ -1367,7 +1367,7 @@ private struct AgentDetailView: View {
         return VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Tools", info: Self.toolAccessInfo, trailing: { sectionEditButton(.tools) }) {
                 if tools.isEmpty {
-                    Text("Uses Pi's default built-in tools.")
+                    Text(LanguageStore.shared.t("agents.usesDefaultTools"))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -1507,7 +1507,7 @@ private struct AgentDetailView: View {
     @ViewBuilder
     private var builtinDisableSection: some View {
         if isPureBuiltin {
-            AppCard(title: "Disable Agent") {
+            AppCard(title: LanguageStore.shared.t("agents.disable")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(isDisabledGlobally
                          ? "Re-enable this built-in agent for Agent Deck launches everywhere."
@@ -1518,12 +1518,12 @@ private struct AgentDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if isDisabledGlobally {
-                        Button("Enable Agent") {
+                        Button(LanguageStore.shared.t("agents.enable")) {
                             onSetBuiltinDisabled(.global, false)
                         }
                         .appSecondaryButton()
                     } else {
-                        Button("Disable Agent", role: .destructive) {
+                        Button(LanguageStore.shared.t("agents.disable"), role: .destructive) {
                             onSetBuiltinDisabled(.global, true)
                         }
                         .appDestructiveButton()
@@ -1536,7 +1536,7 @@ private struct AgentDetailView: View {
     @ViewBuilder
     private var deleteSection: some View {
         if deletableAgentRecord != nil {
-            AppCard(title: "Delete Agent") {
+            AppCard(title: LanguageStore.shared.t("agents.delete")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Move this agent's file to the Trash and remove its global and project assignments.")
                         .font(.callout)
@@ -1551,7 +1551,7 @@ private struct AgentDetailView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    Button("Delete Agent", role: .destructive) {
+                    Button(LanguageStore.shared.t("agents.delete"), role: .destructive) {
                         deleteErrorMessage = nil
                         isDeleteConfirmationPresented = true
                     }
@@ -1589,7 +1589,7 @@ private struct AgentDetailView: View {
     private var agentVisibilityManagementCards: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             if !isPureBuiltin, let managedAgent {
-                AppCard(title: "Project Assignment") {
+                AppCard(title: LanguageStore.shared.t("agents.projectAssignment")) {
                     VStack(alignment: .leading, spacing: 10) {
                         let visibilityIssues = skillVisibilityIssues(agent)
                         let visibilityIssuesByProjectID = Dictionary(uniqueKeysWithValues: visibilityIssues.map { ($0.project.id, $0) })
@@ -1649,7 +1649,7 @@ private struct AgentDetailView: View {
                         if managedAgent.source.kind != .library {
                             HStack {
                                 Spacer()
-                                Button("Move to Library") {
+                                Button(LanguageStore.shared.t("agents.moveLibrary")) {
                                     do { try moveAgentToLibrary(managedAgent) } catch { NSSound.beep() }
                                 }
                                 .controlSize(.small)
@@ -1659,7 +1659,7 @@ private struct AgentDetailView: View {
                     }
                 }
             } else if canRenameAgent(agent) {
-                AppCard(title: "Custom Agent") {
+                AppCard(title: LanguageStore.shared.t("agents.custom")) {
                     Text("This custom agent currently replaces a builtin. Rename it (hover the name in the header above) to turn it into a separate custom agent.")
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1769,7 +1769,7 @@ private func agentFieldHelpText(for title: String) -> String? {
         return "Limits how many more nested Deck agent launches this agent can create below itself."
     case "Extensions":
         return "Extension loading mode. Omitted means normal extension loading, empty means none, and explicit values act as an allowlist."
-    case "Tool Access":
+    case LanguageStore.shared.t("agents.toolAccess"):
         return "If tools are omitted, the agent keeps Pi's normal tool behavior. If tools are explicitly set, they become an allowlist."
     case "Extension Mode":
         return "If extensions are omitted, Pi uses normal extension loading. An explicit list acts as an allowlist. An empty list means no discovered extensions."
@@ -1854,7 +1854,7 @@ private struct AgentEditSheet: View {
             // Header
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Edit Agent")
+                    Text(LanguageStore.shared.t("agents.edit"))
                         .font(.headline.weight(.semibold))
                     Text(agent.name)
                         .font(.subheadline)
@@ -1925,12 +1925,12 @@ private struct AgentEditSheet: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
-                Button("Discard") {
+                Button(LanguageStore.shared.t("agents.discard")) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Save") {
+                Button(LanguageStore.shared.t("agents.save")) {
                     performConfirmedSave()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -2089,7 +2089,7 @@ private struct AgentEditSheet: View {
     }
 
     private var editPromptTab: some View {
-        AppCard(title: "System Prompt") {
+        AppCard(title: LanguageStore.shared.t("agents.systemPrompt")) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("The system prompt is the main instruction body for this agent. Replace mode uses this as the agent's primary prompt, while append mode adds it on top of Pi's normal base behavior.")
                     .font(.caption)
@@ -2109,7 +2109,7 @@ private struct AgentEditSheet: View {
 
     private var editToolsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Tool Access") {
+            AppCard(title: LanguageStore.shared.t("agents.toolAccess")) {
                 VStack(alignment: .leading, spacing: 18) {
                     editSection {
                         configRow("Reset") {
@@ -2183,7 +2183,7 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "How Tool Access Works") {
+            AppCard(title: LanguageStore.shared.t("agents.howTools")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("• If `tools` is omitted, the child gets Pi's normal default built-in tools.")
                     Text("• If `tools` is set, it acts like an allowlist for regular tool names.")
@@ -2228,12 +2228,12 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "MCP servers") {
+            AppCard(title: LanguageStore.shared.t("agents.mcpServers")) {
                 VStack(alignment: .leading, spacing: 18) {
                     editSection {
                         configRow("Available") {
                             if availableMcpServers.isEmpty {
-                                Text("No MCP servers are configured. Add them in Runtime → MCP.")
+                                Text(LanguageStore.shared.t("agents.noMCP"))
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             } else {
@@ -2256,7 +2256,7 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "How Skills Work") {
+            AppCard(title: LanguageStore.shared.t("agents.howSkills")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("• Assigned skills and collections are attached to this agent through Pi's native `--skill` support.")
                     Text("• Collections expand to their member skills at launch.")
@@ -2631,7 +2631,7 @@ private struct SubagentsProjectRecapPanel: View {
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
-                    agentRecapSection("Effective Agents", agents: snapshot.effectiveAgents, color: AppTheme.assistantAccent)
+                    agentRecapSection(LanguageStore.shared.t("agents.effective"), agents: snapshot.effectiveAgents, color: AppTheme.assistantAccent)
                     if !libraryAgents.isEmpty { libraryAgentSection }
                 }
                 .padding(16)
@@ -2678,7 +2678,7 @@ private struct SubagentsProjectRecapPanel: View {
 struct SubagentsInfoPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Deck agent library")
+            Text(LanguageStore.shared.t("agents.library"))
                 .font(.headline)
                 .fontWidth(.expanded)
             VStack(alignment: .leading, spacing: 10) {

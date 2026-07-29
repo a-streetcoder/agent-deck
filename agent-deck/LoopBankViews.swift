@@ -119,6 +119,7 @@ private enum LoopEditTab: String, CaseIterable, Identifiable {
 }
 
 struct LoopBankScreen: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
     var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var editorDraft = LoopDefinitionEditorDraft()
@@ -200,21 +201,21 @@ struct LoopBankScreen: View {
             Text(errorMessage ?? "")
         }
         .alert("Discard new loop draft?", isPresented: $isDiscardNewLoopDraftAlertPresented) {
-            Button("Discard and Create New", role: .destructive) {
+            Button(LanguageStore.shared.t("loops.discardCreateNew"), role: .destructive) {
                 startNewLoop(discardPendingDraft: true)
             }
-            Button("Keep Editing", role: .cancel) { }
+            Button(LanguageStore.shared.t("loops.keepEditing"), role: .cancel) { }
         } message: {
-            Text("You already have an unsaved new loop draft. Discard it and start over?")
+            Text(LanguageStore.shared.t("loops.unsavedDraft"))
         }
         .alert("Delete Loop?", isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         ), presenting: pendingDelete) { definition in
-            Button("Delete", role: .destructive) {
+            Button(LanguageStore.shared.t("loops.delete"), role: .destructive) {
                 delete(definition)
             }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { pendingDelete = nil }
         } message: { definition in
             Text("Delete \"\(definition.name)\" from the user Loop Bank? Built-in loop resources are never edited.")
         }
@@ -247,13 +248,13 @@ struct LoopBankScreen: View {
     }
 
     private var emptyLoopDetailPane: some View {
-        AppPage("Loops", subtitle: "No loop selected", constrainsContentToViewport: true) {
-            AppCard(title: "Loop Bank") {
+        AppPage(LanguageStore.shared.t("loops.pageTitle"), subtitle: LanguageStore.shared.t("loops.noneSelected"), constrainsContentToViewport: true) {
+            AppCard(title: LanguageStore.shared.t("loops.bankTitle")) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("No saved loops yet.")
+                    Text(LanguageStore.shared.t("loops.emptyTitle"))
                         .font(AppTheme.Font.sectionTitle)
                         .fontWidth(.expanded)
-                    Text("Use the + button in the toolbar to create a new saved loop.")
+                    Text(LanguageStore.shared.t("loops.emptyBody"))
                         .font(AppTheme.Font.primary)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -263,11 +264,11 @@ struct LoopBankScreen: View {
     }
 
     private func loopReadOnlyPane(for definition: LoopDefinition) -> some View {
-        AppPage(definition.name.nonEmpty ?? "Loop", subtitle: detailSubtitle(for: definition), constrainsContentToViewport: true) {
-            AppCard(title: "Definition", trailing: { loopDetailActions(for: definition) }) {
+        AppPage(definition.name.nonEmpty ?? LanguageStore.shared.t("loops.pageTitle"), subtitle: detailSubtitle(for: definition), constrainsContentToViewport: true) {
+            AppCard(title: LanguageStore.shared.t("loops.definition"), trailing: { loopDetailActions(for: definition) }) {
                 VStack(alignment: .leading, spacing: 0) {
                     if definition.source == .builtin {
-                        Text("Built-in templates are read-only. Duplicate to create an editable user copy.")
+                        Text(LanguageStore.shared.t("loops.builtinReadonly"))
                             .font(AppTheme.Font.metadata)
                             .foregroundStyle(AppTheme.mutedText)
                             .padding(.bottom, 12)
@@ -287,10 +288,10 @@ struct LoopBankScreen: View {
     @ViewBuilder
     private func loopDetailActions(for definition: LoopDefinition) -> some View {
         HStack(spacing: 8) {
-            Button("Duplicate") { duplicate(definition) }
+            Button(LanguageStore.shared.t("loops.duplicate")) { duplicate(definition) }
                 .appSmallSecondaryButton()
             if definition.source == .user {
-                Button("Delete", role: .destructive) { pendingDelete = definition }
+                Button(LanguageStore.shared.t("loops.delete"), role: .destructive) { pendingDelete = definition }
                     .appSmallSecondaryButton()
                 sectionEditButton(for: definition)
             }
@@ -303,12 +304,12 @@ struct LoopBankScreen: View {
             selectedEditTab = .definition
             isEditorSheetPresented = true
         } label: {
-            Label("Edit", systemImage: "square.and.pencil")
+            Label(LanguageStore.shared.t("loops.edit"), systemImage: "square.and.pencil")
                 .font(.caption.weight(.semibold))
                 .labelStyle(.titleAndIcon)
         }
         .appSmallSecondaryButton()
-        .help("Edit loop")
+        .help(LanguageStore.shared.t("loops.editHelp"))
     }
 
     private var savedEditorDraft: LoopDefinitionEditorDraft {
@@ -331,12 +332,12 @@ struct LoopBankScreen: View {
             readOnlyFieldRow("Name", value: definition.name, placeholder: "Untitled loop")
             readOnlyMarkdownFieldRow("Description", value: definition.description, placeholder: "No description")
             readOnlyFieldRow("Structure", value: definition.structure.displayName)
-            readOnlyFieldRow("Write target", value: definition.writeTarget.displayName)
+            readOnlyFieldRow(LanguageStore.shared.t("loops.writeTarget"), value: definition.writeTarget.displayName)
             readOnlyFieldRow("Max iterations", value: definition.maxIterations > 0 ? "\(definition.maxIterations)" : "No limit")
             readOnlyMarkdownFieldRow("Goal template", value: definition.goalTemplate, placeholder: "No goal template")
             if let launchContext = definition.launchContext, !launchContext.isEmpty {
                 readOnlyMarkdownFieldRow("Launch context", value: launchContext)
-                readOnlyFieldRow("Context scope", value: definition.launchContextScope.displayName)
+                readOnlyFieldRow(LanguageStore.shared.t("loops.contextScope"), value: definition.launchContextScope.displayName)
             } else {
                 readOnlyFieldRow("Launch context", value: "None")
             }
@@ -364,8 +365,8 @@ struct LoopBankScreen: View {
                 }
                 .labelsHidden()
             }
-            detailRow("Write target", infoRows: loopWriteTargetInfoRows) {
-                Picker("Write target", selection: $editorDraft.writeTarget) {
+            detailRow(LanguageStore.shared.t("loops.writeTarget"), infoRows: loopWriteTargetInfoRows) {
+                Picker(LanguageStore.shared.t("loops.writeTarget"), selection: $editorDraft.writeTarget) {
                     ForEach(LoopWriteTarget.allCases) { target in
                         Text(target.displayName).tag(target)
                     }
@@ -400,8 +401,8 @@ struct LoopBankScreen: View {
             }
             detailEditor("Launch context (optional)", text: $editorDraft.launchContext, minHeight: 84, infoRows: loopLaunchContextInfoRows)
             if !editorDraft.launchContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                detailRow("Context scope", info: "First iteration only is the default. Every iteration repeats this context in each child-agent prompt.") {
-                    Picker("Context scope", selection: $editorDraft.launchContextScope) {
+                detailRow(LanguageStore.shared.t("loops.contextScope"), info: "First iteration only is the default. Every iteration repeats this context in each child-agent prompt.") {
+                    Picker(LanguageStore.shared.t("loops.contextScope"), selection: $editorDraft.launchContextScope) {
                         ForEach(LoopLaunchContextScope.allCases) { scope in
                             Text(scope.displayName).tag(scope)
                         }
@@ -417,7 +418,7 @@ struct LoopBankScreen: View {
     }
 
     private var availabilitySection: some View {
-        AppCard(title: "Project Assignment") {
+        AppCard(title: LanguageStore.shared.t("loops.projectAssignment")) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Enable for every project at once, or pick specific projects below. Assignments are stored in the Loop Bank and do not move loop files.")
                     .foregroundStyle(AppTheme.mutedText)
@@ -534,7 +535,7 @@ struct LoopBankScreen: View {
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     switch selectedEditTab {
                     case .definition:
-                        AppCard(title: "Definition") { definitionFields }
+                        AppCard(title: LanguageStore.shared.t("loops.definition")) { definitionFields }
                     case .structure:
                         loopStructureSection
                     case .assignment:
@@ -554,7 +555,7 @@ struct LoopBankScreen: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
-                Button("Discard") {
+                Button(LanguageStore.shared.t("loops.discard")) {
                     if editorDraft.isNew {
                         discardNewLoopDraft()
                     } else {
@@ -564,7 +565,7 @@ struct LoopBankScreen: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Save") {
+                Button(LanguageStore.shared.t("loops.save")) {
                     if save() {
                         isEditorSheetPresented = false
                     }
@@ -584,7 +585,7 @@ struct LoopBankScreen: View {
     private func readOnlyStructureSection(for definition: LoopDefinition) -> some View {
         switch definition.structure {
         case .makerChecker:
-            AppCard(title: "Maker + Checker") {
+            AppCard(title: LanguageStore.shared.t("loops.makerChecker")) {
                 VStack(alignment: .leading, spacing: 10) {
                     readOnlyFieldRow("Maker agent", value: definition.makerChecker.makerName, placeholder: "Not selected")
                     readOnlyFieldRow("Checker agent", value: definition.makerChecker.checkerName, placeholder: "Not selected")
@@ -592,26 +593,26 @@ struct LoopBankScreen: View {
                 }
             }
         case .agentPipeline:
-            AppCard(title: "Agent Pipeline") {
+            AppCard(title: LanguageStore.shared.t("loops.pipeline")) {
                 readOnlyFieldRow("Stages", value: definition.pipeline.stageNames.isEmpty ? "No stages" : definition.pipeline.stageNames.joined(separator: " → "), isLast: true)
             }
         case .parallelAgents:
-            AppCard(title: "Parallel Agents") {
+            AppCard(title: LanguageStore.shared.t("loops.parallel")) {
                 readOnlyFieldRow("Branches", value: definition.parallel.branchNames.joined(separator: " | "), placeholder: "No branches", isLast: true)
             }
         case .discoveryTriage:
-            AppCard(title: "Discovery / Triage") {
+            AppCard(title: LanguageStore.shared.t("loops.discovery")) {
                 VStack(alignment: .leading, spacing: 10) {
                     readOnlyFieldRow("Triage agent", value: definition.discoveryTriage.agentName, placeholder: "Not selected")
                     readOnlyMarkdownFieldRow("Classification prompt", value: definition.discoveryTriage.classificationPrompt, isLast: true)
                 }
             }
         case .humanApproval:
-            AppCard(title: "Human Approval") {
+            AppCard(title: LanguageStore.shared.t("loops.humanApproval")) {
                 readOnlyMarkdownFieldRow("Checkpoint prompt", value: definition.humanApproval.checkpointPrompt, isLast: true)
             }
         case .singleAgent:
-            AppCard(title: "Single Agent") {
+            AppCard(title: LanguageStore.shared.t("loops.singleAgent")) {
                 readOnlyFieldRow("Agent", value: definition.makerChecker.makerName, placeholder: "Not selected", isLast: true)
             }
         }
@@ -619,7 +620,7 @@ struct LoopBankScreen: View {
 
     @ViewBuilder
     private func readOnlyAvailabilitySection(for definition: LoopDefinition) -> some View {
-        AppCard(title: "Project Assignment") {
+        AppCard(title: LanguageStore.shared.t("loops.projectAssignment")) {
             if definition.source == .builtin {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Built-in loops are bundled with \(AppBrand.displayName). Duplicate this loop to create an editable user copy and assign it to projects.")
@@ -682,7 +683,7 @@ struct LoopBankScreen: View {
     private var loopStructureSection: some View {
         switch editorDraft.structure {
         case .makerChecker:
-            AppCard(title: "Maker + Checker") {
+            AppCard(title: LanguageStore.shared.t("loops.makerChecker")) {
                 VStack(alignment: .leading, spacing: 0) {
                     detailRow("Maker agent", info: "The agent that produces the work for each iteration.") {
                         LoopAgentNameMenu(selection: $editorDraft.makerName, availableAgents: availableLoopAgents, fallbackLabel: "Maker")
@@ -694,7 +695,7 @@ struct LoopBankScreen: View {
                 }
             }
         case .agentPipeline:
-            AppCard(title: "Agent Pipeline") {
+            AppCard(title: LanguageStore.shared.t("loops.pipeline")) {
                 VStack(alignment: .leading, spacing: 10) {
                     LoopPipelineStagePicker(stages: $editorDraft.pipelineStageNames, availableAgents: availableLoopAgents)
                     Text("Stages are saved as an ordered agent list. The current runner records this order; child agent execution is the next runner slice.")
@@ -703,7 +704,7 @@ struct LoopBankScreen: View {
                 }
             }
         case .parallelAgents:
-            AppCard(title: "Parallel Agents") {
+            AppCard(title: LanguageStore.shared.t("loops.parallel")) {
                 VStack(alignment: .leading, spacing: 8) {
                     LoopPipelineStagePicker(stages: $editorDraft.parallelAgentNames, availableAgents: availableLoopAgents)
                     Text("Select enabled agents for independent report-only investigations. Parallel loops never share a writable target.")
@@ -712,18 +713,18 @@ struct LoopBankScreen: View {
                 }
             }
         case .discoveryTriage:
-            AppCard(title: "Discovery / Triage") {
+            AppCard(title: LanguageStore.shared.t("loops.discovery")) {
                 detailRow("Triage agent", info: "The agent that gathers findings and applies the classification prompt.") {
                     LoopAgentNameMenu(selection: $editorDraft.triageAgentName, availableAgents: availableLoopAgents, fallbackLabel: "Explorer")
                 }
                 detailEditor("Classification prompt", text: $editorDraft.classificationPrompt, minHeight: 84, info: "Tell the triage agent how to sort findings, for example by severity, confidence, owner, or next action.")
             }
         case .humanApproval:
-            AppCard(title: "Human Approval") {
+            AppCard(title: LanguageStore.shared.t("loops.humanApproval")) {
                 detailEditor("Checkpoint prompt", text: $editorDraft.checkpointPrompt, minHeight: 84, info: "The question or review instruction shown for a terminal approval checkpoint. Approval is recorded; it does not resume this same run.")
             }
         case .singleAgent:
-            AppCard(title: "Single Agent") {
+            AppCard(title: LanguageStore.shared.t("loops.singleAgent")) {
                 detailRow("Agent", info: "The agent that will run each iteration. Choose the role best matched to the goal, such as explorer, coder, or reviewer.", showsDivider: false) {
                     LoopAgentNameMenu(selection: $editorDraft.makerName, availableAgents: availableLoopAgents, fallbackLabel: "Agent")
                 }
@@ -753,11 +754,11 @@ struct LoopBankScreen: View {
 
     private var loopStructureInfoRows: [LoopInlineInfoButton.Row] {
         [
-            .init("Single Agent", "Repeats one selected agent against the goal."),
-            .init("Maker + Checker", "A maker produces work, a checker reviews it, and iterations can retry."),
-            .init("Agent Pipeline", "Records ordered stages such as Explorer → Implementer → Verifier."),
-            .init("Parallel Agents", "Names independent branches or hypotheses in the same loop run."),
-            .init("Discovery / Triage", "Collects findings and classifies them by severity or next action."),
+            .init(LanguageStore.shared.t("loops.singleAgent"), "Repeats one selected agent against the goal."),
+            .init(LanguageStore.shared.t("loops.makerChecker"), "A maker produces work, a checker reviews it, and iterations can retry."),
+            .init(LanguageStore.shared.t("loops.pipeline"), "Records ordered stages such as Explorer → Implementer → Verifier."),
+            .init(LanguageStore.shared.t("loops.parallel"), "Names independent branches or hypotheses in the same loop run."),
+            .init(LanguageStore.shared.t("loops.discovery"), "Collects findings and classifies them by severity or next action."),
             .init("Approval Checkpoint", "Records an explicit approval or rejection; start a new attempt for follow-up work.")
         ]
     }
@@ -975,7 +976,7 @@ struct LoopBankScreen: View {
         .contentShape(Rectangle())
         .contextMenu {
             if definition.source == .user {
-                Button("Make All Projects/default") {
+                Button(LanguageStore.shared.t("loops.makeDefault")) {
                     updateLoopAvailability(definition, availability: .allProjects, projectPaths: [])
                 }
                 if let currentProjectPath {
@@ -986,14 +987,14 @@ struct LoopBankScreen: View {
                         updateLoopAvailability(definition, availability: .projectPaths, projectPaths: paths)
                     }
                 }
-                Button("Disable / Move to Catalog") {
+                Button(LanguageStore.shared.t("loops.disableCatalog")) {
                     updateLoopAvailability(definition, availability: .projectPaths, projectPaths: [])
                 }
                 Divider()
-                Button("Duplicate") { duplicate(definition) }
-                Button("Delete", role: .destructive) { pendingDelete = definition }
+                Button(LanguageStore.shared.t("loops.duplicate")) { duplicate(definition) }
+                Button(LanguageStore.shared.t("loops.delete"), role: .destructive) { pendingDelete = definition }
             } else {
-                Button("Duplicate") { duplicate(definition) }
+                Button(LanguageStore.shared.t("loops.duplicate")) { duplicate(definition) }
             }
         }
     }

@@ -6,6 +6,7 @@ struct PromptsScreen: View {
     private static let layoutLog = Logger(subsystem: "works.earendil.pi-deck", category: "ResourceLayout")
     var viewModel: AppViewModel
     @Binding var searchText: String
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var promptPendingRename: PromptTemplateRecord?
     @State private var promptPendingDeletion: PromptTemplateRecord?
     @State private var promptEditTarget: MarkdownFileEditTarget?
@@ -36,18 +37,18 @@ struct PromptsScreen: View {
                 promptLibraryPane
                     .appDebugLayout("Prompts.libraryPane", logger: Self.layoutLog)
             } else {
-                AppLoadingView("Loading prompts…")
+                AppLoadingView(LanguageStore.shared.t("prompts.loading"))
                     .appDebugLayout("Prompts.libraryLoading", logger: Self.layoutLog)
             }
         } detail: {
             if !viewModel.hasCompletedInitialRefresh {
-                AppLoadingView("Loading prompt details…")
+                AppLoadingView(LanguageStore.shared.t("prompts.loadingDetail"))
                     .appDebugLayout("Prompts.detailLoading", logger: Self.layoutLog)
             } else if let prompt = viewModel.selectedPromptTemplate {
                 promptDetail(prompt)
                     .appDebugLayout("Prompts.detail selected=\(prompt.name) source=\(prompt.source.kind.rawValue)", logger: Self.layoutLog)
             } else {
-                ContentUnavailableView("No Prompt Selected", systemImage: AppSymbols.promptTemplate)
+                ContentUnavailableView(LanguageStore.shared.t("prompts.noneSelected"), systemImage: AppSymbols.promptTemplate)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .appDebugLayout("Prompts.detailEmpty", logger: Self.layoutLog)
             }
@@ -55,7 +56,7 @@ struct PromptsScreen: View {
         .appDebugLayout("Prompts.hsplit", logger: Self.layoutLog)
         .sheet(item: $promptPendingRename) { prompt in
             RenameResourceSheet(
-                title: "Rename Prompt",
+                title: LanguageStore.shared.t("prompts.rename"),
                 currentName: prompt.name,
                 resourceLabel: "prompt",
                 makePreview: { viewModel.renamePreview(for: prompt, to: $0) },
@@ -74,20 +75,20 @@ struct PromptsScreen: View {
                 }
             }
         }
-        .alert("Delete Prompt?", isPresented: Binding(
+        .alert(LanguageStore.shared.t("prompts.deleteTitle"), isPresented: Binding(
             get: { promptPendingDeletion != nil },
             set: { if !$0 { promptPendingDeletion = nil } }
         ), presenting: promptPendingDeletion) { prompt in
             if prompt.discoveryKind == .externalReference {
-                Button("Remove Reference", role: .destructive) {
+                Button(LanguageStore.shared.t("prompts.removeReference"), role: .destructive) {
                     deletePrompt(prompt)
                 }
             } else {
-                Button("Move to Trash", role: .destructive) {
+                Button(LanguageStore.shared.t("prompts.moveTrash"), role: .destructive) {
                     deletePrompt(prompt)
                 }
             }
-            Button("Cancel", role: .cancel) {
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {
                 promptPendingDeletion = nil
             }
         } message: { prompt in
@@ -156,7 +157,7 @@ struct PromptsScreen: View {
     @ViewBuilder
     private var promptWarningStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("WARNINGS")
+            Text(LanguageStore.shared.t("prompts.warnings"))
                 .font(AppTheme.Font.micro.weight(.semibold))
                 .tracking(0.6)
                 .foregroundStyle(.orange)
@@ -344,14 +345,14 @@ struct PromptsScreen: View {
             Button {
                 copyCommandValue(prompt.invocation)
             } label: {
-                Label("Copy Invocation", systemImage: "doc.on.doc")
+                Label(LanguageStore.shared.t("prompts.copyInvocation"), systemImage: "doc.on.doc")
             }
 
             if viewModel.canRenamePrompt(prompt) {
                 Button {
                     promptEditTarget = makePromptEditTarget(prompt)
                 } label: {
-                    Label("Edit Prompt", systemImage: "square.and.pencil")
+                    Label(LanguageStore.shared.t("prompts.editPrompt"), systemImage: "square.and.pencil")
                 }
             }
 
@@ -360,14 +361,14 @@ struct PromptsScreen: View {
             Button {
                 openPromptFile(prompt.filePath)
             } label: {
-                Label("Open Raw File", systemImage: "doc.text")
+                Label(LanguageStore.shared.t("prompts.openRaw"), systemImage: "doc.text")
             }
             .disabled(prompt.filePath.isEmpty)
 
             Button {
                 revealPromptFile(prompt.filePath)
             } label: {
-                Label("Reveal in Finder", systemImage: "finder")
+                Label(LanguageStore.shared.t("prompts.revealFinder"), systemImage: "finder")
             }
             .disabled(prompt.filePath.isEmpty)
 
@@ -377,13 +378,13 @@ struct PromptsScreen: View {
                     Button {
                         viewModel.setBundledPromptDisabled(false, for: prompt)
                     } label: {
-                        Label("Enable Prompt", systemImage: "checkmark.circle")
+                        Label(LanguageStore.shared.t("prompts.enable"), systemImage: "checkmark.circle")
                     }
                 } else {
                     Button(role: .destructive) {
                         viewModel.setBundledPromptDisabled(true, for: prompt)
                     } label: {
-                        Label("Disable Prompt", systemImage: "nosign")
+                        Label(LanguageStore.shared.t("prompts.disable"), systemImage: "nosign")
                     }
                 }
             }
@@ -393,7 +394,7 @@ struct PromptsScreen: View {
             Button(role: .destructive) {
                 promptPendingDeletion = prompt
             } label: {
-                Label("Delete Prompt", systemImage: "trash")
+                Label(LanguageStore.shared.t("prompts.delete"), systemImage: "trash")
             }
             .disabled(!viewModel.canDeletePrompt(prompt))
         }
@@ -443,7 +444,7 @@ struct PromptsScreen: View {
             projectAssignmentCard(for: prompt)
 
             LazyMarkdownCard(
-                title: "Prompt Template",
+                title: LanguageStore.shared.t("prompts.templateTitle"),
                 source: prompt.body,
                 minimumHeight: 120,
                 trailing: {
@@ -451,34 +452,34 @@ struct PromptsScreen: View {
                         Button {
                             promptEditTarget = makePromptEditTarget(prompt)
                         } label: {
-                            Label("Edit", systemImage: "square.and.pencil")
+                            Label(LanguageStore.shared.t("prompts.edit"), systemImage: "square.and.pencil")
                                 .font(.caption.weight(.semibold))
                                 .labelStyle(.titleAndIcon)
                         }
                         .appSmallSecondaryButton()
-                        .help("Edit prompt template")
+                        .help(LanguageStore.shared.t("prompts.editTemplate"))
                     }
                 }
             )
 
             if prompt.source.kind == .package {
-                AppCard(title: "Package Prompt") {
-                    Text("This prompt template is package-managed and read-only.")
+                AppCard(title: LanguageStore.shared.t("prompts.packageTitle")) {
+                    Text(LanguageStore.shared.t("prompts.packageBody"))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
             if prompt.discoveryKind == .externalReference {
-                AppCard(title: "Imported Prompt") {
-                    Text("This prompt is referenced in place. Edits in \(AppBrand.displayName) save to the original file, and removing it only un-registers the reference — the file is not deleted.")
+                AppCard(title: LanguageStore.shared.t("prompts.importedTitle")) {
+                    Text(LanguageStore.shared.t("prompts.importedBody", AppBrand.displayName))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
             if prompt.source.kind == .builtin {
-                AppCard(title: "Disable Prompt") {
+                AppCard(title: LanguageStore.shared.t("prompts.disable")) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(viewModel.bundledPromptIsDisabled(prompt)
                              ? "Re-enable this built-in prompt so it appears in the composer's `/` menu and can be assigned as a Default."
@@ -489,12 +490,12 @@ struct PromptsScreen: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         if viewModel.bundledPromptIsDisabled(prompt) {
-                            Button("Enable Prompt") {
+                            Button(LanguageStore.shared.t("prompts.enable")) {
                                 viewModel.setBundledPromptDisabled(false, for: prompt)
                             }
                             .appSecondaryButton()
                         } else {
-                            Button("Disable Prompt", role: .destructive) {
+                            Button(LanguageStore.shared.t("prompts.disable"), role: .destructive) {
                                 viewModel.setBundledPromptDisabled(true, for: prompt)
                             }
                             .appDestructiveButton()
@@ -504,7 +505,7 @@ struct PromptsScreen: View {
             }
 
             if prompt.source.kind != .builtin && viewModel.canDeletePrompt(prompt) {
-                AppCard(title: "Delete Prompt") {
+                AppCard(title: LanguageStore.shared.t("prompts.delete")) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(prompt.discoveryKind == .externalReference
                              ? "Stop referencing this prompt and remove its Default and project assignments. The original file is not deleted."
@@ -514,7 +515,7 @@ struct PromptsScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Button(prompt.discoveryKind == .externalReference ? "Remove Reference" : "Delete Prompt", role: .destructive) {
+                        Button(prompt.discoveryKind == .externalReference ? LanguageStore.shared.t("prompts.removeReference") : LanguageStore.shared.t("prompts.delete"), role: .destructive) {
                             promptPendingDeletion = prompt
                         }
                         .appDestructiveButton()
@@ -527,7 +528,7 @@ struct PromptsScreen: View {
     @ViewBuilder
     private func projectAssignmentCard(for prompt: PromptTemplateRecord) -> some View {
         if !viewModel.enabledProjects.isEmpty {
-            AppCard(title: "Project Assignment") {
+            AppCard(title: LanguageStore.shared.t("prompts.projectAssignment")) {
                 VStack(alignment: .leading, spacing: 10) {
                     let isGlobal = viewModel.promptIsEnabledGlobally(prompt)
 
@@ -777,7 +778,7 @@ private struct PromptListRowView: View {
                 }
                 .appSmallSecondaryButton()
                 .opacity(isHovered ? 1 : 0)
-                .help("Edit prompt template")
+                .help(LanguageStore.shared.t("prompts.editTemplate"))
                 .animation(.easeInOut(duration: 0.15), value: isHovered)
             }
         }

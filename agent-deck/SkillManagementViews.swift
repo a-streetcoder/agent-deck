@@ -3,20 +3,22 @@ import OSLog
 import SwiftUI
 
 struct SkillsInfoPopover: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Skill assignment")
+            Text(languageStore.t("skills.assignmentTitle"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("Catalog", "Agent Deck scans skills from bundled, global user, global compatibility, package, and imported external locations. Project-specific availability is controlled by assignment.")
-                infoRow("Default", "Default skills are passed to every parent Pi Agent session with explicit --skill flags.")
-                infoRow("Project", "Project assignments are passed only to parent sessions for that project.")
-                infoRow("Agents", "Deck agents receive only skills explicitly assigned to that agent.")
+                infoRow(languageStore.t("skills.infoCatalogTitle"), languageStore.t("skills.infoCatalogBody"))
+                infoRow(languageStore.t("skills.infoDefaultTitle"), languageStore.t("skills.infoDefaultBody"))
+                infoRow(languageStore.t("skills.infoProjectTitle"), languageStore.t("skills.infoProjectBody"))
+                infoRow(languageStore.t("skills.infoAgentsTitle"), languageStore.t("skills.infoAgentsBody"))
             }
 
-            Text("Discovery does not inject a skill. Agent Deck launches with --no-skills and passes only assigned skills using --skill <path>.")
+            Text(languageStore.t("skills.infoFooter"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -64,14 +66,14 @@ private enum SkillWarningSelection: Identifiable, Hashable {
     var title: String {
         switch self {
         case let .missing(warning): return warning.missingSkill
-        case .diagnostic: return "Skill Warning"
+        case .diagnostic: return LanguageStore.shared.t("skills.warningTitle")
         }
     }
 
     var subtitle: String {
         switch self {
-        case let .missing(warning): return "Referenced by \(warning.agentName) in \(warning.project.name)"
-        case .diagnostic: return "Skill catalog issue"
+        case let .missing(warning): return LanguageStore.shared.t("skills.referencedBy", warning.agentName, warning.project.name)
+        case .diagnostic: return LanguageStore.shared.t("skills.catalogIssue")
         }
     }
 }
@@ -106,6 +108,7 @@ struct SkillsScreen: View {
     private static let layoutLog = Logger(subsystem: "works.earendil.pi-deck", category: "ResourceLayout")
     var viewModel: AppViewModel
     @Binding var searchText: String
+    @ObservedObject private var languageStore = LanguageStore.shared
     @State private var selectedLibraryItemIDs: Set<SkillLibraryItem.ID> = []
     @State private var selectedSkillIDs: Set<SkillRecord.ID> = []
     @State private var selectedCollectionID: UUID?
@@ -175,8 +178,8 @@ struct SkillsScreen: View {
                 get: { skillPendingDeletion != nil },
                 set: { if !$0 { skillPendingDeletion = nil } }
             ), presenting: skillPendingDeletion) { skill in
-                Button("Move to Trash", role: .destructive) { deleteSkill(skill) }
-                Button("Cancel", role: .cancel) { skillPendingDeletion = nil }
+                Button(LanguageStore.shared.t("skills.moveTrash"), role: .destructive) { deleteSkill(skill) }
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingDeletion = nil }
             } message: { skill in
                 Text("Move \"\(skill.name)\" to the Trash and remove its Default, project, and agent assignments?")
             }
@@ -185,7 +188,7 @@ struct SkillsScreen: View {
                 set: { if !$0 { skillsPendingBatchDeletion = nil } }
             ), presenting: skillsPendingBatchDeletion) { skills in
                 Button("Move \(skills.count) to Trash", role: .destructive) { batchDeleteSkills(skills) }
-                Button("Cancel", role: .cancel) { skillsPendingBatchDeletion = nil }
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillsPendingBatchDeletion = nil }
             } message: { skills in
                 Text("Move \(skills.count) skills to the Trash and remove their Default, project, and agent assignments?")
             }
@@ -193,9 +196,9 @@ struct SkillsScreen: View {
                 get: { collectionPendingDeletion != nil },
                 set: { if !$0 { collectionPendingDeletion = nil } }
             ), presenting: collectionPendingDeletion) { collection in
-                Button("Delete Collection Only", role: .destructive) { deleteCollectionOnly(collection) }
-                Button("Delete Collection and Skills", role: .destructive) { deleteCollectionAndMembers(collection) }
-                Button("Cancel", role: .cancel) { collectionPendingDeletion = nil }
+                Button(LanguageStore.shared.t("skills.deleteCollectionOnly"), role: .destructive) { deleteCollectionOnly(collection) }
+                Button(LanguageStore.shared.t("skills.deleteCollectionAndSkills"), role: .destructive) { deleteCollectionAndMembers(collection) }
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { collectionPendingDeletion = nil }
             } message: { collection in
                 let memberCount = cachedLayout.collectionMembersByID[collection.id]?.count ?? 0
                 Text("Delete \"\(collection.name)\" only, keeping its member skills as standalone catalog skills, or also move its \(memberCount) member skill\(memberCount == 1 ? "" : "s") to the Trash?")
@@ -204,8 +207,8 @@ struct SkillsScreen: View {
                 get: { skillPendingRemoval != nil },
                 set: { if !$0 { skillPendingRemoval = nil } }
             ), presenting: skillPendingRemoval) { skill in
-                Button("Remove from Catalog") { removeSkill(skill) }
-                Button("Cancel", role: .cancel) { skillPendingRemoval = nil }
+                Button(LanguageStore.shared.t("skills.removeFromCatalog")) { removeSkill(skill) }
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingRemoval = nil }
             } message: { skill in
                 Text("Remove \"\(skill.name)\" from the \(AppBrand.displayName) catalog and clear its Default, project, and agent assignments? The skill files are not deleted — a Git-synced clone is kept.")
             }
@@ -214,7 +217,7 @@ struct SkillsScreen: View {
                 set: { if !$0 { skillsPendingBatchRemoval = nil } }
             ), presenting: skillsPendingBatchRemoval) { skills in
                 Button("Remove \(skills.count) from Catalog") { batchRemoveSkills(skills) }
-                Button("Cancel", role: .cancel) { skillsPendingBatchRemoval = nil }
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillsPendingBatchRemoval = nil }
             } message: { skills in
                 Text("Remove \(skills.count) skills from the \(AppBrand.displayName) catalog and clear their assignments? The skill files are not deleted.")
             }
@@ -222,8 +225,8 @@ struct SkillsScreen: View {
                 get: { skillPendingDuplicateResolution != nil },
                 set: { if !$0 { skillPendingDuplicateResolution = nil } }
             ), presenting: skillPendingDuplicateResolution) { context in
-                Button("Keep This Copy", role: .destructive) { resolveDuplicateSkill(context) }
-                Button("Cancel", role: .cancel) { skillPendingDuplicateResolution = nil }
+                Button(LanguageStore.shared.t("skills.keepCopy"), role: .destructive) { resolveDuplicateSkill(context) }
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingDuplicateResolution = nil }
             } message: { context in
                 Text("Keep \"\(context.kept.name)\" from \(context.kept.filePath) and remove \(context.removed.count) other duplicate copy(s). Project assignments, global defaults, and agent skills will stay assigned to the kept copy.")
             }
@@ -243,7 +246,7 @@ struct SkillsScreen: View {
                 skillLibraryContent
                     .appDebugLayout("Skills.libraryPane", logger: Self.layoutLog)
             } else {
-                AppLoadingView("Loading skills…")
+                AppLoadingView(languageStore.t("skills.loading"))
                     .appDebugLayout("Skills.libraryLoading", logger: Self.layoutLog)
             }
         } detail: {
@@ -257,7 +260,7 @@ struct SkillsScreen: View {
                 }
                 .appDebugLayout("Skills.detail selected=\(selectedSkill?.name ?? selectedWarning?.title ?? "nil")", logger: Self.layoutLog)
             } else {
-                AppLoadingView("Loading skill details…")
+                AppLoadingView(languageStore.t("skills.loadingDetail"))
                     .appDebugLayout("Skills.detailLoading", logger: Self.layoutLog)
             }
         }
@@ -358,7 +361,7 @@ struct SkillsScreen: View {
         }
         .sheet(item: $skillPendingRename) { skill in
             RenameResourceSheet(
-                title: "Rename Skill",
+                title: LanguageStore.shared.t("skills.rename"),
                 currentName: skill.name,
                 resourceLabel: "skill",
                 makePreview: { viewModel.renamePreview(for: skill, to: $0) },
@@ -438,7 +441,7 @@ struct SkillsScreen: View {
     @ViewBuilder
     private var skillWarningStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("WARNINGS")
+            Text(LanguageStore.shared.t("skills.warnings"))
                 .font(AppTheme.Font.micro.weight(.semibold))
                 .tracking(0.6)
                 .foregroundStyle(.orange)
@@ -650,20 +653,20 @@ struct SkillsScreen: View {
             Button {
                 skillEditTarget = makeSkillEditTarget(skill)
             } label: {
-                Label("Edit SKILL.md", systemImage: "square.and.pencil")
+                Label(LanguageStore.shared.t("skills.editSkillMd"), systemImage: "square.and.pencil")
             }
             .disabled(!viewModel.canRenameSkill(skill))
 
             Button {
                 revealSkillInFinder(skill)
             } label: {
-                Label("Reveal in Finder", systemImage: "finder")
+                Label(LanguageStore.shared.t("skills.revealFinder"), systemImage: "finder")
             }
 
             Button {
                 skillPendingRename = skill
             } label: {
-                Label("Rename Skill", systemImage: "pencil")
+                Label(LanguageStore.shared.t("skills.rename"), systemImage: "pencil")
             }
             .disabled(!viewModel.canRenameSkill(skill))
 
@@ -673,13 +676,13 @@ struct SkillsScreen: View {
                     Button {
                         viewModel.setBundledSkillDisabled(false, for: skill)
                     } label: {
-                        Label("Enable Skill", systemImage: "checkmark.circle")
+                        Label(LanguageStore.shared.t("skills.enable"), systemImage: "checkmark.circle")
                     }
                 } else {
                     Button(role: .destructive) {
                         viewModel.setBundledSkillDisabled(true, for: skill)
                     } label: {
-                        Label("Disable Skill", systemImage: "nosign")
+                        Label(LanguageStore.shared.t("skills.disable"), systemImage: "nosign")
                     }
                 }
             }
@@ -693,7 +696,7 @@ struct SkillsScreen: View {
                 Button {
                     skillPendingRemoval = skill
                 } label: {
-                    Label("Remove from Catalog", systemImage: "minus.circle")
+                    Label(LanguageStore.shared.t("skills.removeFromCatalog"), systemImage: "minus.circle")
                 }
             }
 
@@ -701,7 +704,7 @@ struct SkillsScreen: View {
                 Button(role: .destructive) {
                     skillPendingDeletion = skill
                 } label: {
-                    Label("Delete Skill", systemImage: "trash")
+                    Label(LanguageStore.shared.t("skills.deleteSkill"), systemImage: "trash")
                 }
             }
         }
@@ -717,7 +720,7 @@ struct SkillsScreen: View {
                     .font(.headline)
                     .fontWidth(.expanded)
                     .lineLimit(1)
-                Text("Referenced by \(warning.agentName) in \(warning.project.name)")
+                Text(LanguageStore.shared.t("skills.referencedBy", warning.agentName, warning.project.name))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -731,7 +734,7 @@ struct SkillsScreen: View {
             }
             .appSmallSecondaryButton()
             .tint(.orange)
-            .help("Resolve missing skill")
+            .help(LanguageStore.shared.t("skills.resolveMissing"))
         }
         .padding(.leading, 8).padding(.trailing, 12)
         .padding(.vertical, 10)
@@ -813,11 +816,11 @@ struct SkillsScreen: View {
 
             syncedRepositoryCard(for: skill)
 
-            AppCard(title: "Project Runtime Assignment") {
+            AppCard(title: LanguageStore.shared.t("skills.projectAssignment")) {
                 projectAssignmentList(for: skill)
             }
 
-            AppCard(title: "Deck Agent Runtime Assignment") {
+            AppCard(title: LanguageStore.shared.t("skills.agentAssignment")) {
                 agentAssignmentList(for: skill)
             }
 
@@ -835,13 +838,13 @@ struct SkillsScreen: View {
                                 .labelStyle(.titleAndIcon)
                         }
                         .appSmallSecondaryButton()
-                        .help("Edit SKILL.md")
+                        .help(LanguageStore.shared.t("skills.editSkillMd"))
                     }
                 }
             )
 
             if skill.source.kind == .package {
-                AppCard(title: "Package Skill") {
+                AppCard(title: LanguageStore.shared.t("skills.packageSkill")) {
                     Text("This skill is provided by an installed package. It is not injected unless assigned as Default, assigned to a project, or assigned to an agent.")
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -849,7 +852,7 @@ struct SkillsScreen: View {
             }
 
             if skill.source.kind == .builtin {
-                AppCard(title: "Disable Skill") {
+                AppCard(title: LanguageStore.shared.t("skills.disable")) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(viewModel.bundledSkillIsDisabled(skill)
                              ? "Re-enable this built-in skill so it appears in the composer's `/` menu and can be assigned as a Default."
@@ -860,12 +863,12 @@ struct SkillsScreen: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         if viewModel.bundledSkillIsDisabled(skill) {
-                            Button("Enable Skill") {
+                            Button(LanguageStore.shared.t("skills.enable")) {
                                 viewModel.setBundledSkillDisabled(false, for: skill)
                             }
                             .appSecondaryButton()
                         } else {
-                            Button("Disable Skill", role: .destructive) {
+                            Button(LanguageStore.shared.t("skills.disable"), role: .destructive) {
                                 viewModel.setBundledSkillDisabled(true, for: skill)
                             }
                             .appDestructiveButton()
@@ -875,7 +878,7 @@ struct SkillsScreen: View {
             }
 
             if viewModel.isImportedSkill(skill) {
-                AppCard(title: "Remove Skill") {
+                AppCard(title: LanguageStore.shared.t("skills.removeSkill")) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Remove this skill from the \(AppBrand.displayName) catalog and clear its Default, project, and agent assignments. The skill files are not deleted.")
                             .font(.callout)
@@ -883,7 +886,7 @@ struct SkillsScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Button("Remove from Catalog") {
+                        Button(LanguageStore.shared.t("skills.removeFromCatalog")) {
                             skillPendingRemoval = skill
                         }
                         .appSecondaryButton()
@@ -892,7 +895,7 @@ struct SkillsScreen: View {
             }
 
             if skill.source.kind != .builtin && viewModel.canDeleteSkill(skill) {
-                AppCard(title: "Delete Skill") {
+                AppCard(title: LanguageStore.shared.t("skills.deleteSkill")) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Move this skill's file to the Trash and remove its Default, project, and agent assignments.")
                             .font(.callout)
@@ -900,7 +903,7 @@ struct SkillsScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Button("Delete Skill", role: .destructive) {
+                        Button(LanguageStore.shared.t("skills.deleteSkill"), role: .destructive) {
                             skillPendingDeletion = skill
                         }
                         .appDestructiveButton()
@@ -930,7 +933,7 @@ struct SkillsScreen: View {
             Button {
                 isCollectionSheetPresented = true
             } label: {
-                Label("Manage Collections", systemImage: "folder.badge.gearshape")
+                Label(LanguageStore.shared.t("skills.manageCollections"), systemImage: "folder.badge.gearshape")
             }
 
             Divider()
@@ -938,7 +941,7 @@ struct SkillsScreen: View {
             Button(role: .destructive) {
                 collectionPendingDeletion = collection
             } label: {
-                Label("Delete Collection", systemImage: "trash")
+                Label(LanguageStore.shared.t("skills.deleteCollection"), systemImage: "trash")
             }
         }
     }
@@ -973,19 +976,19 @@ struct SkillsScreen: View {
 
         syncedRepositoryCard(for: collection)
 
-        AppCard(title: "Project Runtime Assignment") {
+        AppCard(title: LanguageStore.shared.t("skills.projectAssignment")) {
             collectionAssignmentList(for: collection)
         }
 
-        AppCard(title: "Deck Agent Runtime Assignment") {
+        AppCard(title: LanguageStore.shared.t("skills.agentAssignment")) {
             collectionAgentAssignmentList(for: collection)
         }
 
-        AppCard(title: "Collection Membership") {
+        AppCard(title: LanguageStore.shared.t("skills.collectionMembership")) {
             collectionMembershipList(for: collection, members: members)
         }
 
-        AppCard(title: "Delete Collection") {
+        AppCard(title: LanguageStore.shared.t("skills.deleteCollection")) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Delete this collection, or delete the collection and move its member skills to the Trash. Deleting only the collection keeps member skills in the catalog as standalone skills.")
                     .font(.callout)
@@ -993,7 +996,7 @@ struct SkillsScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button("Delete Collection", role: .destructive) {
+                Button(LanguageStore.shared.t("skills.deleteCollection"), role: .destructive) {
                     collectionPendingDeletion = collection
                 }
                 .appDestructiveButton()
@@ -1013,7 +1016,7 @@ struct SkillsScreen: View {
                 ContentUnavailableView(
                     "No Skills",
                     systemImage: "wand.and.stars",
-                    description: Text("Use the Collections toolbar button to add skills to this collection.")
+                    description: Text(LanguageStore.shared.t("skills.collectionsEmpty"))
                 )
                 .frame(maxWidth: .infinity, minHeight: 160)
             } else {
@@ -1059,13 +1062,13 @@ struct SkillsScreen: View {
                 selectedSkillIDs = [skill.id]
                 syncLibrarySelectionFromState()
             } label: {
-                Label("Show Skill Details", systemImage: "sidebar.right")
+                Label(LanguageStore.shared.t("skills.showDetails"), systemImage: "sidebar.right")
             }
             Divider()
             Button(role: .destructive) {
                 removeSkillFromCollection(skill, collection: collection)
             } label: {
-                Label("Remove from Collection", systemImage: "minus.circle")
+                Label(LanguageStore.shared.t("skills.removeFromCollection"), systemImage: "minus.circle")
             }
         }
     }
@@ -1102,7 +1105,7 @@ struct SkillsScreen: View {
     private func skillCollectionsCard(for skill: SkillRecord) -> some View {
         let collections = viewModel.skillCollections(containing: skill)
         if !collections.isEmpty {
-            AppCard(title: "Skill Collections") {
+            AppCard(title: LanguageStore.shared.t("skills.collections")) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Collections expand to their skills at launch; Pi still receives one --skill argument per skill.")
                         .font(.caption)
@@ -1182,7 +1185,7 @@ struct SkillsScreen: View {
             syncedRepositoryCard(
                 repository,
                 description: "This skill is synced from a GitHub repository. You can edit it here; updates fast-forward and ask before overwriting your edits.",
-                updateButtonTitle: "Update Skill"
+                updateButtonTitle: LanguageStore.shared.t("skills.update")
             )
         }
     }
@@ -1203,7 +1206,7 @@ struct SkillsScreen: View {
         description: String,
         updateButtonTitle: String
     ) -> some View {
-        AppCard(title: "Synced Repository") {
+        AppCard(title: LanguageStore.shared.t("skills.syncedRepo")) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(description)
                     .font(.caption)
@@ -1240,7 +1243,7 @@ struct SkillsScreen: View {
                         if isCheckingSkillUpdate {
                             AppSpinner().controlSize(.small)
                         } else {
-                            Text("Check for Updates")
+                            Text(LanguageStore.shared.t("skills.checkUpdates"))
                         }
                     }
                     .appSecondaryButton()
@@ -1261,7 +1264,7 @@ struct SkillsScreen: View {
                     }
 
                     if let webURL = repository.webURL {
-                        Button("Open on GitHub") { NSWorkspace.shared.open(webURL) }
+                        Button(LanguageStore.shared.t("skills.openGitHub")) { NSWorkspace.shared.open(webURL) }
                             .appSecondaryButton()
                     }
                 }
@@ -1324,7 +1327,7 @@ struct SkillsScreen: View {
 
     private func missingSkillWarningDetail(_ warning: SkillReferenceWarning) -> some View {
         let candidate = viewModel.unavailableSkillResolutionCandidate(for: warning)
-        return AppCard(title: "Missing Skill") {
+        return AppCard(title: LanguageStore.shared.t("skills.missing")) {
             VStack(alignment: .leading, spacing: 14) {
                 Text(missingSkillExplanation(for: warning, candidate: candidate))
                     .foregroundStyle(AppTheme.mutedText)
@@ -1334,7 +1337,7 @@ struct SkillsScreen: View {
                 AppKeyValueList(rows: missingSkillWarningRows(for: warning, candidate: candidate))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Resolve by doing one of these:")
+                    Text(LanguageStore.shared.t("skills.resolveHint"))
                         .font(.body.weight(.semibold))
                     if candidate != nil {
                         Text("Move the existing skill into the global skill catalog so every project can resolve the global/library agent reference.")
@@ -1348,7 +1351,7 @@ struct SkillsScreen: View {
 
                 HStack {
                     if let candidate {
-                        Button("Move to Global Skills") {
+                        Button(LanguageStore.shared.t("skills.moveGlobal")) {
                             do {
                                 try viewModel.moveSkillToGlobalCatalog(candidate)
                                 selectedWarning = nil
@@ -1358,16 +1361,16 @@ struct SkillsScreen: View {
                         }
                         .appPrimaryButton()
                     }
-                    Button("Search Catalog") {
+                    Button(LanguageStore.shared.t("skills.searchCatalog")) {
                         searchText = warning.missingSkill
                     }
                     .appSecondaryButton()
-                    Button("Import Skills") {
+                    Button(LanguageStore.shared.t("skills.import")) {
                         beginSkillImport()
                     }
                     .appSecondaryButton()
                     if let agentPath = sourcePath(forAgentNamed: warning.agentName, projectPath: warning.project.path) {
-                        Button("Reveal Agent File") {
+                        Button(LanguageStore.shared.t("skills.revealAgent")) {
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: agentPath)])
                         }
                         .appSecondaryButton()
@@ -1418,7 +1421,7 @@ struct SkillsScreen: View {
                     duplicateSkillResolutionList(for: duplicate)
 
                     HStack {
-                        Button("Search Catalog") {
+                        Button(LanguageStore.shared.t("skills.searchCatalog")) {
                             searchText = duplicate.name
                         }
                         ForEach(Array(duplicate.paths.enumerated()), id: \.offset) { index, path in
@@ -1427,7 +1430,7 @@ struct SkillsScreen: View {
                             }
                         }
                         if let compareContext = compareContext(for: duplicate) {
-                            Button("Compare") {
+                            Button(LanguageStore.shared.t("skills.compare")) {
                                 skillCompareContext = compareContext
                             }
                         }
@@ -1472,13 +1475,13 @@ struct SkillsScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                         if canKeep {
-                            Button("Keep This Copy") {
+                            Button(LanguageStore.shared.t("skills.keepCopy")) {
                                 skillPendingDuplicateResolution = (kept: skill, removed: removed)
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
                         } else {
-                            Text("Protected")
+                            Text(LanguageStore.shared.t("skills.protected"))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.orange)
                                 .help("This copy cannot be chosen because one or more other copies are bundled or package-managed and cannot be removed.")
@@ -1822,19 +1825,19 @@ struct SkillsScreen: View {
                 switch state {
                 case .loading:
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("AI Summary")
+                        Text(LanguageStore.shared.t("skills.aiSummary"))
                             .font(.caption.weight(.semibold))
                             .fontWidth(.expanded)
                             .foregroundStyle(AppTheme.mutedText)
                         HStack(spacing: 6) {
                             AppSpinner().controlSize(.small)
-                            Text("Summarising with AI…")
+                            Text(LanguageStore.shared.t("skills.summarising"))
                                 .foregroundStyle(AppTheme.mutedText)
                         }
                     }
                 case let .ready(text):
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("AI Summary")
+                        Text(LanguageStore.shared.t("skills.aiSummary"))
                             .font(.caption.weight(.semibold))
                             .fontWidth(.expanded)
                             .foregroundStyle(AppTheme.mutedText)
@@ -1843,7 +1846,7 @@ struct SkillsScreen: View {
                     }
                 case let .failed(message):
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("AI Summary")
+                        Text(LanguageStore.shared.t("skills.aiSummary"))
                             .font(.caption.weight(.semibold))
                             .fontWidth(.expanded)
                             .foregroundStyle(AppTheme.mutedText)
@@ -2099,7 +2102,7 @@ struct SkillsScreen: View {
                             Text(skill.name)
                                 .font(.callout.weight(.medium))
                             if !viewModel.canDeleteSkill(skill) {
-                                Text("Protected")
+                                Text(LanguageStore.shared.t("skills.protected"))
                                     .font(AppTheme.Font.micro.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 7)
@@ -2134,7 +2137,7 @@ struct SkillsScreen: View {
                 }
 
                 if deletable.count != skills.count {
-                    Text("Bundled and package skills are protected and will not be deleted.")
+                    Text(LanguageStore.shared.t("skills.protectedBody"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -2447,7 +2450,7 @@ private struct CollectionListRowView: View {
 
             if isHovered {
                 Button(action: onEdit) {
-                    Label("Edit Collection", systemImage: "square.and.pencil")
+                    Label(LanguageStore.shared.t("skills.editCollection"), systemImage: "square.and.pencil")
                         .labelStyle(.iconOnly)
                 }
                 .appSmallSecondaryButton()
@@ -2508,7 +2511,7 @@ private struct SkillReadOnlyPreviewSheet: View {
     private var footer: some View {
         HStack {
             Spacer()
-            Button("Done") { dismiss() }
+            Button(LanguageStore.shared.t("common.done")) { dismiss() }
                 .appPrimaryButton()
                 .keyboardShortcut(.defaultAction)
         }
@@ -2603,7 +2606,7 @@ private struct SkillListRowView: View {
                                 .labelStyle(.titleAndIcon)
                         }
                         .appSmallSecondaryButton()
-                        .help("Open read-only skill preview")
+                        .help(LanguageStore.shared.t("skills.openReadonlyPreview"))
                     }
 
                     if let onUpdate {
@@ -2611,7 +2614,7 @@ private struct SkillListRowView: View {
                             if isUpdating {
                                 AppSpinner().controlSize(.small)
                             } else {
-                                Label("Update Skill", systemImage: "arrow.down.circle")
+                                Label(LanguageStore.shared.t("skills.update"), systemImage: "arrow.down.circle")
                                     .labelStyle(.iconOnly)
                             }
                         }
@@ -2622,11 +2625,11 @@ private struct SkillListRowView: View {
 
                     if canRename {
                         Button(action: onEdit) {
-                            Label("Edit SKILL.md", systemImage: "square.and.pencil")
+                            Label(LanguageStore.shared.t("skills.editSkillMd"), systemImage: "square.and.pencil")
                                 .labelStyle(.iconOnly)
                         }
                         .appSmallSecondaryButton()
-                        .help("Edit SKILL.md")
+                        .help(LanguageStore.shared.t("skills.editSkillMd"))
                     }
                 }
                 .fixedSize()
@@ -2738,8 +2741,8 @@ private struct SkillCollectionEditorSheet: View {
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         ), presenting: pendingDelete) { collection in
-            Button("Delete", role: .destructive) { delete(collection) }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button(LanguageStore.shared.t("common.delete"), role: .destructive) { delete(collection) }
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { pendingDelete = nil }
         } message: { collection in
             Text("Delete \"\(collection.name)\" and clear its All Projects and project assignments? Skills remain in the catalog.")
         }
@@ -2747,10 +2750,10 @@ private struct SkillCollectionEditorSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Skill Collections")
+            Text(LanguageStore.shared.t("skills.collections"))
                 .font(.headline)
                 .fontWidth(.expanded)
-            Text("Create explicit user-organized groups of skills.")
+            Text(LanguageStore.shared.t("skills.collectionsHelp"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -2816,7 +2819,7 @@ private struct SkillCollectionEditorSheet: View {
                     Image(systemName: "plus.circle.fill")
                         .foregroundStyle(AppTheme.brandAccent)
                         .frame(width: 18)
-                    Text("New Collection")
+                    Text(LanguageStore.shared.t("skills.newCollection"))
                         .font(.callout.weight(.semibold))
                     Spacer(minLength: 0)
                 }
@@ -2830,7 +2833,7 @@ private struct SkillCollectionEditorSheet: View {
             }
             .buttonStyle(.plain)
             .onHover { isHovering = $0 }
-            .accessibilityLabel("New Collection")
+            .accessibilityLabel(LanguageStore.shared.t("skills.newCollection"))
         }
     }
 
@@ -2849,7 +2852,7 @@ private struct SkillCollectionEditorSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear skill search")
+                .accessibilityLabel(LanguageStore.shared.t("skills.clearSearch"))
             }
         }
         .padding(.horizontal, 10)
@@ -2865,7 +2868,7 @@ private struct SkillCollectionEditorSheet: View {
         let filteredSkills = cachedFilteredCatalogSkills
         return ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                AppCard(title: selectedCollection == nil ? "New Collection" : "Collection") {
+                AppCard(title: selectedCollection == nil ? LanguageStore.shared.t("skills.newCollection") : "Collection") {
                     VStack(alignment: .leading, spacing: 12) {
                         AppTextField(text: $draftName, placeholder: "Collection name")
                         AppTextField(text: $draftDescription, placeholder: "Description", axis: .vertical)
@@ -2928,13 +2931,13 @@ private struct SkillCollectionEditorSheet: View {
     private var footer: some View {
         HStack(spacing: 12) {
             if let selectedCollection {
-                Button("Delete Collection", role: .destructive) {
+                Button(LanguageStore.shared.t("skills.deleteCollection"), role: .destructive) {
                     pendingDelete = selectedCollection
                 }
                 .appDestructiveButton()
             }
             Spacer(minLength: 0)
-            Button("Done") { dismiss() }
+            Button(LanguageStore.shared.t("common.done")) { dismiss() }
                 .appSecondaryButton()
                 .keyboardShortcut(.cancelAction)
             Button { saveCollection() } label: {

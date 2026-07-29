@@ -6,6 +6,7 @@ import SwiftUI
 /// SwiftUI body never performs filesystem I/O.
 struct ExtensionsScreen: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     /// Discovered Pi extension candidates, loaded off-main and cached. Never read
     /// via a body-time `discover()` call.
@@ -22,7 +23,7 @@ struct ExtensionsScreen: View {
     }
 
     var body: some View {
-        AppPage("Extensions", subtitle: "Which Pi extensions load into your agent sessions") {
+        AppPage(LanguageStore.shared.t("ext.pageTitle"), subtitle: LanguageStore.shared.t("ext.pageSubtitle")) {
             VStack(alignment: .leading, spacing: 20) {
                 modeCard
                 if mode.usesCustomPiExtensionSelection {
@@ -44,9 +45,9 @@ struct ExtensionsScreen: View {
     // MARK: - Mode
 
     private var modeCard: some View {
-        AppCard(title: "Loading mode") {
+        AppCard(title: LanguageStore.shared.t("ext.loadingMode")) {
             VStack(alignment: .leading, spacing: 12) {
-                Picker("Extension loading mode", selection: modeBinding) {
+                Picker(LanguageStore.shared.t("ext.loadingModePicker"), selection: modeBinding) {
                     ForEach(PiAgentExtensionLoadingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
@@ -88,9 +89,9 @@ struct ExtensionsScreen: View {
     }
 
     private var bridgesCard: some View {
-        AppCard(title: "Agent Deck bridges") {
+        AppCard(title: LanguageStore.shared.t("ext.bridgesTitle")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Agent Deck's own extensions. They take priority over yours if a tool name clashes. State below reflects your current settings.")
+                Text(LanguageStore.shared.t("ext.bridgesBody", AppBrand.displayName))
                     .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -142,7 +143,7 @@ struct ExtensionsScreen: View {
     // MARK: - User extension checklist
 
     private var selectionCard: some View {
-        AppCard(title: "Your Pi extensions", trailing: { selectionToolbar }) {
+        AppCard(title: LanguageStore.shared.t("ext.yourExtensions"), trailing: { selectionToolbar }) {
             if candidates.isEmpty {
                 emptyState
             } else {
