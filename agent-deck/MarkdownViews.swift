@@ -773,6 +773,17 @@ final class NativeMarkdownTextContainer: NSView {
     }
 
     private static func updateTextView(_ textView: NSTextView, with kind: MarkdownBlock.Kind) {
+        // Keep the code-block copy control in sync when streaming restyles the fence body.
+        if case let .code(text) = kind {
+            var ancestor: NSView? = textView.superview
+            while let view = ancestor {
+                if let box = view as? CodeBlockContainerView {
+                    box.chrome.source = text
+                    break
+                }
+                ancestor = view.superview
+            }
+        }
         let attr: NSAttributedString
         switch kind {
         case let .bullet(text, indentLevel):
@@ -1147,15 +1158,7 @@ final class NativeMarkdownTextContainer: NSView {
         case let .quote(text):
             return quoteBlock(text)
         case let .code(text):
-            return paddedTextBlock(
-                text,
-                font: NativeMarkdownFont.code,
-                color: MarkdownSemanticStyler.codeBlockColor,
-                fill: AppTheme.nsCodeBlockFill,
-                border: AppTheme.nsCodeBlockBorder,
-                cornerRadius: AppTheme.Chat.subCardCornerRadius,
-                padding: NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-            )
+            return codeBlock(text)
         case let .table(table):
             return tableBlock(table)
         }
@@ -1298,7 +1301,7 @@ final class NativeMarkdownTextContainer: NSView {
     /// Overriding `viewDidChangeEffectiveAppearance` and re-resolving the
     /// dynamic NSColor under the new appearance keeps the layer live across
     /// runtime Light↔Dark switches.
-    private final class DynamicFillView: NSView {
+    private class DynamicFillView: NSView {
         private let fillColor: NSColor
         private let borderColor: NSColor?
         private let borderWidth: CGFloat
@@ -1329,6 +1332,111 @@ final class NativeMarkdownTextContainer: NSView {
                 }
             }
         }
+    }
+
+    /// Owns the copy-to-clipboard action for a fenced code block so the control
+    /// can stay in sync when streaming restyles the fence body in place.
+    private final class CodeBlockChrome: NSObject {
+        var source: String
+        weak var button: NSButton?
+        private var resetWorkItem: DispatchWorkItem?
+
+        init(source: String) {
+            self.source = source
+            super.init()
+        }
+
+        /// Copies the current fence body and briefly swaps the icon to a checkmark.
+        @objc func copyTapped(_ sender: Any?) {
+            let text = source
+            guard !text.isEmpty else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            guard let button else { return }
+            let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+            button.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")?
+                .withSymbolConfiguration(config)
+            button.toolTip = "Copied"
+            resetWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self, weak button] in
+                guard let self, let button else { return }
+                button.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy code")?
+                    .withSymbolConfiguration(config)
+                button.toolTip = "Copy code"
+                self.resetWorkItem = nil
+            }
+            resetWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: work)
+        }
+    }
+
+    /// Code fence chrome: fill + body text + top-trailing copy control.
+    private final class CodeBlockContainerView: DynamicFillView {
+        let chrome: CodeBlockChrome
+
+        init(fill: NSColor, border: NSColor?, cornerRadius: CGFloat, chrome: CodeBlockChrome) {
+            self.chrome = chrome
+            super.init(fill: fill, border: border)
+            layer?.cornerRadius = cornerRadius
+            layer?.masksToBounds = true
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError() }
+    }
+
+    /// Fenced code block with a top-trailing copy affordance (GitHub-style).
+    private static func codeBlock(_ source: String) -> NSView {
+        let chrome = CodeBlockChrome(source: source)
+        let container = CodeBlockContainerView(
+            fill: AppTheme.nsCodeBlockFill,
+            border: AppTheme.nsCodeBlockBorder,
+            cornerRadius: AppTheme.Chat.subCardCornerRadius,
+            chrome: chrome
+        )
+
+        // Right inset leaves room so the first lines don't sit under the control.
+        let padding = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 30)
+        let text = textView(
+            source,
+            font: NativeMarkdownFont.code,
+            color: MarkdownSemanticStyler.codeBlockColor,
+            parseInlineMarkdown: false
+        )
+        container.addSubview(text)
+
+        let button = NSButton(frame: .zero)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.imagePosition = .imageOnly
+        button.focusRingType = .none
+        button.contentTintColor = .secondaryLabelColor
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        button.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy code")?
+            .withSymbolConfiguration(config)
+        button.toolTip = "Copy code"
+        button.setButtonType(.momentaryChange)
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .vertical)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .vertical)
+        button.target = chrome
+        button.action = #selector(CodeBlockChrome.copyTapped(_:))
+        chrome.button = button
+        container.addSubview(button)
+
+        NSLayoutConstraint.activate([
+            text.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: padding.left),
+            text.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -padding.right),
+            text.topAnchor.constraint(equalTo: container.topAnchor, constant: padding.top),
+            text.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -padding.bottom),
+            button.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            button.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
+            button.widthAnchor.constraint(equalToConstant: 20),
+            button.heightAnchor.constraint(equalToConstant: 20)
+        ])
+        return container
     }
 
     private static func paddedTextBlock(_ source: String, font: NSFont, color: NSColor, fill: NSColor, border: NSColor? = nil, cornerRadius: CGFloat, padding: NSEdgeInsets) -> NSView {
