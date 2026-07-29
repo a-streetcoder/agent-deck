@@ -7070,6 +7070,9 @@ struct PiAgentScreen: View {
     }
 
     private func statusProcessingMessage(for entry: PiAgentTranscriptEntry) -> String? {
+        // Soft system-notice cards (notify / setStatus / setWidget / compaction)
+        // are terminal chrome, not an in-flight turn — never keep the processing bar.
+        if entry.isSystemNoticeStatus { return nil }
         switch entry.title {
         case "Input Sent": return "Processing your response"
         case "Input Needed": return nil
@@ -7080,6 +7083,9 @@ struct PiAgentScreen: View {
         case "Supervisor Response Routed": return "Routing response"
         case "System Prompt Captured": return "Preparing context"
         case "Process Ended", "Stopped": return nil
+        case "Notify", "Notify Warning", "Notify Error",
+             "Extension Status", "Extension Widget":
+            return nil
         default: return "Processing update"
         }
     }

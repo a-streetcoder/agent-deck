@@ -2734,6 +2734,14 @@ final class PiAgentRunnerService {
             title = "Extension Widget"
         }
         guard !body.isEmpty else { return }
+        // Extension hosts often re-emit the same notify/status on resume or
+        // double RPC delivery — collapse consecutive identical soft cards.
+        if let last = store.transcript(for: sessionID).last,
+           last.role == .status,
+           last.title == title,
+           last.text == body {
+            return
+        }
         store.append(.init(
             sessionID: sessionID,
             role: .status,
