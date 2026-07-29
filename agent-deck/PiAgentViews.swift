@@ -313,10 +313,10 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
     // thread is each frame: low avgLate/maxLate = smooth. Bracketed by STREAMSIM
     // markers so HangWatchdog HITCH/HANG lines in the window are attributable.
     //
-    //   defaults write streetcoding.agent-deck StreamSimEnabled -bool YES
+    //   defaults write works.earendil.pi-deck StreamSimEnabled -bool YES
     //   (StreamSimRounds=3, StreamSimSeconds=6 overridable)
-    //   log stream --predicate 'subsystem == "streetcoding.agent-deck" AND (category == "StreamSim" OR category == "HangWatchdog" OR category == "ScrollPerf")' --info
-    private static let streamSimLog = Logger(subsystem: "streetcoding.agent-deck", category: "StreamSim")
+    //   log stream --predicate 'subsystem == "works.earendil.pi-deck" AND (category == "StreamSim" OR category == "HangWatchdog" OR category == "ScrollPerf")' --info
+    private static let streamSimLog = Logger(subsystem: "works.earendil.pi-deck", category: "StreamSim")
     private var streamSimTimer: Timer?
     private var streamSimArmed = false
     private var streamSimRoundsLeft = 0
@@ -1292,7 +1292,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         let profiler = TranscriptScrollProfiler()
 
         // MARK: Scroll benchmark (autonomous, multi-session validation)
-        // Gated by `defaults write streetcoding.agent-deck ScrollBenchEnabled -bool YES`.
+        // Gated by `defaults write works.earendil.pi-deck ScrollBenchEnabled -bool YES`.
         // When on, it sweeps several content-bearing chats in turn — for each it
         // runs a SHORT scroll burst (local up/down) then a LONG full top↔bottom
         // sweep, then advances to the next session via the same path as the ⌘]
@@ -1539,7 +1539,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// during scroll, while heavy rows and offscreen height measurement remain
         /// blocked below to avoid the old prewarm TextKit hang signature. Keep a
         /// defaults kill switch for A/B without changing visible-row rendering.
-        /// Disable with: `defaults write streetcoding.agent-deck TranscriptPrewarmDisabled -bool YES`.
+        /// Disable with: `defaults write works.earendil.pi-deck TranscriptPrewarmDisabled -bool YES`.
         private static let prewarmDisabled: Bool = {
             guard let value = UserDefaults.standard.object(forKey: "TranscriptPrewarmDisabled") as? Bool else { return false }
             return value
@@ -2447,7 +2447,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         // bounds observer treats it as a genuine user scroll) WHILE StreamSim streams.
         // Measures (a) HangWatchdog hitches during the stream+scroll window and (b)
         // viewport drift after the scroll stops (glide-yank check).
-        //   defaults write streetcoding.agent-deck StreamScrollTestEnabled -bool YES
+        //   defaults write works.earendil.pi-deck StreamScrollTestEnabled -bool YES
         private var streamScrollTestDone = false
         private func maybeRunStreamScrollTest() {
             guard !streamScrollTestDone,
@@ -2491,7 +2491,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// run one scroll pass. The profiler gesture summary (with the rows= finger-
         /// print) captures hitches + hostCreate, so the SAME heavy session can be
         /// compared pre-warm ON vs OFF just by cycling sessions with Cmd-].
-        ///   defaults write streetcoding.agent-deck ScrollProbeEnabled -bool YES
+        ///   defaults write works.earendil.pi-deck ScrollProbeEnabled -bool YES
         private func maybeRunScrollProbe() {
             guard !scrollProbeDone,
                   UserDefaults.standard.bool(forKey: "ScrollProbeEnabled"),
@@ -2527,7 +2527,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// current session once (into the cache, off the scroll path) and report
         /// total + worst construction cost. Repeatable on the same restored session,
         /// so it isolates the cell-build fix from scroll/session-order noise.
-        ///   defaults write streetcoding.agent-deck BuildBenchEnabled -bool YES
+        ///   defaults write works.earendil.pi-deck BuildBenchEnabled -bool YES
         private func maybeRunBuildBench() {
             guard !buildBenchDone,
                   UserDefaults.standard.bool(forKey: "BuildBenchEnabled"),
@@ -2587,7 +2587,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 // .error so it shows in default console captures — this run drives
                 // session switches + programmatic scrolls and MUST be unmissable
                 // (an enabled flag once masqueraded as idle-session scroll glitches).
-                TranscriptScrollProfiler.logger.error("SCROLLBENCH armed (ScrollBenchEnabled defaults flag) — sweeping up to \(self.benchTargetSessions) of \(self.benchScopedCount) session(s); disable: defaults delete streetcoding.agent-deck ScrollBenchEnabled")
+                TranscriptScrollProfiler.logger.error("SCROLLBENCH armed (ScrollBenchEnabled defaults flag) — sweeping up to \(self.benchTargetSessions) of \(self.benchScopedCount) session(s); disable: defaults delete works.earendil.pi-deck ScrollBenchEnabled")
                 scheduleSessionRoutine()
                 return
             }
@@ -3916,7 +3916,7 @@ private struct SessionListContent: View, Equatable {
     }
 
 #if DEBUG
-    private static let perfLog = Logger(subsystem: "streetcoding.agent-deck", category: "SessionListPerf")
+    private static let perfLog = Logger(subsystem: "works.earendil.pi-deck", category: "SessionListPerf")
 #endif
 
     var body: some View {
@@ -6364,7 +6364,7 @@ struct PiAgentScreen: View {
         .native(.of(PiAgentNativeSpacerView.self) { view, _ in view.spacerHeight = 0 })
 
 #if DEBUG
-    private static let nativeToolGroupLog = Logger(subsystem: "streetcoding.agent-deck", category: "NativeToolGroup")
+    private static let nativeToolGroupLog = Logger(subsystem: "works.earendil.pi-deck", category: "NativeToolGroup")
 #endif
 
     private func nativeChildKind(

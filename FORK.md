@@ -29,3 +29,15 @@
 ## 版权
 
 上游 MIT · Streetcoding Ltd — 保留 LICENSE 与版权声明。
+
+## Brand (本 fork)
+
+| 项 | 值 |
+|----|-----|
+| 显示名 | Pi Deck |
+| Bundle ID | `works.earendil.pi-deck` |
+| App Support | `~/Library/Application Support/Pi Deck/` |
+| Logs | `~/Library/Logs/Pi Deck/` |
+| Sparkle 自动更新 | **关闭**（勿拉官方 appcast） |
+
+改名入口：`agent-deck.xcodeproj` 的 `APP_PRODUCT_NAME` / `PRODUCT_BUNDLE_IDENTIFIER`，以及 `AppBrand.displayName` fallback。

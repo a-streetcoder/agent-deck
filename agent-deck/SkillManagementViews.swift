@@ -103,7 +103,7 @@ private enum SkillDetailSummaryState: Equatable {
 }
 
 struct SkillsScreen: View {
-    private static let layoutLog = Logger(subsystem: "streetcoding.agent-deck", category: "ResourceLayout")
+    private static let layoutLog = Logger(subsystem: "works.earendil.pi-deck", category: "ResourceLayout")
     var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var selectedLibraryItemIDs: Set<SkillLibraryItem.ID> = []

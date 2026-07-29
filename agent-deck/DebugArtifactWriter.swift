@@ -14,7 +14,7 @@ nonisolated final class DebugArtifactWriter: @unchecked Sendable {
 
     init(url: URL) {
         self.url = url
-        queue = DispatchQueue(label: "streetcoding.agent-deck.debug-artifact-writer", qos: .utility)
+        queue = DispatchQueue(label: "works.earendil.pi-deck.debug-artifact-writer", qos: .utility)
     }
 
     func append(line: String) {

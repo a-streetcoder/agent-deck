@@ -27,7 +27,7 @@
 
 /* Begin PBXFileReference section */
 		4E1F0B28C6D84725B47F2D75 /* bundled-agents */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-agents"; path = "agent-deck/bundled-agents"; sourceTree = SOURCE_ROOT; };
-		6572B16B2FA2391500596CE4 /* Agent Deck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Agent Deck.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6572B16B2FA2391500596CE4 /* Pi Deck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Pi Deck.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B7E7C862FA60178000A7C01 /* agent-deckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "agent-deckTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9D1B4A5C7E8F901234567891 /* bundled-skills */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-skills"; path = "agent-deck/bundled-skills"; sourceTree = SOURCE_ROOT; };
 		9D1B4A5C7E8F901234567A02 /* bundled-prompts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-prompts"; path = "agent-deck/bundled-prompts"; sourceTree = SOURCE_ROOT; };
@@ -105,7 +105,7 @@
 		6572B16C2FA2391500596CE4 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6572B16B2FA2391500596CE4 /* Agent Deck.app */,
+				6572B16B2FA2391500596CE4 /* Pi Deck.app */,
 				7B7E7C862FA60178000A7C01 /* agent-deckTests.xctest */,
 			);
 			name = Products;
@@ -137,7 +137,7 @@
 				D2A5E8032FB0000000000001 /* PostHog */,
 			);
 			productName = "agent-deck";
-			productReference = 6572B16B2FA2391500596CE4 /* Agent Deck.app */;
+			productReference = 6572B16B2FA2391500596CE4 /* Pi Deck.app */;
 			productType = "com.apple.product-type.application";
 		};
 		7B7E7C8D2FA60178000A7C01 /* agent-deckTests */ = {
@@ -400,7 +400,7 @@
 		6572B1772FA2391600596CE4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_PRODUCT_NAME = "Agent Deck";
+				APP_PRODUCT_NAME = "Pi Deck";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -421,8 +421,8 @@
 				INFOPLIST_KEY_NSAccentColorName = AccentColor;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to control apps you explicitly permit through assigned Computer Use.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://a-streetcoder.github.io/agent-deck/appcast.xml";
+				INFOPLIST_KEY_SUEnableAutomaticChecks = NO;
+				INFOPLIST_KEY_SUFeedURL = "";
 				INFOPLIST_KEY_SUPublicEDKey = "CWncStYBPVugWOxjexH1nhbtMiUedfr62Zq/Colmf6U=";
 				INFOPLIST_KEY_SUScheduledCheckInterval = 86400;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -432,7 +432,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				POSTHOG_PROJECT_TOKEN = "";
-				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deck";
+				PRODUCT_BUNDLE_IDENTIFIER = "works.earendil.pi-deck";
 				PRODUCT_MODULE_NAME = agent_deck;
 				PRODUCT_NAME = "$(APP_PRODUCT_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -449,7 +449,7 @@
 		6572B1782FA2391600596CE4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_PRODUCT_NAME = "Agent Deck";
+				APP_PRODUCT_NAME = "Pi Deck";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -472,8 +472,8 @@
 				INFOPLIST_KEY_NSAccentColorName = AccentColor;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to control apps you explicitly permit through assigned Computer Use.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://a-streetcoder.github.io/agent-deck/appcast.xml";
+				INFOPLIST_KEY_SUEnableAutomaticChecks = NO;
+				INFOPLIST_KEY_SUFeedURL = "";
 				INFOPLIST_KEY_SUPublicEDKey = "CWncStYBPVugWOxjexH1nhbtMiUedfr62Zq/Colmf6U=";
 				INFOPLIST_KEY_SUScheduledCheckInterval = 86400;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -483,7 +483,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				POSTHOG_PROJECT_TOKEN = phc_rQKMPA8UAGKsMDAKuRaAADJuxnUha4qy68J4UhaomQnU;
-				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deck";
+				PRODUCT_BUNDLE_IDENTIFIER = "works.earendil.pi-deck";
 				PRODUCT_MODULE_NAME = agent_deck;
 				PRODUCT_NAME = "$(APP_PRODUCT_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -500,7 +500,7 @@
 		7B7E7C882FA60178000A7C01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_PRODUCT_NAME = "Agent Deck";
+				APP_PRODUCT_NAME = "Pi Deck";
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 16;
@@ -513,7 +513,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deckTests";
+				PRODUCT_BUNDLE_IDENTIFIER = "works.earendil.pi-deckTests";
 				PRODUCT_MODULE_NAME = agent_deckTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -525,7 +525,7 @@
 		7B7E7C892FA60178000A7C01 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APP_PRODUCT_NAME = "Agent Deck";
+				APP_PRODUCT_NAME = "Pi Deck";
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 16;
@@ -538,7 +538,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deckTests";
+				PRODUCT_BUNDLE_IDENTIFIER = "works.earendil.pi-deckTests";
 				PRODUCT_MODULE_NAME = agent_deckTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

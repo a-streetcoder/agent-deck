@@ -126,7 +126,7 @@ struct MarkdownDocumentView: View {
 }
 
 private enum GitHubMarkdownAttachmentResolver {
-    nonisolated private static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "MarkdownAttachments")
+    nonisolated private static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "MarkdownAttachments")
     private static let sourcePattern = #"src=\"(https://github\.com/user-attachments/assets/[^\"]+)\""#
 
     static func resolve(in markdown: String) async -> String {
@@ -724,7 +724,7 @@ final class NativeMarkdownTextContainer: NSView {
     }
 
 #if DEBUG
-    private static let incrementalLog = Logger(subsystem: "streetcoding.agent-deck", category: "MarkdownIncremental")
+    private static let incrementalLog = Logger(subsystem: "works.earendil.pi-deck", category: "MarkdownIncremental")
     private static func logIncrementalBail(_ reason: String) {
         incrementalLog.error("markdown rebuild (incremental bail): \(reason, privacy: .public)")
     }

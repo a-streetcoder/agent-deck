@@ -29,20 +29,20 @@ import os
 /// ## Reading the logs
 /// No sandbox, so `os.Logger` is visible system-wide. While a response streams:
 /// ```
-/// log stream --predicate 'subsystem == "streetcoding.agent-deck" AND category == "StreamWobble"' --info
+/// log stream --predicate 'subsystem == "works.earendil.pi-deck" AND category == "StreamWobble"' --info
 /// ```
 /// or after the fact:
 /// ```
-/// log show --last 2m --predicate 'subsystem == "streetcoding.agent-deck" AND category == "StreamWobble"' --info
+/// log show --last 2m --predicate 'subsystem == "works.earendil.pi-deck" AND category == "StreamWobble"' --info
 /// ```
 ///
 /// OFF by default — it must be explicitly enabled while hunting wobble, so it
 /// never adds per-token logging to a normal debug session:
-/// `defaults write streetcoding.agent-deck StreamWobbleProbe -bool YES`
+/// `defaults write works.earendil.pi-deck StreamWobbleProbe -bool YES`
 /// (DEBUG builds only; release compiles every call site to a pass-through.)
 @MainActor
 final class TranscriptStreamWobbleProbe {
-    static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "StreamWobble")
+    static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "StreamWobble")
 
     static let isEnabled: Bool = {
         #if DEBUG

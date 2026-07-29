@@ -13,13 +13,13 @@ import os
 /// names the precise calculation that hung the frame.
 ///
 /// On by default; disable with
-///   `defaults write streetcoding.agent-deck HangWatchdogEnabled -bool NO`
+///   `defaults write works.earendil.pi-deck HangWatchdogEnabled -bool NO`
 /// Read the watchdog log live with:
-///   log stream --predicate 'subsystem == "streetcoding.agent-deck" AND category == "HangWatchdog"' --info
+///   log stream --predicate 'subsystem == "works.earendil.pi-deck" AND category == "HangWatchdog"' --info
 /// Hang backtraces are written to `/tmp/agentdeck-hang-<n>.txt`.
 nonisolated final class HangWatchdog: @unchecked Sendable {
     static let shared = HangWatchdog()
-    static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "HangWatchdog")
+    static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "HangWatchdog")
 
 #if DEBUG
     /// Running tallies (main-thread heartbeat only writes these) so a harness can
@@ -68,7 +68,7 @@ nonisolated final class HangWatchdog: @unchecked Sendable {
 
     /// A frame longer than this (ms) counts as a hang worth capturing. 60fps is
     /// 16.7ms; 150ms is ~9 dropped frames — a clear stall, not normal churn.
-    /// Override with `defaults write streetcoding.agent-deck HangWatchdogThresholdMs -int 50`.
+    /// Override with `defaults write works.earendil.pi-deck HangWatchdogThresholdMs -int 50`.
     private var threshold: CFTimeInterval = 0.15
     /// How long `sample` profiles once a hang is detected.
     private let sampleSeconds = 2
@@ -136,7 +136,7 @@ nonisolated final class HangWatchdog: @unchecked Sendable {
 
         // Background watcher — catches a hang *while it's still happening* so the
         // external sampler grabs the blocked stack.
-        let q = DispatchQueue(label: "streetcoding.agent-deck.hangwatchdog", qos: .userInitiated)
+        let q = DispatchQueue(label: "works.earendil.pi-deck.hangwatchdog", qos: .userInitiated)
         let bg = DispatchSource.makeTimerSource(queue: q)
         bg.schedule(deadline: .now() + 0.1, repeating: 1.0 / 120.0)
         bg.setEventHandler { [weak self] in self?.check() }

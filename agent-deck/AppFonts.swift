@@ -7,7 +7,7 @@ import SwiftUI
 enum AppFonts {
     static let kemcoPixelBold = "KemcoPixelBold"
 
-    private static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "Fonts")
+    private static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "Fonts")
 
     static func registerBundledFonts() {
         // Idempotent: if the font already resolves — registered earlier this

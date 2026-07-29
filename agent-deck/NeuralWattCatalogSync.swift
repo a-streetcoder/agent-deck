@@ -24,7 +24,7 @@ import OSLog
 /// unreadable, existing on-disk state is preserved so a flaky network or a corrupt file never
 /// blocks model refresh.
 nonisolated struct NeuralWattCatalogSync: Sendable {
-    private static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "NeuralWattSync")
+    private static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "NeuralWattSync")
 
     private let urlSession: URLSession
     private let fileURL: URL

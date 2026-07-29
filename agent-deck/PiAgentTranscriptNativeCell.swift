@@ -1116,7 +1116,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     /// whether it moves and which value changed. Always active for question
     /// bubbles (rare event, low noise); set `TranscriptHoverDebug` to also log
     /// the stable (no-move) cases as confirmation.
-    private static let hoverLog = Logger(subsystem: "streetcoding.agent-deck", category: "HoverShift")
+    private static let hoverLog = Logger(subsystem: "works.earendil.pi-deck", category: "HoverShift")
     private static let hoverDebug: Bool = {
 #if DEBUG
         UserDefaults.standard.bool(forKey: "TranscriptHoverDebug")

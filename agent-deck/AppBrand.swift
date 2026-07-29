@@ -13,7 +13,7 @@ enum AppBrand {
                 return value
             }
         }
-        return "Agent Deck"
+        return "Pi Deck"
     }
 
     nonisolated static var marketingVersion: String {

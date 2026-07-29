@@ -20,20 +20,20 @@ import os
 /// ## Reading the logs
 /// No sandbox, so `os.Logger` is visible system-wide. After scrolling:
 /// ```
-/// log show --last 2m --predicate 'subsystem == "streetcoding.agent-deck" AND category == "ScrollPerf"' --info
+/// log show --last 2m --predicate 'subsystem == "works.earendil.pi-deck" AND category == "ScrollPerf"' --info
 /// ```
 /// or live:
 /// ```
-/// log stream --predicate 'subsystem == "streetcoding.agent-deck" AND category == "ScrollPerf"' --info
+/// log stream --predicate 'subsystem == "works.earendil.pi-deck" AND category == "ScrollPerf"' --info
 /// ```
 ///
-/// Toggle off via `defaults write streetcoding.agent-deck ScrollPerfEnabled -bool NO`
+/// Toggle off via `defaults write works.earendil.pi-deck ScrollPerfEnabled -bool NO`
 /// (defaults ON while we hunt this down — it is cheap: a couple of timestamp
 /// reads per scroll frame, all threshold-gated so nothing logs when smooth).
 @MainActor
 final class TranscriptScrollProfiler {
-    static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "ScrollPerf")
-    static let signposter = OSSignposter(subsystem: "streetcoding.agent-deck", category: "ScrollPerf")
+    static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "ScrollPerf")
+    static let signposter = OSSignposter(subsystem: "works.earendil.pi-deck", category: "ScrollPerf")
 
     /// Mirror key perf lines to a file. `os.Logger` is invisible to `log
     /// stream`/`log show` in some headless/automation contexts (no unified-log
@@ -73,7 +73,7 @@ final class TranscriptScrollProfiler {
     /// Extra-chatty per-pulse attribution traces (itemsBuild/apply-work trigger
     /// lines, session-list re-eval). OFF by default — they fire every streaming tick
     /// and drown the console. Opt in while chasing a specific churn bug:
-    /// `defaults write streetcoding.agent-deck TranscriptVerboseTrace -bool YES`.
+    /// `defaults write works.earendil.pi-deck TranscriptVerboseTrace -bool YES`.
     /// The hitch/hang signal (gesture summaries, dropped-frame samples) is never
     /// gated by this, so the console stays useful for jank hunting when it's off.
     static let verboseTrace: Bool = {
@@ -98,7 +98,7 @@ final class TranscriptScrollProfiler {
     // HangWatchdog — the decisive capture for sustained "feels slow" jank that
     // never reaches the 150ms hang threshold. HangWatchdog throttles the
     // captures, so this can fire freely. Disable with
-    // `defaults write streetcoding.agent-deck ScrollPerfBacktrace -bool NO`.
+    // `defaults write works.earendil.pi-deck ScrollPerfBacktrace -bool NO`.
     private let backtraceThresholdMs: Double = 45
     private static let backtraceOnHitch: Bool = {
         let defaults = UserDefaults.standard

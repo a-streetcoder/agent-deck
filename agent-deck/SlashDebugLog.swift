@@ -33,7 +33,7 @@ enum SlashDebugLog {
 
     nonisolated static var logURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/Agent Deck", isDirectory: true)
+            .appendingPathComponent("Library/Logs/Pi Deck", isDirectory: true)
             .appendingPathComponent("slash-debug.log")
     }
 

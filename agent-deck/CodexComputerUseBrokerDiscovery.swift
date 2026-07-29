@@ -68,7 +68,7 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
         let supportRoot = applicationSupportDirectory ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         let candidates = candidatePackageRoots ?? [
             supportRoot?
-                .appendingPathComponent("Agent Deck/Computer Use Broker/Variants", isDirectory: true)
+                .appendingPathComponent("Pi Deck/Computer Use Broker/Variants", isDirectory: true)
                 .appendingPathComponent(variantRevision, isDirectory: true)
                 .appendingPathComponent("node_modules/\(packageName)", isDirectory: true),
         ].compactMap { $0 }
@@ -100,7 +100,7 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
                   packageTreeDigest(at: candidate, fileManager: fileManager) == expectedPackageDigest else { continue }
 
             let stateRoot = (supportRoot ?? homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true))
-                .appendingPathComponent("Agent Deck/Computer Use Broker/State/auto-accept.1", isDirectory: true)
+                .appendingPathComponent("Pi Deck/Computer Use Broker/State/auto-accept.1", isDirectory: true)
             return .available(.init(
                 nodeURL: nodeURL,
                 serverScriptURL: serverScript,
@@ -110,7 +110,7 @@ nonisolated enum CodexComputerUseBrokerDiscovery {
         }
 
         let target = (supportRoot ?? homeDirectory.appendingPathComponent("Library/Application Support", isDirectory: true))
-            .appendingPathComponent("Agent Deck/Computer Use Broker/Variants/\(variantRevision)", isDirectory: true).path
+            .appendingPathComponent("Pi Deck/Computer Use Broker/Variants/\(variantRevision)", isDirectory: true).path
         return .unavailable(
             "Computer Use requires Agent Deck's verified auto-accept broker variant at \(target). Install the variant described in Computer Use setup, then refresh MCP."
         )

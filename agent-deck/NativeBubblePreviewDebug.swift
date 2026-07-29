@@ -15,7 +15,7 @@ import SwiftUI
 ///   3. the NATIVE question bubble (right-aligned hugged), to verify it never
 ///      lands on the left.
 ///
-/// Enable with: `defaults write streetcoding.agent-deck NativeBubblePreview -bool YES`
+/// Enable with: `defaults write works.earendil.pi-deck NativeBubblePreview -bool YES`
 /// Off by default; no effect in normal use.
 @MainActor
 enum NativeBubblePreviewDebug {

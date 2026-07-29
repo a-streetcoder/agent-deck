@@ -2,7 +2,7 @@ import Foundation
 import os
 
 final class PiRPCClient: @unchecked Sendable {
-    nonisolated private static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "PiRPC")
+    nonisolated private static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "PiRPC")
     struct EventLine: Sendable {
         let rawLine: String
         let event: PiAgentRPCEvent?

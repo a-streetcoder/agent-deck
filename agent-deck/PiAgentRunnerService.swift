@@ -71,7 +71,7 @@ enum PiParentAppendPromptResolver {
 
 @MainActor
 final class PiAgentRunnerService {
-    nonisolated private static let logger = Logger(subsystem: "streetcoding.agent-deck", category: "PiRPC")
+    nonisolated private static let logger = Logger(subsystem: "works.earendil.pi-deck", category: "PiRPC")
     /// Number of inbound events still to log after a compaction completes, per session.
     /// Lets us prove whether Pi continues a turn after compaction without logging message content.
     private var postCompactionLogCountBySessionID: [UUID: Int] = [:]
