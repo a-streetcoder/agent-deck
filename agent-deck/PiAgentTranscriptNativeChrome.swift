@@ -190,8 +190,8 @@ final class PiAgentNativeForkOriginCardView: NSView, PiAgentNativeRowContent {
         textStack.alignment = .leading
         textStack.spacing = 3
 
-        configureSmallButton(openParentButton, title: "Open Parent", action: #selector(openParentTapped))
-        configureSmallButton(viewButton, title: "View", action: #selector(viewTapped))
+        configureSmallButton(openParentButton, title: LanguageStore.shared.t("native.openParent"), action: #selector(openParentTapped))
+        configureSmallButton(viewButton, title: LanguageStore.shared.t("native.view"), action: #selector(viewTapped))
 
         let buttonStack = NSStackView(views: [openParentButton, viewButton])
         buttonStack.orientation = .horizontal
@@ -260,7 +260,7 @@ final class PiAgentNativeForkOriginCardView: NSView, PiAgentNativeRowContent {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = PiAgentNativeTextPopoverController(
-            title: "Forked from \u{201C}\(payload?.parentTitle ?? "")\u{201D}",
+            title: LanguageStore.shared.t("native.forkedFromTitle", payload?.parentTitle ?? ""),
             text: snapshot
         )
         popover.show(relativeTo: viewButton.bounds, of: viewButton, preferredEdge: .maxY)
@@ -448,7 +448,7 @@ extension NativeArchiveNoticePayload {
         let plural = hiddenCount == 1 ? "" : "s"
         return NativeArchiveNoticePayload(
             icon: "clock.arrow.circlepath",
-            title: "Earlier transcript hidden",
+            title: LanguageStore.shared.t("agent.earlierHidden"),
             detail: "Showing the latest \(limit) items to keep this chat responsive. \(hiddenCount) earlier item\(plural) are available.",
             actionTitle: "Open Earlier Transcript",
             action: onOpen,
@@ -469,8 +469,8 @@ struct NativeStateCardPayload {
     static func loading() -> NativeStateCardPayload {
         NativeStateCardPayload(
             isLoading: true,
-            title: "Loading transcript",
-            subtitle: "Restoring the selected chat from disk.",
+            title: LanguageStore.shared.t("agent.loadingTranscript"),
+            subtitle: LanguageStore.shared.t("agent.loadingTranscriptBody"),
             icon: "text.bubble"
         )
     }
@@ -478,8 +478,8 @@ struct NativeStateCardPayload {
     static func empty() -> NativeStateCardPayload {
         NativeStateCardPayload(
             isLoading: false,
-            title: "No transcript yet",
-            subtitle: "Send a message below to launch Pi Agent for this session.",
+            title: LanguageStore.shared.t("agent.noTranscriptTitle"),
+            subtitle: LanguageStore.shared.t("agent.noTranscriptBody"),
             icon: "text.bubble"
         )
     }

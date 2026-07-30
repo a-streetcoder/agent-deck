@@ -34,11 +34,11 @@ struct PiAgentActivityPanel: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     if store.selectedSession == nil {
-                        compactEmptyState(title: "No session selected", message: "Select a Pi Agent session to inspect tool activity.", icon: "wrench.and.screwdriver")
+                        compactEmptyState(title: LanguageStore.shared.t("activity.noSession"), message: "Select a Pi Agent session to inspect tool activity.", icon: "wrench.and.screwdriver")
                     } else {
                         filterBar
                         if items.isEmpty {
-                            compactEmptyState(title: "No activity", message: filter.emptyMessage, icon: filter.emptyIcon)
+                            compactEmptyState(title: LanguageStore.shared.t("activity.noActivity"), message: filter.emptyMessage, icon: filter.emptyIcon)
                         } else {
                             ScrollView(showsIndicators: false) {
                                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -196,7 +196,7 @@ struct PiAgentActivityPanel: View {
     }
 
     private var filterBar: some View {
-        Picker("Activity filter", selection: $filter) {
+        Picker(LanguageStore.shared.t("activity.filter"), selection: $filter) {
             ForEach(PiAgentActivityFilter.allCases) { filter in
                 Text(filter.label).tag(filter)
             }
@@ -727,7 +727,7 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
         case .edit, .write, .read:
             return path?.truncatedMiddle(max: 48) ?? kind.displayName
         case .bash:
-            return command?.truncatedMiddle(max: 48) ?? "Shell command"
+            return command?.truncatedMiddle(max: 48) ?? LanguageStore.shared.t("activity.shellCommand")
         default:
             return kind.displayName == "Tool" ? toolName : kind.displayName
         }
@@ -885,15 +885,15 @@ private struct PiAgentActivityDetail: View {
                 }
             case .write:
                 if let preview = item.contentPreview {
-                    PiAgentCodePreview(title: "Content preview", text: preview, maxHeight: 180, lineLimit: 24)
+                    PiAgentCodePreview(title: LanguageStore.shared.t("activity.contentPreview"), text: preview, maxHeight: 180, lineLimit: 24)
                 } else {
                     quietNote(item.detailText)
                 }
             case .bash:
                 if let command = item.command, !command.isEmpty {
-                    PiAgentCodePreview(title: "Command", text: command, maxHeight: 80, lineLimit: 8)
+                    PiAgentCodePreview(title: LanguageStore.shared.t("activity.command"), text: command, maxHeight: 80, lineLimit: 8)
                 }
-                PiAgentCodePreview(title: "Output", text: item.detailText, maxHeight: 180, lineLimit: 32)
+                PiAgentCodePreview(title: LanguageStore.shared.t("activity.output"), text: item.detailText, maxHeight: 180, lineLimit: 32)
             case .web:
                 PiAgentWebActivitySnippet(entry: item.entry)
             case .subagent:
@@ -921,7 +921,7 @@ private struct PiAgentActivityDetail: View {
                 .buttonStyle(.plain)
                 .disabled(resolvedURL(for: path) == nil)
             if let diff = item.diff {
-                AppCopyTextButton(title: "Copy Diff", text: diff)
+                AppCopyTextButton(title: LanguageStore.shared.t("activity.copyDiff"), text: diff)
                     .font(AppTheme.Font.caption.weight(.semibold))
                     .buttonStyle(.plain)
             }

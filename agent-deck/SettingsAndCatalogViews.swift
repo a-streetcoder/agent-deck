@@ -186,7 +186,7 @@ struct ModelsScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             modelsSectionHeader(
                 systemImage: "paperplane",
-                title: "Agent Models",
+                title: LanguageStore.shared.t("settings.agentModels"),
                 showsThinking: true
             )
 
@@ -242,7 +242,7 @@ struct ModelsScreen: View {
                     models: viewModel.cachedEnabledAvailableModels,
                     selectedIdentifier: draft?.config.model,
                     allowsDefault: true,
-                    nilLabel: "Pi default model",
+                    nilLabel: LanguageStore.shared.t("settings.piDefaultModel"),
                     capabilityModel: thinkingModel,
                     onSelect: { model in
                         applyAgentModelChange(agent, modelIdentifier: model?.identifier)
@@ -308,7 +308,7 @@ struct ModelsScreen: View {
         nilLabel: String,
         onSelect: @escaping (AvailableModel?) -> Void
     ) -> some View {
-        Picker("Model", selection: Binding(
+        Picker(LanguageStore.shared.t("settings.model"), selection: Binding(
             get: { selectedIdentifier ?? "" },
             set: { identifier in
                 guard !identifier.isEmpty else {
@@ -380,7 +380,7 @@ struct ModelsScreen: View {
         levels: [String],
         onSelect: @escaping (String) -> Void
     ) -> some View {
-        Picker("Thinking", selection: Binding(
+        Picker(LanguageStore.shared.t("settings.thinking"), selection: Binding(
             get: { selectedLevel },
             set: { level in
                 onSelect(level)
@@ -402,7 +402,7 @@ struct ModelsScreen: View {
     /// "Not available" so rows remain visually consistent with models that do
     /// support thinking (task: no plain "Not supported" text).
     private func disabledThinkingPlaceholder() -> some View {
-        Picker("Thinking", selection: .constant("Not available")) {
+        Picker(LanguageStore.shared.t("settings.thinking"), selection: .constant(LanguageStore.shared.t("settings.notAvailable"))) {
             Text(languageStore.t("models.notAvailable")).tag("Not available")
         }
         .labelsHidden()
@@ -428,7 +428,7 @@ struct ModelsScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             modelsSectionHeader(
                 systemImage: "wand.and.stars",
-                title: "Automation Models",
+                title: LanguageStore.shared.t("settings.automationModels"),
                 showsThinking: false
             )
             modelsBorderedCard {
@@ -446,41 +446,41 @@ struct ModelsScreen: View {
         [
             AutomationModelItem(
                 id: "titles",
-                title: "Session Titles",
-                description: "Generates and refreshes Pi Agent session titles in the background.",
+                title: LanguageStore.shared.t("settings.sessionTitles"),
+                description: LanguageStore.shared.t("settings.agentModelsDesc.sessionTitles"),
                 models: viewModel.automationAvailableModels,
                 selectedIdentifier: viewModel.appSettings.piAgentTitleGenerationModelIdentifier,
-                nilLabel: "Default model",
+                nilLabel: LanguageStore.shared.t("settings.defaultModel"),
                 isDisabled: !viewModel.appSettings.autoGeneratePiAgentSessionTitles,
                 onSelect: { viewModel.setPiAgentTitleGenerationModelIdentifier($0?.identifier) }
             ),
             AutomationModelItem(
                 id: "commits",
-                title: "Git Commit Messages",
+                title: LanguageStore.shared.t("settings.gitCommitMessages"),
                 description: "Drafts commit messages for the Commit and Push toolbar actions.",
                 models: viewModel.automationAvailableModels,
                 selectedIdentifier: viewModel.appSettings.piAgentCommitMessageModelIdentifier,
-                nilLabel: "Default model",
+                nilLabel: LanguageStore.shared.t("settings.defaultModel"),
                 isDisabled: !viewModel.appSettings.piAgentGitAutomationEnabled,
                 onSelect: { viewModel.setPiAgentCommitMessageModelIdentifier($0?.identifier) }
             ),
             AutomationModelItem(
                 id: "avatars",
-                title: "Agent Avatar Prompts",
-                description: "Drafts Image Playground prompts for agent avatars.",
+                title: LanguageStore.shared.t("settings.agentAvatarPrompts"),
+                description: LanguageStore.shared.t("settings.agentModelsDesc.avatars"),
                 models: viewModel.automationAvailableModels,
                 selectedIdentifier: viewModel.appSettings.agentAvatarPromptModelIdentifier,
-                nilLabel: "Default model",
+                nilLabel: LanguageStore.shared.t("settings.defaultModel"),
                 isDisabled: !viewModel.appSettings.autoGenerateAgentAvatarPrompts,
                 onSelect: { viewModel.setAgentAvatarPromptModelIdentifier($0?.identifier) }
             ),
             AutomationModelItem(
                 id: "skills",
-                title: "Skill Summaries",
+                title: LanguageStore.shared.t("settings.skillSummaries"),
                 description: "Powers the ✨ summary action when importing skills.",
                 models: viewModel.automationAvailableModels,
                 selectedIdentifier: viewModel.appSettings.skillDescriptionModelIdentifier,
-                nilLabel: "Default model",
+                nilLabel: LanguageStore.shared.t("settings.defaultModel"),
                 isDisabled: false,
                 onSelect: { viewModel.setSkillDescriptionModelIdentifier($0?.identifier) }
             )
@@ -546,10 +546,10 @@ struct ModelsScreen: View {
                 .foregroundStyle(.primary)
             Spacer(minLength: 12)
             HStack(spacing: AppTheme.contentSpacing) {
-                AgentModelColumnHeader("Model")
+                AgentModelColumnHeader(LanguageStore.shared.t("settings.model"))
                     .frame(width: modelControlWidth, alignment: .leading)
                 if showsThinking {
-                    AgentModelColumnHeader("Thinking")
+                    AgentModelColumnHeader(LanguageStore.shared.t("settings.thinking"))
                         .frame(width: thinkingControlWidth, alignment: .leading)
                 }
             }
@@ -643,9 +643,9 @@ struct ModelsScreen: View {
                     .accessibilityHidden(true)
                 Spacer(minLength: 12)
                 HStack(spacing: AppTheme.contentSpacing) {
-                    AgentModelColumnHeader("Model")
+                    AgentModelColumnHeader(LanguageStore.shared.t("settings.model"))
                         .frame(width: modelControlWidth, alignment: .leading)
-                    AgentModelColumnHeader("Thinking")
+                    AgentModelColumnHeader(LanguageStore.shared.t("settings.thinking"))
                         .frame(width: thinkingControlWidth, alignment: .leading)
                 }
                 .frame(width: modelControlWidth + thinkingControlWidth + AppTheme.contentSpacing, alignment: .leading)
@@ -767,12 +767,12 @@ struct ModelsScreen: View {
                 HStack(spacing: 8) {
                     if FoundationModelAutomationService.isFoundationModel(model) {
                         AppLabelTag(text: "Local", color: .green)
-                        AppLabelTag(text: "Automation Only", color: AppTheme.brandAccent)
+                        AppLabelTag(text: LanguageStore.shared.t("settings.automationOnly"), color: AppTheme.brandAccent)
                     }
-                    AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
+                    AppLabelTag(text: model.supportsThinking ? LanguageStore.shared.t("settings.thinking") : LanguageStore.shared.t("settings.noThinking"), color: model.supportsThinking ? .green : .secondary)
                     AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
                 }
-                Text("ctx \(model.contextWindow) · out \(model.maxOutput ?? "—")")
+                Text(LanguageStore.shared.t("settings.ctxOut", model.contextWindow, model.maxOutput ?? "—"))
                     .font(.footnote.monospaced())
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -1112,9 +1112,9 @@ struct AgentModelQuickEditSectionView: View {
                 HStack(spacing: AppTheme.contentSpacing) {
                     AgentModelColumnHeader("Agent")
                         .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
-                    AgentModelColumnHeader("Model")
+                    AgentModelColumnHeader(LanguageStore.shared.t("settings.model"))
                         .frame(minWidth: 320, maxWidth: .infinity, alignment: .leading)
-                    AgentModelColumnHeader("Thinking")
+                    AgentModelColumnHeader(LanguageStore.shared.t("settings.thinking"))
                         .frame(width: 130, alignment: .leading)
                     AgentModelColumnHeader("")
                         .frame(width: 120, alignment: .trailing)
@@ -1185,8 +1185,8 @@ struct AgentModelQuickEditRow: View {
             }
             .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
 
-            Picker("Model", selection: modelSelectionBinding) {
-                Text("Default").tag("")
+            Picker(LanguageStore.shared.t("settings.model"), selection: modelSelectionBinding) {
+                Text(LanguageStore.shared.t("settings.default")).tag("")
                 ForEach(availableModels, id: \.identifier) { model in
                     Text(model.identifier).tag(model.identifier)
                 }
@@ -1194,20 +1194,20 @@ struct AgentModelQuickEditRow: View {
             .labelsHidden()
             .appMenuPicker()
             .frame(minWidth: 320, maxWidth: .infinity, alignment: .leading)
-            .help(selectedModelMetadataSummary ?? "Use the default model from Sidebar > Models")
+            .help(selectedModelMetadataSummary ?? LanguageStore.shared.t("settings.useDefaultModelHelp"))
 
-            Picker("Thinking", selection: thinkingSelectionBinding) {
+            Picker(LanguageStore.shared.t("settings.thinking"), selection: thinkingSelectionBinding) {
                 ForEach(availableThinkingLevels, id: \.self) { level in
-                    Text(level == "off" ? "Default" : level.capitalized).tag(level)
+                    Text(level == "off" ? LanguageStore.shared.t("settings.default") : level.capitalized).tag(level)
                 }
             }
             .labelsHidden()
             .appMenuPicker()
             .frame(width: 130, alignment: .leading)
             .disabled(availableThinkingLevels.isEmpty)
-            .help(usesDefaultModel ? "Override thinking while using Pi's default model" : "Override thinking for the selected model")
+            .help(usesDefaultModel ? LanguageStore.shared.t("settings.overrideThinkingDefaultHelp") : LanguageStore.shared.t("settings.overrideThinkingSelectedHelp"))
 
-            Text(selectedModelMetadataSummary ?? "Default")
+            Text(selectedModelMetadataSummary ?? LanguageStore.shared.t("settings.default"))
                 .font(.caption.monospaced())
                 .foregroundStyle(AppTheme.mutedText)
                 .lineLimit(1)

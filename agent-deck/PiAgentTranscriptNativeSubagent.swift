@@ -104,7 +104,7 @@ private final class PiAgentNativeSubagentGlyph: NSView, NSPopoverDelegate {
         avatar.layer?.cornerRadius = 14
         avatar.layer?.masksToBounds = true
         addSubview(avatar)
-        setAccessibilityLabel("Agent profile for \(profile?.agentName ?? "agent")")
+        setAccessibilityLabel(LanguageStore.shared.t("native.agentProfileFor", profile?.agentName ?? "agent"))
         setAccessibilityHelp("Hover to view this agent's profile.")
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 34),
@@ -128,7 +128,7 @@ private final class PiAgentNativeSubagentGlyph: NSView, NSPopoverDelegate {
             dismissProfilePopover()
         }
         self.profile = profile
-        setAccessibilityLabel("Agent profile for \(profile?.agentName ?? "agent")")
+        setAccessibilityLabel(LanguageStore.shared.t("native.agentProfileFor", profile?.agentName ?? "agent"))
         bgLayer.fillColor = color.withAlphaComponent(isActive ? 0.12 : 0.08).cgColor
         strokeLayer.strokeColor = color.withAlphaComponent(isActive ? 0.30 : 0.16).cgColor
         // Comet profile: transparent tail rising to a bright head.
@@ -315,7 +315,7 @@ final class PiAgentNativeExpandableMarkdown: NSView {
         toggle.target = self
         toggle.action = #selector(toggleTapped)
         toggle.toolTip = "Show more or less task detail"
-        toggle.setAccessibilityLabel("Show more or less task detail")
+        toggle.setAccessibilityLabel(LanguageStore.shared.t("native.showTaskDetail"))
         toggle.isHidden = true
         addSubview(toggle)
 
@@ -939,12 +939,12 @@ extension NativeAgentBlockPayload {
         var actions: [Action] = [
             Action(symbol: "info.circle", help: "Run details") { sender in
                 let pop = NSPopover(); pop.behavior = .transient
-                pop.contentViewController = PiAgentNativeKeyValuePopover(title: "Run details", rows: detailRows, revealAction: canReveal ? onReveal : nil)
+                pop.contentViewController = PiAgentNativeKeyValuePopover(title: LanguageStore.shared.t("native.runDetails"), rows: detailRows, revealAction: canReveal ? onReveal : nil)
                 pop.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
             },
             Action(symbol: "doc.text.magnifyingglass", help: "Final runtime system prompt", isEnabled: canSys) { sender in
                 let text = (try? String(contentsOf: sysPromptURL, encoding: .utf8)) ?? "System prompt unavailable."
-                NativeSubagentFactory.showTextPopover(title: "Final Runtime System Prompt", text: text, from: sender)
+                NativeSubagentFactory.showTextPopover(title: LanguageStore.shared.t("native.finalRuntimeSystemPrompt"), text: text, from: sender)
             },
             Action(symbol: "text.bubble", help: "Open transcript") { _ in onTranscript() }
         ]
@@ -999,7 +999,7 @@ extension NativeSubagentParallelPayload {
             var actions: [NativeAgentBlockPayload.Action] = [
                 .init(symbol: "doc.text.magnifyingglass", help: "Final runtime system prompt", isEnabled: canSys) { sender in
                     let text = (try? String(contentsOf: sysURL, encoding: .utf8)) ?? "System prompt unavailable."
-                    NativeSubagentFactory.showTextPopover(title: "Final Runtime System Prompt", text: text, from: sender)
+                    NativeSubagentFactory.showTextPopover(title: LanguageStore.shared.t("native.finalRuntimeSystemPrompt"), text: text, from: sender)
                 }
             ]
             if let execID = child.executionRunID {
@@ -1026,7 +1026,7 @@ extension NativeSubagentParallelPayload {
             )
         }
         return NativeSubagentParallelPayload(
-            title: "Parallel agents",
+            title: LanguageStore.shared.t("native.parallelAgents"),
             count: children.count,
             statusText: run.status.rawValue.capitalized,
             statusColor: NativeSubagentFactory.statusColor(run.status),
@@ -1214,12 +1214,12 @@ private final class PiAgentNativeProfilePopoverController: NSViewController {
             stack.addArrangedSubview(divider())
         }
         if let description {
-            let section = profileSection(title: "Description", text: description)
+            let section = profileSection(title: LanguageStore.shared.t("native.description"), text: description)
             stack.addArrangedSubview(section)
             section.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         if let whenToUse {
-            let section = profileSection(title: "When to use", text: whenToUse)
+            let section = profileSection(title: LanguageStore.shared.t("native.whenToUse"), text: whenToUse)
             stack.addArrangedSubview(section)
             section.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
@@ -1318,7 +1318,7 @@ final class PiAgentNativeKeyValuePopover: NSViewController {
             stack.addArrangedSubview(row)
         }
         if revealAction != nil {
-            let reveal = NSButton(title: "Reveal Run Folder", target: self, action: #selector(revealTapped))
+            let reveal = NSButton(title: LanguageStore.shared.t("native.revealRunFolder"), target: self, action: #selector(revealTapped))
             reveal.bezelStyle = .rounded
             reveal.controlSize = .small
             stack.addArrangedSubview(reveal)

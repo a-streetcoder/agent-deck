@@ -150,7 +150,7 @@ struct AddProviderFlowSheet: View {
                         .font(.headline)
                 }
                 .buttonStyle(.plain)
-                .help("Back")
+                .help(LanguageStore.shared.t("provider.back"))
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(headerTitle)
@@ -178,10 +178,10 @@ struct AddProviderFlowSheet: View {
 
     private var headerSubtitle: String? {
         switch step {
-        case .picker: return "Sign in to a model provider without leaving Agent Deck."
+        case .picker: return LanguageStore.shared.t("provider.signInHelp")
         case .method: return "Select authentication method"
         case .apiKey: return "Pi will guide you through provider setup"
-        case .oauth: return "Your browser may open to finish signing in"
+        case .oauth: return LanguageStore.shared.t("provider.browserMayOpen")
         }
     }
 
@@ -199,7 +199,7 @@ struct AddProviderFlowSheet: View {
 
     private var pickerBody: some View {
         VStack(alignment: .leading, spacing: 10) {
-            AppTextField(text: $search, placeholder: "Search providers")
+            AppTextField(text: $search, placeholder: LanguageStore.shared.t("provider.search"))
                 .padding(.horizontal, 18)
                 .padding(.top, 14)
 
@@ -211,7 +211,7 @@ struct AddProviderFlowSheet: View {
                             .padding(.vertical, 40)
                     } else if let error = viewModel.connectableProvidersError, allProviders.isEmpty {
                         ContentUnavailableView {
-                            Label("Providers unavailable", systemImage: "exclamationmark.triangle")
+                            Label(LanguageStore.shared.t("provider.unavailable"), systemImage: "exclamationmark.triangle")
                         } description: {
                             Text(error)
                         } actions: {
@@ -220,8 +220,8 @@ struct AddProviderFlowSheet: View {
                         }
                         .padding(.vertical, 24)
                     } else {
-                        providerGroup("Subscriptions", providers: filtered(subscriptionProviders))
-                        providerGroup("API key", providers: filtered(apiKeyProviders))
+                        providerGroup(LanguageStore.shared.t("provider.subscriptions"), providers: filtered(subscriptionProviders))
+                        providerGroup(LanguageStore.shared.t("provider.apiKeyGroup"), providers: filtered(apiKeyProviders))
                     }
                 }
                 .padding(.horizontal, 18)
@@ -259,14 +259,14 @@ struct AddProviderFlowSheet: View {
     private func methodBody(_ provider: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             methodOption(
-                title: "Use a subscription",
-                detail: "Sign in with your \(providerName(for: provider)) account in the browser.",
+                title: LanguageStore.shared.t("provider.useSubscription"),
+                detail: LanguageStore.shared.t("provider.subscriptionDetail", providerName(for: provider)),
                 systemImage: "person.crop.circle"
             ) { step = .oauth(provider: provider) }
 
             methodOption(
-                title: "Use an API key",
-                detail: "Paste an API key for this provider.",
+                title: LanguageStore.shared.t("provider.useApiKey"),
+                detail: LanguageStore.shared.t("provider.apiKeyDetail"),
                 systemImage: "key"
             ) { step = .apiKey(provider: provider) }
         }
@@ -426,14 +426,14 @@ struct ProviderLoginPhaseView: View {
 
             case let .opening(_, instructions):
                 VStack(alignment: .leading, spacing: 10) {
-                    busyRow("Opened your browser to continue.")
+                    busyRow(LanguageStore.shared.t("provider.openedBrowser"))
                     if let instructions, !instructions.isEmpty {
                         Text(instructions)
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Button("Open browser again") { service.reopenBrowser() }
+                    Button(LanguageStore.shared.t("provider.openBrowserAgain")) { service.reopenBrowser() }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
                 }
@@ -443,7 +443,7 @@ struct ProviderLoginPhaseView: View {
                     Text(message)
                         .font(.subheadline)
                     promptField(kind: kind, placeholder: placeholder, promptID: promptID)
-                    Button("Continue") { submit(promptID, kind: kind) }
+                    Button(LanguageStore.shared.t("provider.continue")) { submit(promptID, kind: kind) }
                         .appPrimaryButton()
                         .disabled(kind.requiresNonEmptyEntry && pasteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -476,12 +476,12 @@ struct ProviderLoginPhaseView: View {
 
             case let .deviceCode(userCode, _):
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Enter this code on the verification page:")
+                    Text(LanguageStore.shared.t("provider.enterCode"))
                         .font(.subheadline)
                     Text(userCode)
                         .font(.title2.monospaced().weight(.semibold))
                         .textSelection(.enabled)
-                    Button("Open verification page") { service.openVerificationPage() }
+                    Button(LanguageStore.shared.t("provider.openVerification")) { service.openVerificationPage() }
                         .appPrimaryButton()
                     busyRow("Waiting for you to authorize…")
                 }
@@ -494,13 +494,13 @@ struct ProviderLoginPhaseView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.title3)
-                    Text("Signed in.")
+                    Text(LanguageStore.shared.t("provider.signedIn"))
                         .font(.subheadline.weight(.semibold))
                 }
 
             case let .failure(message):
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Couldn't sign in", systemImage: "exclamationmark.triangle.fill")
+                    Label(LanguageStore.shared.t("provider.couldNotSignIn"), systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.orange)
                     Text(message)

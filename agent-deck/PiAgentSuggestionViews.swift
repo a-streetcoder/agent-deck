@@ -166,7 +166,7 @@ struct PiAgentCommandSuggestions: View {
             // row so the user knows to keep typing to narrow things down.
             if kind == .file && items.count >= 10 {
                 Spacer(minLength: 8)
-                Text("showing top 10 — keep typing to refine")
+                Text(LanguageStore.shared.t("suggest.showingTop10"))
                     .font(AppTheme.Font.caption2.italic())
             }
         }
@@ -321,8 +321,8 @@ struct PiAgentSlashSuggestions: View {
                         .appActionTarget()
                 }
                 .buttonStyle(.plain)
-                .help("Back")
-                .accessibilityLabel("Back")
+                .help(LanguageStore.shared.t("suggest.back"))
+                .accessibilityLabel(LanguageStore.shared.t("suggest.back"))
             }
             Text(title)
                 .font(AppTheme.Font.caption2.weight(.semibold))
@@ -598,7 +598,7 @@ struct PiAgentExtensionNotifySheet: View {
                 size: CGSize(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
             )
             Spacer(minLength: 0)
-            Button("OK", action: onDismiss)
+            Button(LanguageStore.shared.t("common.ok"), action: onDismiss)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
         }
@@ -1032,7 +1032,7 @@ private extension PiAgentUIRequest {
     let answer = PiAgentTranscriptEntry(
         sessionID: UUID(),
         role: .user,
-        title: "Ask User Response",
+        title: LanguageStore.shared.t("suggest.askUserResponse"),
         text: "Keep it right aligned, but use the Ask User symbol and call it Answer."
     )
 

@@ -138,7 +138,7 @@ struct EnvironmentScreen: View {
                     Button {
                         toggleReveal(for: record.key)
                     } label: {
-                        Label(revealedKeys.contains(record.key) ? "Hide" : "Reveal", systemImage: revealedKeys.contains(record.key) ? "eye.slash" : "eye")
+                        Label(revealedKeys.contains(record.key) ? LanguageStore.shared.t("doctor.hide") : LanguageStore.shared.t("doctor.reveal"), systemImage: revealedKeys.contains(record.key) ? "eye.slash" : "eye")
                     }
                     .labelStyle(.iconOnly)
                     .help(revealedKeys.contains(record.key) ? "Hide value" : "Reveal value")
@@ -292,7 +292,7 @@ struct DoctorScreen: View {
     // MARK: - Pi Agent
 
     private var piAgentSection: some View {
-        AppCard(title: "Pi Runtime") {
+        AppCard(title: LanguageStore.shared.t("doctor.piRuntime")) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: 16) {
                     ZStack {
@@ -310,7 +310,7 @@ struct DoctorScreen: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .center, spacing: 8) {
-                            Text("Pi")
+                            Text(LanguageStore.shared.t("doctor.pi"))
                                 .font(.title3.weight(.semibold))
                                 .fontWidth(.expanded)
                             if let version = piRuntimeStatus?.currentVersion, !version.isEmpty {
@@ -463,7 +463,7 @@ struct DoctorScreen: View {
                 HStack(spacing: 8) {
                     Button(languageStore.t("common.tryAgain")) { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
                         .appPrimaryButton()
-                    Button(isUpdate ? "Update in Terminal" : "Install in Terminal") {
+                    Button(isUpdate ? LanguageStore.shared.t("doctor.updateInTerminal") : LanguageStore.shared.t("doctor.installInTerminal")) {
                         if isUpdate {
                             viewModel.openPiSelfUpdateInTerminal()
                         } else {
@@ -476,7 +476,7 @@ struct DoctorScreen: View {
         case .idle, .succeeded:
             HStack(spacing: 8) {
                 DoctorCopyCommandButton(command: isUpdate ? piUpdateCommandHint : piInstallCommandHint)
-                Button(isUpdate ? "Update Pi" : "Install Pi") { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
+                Button(isUpdate ? LanguageStore.shared.t("doctor.updatePi") : LanguageStore.shared.t("doctor.installPi")) { runPiAutoTask(isUpdate: isUpdate, targetVersion: targetVersion) }
                     .appPrimaryButton()
             }
         }
@@ -913,7 +913,7 @@ struct DoctorScreen: View {
     // MARK: - Settings
 
     private var settingsSection: some View {
-        AppCard(title: "Settings Files") {
+        AppCard(title: LanguageStore.shared.t("doctor.settingsFiles")) {
             if snapshot.settings.isEmpty {
                 Text(languageStore.t("doctor.noSettings"))
                     .foregroundStyle(AppTheme.mutedText)
@@ -1014,7 +1014,7 @@ struct DoctorScreen: View {
     // MARK: - Warnings
 
     private var warningsSection: some View {
-        AppCard(title: "Warnings") {
+        AppCard(title: LanguageStore.shared.t("doctor.warnings")) {
             if snapshot.warnings.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
@@ -1087,7 +1087,7 @@ private struct DoctorCopyCommandButton: View {
                     .font(.caption.weight(.semibold))
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 38)
-                    .accessibilityLabel(copied ? "Copied" : "Copy command")
+                    .accessibilityLabel(copied ? LanguageStore.shared.t("doctor.copied") : LanguageStore.shared.t("doctor.copyCommand"))
             }
             .frame(height: 32)
             .foregroundStyle(.primary)

@@ -749,7 +749,7 @@ struct PiAgentSubagentPopover: View {
                 Label(LanguageStore.shared.t("composer.deckAgents"), systemImage: "paperplane")
                     .font(AppTheme.Font.body.weight(.medium))
                 Spacer(minLength: 24)
-                Toggle("Deck agents", isOn: $isEnabled)
+                Toggle(LanguageStore.shared.t("composer.deckAgents"), isOn: $isEnabled)
                     .appSwitch()
                     .labelsHidden()
             }
@@ -1428,7 +1428,7 @@ struct PiAgentThinkingStatus: View {
     let level: String?
 
     var body: some View {
-        Label("Thinking: \(displayLevel)", systemImage: "brain.head.profile")
+        Label(LanguageStore.shared.t("composer.thinkingLevel", displayLevel), systemImage: "brain.head.profile")
             .font(AppTheme.Font.footnote.weight(.semibold))
             .lineLimit(1)
             .padding(.horizontal, 10)
@@ -1821,7 +1821,7 @@ struct PiAgentCostBreakdownPopover: View {
             if displaySources.count > 1 {
                 AppPopoverFooter {
                     HStack(spacing: Self.columnSpacing) {
-                        Text("Total")
+                        Text(LanguageStore.shared.t("composer.total"))
                             .font(AppTheme.Font.caption.weight(.bold))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         rowTotalTokensText(aggregate.totalTokens)
@@ -1909,13 +1909,13 @@ struct PiAgentCostBreakdownPopover: View {
 
     private var costPopoverHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.columnSpacing) {
-            Text("Token cost")
+            Text(LanguageStore.shared.t("composer.tokenCost"))
                 .font(AppTheme.Popover.titleFont)
                 .foregroundStyle(Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("Tokens")
+            Text(LanguageStore.shared.t("composer.tokens"))
                 .frame(width: Self.tokenColumnWidth, alignment: .trailing)
-            Text("Cost")
+            Text(LanguageStore.shared.t("composer.cost"))
                 .frame(width: Self.costColumnWidth, alignment: .trailing)
         }
         .font(AppTheme.Font.caption2.weight(.semibold))
@@ -2207,7 +2207,7 @@ struct PiAgentThinkingPicker: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "brain.head.profile")
-                Text("Thinking: \(displayLevel.capitalized)")
+                Text(LanguageStore.shared.t("composer.thinkingLevel", displayLevel.capitalized))
                     .lineLimit(1)
                     .truncationMode(.head)
                 Image(systemName: "chevron.down")
@@ -2229,7 +2229,7 @@ struct PiAgentThinkingPicker: View {
                     HStack(spacing: 10) {
                         AppSpinner()
                             .controlSize(.small)
-                        Text("Loading")
+                        Text(LanguageStore.shared.t("composer.loading"))
                             .font(AppTheme.Popover.emptyBodyFont)
                             .foregroundStyle(AppTheme.mutedText)
                         Spacer(minLength: 0)
@@ -2253,7 +2253,7 @@ struct PiAgentThinkingPicker: View {
                 }
             }
         }
-        .help(isRunning ? "Change thinking level" : "Choose thinking level for this session before launch")
+        .help(isRunning ? LanguageStore.shared.t("composer.changeThinking") : LanguageStore.shared.t("composer.chooseThinking"))
         .onChange(of: normalizedLevel) { _, _ in
             optimisticLevel = nil
         }

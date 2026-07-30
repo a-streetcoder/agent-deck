@@ -1483,10 +1483,10 @@ struct ContentView: View {
                 Button {
                     isPiAgentTranscriptOptionsPresented.toggle()
                 } label: {
-                    Label("Transcript Display", systemImage: "eye")
+                    Label(LanguageStore.shared.t("toolbar.transcriptDisplay"), systemImage: "eye")
                 }
                 .toolbarNeutralChrome()
-                .help("Choose what appears in the agent transcript")
+                .help(LanguageStore.shared.t("toolbar.transcriptDisplayHelp"))
                 .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
                     PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
                 }
@@ -1494,10 +1494,10 @@ struct ContentView: View {
                 Button {
                     isPiAgentSystemPromptPresented.toggle()
                 } label: {
-                    Label("System Prompt", systemImage: "doc.text.magnifyingglass")
+                    Label(LanguageStore.shared.t("toolbar.systemPrompt"), systemImage: "doc.text.magnifyingglass")
                 }
                 .toolbarNeutralChrome()
-                .help("View the final system prompt sent to the agent")
+                .help(LanguageStore.shared.t("toolbar.systemPromptHelp"))
                 .disabled((viewModel.piAgentSessionStore.selectedSession?.finalSystemPrompt ?? "").isEmpty)
                 .sheet(isPresented: $isPiAgentSystemPromptPresented) {
                     if let prompt = viewModel.piAgentSessionStore.selectedSession?.finalSystemPrompt, !prompt.isEmpty {
@@ -1521,7 +1521,7 @@ struct ContentView: View {
                         PiAgentMergeToolbarButton(viewModel: viewModel)
                     }
                 } label: {
-                    Label("Git Actions", systemImage: "checkmark")
+                    Label(LanguageStore.shared.t("toolbar.gitActions"), systemImage: "checkmark")
                 }
                 .toolbarNeutralChrome()
             }
@@ -1626,8 +1626,8 @@ struct ContentView: View {
 
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {
         AgentModelQuickEditorContext(
-            title: "Agent Models",
-            subtitle: "Quick edits for agents visible in the current global view.",
+            title: LanguageStore.shared.t("toolbar.agentModelsTitle"),
+            subtitle: LanguageStore.shared.t("toolbar.agentModelsSubtitle"),
             sections: currentAgentModelQuickEditorSections,
             preferredOverrideScope: .global
         )
@@ -1656,8 +1656,8 @@ struct ContentView: View {
             return !isPlainBuiltin
         }
         return [
-            AgentModelQuickEditorSection(title: "Custom Agents", agents: sortedUnique(editableNonBuiltinAgents)),
-            AgentModelQuickEditorSection(title: "Builtin Agents", agents: builtinAgents)
+            AgentModelQuickEditorSection(title: LanguageStore.shared.t("toolbar.customAgents"), agents: sortedUnique(editableNonBuiltinAgents)),
+            AgentModelQuickEditorSection(title: LanguageStore.shared.t("toolbar.builtinAgents"), agents: builtinAgents)
         ]
     }
 

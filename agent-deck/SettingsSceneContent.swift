@@ -604,9 +604,9 @@ private struct AppearanceSettingsTab: View {
         SettingsSection {
             groupHeader("Chat")
             SettingsToggleRow(
-                title: "Markdown:",
-                label: "Use theme colors in Pi Agent replies",
-                note: "On uses the active theme for Markdown headings, emphasis, inline code, links, and list markers. Off keeps the current neutral rendering.",
+                title: LanguageStore.shared.t("settings.markdown"),
+                label: LanguageStore.shared.t("settings.useThemeColors"),
+                note: LanguageStore.shared.t("settings.markdownNote"),
                 isOn: Binding(
                     get: { viewModel.appSettings.piAgentMarkdownHighlightingEnabled },
                     set: { viewModel.setPiAgentMarkdownHighlightingEnabled($0) }
@@ -624,7 +624,7 @@ private struct AppearanceSettingsTab: View {
 
             let customThemes = viewModel.appSettings.customThemes
             if !customThemes.isEmpty {
-                groupHeader("My Themes")
+                groupHeader(LanguageStore.shared.t("settings.myThemes"))
                 ForEach(customThemes) { themeRow($0) }
             }
 
@@ -632,9 +632,9 @@ private struct AppearanceSettingsTab: View {
                 .padding(.vertical, 4)
 
             HStack(spacing: 8) {
-                Button("New Theme", action: createTheme)
+                Button(LanguageStore.shared.t("settings.newTheme"), action: createTheme)
                     .appSecondaryButton()
-                Button("Duplicate", action: duplicateSelectedTheme)
+                Button(LanguageStore.shared.t("settings.duplicate"), action: duplicateSelectedTheme)
                     .appSecondaryButton()
                 if isEditingCustomTheme {
                     Button(LanguageStore.shared.t("common.delete"), role: .destructive) { isConfirmingDelete = true }
@@ -643,13 +643,13 @@ private struct AppearanceSettingsTab: View {
                 Spacer(minLength: 0)
             }
         }
-        .alert("Delete “\(selectedTheme.name)”?", isPresented: $isConfirmingDelete) {
-            Button("Cancel", role: .cancel) {}
+        .alert(LanguageStore.shared.t("settings.deleteThemeTitle", selectedTheme.name), isPresented: $isConfirmingDelete) {
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
             Button(LanguageStore.shared.t("common.delete"), role: .destructive) {
                 viewModel.deleteCustomTheme(id: selectedTheme.id)
             }
         } message: {
-            Text("This custom theme will be removed. Built-in presets are not affected.")
+            Text(LanguageStore.shared.t("settings.themeRemoveBody"))
         }
     }
 
@@ -700,15 +700,15 @@ private struct AppearanceSettingsTab: View {
 
     private var editorSection: some View {
         SettingsSection {
-            SettingsRow(title: "Theme name:") {
-                AppTextField(text: nameBinding, placeholder: "Theme name")
+            SettingsRow(title: LanguageStore.shared.t("settings.themeName")) {
+                AppTextField(text: nameBinding, placeholder: LanguageStore.shared.t("settings.themeNameA11y"))
                     .frame(width: 220)
             }
             colorRow("Background", \.background, note: "The window and app canvas.")
             colorRow("Surface", \.surface, note: "Panels, cards, sidebar, and list rows.")
             colorRow("Border", \.stroke, note: "Separators and card outlines.")
-            colorRow("Accent", \.accent, note: "Buttons, links, and selection highlights.")
-            colorRow("You", \.assistant, note: "User-side transcript bubbles and secondary accents.")
+            colorRow(LanguageStore.shared.t("settings.colorAccent"), \.accent, note: LanguageStore.shared.t("settings.colorAccentNote"))
+            colorRow(LanguageStore.shared.t("settings.colorYou"), \.assistant, note: LanguageStore.shared.t("settings.colorYouNote"))
             colorRow("Thinking", \.thinking)
             colorRow("Tool calls", \.tool)
             colorRow("Errors", \.error)
@@ -719,15 +719,15 @@ private struct AppearanceSettingsTab: View {
             colorRow("Project source", \.sourceProject, note: "Avatar tint for project-assigned items.")
 
             SettingsRow(
-                title: "Accent shades:",
+                title: LanguageStore.shared.t("settings.accentShades"),
                 alignment: .top,
-                note: "Auto-derived from the accent for gradients and depth."
+                note: LanguageStore.shared.t("settings.accentShadesNote")
             ) {
                 HStack(spacing: 8) {
-                    derivedSwatch(draft.accentBright, label: "Bright")
-                    derivedSwatch(draft.accent, label: "Accent")
-                    derivedSwatch(draft.accentDeep, label: "Deep")
-                    derivedSwatch(draft.accentShadow, label: "Shadow")
+                    derivedSwatch(draft.accentBright, label: LanguageStore.shared.t("settings.colorBright"))
+                    derivedSwatch(draft.accent, label: LanguageStore.shared.t("settings.colorAccent"))
+                    derivedSwatch(draft.accentDeep, label: LanguageStore.shared.t("settings.colorDeep"))
+                    derivedSwatch(draft.accentShadow, label: LanguageStore.shared.t("settings.colorShadow"))
                 }
             }
         }
@@ -772,14 +772,14 @@ private struct AppearanceSettingsTab: View {
         SettingsSection {
             groupHeader("Preview")
             VStack(alignment: .leading, spacing: 8) {
-                previewBubble(previewTheme.assistant, systemIcon: "person.fill", role: "You", text: "Add a theme picker to the settings screen.")
-                previewBubble(previewTheme.accent, assetIcon: "pi", role: "Assistant", text: "I fixed the custom theme alignment and corrected the color mapping.")
-                previewBubble(previewTheme.thinking, systemIcon: "brain.head.profile", role: "Thinking", text: "Weighing a few layout options…")
-                previewBubble(previewTheme.tool, systemIcon: "wrench.and.screwdriver.fill", role: "Tool", text: "Edit DesignSystem.swift")
-                previewBubble(previewTheme.error, systemIcon: "exclamationmark.triangle.fill", role: "Error", text: "Could not read the file.")
+                previewBubble(previewTheme.assistant, systemIcon: "person.fill", role: LanguageStore.shared.t("settings.roleYou"), text: "Add a theme picker to the settings screen.")
+                previewBubble(previewTheme.accent, assetIcon: "pi", role: LanguageStore.shared.t("settings.roleAssistant"), text: "I fixed the custom theme alignment and corrected the color mapping.")
+                previewBubble(previewTheme.thinking, systemIcon: "brain.head.profile", role: LanguageStore.shared.t("settings.roleThinking"), text: "Weighing a few layout options…")
+                previewBubble(previewTheme.tool, systemIcon: "wrench.and.screwdriver.fill", role: LanguageStore.shared.t("settings.roleTool"), text: "Edit DesignSystem.swift")
+                previewBubble(previewTheme.error, systemIcon: "exclamationmark.triangle.fill", role: LanguageStore.shared.t("settings.roleError"), text: "Could not read the file.")
 
                 HStack(spacing: 12) {
-                    Text("Primary Action")
+                    Text(LanguageStore.shared.t("settings.primaryAction"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)

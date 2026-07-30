@@ -706,7 +706,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.spacing = 8
         header.alignment = .centerY
         header.addArrangedSubview(Self.headerGlyph(AppSymbols.mcp, isAsset: true, tint: mcp.hasErrors ? AppTheme.ns(AppTheme.roleError) : Self.muted))
-        header.addArrangedSubview(Self.headerLabel("MCP"))
+        header.addArrangedSubview(Self.headerLabel(LanguageStore.shared.t("tool.mcp")))
         stack.addArrangedSubview(header)
 
         for row in mcp.rows {
@@ -763,7 +763,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         // response, and the user must be able to read it (Copy is inside the modal).
         if let result = row.resultPreview, !result.isEmpty {
             mcpResultByRowID[row.id.uuidString] = (server: row.server, tool: row.tool, result: result, blocks: row.resultBlocks)
-            let viewBtn = NSButton(title: "View", target: self, action: #selector(openMCPResult(_:)))
+            let viewBtn = NSButton(title: LanguageStore.shared.t("tool.view"), target: self, action: #selector(openMCPResult(_:)))
             viewBtn.bezelStyle = .rounded
             viewBtn.controlSize = .small
             viewBtn.font = NativeTranscriptFont.caption2(.semibold)
@@ -846,7 +846,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.alignment = .centerY
         header.spacing = 7
         header.addArrangedSubview(Self.headerGlyph("photo", tint: Self.muted))
-        header.addArrangedSubview(Self.headerLabel("Images"))
+        header.addArrangedSubview(Self.headerLabel(LanguageStore.shared.t("tool.images")))
         header.addArrangedSubview(Self.label(images.references.count == 1 ? "1 image" : "\(images.references.count) images", font: NativeTranscriptFont.caption2(), color: .secondaryLabelColor, wraps: false))
         if images.hiddenCount > 0 {
             header.addArrangedSubview(Self.label("+\(images.hiddenCount) more", font: NativeTranscriptFont.caption2(), color: .tertiaryLabelColor, wraps: false))
@@ -986,7 +986,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
                 sourceRow.widthAnchor.constraint(equalTo: sources.widthAnchor).isActive = true
             }
             if row.links.count > Self.inlineLinkLimit {
-                let more = NSButton(title: expanded ? "Show fewer results" : "+\(row.links.count - Self.inlineLinkLimit) more results",
+                let more = NSButton(title: expanded ? LanguageStore.shared.t("tool.showFewer") : LanguageStore.shared.t("tool.moreResults", row.links.count - Self.inlineLinkLimit),
                                     target: self, action: #selector(toggleWebRow(_:)))
                 more.isBordered = false
                 more.bezelStyle = .inline
@@ -1025,7 +1025,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         header.spacing = 8
         header.alignment = .centerY
         header.addArrangedSubview(Self.headerGlyph("plusminus", tint: Self.muted))
-        header.addArrangedSubview(Self.headerLabel("Changes"))
+        header.addArrangedSubview(Self.headerLabel(LanguageStore.shared.t("tool.changes")))
         stack.addArrangedSubview(header)
 
         for row in diff.rows {
@@ -1062,12 +1062,12 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         head.addArrangedSubview(pathLabel)
         head.addArrangedSubview(Self.diffCountLabel(row.changeCountText))
         head.addArrangedSubview(NSView())  // spacer
-        let openBtn = NSButton(title: "Open", target: self, action: #selector(openDiff(_:)))
+        let openBtn = NSButton(title: LanguageStore.shared.t("tool.open"), target: self, action: #selector(openDiff(_:)))
         openBtn.bezelStyle = .rounded
         openBtn.controlSize = .small
         openBtn.font = NativeTranscriptFont.caption2(.semibold)
         openBtn.identifier = NSUserInterfaceItemIdentifier(row.path)
-        let copyBtn = NSButton(title: "Copy", target: self, action: #selector(copyDiff(_:)))
+        let copyBtn = NSButton(title: LanguageStore.shared.t("tool.copy"), target: self, action: #selector(copyDiff(_:)))
         copyBtn.bezelStyle = .rounded
         copyBtn.controlSize = .small
         copyBtn.font = NativeTranscriptFont.caption2(.semibold)
@@ -1282,7 +1282,7 @@ private final class PiAgentNativeWebSourceRow: NativeAccessiblePressableView {
         domainLabel.stringValue = (displayTitle == domain) ? "" : domain
         domainLabel.isHidden = domainLabel.stringValue.isEmpty
         toolTip = url
-        setAccessibilityLabel("Open web source \(displayTitle)")
+        setAccessibilityLabel(LanguageStore.shared.t("tool.openWebSource", displayTitle))
     }
 
     override func updateTrackingAreas() {

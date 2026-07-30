@@ -85,7 +85,7 @@ struct PiAgentStartupResourcesPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AppPopoverHeader(title: "Session resources")
+            AppPopoverHeader(title: LanguageStore.shared.t("startup.sessionResources"))
 
             Divider()
 
@@ -319,16 +319,16 @@ struct PiAgentStartupResourcesPopover: View {
 
     private var agentItems: [PiStartupResourceItem] {
         guard !session.isNoProject else {
-            return [.init(title: "General Chat session", detail: "Project-scoped Deck agents are not injected.", kind: .none)]
+            return [.init(title: LanguageStore.shared.t("startup.generalChatSession"), detail: "Project-scoped Deck agents are not injected.", kind: .none)]
         }
         guard session.subagentsEnabled else {
-            return [.init(title: "This session started with Deck agents disabled", detail: "Re-enable Deck agents before creating a new session if you want agent discovery again.", kind: .none)]
+            return [.init(title: LanguageStore.shared.t("startup.generalChatAgentsOff"), detail: "Re-enable Deck agents before creating a new session if you want agent discovery again.", kind: .none)]
         }
 
         let enabled = viewModel.catalogAgents(for: session)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         guard !enabled.isEmpty else {
-            return [.init(title: "No Deck agents selected for this session", detail: "This session runs without Deck agent delegation.", kind: .none)]
+            return [.init(title: LanguageStore.shared.t("startup.noDeckAgentsSelected"), detail: LanguageStore.shared.t("startup.noAgentsDetail"), kind: .none)]
         }
         return enabled.map { agent in
             let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -343,10 +343,10 @@ struct PiAgentStartupResourcesPopover: View {
 
     private var memoryItems: [PiStartupResourceItem] {
         guard !session.isNoProject else {
-            return [.init(title: "General Chat session", detail: "Project memory is not injected.", kind: .none)]
+            return [.init(title: LanguageStore.shared.t("startup.generalChatSession"), detail: "Project memory is not injected.", kind: .none)]
         }
         guard session.memoryEnabled else {
-            return [.init(title: "This session started with Memory disabled", detail: "Enable Memory before starting a new session if you want recall and capture again.", kind: .none)]
+            return [.init(title: LanguageStore.shared.t("startup.generalChatMemoryOff"), detail: "Enable Memory before starting a new session if you want recall and capture again.", kind: .none)]
         }
         let recalledCount = session.recalledMemoryIDs?.count ?? 0
         let title: String
@@ -773,9 +773,9 @@ struct PiAgentSessionSubagentPickerCard: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(isExpanded ? "Collapse Deck agents" : "Expand Deck agents")
+                .accessibilityLabel(isExpanded ? LanguageStore.shared.t("startup.collapseDeckAgents") : LanguageStore.shared.t("startup.expandDeckAgents"))
                 .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-                .help(isExpanded ? "Collapse Deck agents" : "Expand Deck agents")
+                .help(isExpanded ? LanguageStore.shared.t("startup.collapseDeckAgents") : LanguageStore.shared.t("startup.expandDeckAgents"))
             }
         }
     }
@@ -786,7 +786,7 @@ struct PiAgentSessionSubagentPickerCard: View {
     /// of silently resetting (the launcher consumes `subagentsEnabled` at first
     /// send to decide whether Pi gets the Deck agent tools at all).
     private var enabledSwitch: some View {
-        Toggle("Deck agents", isOn: Binding(
+        Toggle(LanguageStore.shared.t("startup.deckAgents"), isOn: Binding(
             get: { session.subagentsEnabled },
             set: { newValue in
                 if !newValue { setExpanded(false) }
@@ -797,8 +797,8 @@ struct PiAgentSessionSubagentPickerCard: View {
         .labelsHidden()
         .controlSize(.small)
         .help(session.subagentsEnabled
-            ? "Deck agents are on. Applies to this session and as the default for new sessions"
-            : "Deck agents are off. Applies to this session and as the default for new sessions")
+            ? LanguageStore.shared.t("startup.deckAgentsOn")
+            : LanguageStore.shared.t("startup.deckAgentsOff"))
     }
 
     private func setExpanded(_ expanded: Bool) {
@@ -886,7 +886,7 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     private var delegationPolicyPicker: some View {
-        Picker("Delegation policy", selection: delegationPolicyBinding) {
+        Picker(LanguageStore.shared.t("startup.delegationPolicy"), selection: delegationPolicyBinding) {
             ForEach(NativeSubagentDelegationPolicy.allCases) { policy in
                 Text(policy.displayName).tag(policy)
             }
@@ -1531,12 +1531,12 @@ private struct PiAgentPickerLaunchControls: View {
     }
 
     private var modelLabel: String {
-        guard let id = selectedModelIdentifier, !id.isEmpty else { return "Pi default" }
+        guard let id = selectedModelIdentifier, !id.isEmpty else { return LanguageStore.shared.t("startup.piDefault") }
         return id
     }
 
     private var thinkingLabel: String {
-        guard let level = selectedThinkingLevel, !level.isEmpty, level != "off" else { return "Pi default" }
+        guard let level = selectedThinkingLevel, !level.isEmpty, level != "off" else { return LanguageStore.shared.t("startup.piDefault") }
         return level.capitalized
     }
 
@@ -1597,7 +1597,7 @@ private struct PiAgentPickerLaunchControls: View {
 
     private var modelPopover: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AppPopoverHeader(title: "Model")
+            AppPopoverHeader(title: LanguageStore.shared.t("settings.model"))
             Divider()
             ScrollView(showsIndicators: false) {
                 let groups = groupedModels
@@ -1606,14 +1606,14 @@ private struct PiAgentPickerLaunchControls: View {
                         onResetModel()
                         isModelPresented = false
                     } label: {
-                        popoverRow(label: "Agent default", isSelected: !hasModelLaunchOverride)
+                        popoverRow(label: LanguageStore.shared.t("startup.agentDefault"), isSelected: !hasModelLaunchOverride)
                     }
                     .buttonStyle(.plain)
                     Button {
                         onSelectModel(nil)
                         isModelPresented = false
                     } label: {
-                        popoverRow(label: "Pi default", isSelected: hasModelLaunchOverride && selectedModelIdentifier == nil)
+                        popoverRow(label: LanguageStore.shared.t("startup.piDefault"), isSelected: hasModelLaunchOverride && selectedModelIdentifier == nil)
                     }
                     .buttonStyle(.plain)
                     ForEach(groups, id: \.provider) { group in
@@ -1650,7 +1650,7 @@ private struct PiAgentPickerLaunchControls: View {
 
     private var thinkingPopover: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AppPopoverHeader(title: "Thinking")
+            AppPopoverHeader(title: LanguageStore.shared.t("settings.thinking"))
             Divider()
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 2) {
@@ -1658,14 +1658,14 @@ private struct PiAgentPickerLaunchControls: View {
                         onResetThinking()
                         isThinkingPresented = false
                     } label: {
-                        popoverRow(label: "Agent default", isSelected: !hasThinkingLaunchOverride)
+                        popoverRow(label: LanguageStore.shared.t("startup.agentDefault"), isSelected: !hasThinkingLaunchOverride)
                     }
                     .buttonStyle(.plain)
                     Button {
                         onSelectThinking(nil)
                         isThinkingPresented = false
                     } label: {
-                        popoverRow(label: "Pi default", isSelected: hasThinkingLaunchOverride && isThinkingDefault)
+                        popoverRow(label: LanguageStore.shared.t("startup.piDefault"), isSelected: hasThinkingLaunchOverride && isThinkingDefault)
                     }
                     .buttonStyle(.plain)
                     ForEach(thinkingOptions, id: \.self) { level in
@@ -1879,7 +1879,7 @@ struct PiAgentAddAgentsSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(AppTheme.mutedText)
-            TextField("Search agents", text: $query)
+            TextField(LanguageStore.shared.t("startup.searchAgents"), text: $query)
                 .textFieldStyle(.plain)
                 .appBrandTint()
                 .focused($isSearchFocused)
@@ -1911,7 +1911,7 @@ struct PiAgentAddAgentsSheet: View {
         if addable.isEmpty {
             emptyState("Every available agent is already in the session.")
         } else if filteredAgents.isEmpty {
-            emptyState("No agents match “\(query.trimmingCharacters(in: .whitespacesAndNewlines))”.")
+            emptyState(LanguageStore.shared.t("startup.noAgentsMatch", query.trimmingCharacters(in: .whitespacesAndNewlines)))
         } else {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 4) {
