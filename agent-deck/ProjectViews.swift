@@ -258,11 +258,24 @@ actor ProjectIconCache {
 
 struct ProjectsScreen: View {
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case enabled = "Enabled"
-        case disabled = "Disabled"
+        case all
+        case enabled
+        case disabled
 
         var id: String { rawValue }
+
+        var l10nKey: String {
+            switch self {
+            case .all: return "projects.filter.all"
+            case .enabled: return "projects.filter.enabled"
+            case .disabled: return "projects.filter.disabled"
+            }
+        }
+
+        @MainActor
+        var localizedTitle: String {
+            LanguageStore.shared.t(l10nKey)
+        }
     }
 
     var viewModel: AppViewModel
@@ -329,13 +342,13 @@ struct ProjectsScreen: View {
                 }
             )
         }
-        .alert("Couldn’t move project to Trash", isPresented: Binding(
+        .alert(LanguageStore.shared.t("projects.alert.moveTrashTitle"), isPresented: Binding(
             get: { projectDeleteError != nil },
             set: { if !$0 { projectDeleteError = nil } }
         )) {
             Button(LanguageStore.shared.t("common.ok"), role: .cancel) { projectDeleteError = nil }
         } message: {
-            Text(projectDeleteError ?? "Unknown error")
+            Text(projectDeleteError ?? LanguageStore.shared.t("projects.alert.unknownError"))
         }
     }
 
@@ -364,9 +377,9 @@ struct ProjectsScreen: View {
 
     private var projectList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Filter", selection: $filter) {
+            Picker(LanguageStore.shared.t("projects.filter"), selection: $filter) {
                 ForEach(Filter.allCases) { option in
-                    Text(option.rawValue).tag(option)
+                    Text(option.localizedTitle).tag(option)
                 }
             }
             .labelsHidden()
@@ -496,7 +509,7 @@ struct ProjectsScreen: View {
                     }
 
                     if isActiveSessionProject {
-                        AppLabelTag(text: "Active", color: AppTheme.brandAccent)
+                        AppLabelTag(text: LanguageStore.shared.t("projects.tag.active"), color: AppTheme.brandAccent)
                             .help(LanguageStore.shared.t("projects.activeSessionProject"))
                     }
                 }
@@ -510,13 +523,13 @@ struct ProjectsScreen: View {
 
             Spacer(minLength: 8)
 
-            Toggle("Enabled", isOn: Binding(
+            Toggle(LanguageStore.shared.t("projects.filter.enabled"), isOn: Binding(
                 get: { preference.isEnabled },
                 set: { viewModel.setProjectEnabled($0, for: project) }
             ))
             .appSwitch()
             .labelsHidden()
-            .help(preference.isEnabled ? "Disable project" : "Enable project")
+            .help(preference.isEnabled ? LanguageStore.shared.t("projects.help.disable") : LanguageStore.shared.t("projects.help.enable"))
 
             Button {
                 agentsRecapProject = project
@@ -527,7 +540,7 @@ struct ProjectsScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(!hasAgentAssignments)
-            .help(hasAgentAssignments ? "Show agents for this project" : "No agents assigned to this project")
+            .help(hasAgentAssignments ? LanguageStore.shared.t("projects.help.showAgents") : LanguageStore.shared.t("projects.help.noAgents"))
             .accessibilityLabel(LanguageStore.shared.t("projects.showAgents", project.repositoryDisplayName))
 
             Button {
@@ -539,7 +552,7 @@ struct ProjectsScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(!hasSkillAssignments)
-            .help(hasSkillAssignments ? "Show skills for this project" : "No skills assigned to this project")
+            .help(hasSkillAssignments ? LanguageStore.shared.t("projects.help.showSkills") : LanguageStore.shared.t("projects.help.noSkills"))
             .accessibilityLabel(LanguageStore.shared.t("projects.showSkills", project.repositoryDisplayName))
 
             Button {
@@ -555,7 +568,7 @@ struct ProjectsScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(!hasMcpAssignments)
-            .help(hasMcpAssignments ? "Show MCP servers for this project" : "No MCP servers assigned to this project")
+            .help(hasMcpAssignments ? LanguageStore.shared.t("projects.help.showMcp") : LanguageStore.shared.t("projects.help.noMcp"))
             .accessibilityLabel(LanguageStore.shared.t("projects.showMcp", project.repositoryDisplayName))
 
             Button {

@@ -344,7 +344,7 @@ private struct SystemPromptFileRowView: View {
             .appSmallSecondaryButton()
             .opacity(isHovered ? 1 : 0)
             .animation(.easeInOut(duration: 0.15), value: isHovered)
-            .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
+            .help(file.exists ? LanguageStore.shared.t("sys.help.revealExists") : LanguageStore.shared.t("sys.help.revealParent"))
         }
         .padding(.vertical, 6)
         .opacity(isInactive ? 0.62 : 1)
@@ -388,7 +388,7 @@ struct SystemPromptFileDetail: View {
                 note
             }
 
-            AppCard(title: file.exists ? "Markdown Instructions" : "Create Markdown Instructions") {
+            AppCard(title: file.exists ? LanguageStore.shared.t("sys.card.markdown") : LanguageStore.shared.t("sys.card.createMarkdown")) {
                 editor
             }
         }
@@ -404,21 +404,21 @@ struct SystemPromptFileDetail: View {
             .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
 
             Button { onSave() } label: {
-                Label(file.exists ? "Save" : "Create", systemImage: file.exists ? "square.and.arrow.down" : "plus")
+                Label(file.exists ? LanguageStore.shared.t("sys.action.save") : LanguageStore.shared.t("sys.action.create"), systemImage: file.exists ? "square.and.arrow.down" : "plus")
                     .labelStyle(.titleAndIcon)
             }
             .appPrimaryButton()
             .disabled(!isDirty)
-            .help(file.exists ? "Save changes to disk" : "Create this file on disk")
+            .help(file.exists ? LanguageStore.shared.t("sys.help.save") : LanguageStore.shared.t("sys.help.createFile"))
             .keyboardShortcut("s", modifiers: .command)
         }
     }
 
     private var metadataRows: [(String, String)] {
         [
-            ("File", file.displayPath),
-            ("Status", file.status.label),
-            ("Scope", file.scopeLabel)
+            (LanguageStore.shared.t("sys.meta.file"), file.displayPath),
+            (LanguageStore.shared.t("sys.meta.status"), file.status.label),
+            (LanguageStore.shared.t("sys.meta.scope"), file.scopeLabel)
         ]
     }
 
@@ -434,9 +434,9 @@ struct SystemPromptFileDetail: View {
 
     private var roleLabel: String {
         switch file.role {
-        case .base: "BASE"
-        case .append: "APPEND"
-        case .context: "CONTEXT"
+        case .base: LanguageStore.shared.t("sys.role.base")
+        case .append: LanguageStore.shared.t("sys.role.append")
+        case .context: LanguageStore.shared.t("sys.role.context")
         }
     }
 
@@ -654,9 +654,9 @@ private struct PiPromptPreviewSectionView: View {
 
     private var roleLabel: String {
         switch section.kind {
-        case .base: return "BASE"
-        case .append: return "APPEND"
-        case .context: return "CONTEXT"
+        case .base: return LanguageStore.shared.t("sys.role.base")
+        case .append: return LanguageStore.shared.t("sys.role.append")
+        case .context: return LanguageStore.shared.t("sys.role.context")
         case .builtinDefault, .subagentCatalog, .runtime: return ""
         }
     }
@@ -710,9 +710,9 @@ struct PiInstructionFile: Identifiable, Hashable {
 
         var label: String {
             switch self {
-            case .active: "Active"
-            case .shadowed: "Shadowed"
-            case .available: "Not created"
+            case .active: LanguageStore.shared.t("sys.status.active")
+            case .shadowed: LanguageStore.shared.t("sys.status.shadowed")
+            case .available: LanguageStore.shared.t("sys.status.available")
             }
         }
 
@@ -742,7 +742,16 @@ struct PiInstructionFile: Identifiable, Hashable {
 
     var id: String { url.path }
     var displayPath: String { url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
-    var scopeLabel: String { title.hasPrefix("Project") ? "Project" : "Global" }
+    var scopeLabel: String {
+        // Prefer path-based scope: title is already localized (全局/项目).
+        if url.path.contains("/.pi/") && !url.path.contains("/.pi/agent/") {
+            return LanguageStore.shared.t("sys.scope.project")
+        }
+        if title.hasPrefix("Project") || title.hasPrefix("项目") {
+            return LanguageStore.shared.t("sys.scope.project")
+        }
+        return LanguageStore.shared.t("sys.scope.global")
+    }
 
     static func globalCatalog(existingPaths: Set<String>) -> [PiInstructionFile] {
         let globalDir = globalAgentDirectory
@@ -755,7 +764,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: globalSystem,
                 role: .base,
                 title: LanguageStore.shared.t("sys.globalSystem"),
-                note: "Global replacement for Pi’s built-in base prompt.",
+                note: LanguageStore.shared.t("sys.note.globalBase"),
                 status: status(for: globalSystem.path, activePath: existingPaths.contains(globalSystem.path) ? globalSystem.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalSystem.path)
             ),
@@ -763,7 +772,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: globalAppend,
                 role: .append,
                 title: LanguageStore.shared.t("sys.globalAppend"),
-                note: "Global append prompt used when no project append prompt overrides it.",
+                note: LanguageStore.shared.t("sys.note.globalAppend"),
                 status: status(for: globalAppend.path, activePath: existingPaths.contains(globalAppend.path) ? globalAppend.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalAppend.path)
             ),
@@ -771,7 +780,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: globalDir.appendingPathComponent("AGENTS.md"),
                 role: .context,
                 title: LanguageStore.shared.t("sys.globalAgents"),
-                note: "Global context loaded for every Pi session unless context files are disabled.",
+                note: LanguageStore.shared.t("sys.note.globalContext"),
                 status: status(for: globalDir.appendingPathComponent("AGENTS.md").path, activePath: globalActiveContext, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalDir.appendingPathComponent("AGENTS.md").path)
             ),
@@ -779,7 +788,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: globalDir.appendingPathComponent("CLAUDE.md"),
                 role: .context,
                 title: LanguageStore.shared.t("sys.globalClaude"),
-                note: "Fallback global context. Shadowed when global AGENTS.md exists.",
+                note: LanguageStore.shared.t("sys.note.globalContextFallback"),
                 status: status(for: globalDir.appendingPathComponent("CLAUDE.md").path, activePath: globalActiveContext, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalDir.appendingPathComponent("CLAUDE.md").path)
             )
@@ -803,7 +812,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: projectSystem,
                 role: .base,
                 title: LanguageStore.shared.t("sys.projectSystem"),
-                note: "Project-local replacement for the Pi base prompt. Overrides global SYSTEM.md and the built-in Pi prompt.",
+                note: LanguageStore.shared.t("sys.note.projectBaseLocal"),
                 status: status(for: projectSystem.path, activePath: existingPaths.contains(projectSystem.path) ? projectSystem.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectSystem.path)
             ),
@@ -811,7 +820,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: projectAppend,
                 role: .append,
                 title: LanguageStore.shared.t("sys.projectAppend"),
-                note: "Project-local append prompt. Overrides the global append file when present.",
+                note: LanguageStore.shared.t("sys.note.projectAppend"),
                 status: status(for: projectAppend.path, activePath: existingPaths.contains(projectAppend.path) ? projectAppend.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectAppend.path)
             )
@@ -840,7 +849,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: projectSystem,
                 role: .base,
                 title: LanguageStore.shared.t("sys.projectSystem"),
-                note: "Project-local replacement for the Pi base prompt. If this file exists, it wins over the global SYSTEM.md and the built-in Pi prompt.",
+                note: LanguageStore.shared.t("sys.note.projectBaseLocal"),
                 status: status(for: projectSystem.path, activePath: activeSystem, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectSystem.path)
             ),
@@ -848,7 +857,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: globalSystem,
                 role: .base,
                 title: LanguageStore.shared.t("sys.globalSystem"),
-                note: "Global replacement for the Pi base prompt. Used only when this project does not have `.pi/SYSTEM.md`.",
+                note: LanguageStore.shared.t("sys.note.projectBase"),
                 status: status(for: globalSystem.path, activePath: activeSystem, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalSystem.path)
             ),
@@ -856,7 +865,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: projectAppend,
                 role: .append,
                 title: LanguageStore.shared.t("sys.projectAppend"),
-                note: "Project-local append prompt. If this file exists, Pi uses it instead of the global append file.",
+                note: LanguageStore.shared.t("sys.note.projectAppendAlt"),
                 status: status(for: projectAppend.path, activePath: activeAppend, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectAppend.path)
             ),
@@ -864,7 +873,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 url: globalAppend,
                 role: .append,
                 title: LanguageStore.shared.t("sys.globalAppend"),
-                note: "Global append prompt. Used only when this project does not have `.pi/APPEND_SYSTEM.md`.",
+                note: LanguageStore.shared.t("sys.note.globalAppendWhenNoProject"),
                 status: status(for: globalAppend.path, activePath: activeAppend, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalAppend.path)
             )
@@ -983,7 +992,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                     appendContextCandidate(
                         url: url,
                         title: "\(relativeTitle) \(filename)",
-                        note: "Existing context file using uppercase extension. Pi recognizes it during context discovery.",
+                        note: LanguageStore.shared.t("sys.note.uppercaseContext"),
                         activePath: activePath
                     )
                 }
@@ -1016,13 +1025,13 @@ struct PiInstructionFile: Identifiable, Hashable {
         appendContextCandidate(
             url: globalDir.appendingPathComponent("AGENTS.md"),
             title: LanguageStore.shared.t("sys.globalAgents"),
-            note: "Global context loaded for every Pi session unless context files are disabled.",
+            note: LanguageStore.shared.t("sys.note.globalContext2"),
             activePath: globalActive
         )
         appendContextCandidate(
             url: globalDir.appendingPathComponent("CLAUDE.md"),
             title: LanguageStore.shared.t("sys.globalClaude"),
-            note: "Fallback global context. It is shadowed when global AGENTS.md exists.",
+            note: LanguageStore.shared.t("sys.note.globalContextFallback2"),
             activePath: globalActive
         )
         for filename in ["AGENTS.MD", "CLAUDE.MD"] {
@@ -1031,7 +1040,7 @@ struct PiInstructionFile: Identifiable, Hashable {
                 appendContextCandidate(
                     url: url,
                     title: LanguageStore.shared.t("sys.globalNamed", filename),
-                    note: "Existing global context file using uppercase extension. Pi recognizes it during context discovery.",
+                    note: LanguageStore.shared.t("sys.note.globalUppercaseContext"),
                     activePath: globalActive
                 )
             }
