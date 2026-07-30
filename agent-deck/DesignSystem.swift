@@ -633,14 +633,19 @@ struct AppInitialLoadOverlay: View {
                 .animation(.easeInOut(duration: 6).repeatForever(autoreverses: true), value: floating)
                 .allowsHitTesting(false)
 
-            // The brand splash animation: fleet of paper planes + wordmark
-            // type-on, playing once and holding its final lockup. Centered in
-            // the window; the loading status is pinned to the bottom edge so the
-            // two never fight over the middle.
-            SplashAnimationView()
-                .frame(width: 380, height: 380)
-                .allowsHitTesting(false)
-                .opacity(entered ? 1 : 0)
+            // Paper-plane fleet (Lottie) + AppBrand wordmark in SwiftUI so the
+            // fork shows "Pi Deck" instead of the upstream Agent Deck lockup.
+            // Loading status stays on the bottom edge.
+            VStack(spacing: 18) {
+                SplashAnimationView()
+                    .frame(width: 380, height: 300)
+                    .allowsHitTesting(false)
+                Text(AppBrand.displayName)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.primary)
+                    .tracking(1.2)
+            }
+            .opacity(entered ? 1 : 0)
 
             VStack(spacing: 14) {
                 Text(message)
