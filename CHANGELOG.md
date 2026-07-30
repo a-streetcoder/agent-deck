@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.0.3 — 2026-07-30
+
+### Highlights
+- **Composer 文件粘贴**：Finder ⌘C → 输入框 ⌘V 可挂文件/文件夹；兼容 file-reference URL 与绝对路径文本。
+- **屏蔽上游 Sparkle**：默认不再检查 `agentdeck.site` 更新；打包禁止注入上游 appcast。
+
+### Fixed
+- `fileURLs`：解析 `file:///.file/id=…`、`NSFilenames`、`public.file-url` data/string。
+- `DropSafeNSTextView`：⌘V 强制走 `paste`；注册拖拽类型；`pasteAsPlainText` 同路径。
+- 纯路径多行文本在存在于磁盘时当作附件。
+- `inject-sparkle-info` / `package-app` / `package-dmg`：默认空 feed；禁止 `agentdeck.site`。
+- `UpdaterService`：无合法 `SUFeedURL` 或含 `agentdeck.site` 时不启用 Sparkle。
+
+### Packaging
+- `MARKETING_VERSION` **0.0.3**，`CURRENT_PROJECT_VERSION` **3**
+- Tag: `v0.0.3`
+- Artifacts: `build/Pi-Deck-0.0.3.zip`, `build/Pi-Deck-0.0.3.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.2 — 2026-07-30
 
 ### Highlights
@@ -38,14 +63,3 @@ xattr -cr "/Applications/Pi Deck.app"
 ```
 
 ---
-
-## Unreleased
-
-### Improved
-- （占位：下一版变更写在此节）
-
----
-
-## 0.0.1
-
-Initial Pi Deck fork baseline (see tag `v0.0.1` / README).
