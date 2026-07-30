@@ -15,7 +15,7 @@
 #   APP_NAME="Agent Deck"
 #   DEVELOPMENT_TEAM=<parsed from signing identity when possible>
 #   BUILD_NUMBER=<current project build number>
-#   SU_FEED_URL=https://agentdeck.site/appcast.xml
+#   SU_FEED_URL=  # empty disables Sparkle (Pi Deck default)
 #   ALLOW_NON_PRODUCTION_FEED=0
 #
 # Output: $BUILD_DIR/export/Agent Deck.app (path printed on stdout)
@@ -53,14 +53,20 @@ if [[ -z "${VERSION:-}" ]]; then
   exit 2
 fi
 
-DEFAULT_SU_FEED_URL="https://agentdeck.site/appcast.xml"
+DEFAULT_SU_FEED_URL=""
 if [[ -z "${DEVELOPMENT_TEAM:-}" ]]; then
   DEVELOPMENT_TEAM="$(printf '%s' "$DEVELOPER_ID_APPLICATION" | sed -n 's/.*(\([A-Z0-9][A-Z0-9]*\)).*/\1/p')"
 fi
 
-if [[ "${SU_FEED_URL:-$DEFAULT_SU_FEED_URL}" != "$DEFAULT_SU_FEED_URL" && "${ALLOW_NON_PRODUCTION_FEED:-0}" != "1" ]]; then
-  echo "Refusing to package with non-production SU_FEED_URL=${SU_FEED_URL}." >&2
-  echo "Set ALLOW_NON_PRODUCTION_FEED=1 only for local update testing." >&2
+FEED_CANDIDATE="${SU_FEED_URL:-$DEFAULT_SU_FEED_URL}"
+# Pi Deck must never follow upstream Agent Deck Sparkle releases.
+if [[ "$FEED_CANDIDATE" == *"agentdeck.site"* ]]; then
+  echo "Refusing to package with upstream Agent Deck SU_FEED_URL=$FEED_CANDIDATE." >&2
+  echo "Leave SU_FEED_URL empty (disable Sparkle) or use a Pi Deck first-party feed." >&2
+  exit 2
+fi
+if [[ -n "$FEED_CANDIDATE" && "${ALLOW_NON_PRODUCTION_FEED:-0}" != "1" ]]; then
+  echo "Non-empty SU_FEED_URL requires ALLOW_NON_PRODUCTION_FEED=1 until Pi Deck production feed is defined." >&2
   exit 2
 fi
 

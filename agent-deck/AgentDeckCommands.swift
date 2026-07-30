@@ -237,6 +237,8 @@ struct AgentDeckCommands: Commands {
             Button(languageStore.t("menu.about", AppBrand.displayName)) {
                 openWindow(id: AboutWindow.id)
             }
+            // Pi Deck: Sparkle is off unless a first-party SUFeedURL is set.
+            // Keep the item but no-op when updater is disabled (avoids Agent Deck appcast).
             Button(languageStore.t("menu.checkUpdates")) {
                 AgentDeckAppDelegate.shared?.updater.checkForUpdates()
             }

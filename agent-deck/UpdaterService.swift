@@ -8,19 +8,31 @@ final class UpdaterService: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var updateAvailable: Bool = false
     @Published private(set) var availableVersion: String? = nil
 
-    /// Sparkle is disabled in debug builds. The Sparkle Info.plist keys
-    /// (`SUFeedURL` / `SUPublicEDKey`) are injected only by the CI release build,
-    /// so a local debug build would start the updater with no feed and no EdDSA
-    /// key — which logs Sparkle's "Serving updates without an EdDSA key …
-    /// deprecated" warning plus the `sessionInProgress` noise, and can't update
-    /// anything anyway. Local builds don't self-update, so we never start it.
+    /// Sparkle app-update is opt-in for Pi Deck.
+    ///
+    /// Upstream Agent Deck pointed Sparkle at `https://agentdeck.site/appcast.xml`.
+    /// This fork must not follow that feed (would overwrite Pi Deck with Agent Deck).
+    /// Enable only when Info.plist has a non-empty first-party `SUFeedURL`.
+    /// Debug builds never start the updater.
     private static let isEnabled: Bool = {
         #if DEBUG
         return false
         #else
-        return true
+        return hasConfiguredFeedURL
         #endif
     }()
+
+    /// True when the bundle advertises a non-empty Sparkle appcast URL.
+    private static var hasConfiguredFeedURL: Bool {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String else {
+            return false
+        }
+        let feed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if feed.isEmpty { return false }
+        // Hard block: never follow upstream Agent Deck releases under a Pi Deck install.
+        if feed.contains("agentdeck.site") { return false }
+        return true
+    }
 
     /// Lazy so it can reference `self` as the delegate.
     /// Sparkle 2.x binds delegates at construction time and exposes
