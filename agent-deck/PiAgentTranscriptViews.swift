@@ -2457,6 +2457,8 @@ struct PiAgentStatusTranscriptRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        // Align with agent reply cards: cap width, stay leading (not full-bleed).
+        .frame(maxWidth: PiAgentBubbleWidth.replyCapMax, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

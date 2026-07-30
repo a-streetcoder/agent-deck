@@ -868,7 +868,9 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         tagLabel.stringValue = PiAgentTranscriptEntry.localizedSystemNoticeTag(payload.tag)
         applySeverityColors(payload.severity)
         applyBodyText()
-        surfaceWidthC.constant = max(1, rowWidth)
+        // Match agent reply / thinking card width (not full transcript pane).
+        let cardW = max(1, min(rowWidth, PiAgentBubbleWidth.replyCap(for: rowWidth)))
+        surfaceWidthC.constant = cardW
         needsLayout = true
     }
 
@@ -912,7 +914,8 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
     }
 
     func measuredHeight(forWidth rowWidth: CGFloat) -> CGFloat {
-        let textWidth = max(60, max(1, rowWidth) - hPad * 2)
+        let cardW = max(1, min(rowWidth, PiAgentBubbleWidth.replyCap(for: rowWidth)))
+        let textWidth = max(60, cardW - hPad * 2)
         // Header uses icon + title; title width is slightly less than full text width.
         tagLabel.preferredMaxLayoutWidth = max(40, textWidth - iconSize - 6)
         bodyLabel.preferredMaxLayoutWidth = textWidth
