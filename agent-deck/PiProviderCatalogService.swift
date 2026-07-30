@@ -54,7 +54,12 @@ struct PiProviderCatalogService: Sendable {
     }
 
     func loadConnectableProviders() async -> [PiConnectableProvider] {
+        // GUI launches often have a minimal PATH (no mise/nvm). Resolve absolute
+        // `pi` + `node` the same way model discovery and OAuth login do.
         let piPath = piResolver.resolve()?.path ?? "pi"
+        guard let nodePath = piResolver.resolveNode()?.path else {
+            return []
+        }
 
         let script = #"""
         import { existsSync, realpathSync } from 'node:fs';
@@ -106,12 +111,23 @@ struct PiProviderCatalogService: Sendable {
         """#
 
         do {
+            // Inherit a PATH that still includes the resolved node/pi dirs so any
+            // nested `#!/usr/bin/env node` shebangs inside the Pi package work.
+            var environment = ProcessInfo.processInfo.environment
+            environment["AGENT_DECK_PI_PATH"] = piPath
+            let nodeDir = URL(fileURLWithPath: nodePath).deletingLastPathComponent().path
+            let piDir = URL(fileURLWithPath: piPath).deletingLastPathComponent().path
+            let existingPATH = environment["PATH"] ?? ""
+            environment["PATH"] = [nodeDir, piDir, existingPATH]
+                .filter { !$0.isEmpty }
+                .joined(separator: ":")
+
             let result = try await commandRunner.run(
-                "node",
+                nodePath,
                 arguments: ["--input-type=module", "--eval", script],
                 currentDirectoryURL: nil,
-                timeout: 8,
-                environment: ["AGENT_DECK_PI_PATH": piPath]
+                timeout: 12,
+                environment: environment
             )
             guard result.exitCode == 0,
                   let data = result.stdout.data(using: .utf8),

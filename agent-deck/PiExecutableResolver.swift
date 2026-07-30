@@ -20,7 +20,21 @@ struct PiExecutableResolver: Sendable {
 
     nonisolated init(
         candidatesProvider: @Sendable @escaping () -> [URL] = { PiExecutableResolver.commonPiCandidates() },
-        defaultPathDirectories: @Sendable @escaping () -> [String] = { ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] },
+        defaultPathDirectories: @Sendable @escaping () -> [String] = {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            return [
+                "\(home)/.local/share/mise/shims",
+                "\(home)/.asdf/shims",
+                "\(home)/.volta/bin",
+                "\(home)/.local/bin",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin"
+            ]
+        },
         cacheResults: Bool = true
     ) {
         self.candidatesProvider = candidatesProvider
@@ -122,18 +136,42 @@ struct PiExecutableResolver: Sendable {
             "/opt/homebrew/bin/node",
             "/usr/local/bin/node",
             "/usr/bin/node",
+            "\(home)/.local/share/mise/shims/node",
+            "\(home)/.asdf/shims/node",
             "\(home)/.volta/bin/node",
             "\(home)/.hermes/node/bin/node",
             "\(home)/.local/bin/node",
             "\(home)/.nvm/versions/node/current/bin/node"
         ]
-        let nvm = URL(fileURLWithPath: "\(home)/.nvm/versions/node")
-        if let versions = try? FileManager.default.contentsOfDirectory(at: nvm, includingPropertiesForKeys: nil) {
-            candidates.append(contentsOf: versions.map { $0.appendingPathComponent("bin/node").path })
-        }
+        candidates.append(contentsOf: Self.versionedToolBins(
+            root: "\(home)/.local/share/mise/installs/node",
+            relativeBin: "bin/node"
+        ))
+        candidates.append(contentsOf: Self.versionedToolBins(
+            root: "\(home)/.nvm/versions/node",
+            relativeBin: "bin/node"
+        ))
         return candidates
             .map(URL.init(fileURLWithPath:))
             .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
+    /// Lists `root/*/<relativeBin>` (e.g. mise/nvm version trees), newest name last so
+    /// callers that prefer the first match still get a stable scan order.
+    nonisolated private static func versionedToolBins(root: String, relativeBin: String) -> [String] {
+        let rootURL = URL(fileURLWithPath: root)
+        guard let versions = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        // Newest version first (semver-ish string sort reversed) so GUI resolve
+        // prefers current installs over leftover older trees.
+        return versions
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedDescending }
+            .map { $0.appendingPathComponent(relativeBin).path }
     }
 
     nonisolated static func commonPiCandidates() -> [URL] {
@@ -154,6 +192,8 @@ struct PiExecutableResolver: Sendable {
             "\(home)/Library/pnpm/pi",
             "\(home)/Library/Application Support/pnpm/pi",
             "\(home)/.local/share/pnpm/pi",
+            "\(home)/.local/share/mise/shims/pi",
+            "\(home)/.asdf/shims/pi",
             "/opt/homebrew/bin/pi",
             "/usr/local/bin/pi",
             "/usr/bin/pi",
@@ -165,10 +205,15 @@ struct PiExecutableResolver: Sendable {
             "\(home)/.npm/bin/pi",
             "\(home)/.nvm/versions/node/current/bin/pi"
         ])
-        let nvm = URL(fileURLWithPath: "\(home)/.nvm/versions/node")
-        if let versions = try? FileManager.default.contentsOfDirectory(at: nvm, includingPropertiesForKeys: nil) {
-            paths.append(contentsOf: versions.map { $0.appendingPathComponent("bin/pi").path })
-        }
+        // mise installs node + global npm bins under installs/node/<ver>/bin/
+        paths.append(contentsOf: versionedToolBins(
+            root: "\(home)/.local/share/mise/installs/node",
+            relativeBin: "bin/pi"
+        ))
+        paths.append(contentsOf: versionedToolBins(
+            root: "\(home)/.nvm/versions/node",
+            relativeBin: "bin/pi"
+        ))
         return paths.map(URL.init(fileURLWithPath:))
     }
 }
