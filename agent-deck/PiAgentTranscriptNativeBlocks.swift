@@ -752,13 +752,15 @@ struct NativeDividerPayload {
 
 // MARK: - Soft system notice (extension notify / compaction)
 
-/// Claude-style soft notice card: `[tag]` header + multi-line body in a muted box.
+/// Soft notice card: notification icon + localized title + multi-line body.
 /// Used for extension `notify` / compaction / setStatus chrome — not chat bubbles.
 final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
     var onIntrinsicHeightChange: (() -> Void)?
 
     private let surface = NativeCardSurface()
+    private let iconView = NSImageView()
     private let tagLabel = NSTextField(labelWithString: "")
+    private let headerStack = NSStackView()
     private let bodyLabel = NSTextField(wrappingLabelWithString: "")
     private let expandButton = NSButton()
     private let stack = NSStackView()
@@ -769,6 +771,7 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
 
     private let hPad: CGFloat = 12
     private let vPad: CGFloat = 10
+    private let iconSize: CGFloat = 13
     private let collapsedLineLimit = 8
 
     required init() {
@@ -779,11 +782,24 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         surface.cardCornerRadius = 10
         addSubview(surface)
 
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
+        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         tagLabel.font = NativeTranscriptFont.caption(.semibold)
         tagLabel.textColor = NSColor.systemPurple.withAlphaComponent(0.95)
         tagLabel.lineBreakMode = .byTruncatingTail
         tagLabel.maximumNumberOfLines = 1
+        tagLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tagLabel.setContentHuggingPriority(.required, for: .vertical)
+
+        headerStack.orientation = .horizontal
+        headerStack.alignment = .centerY
+        headerStack.spacing = 6
+        headerStack.addArrangedSubview(iconView)
+        headerStack.addArrangedSubview(tagLabel)
+        headerStack.setContentHuggingPriority(.required, for: .vertical)
 
         bodyLabel.font = NativeTranscriptFont.captionMono()
         bodyLabel.textColor = AppTheme.ns(AppTheme.mutedText)
@@ -803,7 +819,7 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
-        stack.addArrangedSubview(tagLabel)
+        stack.addArrangedSubview(headerStack)
         stack.addArrangedSubview(bodyLabel)
         stack.addArrangedSubview(expandButton)
         surface.addSubview(stack)
@@ -816,6 +832,8 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             surface.leadingAnchor.constraint(equalTo: leadingAnchor),
             surfaceWidthC,
+            iconView.widthAnchor.constraint(equalToConstant: iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: iconSize),
             stack.topAnchor.constraint(equalTo: surface.topAnchor, constant: vPad),
             stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: hPad),
             stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -hPad),
@@ -836,7 +854,18 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         self.payload = payload
         if tagChanged { isExpanded = false }
 
-        tagLabel.stringValue = "[\(PiAgentTranscriptEntry.localizedSystemNoticeTag(payload.tag))]"
+        let severityHint: String? = {
+            switch payload.severity {
+            case .warning: return "warning"
+            case .error: return "error"
+            case .info: return nil
+            }
+        }()
+        let symbol = PiAgentTranscriptEntry.systemNoticeSymbolName(for: payload.tag, severityHint: severityHint)
+        let config = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .semibold)
+        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config)
+        tagLabel.stringValue = PiAgentTranscriptEntry.localizedSystemNoticeTag(payload.tag)
         applySeverityColors(payload.severity)
         applyBodyText()
         surfaceWidthC.constant = max(1, rowWidth)
@@ -857,6 +886,7 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         case .error: accent = AppTheme.ns(AppTheme.roleError)
         }
         tagLabel.textColor = accent.withAlphaComponent(0.95)
+        iconView.contentTintColor = accent.withAlphaComponent(0.95)
         surface.fillColor = accent.withAlphaComponent(0.10)
         surface.strokeColor = accent.withAlphaComponent(0.18)
     }
@@ -877,17 +907,19 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
             bodyLabel.stringValue = payload.body
             expandButton.isHidden = true
         }
-        setAccessibilityLabel("\(payload.tag). \(payload.body)")
+        let title = PiAgentTranscriptEntry.localizedSystemNoticeTag(payload.tag)
+        setAccessibilityLabel("\(title). \(payload.body)")
     }
 
     func measuredHeight(forWidth rowWidth: CGFloat) -> CGFloat {
         let textWidth = max(60, max(1, rowWidth) - hPad * 2)
-        tagLabel.preferredMaxLayoutWidth = textWidth
+        // Header uses icon + title; title width is slightly less than full text width.
+        tagLabel.preferredMaxLayoutWidth = max(40, textWidth - iconSize - 6)
         bodyLabel.preferredMaxLayoutWidth = textWidth
-        let tagH = ceil(tagLabel.intrinsicContentSize.height)
+        let headerH = max(iconSize, ceil(tagLabel.intrinsicContentSize.height))
         let bodyH = ceil(bodyLabel.intrinsicContentSize.height)
         let expandH = expandButton.isHidden ? 0 : (6 + ceil(expandButton.intrinsicContentSize.height))
-        return ceil(vPad + tagH + 6 + bodyH + expandH + vPad)
+        return ceil(vPad + headerH + 6 + bodyH + expandH + vPad)
     }
 }
 

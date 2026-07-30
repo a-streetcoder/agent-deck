@@ -2424,10 +2424,23 @@ struct PiAgentStatusTranscriptRow: View {
             default: return .purple.opacity(0.9)
             }
         }()
+        let severityHint: String? = {
+            switch entry.title {
+            case "Notify Warning": return "warning"
+            case "Notify Error": return "error"
+            default: return nil
+            }
+        }()
         VStack(alignment: .leading, spacing: 6) {
-            Text("[\(PiAgentTranscriptEntry.localizedSystemNoticeTag(tag))]")
-                .font(AppTheme.Font.caption.weight(.semibold))
-                .foregroundStyle(accent)
+            HStack(spacing: 6) {
+                Image(systemName: PiAgentTranscriptEntry.systemNoticeSymbolName(for: tag, severityHint: severityHint))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accent)
+                Text(PiAgentTranscriptEntry.localizedSystemNoticeTag(tag))
+                    .font(AppTheme.Font.caption.weight(.semibold))
+                    .foregroundStyle(accent)
+                    .lineLimit(1)
+            }
             Text(shownBody)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(AppTheme.mutedText)
@@ -2451,7 +2464,7 @@ struct PiAgentStatusTranscriptRow: View {
                 .stroke(accent.opacity(0.18), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(tag). \(body)")
+        .accessibilityLabel("\(PiAgentTranscriptEntry.localizedSystemNoticeTag(tag)). \(body)")
     }
 
     private var compactionDivider: some View {
@@ -2815,6 +2828,39 @@ extension PiAgentTranscriptEntry {
     ///
     /// - Parameter rawTag: Machine tag from `systemNoticePresentation` (lowercase English key or custom).
     /// - Returns: User-facing label for the `[…]` header.
+    /// SF Symbol for a soft system-notice tag (bell for notify, etc.).
+    ///
+    /// - Parameters:
+    ///   - rawTag: Machine tag from presentation (e.g. notify, status, ocr).
+    ///   - severityHint: Optional severity when tag is generic notify.
+    /// - Returns: SF Symbol name.
+    static func systemNoticeSymbolName(for rawTag: String, severityHint: String? = nil) -> String {
+        let tag = rawTag.lowercased()
+        switch tag {
+        case "notify":
+            switch severityHint {
+            case "warning": return "exclamationmark.triangle.fill"
+            case "error": return "xmark.octagon.fill"
+            default: return "bell.fill"
+            }
+        case "warning", "warn":
+            return "exclamationmark.triangle.fill"
+        case "error", "danger", "fail", "failure":
+            return "xmark.octagon.fill"
+        case "status":
+            return "info.circle.fill"
+        case "widget":
+            return "rectangle.3.group.fill"
+        case "compaction":
+            return "arrow.down.right.and.arrow.up.left"
+        case "notice":
+            return "bell.fill"
+        default:
+            // Custom setStatus keys (ocr, …): generic status glyph.
+            return "bell.badge.fill"
+        }
+    }
+
     static func localizedSystemNoticeTag(_ rawTag: String) -> String {
         let key: String
         switch rawTag.lowercased() {
