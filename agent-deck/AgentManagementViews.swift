@@ -71,12 +71,12 @@ struct AgentsScreen: View {
                     )
                     .appDebugLayout("Agents.libraryPane", logger: Self.layoutLog)
                 } else {
-                    AppLoadingView("Loading agents…")
+                    AppLoadingView(LanguageStore.shared.t("agents.loading"))
                         .appDebugLayout("Agents.libraryLoading", logger: Self.layoutLog)
                 }
             } detail: {
                 if !viewModel.hasCompletedInitialRefresh {
-                    AppLoadingView("Loading agent details…")
+                    AppLoadingView(LanguageStore.shared.t("agents.loadingDetails"))
                         .appDebugLayout("Agents.detailLoading", logger: Self.layoutLog)
                 } else if let agent = viewModel.selectedAgent {
                     AgentDetailView(
@@ -122,7 +122,7 @@ struct AgentsScreen: View {
                     )
                     .appDebugLayout("Agents.detail selected=\(agent.name)", logger: Self.layoutLog)
                 } else {
-                    ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
+                    ContentUnavailableView(LanguageStore.shared.t("agents.noneSelected"), systemImage: "sparkles.rectangle.stack")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .appDebugLayout("Agents.detailEmpty", logger: Self.layoutLog)
                 }
@@ -393,9 +393,9 @@ private struct AgentWarningPopover: View {
 
             if !skillIssues.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Explicit skills not visible in assigned projects")
+                    Text(LanguageStore.shared.t("agents.warning.skillsTitle"))
                         .font(.subheadline.weight(.semibold))
-                    Text("The agent stores skill names only. Assign the missing skills to these projects or enable them globally.")
+                    Text(LanguageStore.shared.t("agents.warning.skillsBody"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -417,7 +417,7 @@ private struct AgentWarningPopover: View {
             if !warnings.isEmpty {
                 if !skillIssues.isEmpty { Divider() }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Other scanner warnings")
+                    Text(LanguageStore.shared.t("agents.warning.other"))
                         .font(.subheadline.weight(.semibold))
                     ForEach(warnings) { warning in
                         Text("• \(warning.message)")
@@ -489,7 +489,7 @@ private struct AgentListRow: View {
                     }
                 }
 
-                Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
+                Text(agent.resolved.description.isEmpty ? LanguageStore.shared.t("agents.noDescription") : agent.resolved.description)
                     .font(AppTheme.Font.metadata)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
@@ -608,7 +608,7 @@ private struct AgentLibraryPane: View {
             sidebarExpandBenchScrollRequest = cachedLayout.sections.reversed().lazy.compactMap { $0.items.last?.id }.first
         }
 #endif
-        .alert("Delete Agent?", isPresented: Binding(
+        .alert(LanguageStore.shared.t("agents.deleteTitle"), isPresented: Binding(
             get: { pendingDeleteAgentRecord != nil },
             set: { if !$0 { pendingDeleteAgentID = nil } }
         ), presenting: pendingDeleteAgentRecord) { record in
@@ -619,7 +619,7 @@ private struct AgentLibraryPane: View {
                 pendingDeleteAgentID = nil
             }
         } message: { record in
-            Text("Move \"\(record.name)\" to the Trash and remove its Default and project assignments?")
+            Text(LanguageStore.shared.t("agents.deleteMessage", record.name))
         }
     }
 
@@ -703,10 +703,10 @@ private struct AgentLibraryPane: View {
         }
         sections.append(AppListSection(
             id: "global",
-            title: "Global Agents",
-            info: "Custom agents available everywhere. Assign one to specific projects from its detail card.",
+            title: LanguageStore.shared.t("agents.section.global"),
+            info: LanguageStore.shared.t("agents.section.global.info"),
             items: global,
-            emptyMessage: "No global custom agents."
+            emptyMessage: LanguageStore.shared.t("agents.section.global.empty")
         ))
 
         if !catalog.isEmpty {
@@ -719,7 +719,7 @@ private struct AgentLibraryPane: View {
             }
             sections.append(AppListSection(
                 id: "catalog",
-                title: "Catalog Agents",
+                title: LanguageStore.shared.t("agents.section.catalog"),
                 items: catalog
             ))
         }
@@ -728,7 +728,7 @@ private struct AgentLibraryPane: View {
             mark(library, inactive: false)
             sections.append(AppListSection(
                 id: "library",
-                title: "Library Agents",
+                title: LanguageStore.shared.t("agents.section.library"),
                 items: library
             ))
         }
@@ -736,10 +736,10 @@ private struct AgentLibraryPane: View {
         mark(builtin, inactive: false)
         sections.append(AppListSection(
             id: "builtin",
-            title: "Builtin Agents",
-            info: "Builtins are bundled with \(AppBrand.displayName) and customized through settings overrides or replacement files.",
+            title: LanguageStore.shared.t("agents.section.builtin"),
+            info: LanguageStore.shared.t("agents.section.builtin.info", AppBrand.displayName),
             items: builtin,
-            emptyMessage: "No builtin agents discovered."
+            emptyMessage: LanguageStore.shared.t("agents.section.builtin.empty")
         ))
 
         return (sections, inactiveByID, warningIDs, libraryBackedNames, unusedLibraryAgentIDs)
@@ -901,19 +901,19 @@ private struct AgentLibraryPane: View {
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
         HStack(spacing: 6) {
             if agent.resolutionKind == .globalReplacement || agent.resolutionKind == .projectReplacement {
-                capabilityPill("Replacement", symbol: "arrow.triangle.2.circlepath", color: .blue)
+                capabilityPill(LanguageStore.shared.t("agents.pill.replacement"), symbol: "arrow.triangle.2.circlepath", color: .blue)
             }
             if !agent.resolved.skills.isEmpty {
-                capabilityPill("Skills", symbol: "sparkles", color: .green)
+                capabilityPill(LanguageStore.shared.t("agents.pill.skills"), symbol: "sparkles", color: .green)
             }
             if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
-                capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: .blue)
+                capabilityPill(LanguageStore.shared.t("agents.pill.tools"), symbol: "wrench.and.screwdriver", color: .blue)
             }
             if agent.resolved.disabled == true {
-                capabilityPill("Disabled", symbol: "nosign", color: .red)
+                capabilityPill(LanguageStore.shared.t("agents.pill.disabled"), symbol: "nosign", color: .red)
             }
             if agentHasWarningDetails(agent) {
-                capabilityPill("Warning", symbol: "exclamationmark.triangle", color: .orange)
+                capabilityPill(LanguageStore.shared.t("agents.pill.warning"), symbol: "exclamationmark.triangle", color: .orange)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1039,7 +1039,7 @@ private struct AgentDetailView: View {
             deleteSection
         }
         .alert(
-            "Delete \(agent.name)?",
+            LanguageStore.shared.t("agents.deleteTitle"),
             isPresented: $isDeleteConfirmationPresented,
             presenting: deletableAgentRecord
         ) { record in
@@ -1054,7 +1054,7 @@ private struct AgentDetailView: View {
             }
             Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
         } message: { _ in
-            Text("This moves the agent file to the Trash and removes its global and project assignments.")
+            Text(LanguageStore.shared.t("agents.deleteMessageDetail"))
         }
         .fileImporter(isPresented: $isAvatarImporterPresented, allowedContentTypes: [.image]) { result in
             handleAvatarImport(result)
@@ -1698,7 +1698,7 @@ private struct AgentDetailView: View {
     private func readOnlyFieldRow(_ title: String, value: String, isLast: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(title)
+                Text(localizedAgentFieldTitle(title))
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
                     .foregroundStyle(AppTheme.mutedText)
@@ -1721,7 +1721,7 @@ private struct AgentDetailView: View {
 
     private func display(_ value: Bool?) -> String {
         guard let value else { return "—" }
-        return value ? "Yes" : "No"
+        return value ? LanguageStore.shared.t("agents.yes") : LanguageStore.shared.t("agents.no")
     }
 
     private func openFile(_ path: String?) {
@@ -1737,52 +1737,65 @@ private struct AgentDetailView: View {
 
 // MARK: - Shared field help text
 
+/// Display title for known agent field keys (English keys stay stable for help lookup).
+private func localizedAgentFieldTitle(_ title: String) -> String {
+    let t = LanguageStore.shared.t
+    switch title {
+    case "Fallback Models": return t("agents.row.fallbackModels")
+    case "Thinking": return t("agents.row.thinking")
+    case "Prompt Mode": return t("agents.row.promptMode")
+    case "When to Use": return t("agents.row.whenToUse")
+    default: return title
+    }
+}
+
 private func agentFieldHelpText(for title: String) -> String? {
+    let t = LanguageStore.shared.t
     switch title {
     case "Description":
-        return "Short summary of what this agent does. Shown in the agent list and under the agent name in the detail header. Distinct from \"When to Use\", which is the routing hint a parent session reads to decide whether to delegate."
+        return t("agents.help.description")
     case "When to Use":
-        return "Concise routing guidance for parent sessions deciding whether to delegate to this agent. Prefer one short sentence."
+        return t("agents.help.whenToUse")
     case "Model":
-        return "Persistent model defaults are managed in the Models view."
+        return t("agents.help.model")
     case "Fallback Models":
-        return "Ordered backup models Pi can use when the primary model is unavailable or unsuitable."
+        return t("agents.help.fallbackModels")
     case "Thinking":
-        return "Reasoning effort hint for the selected model. Available options are derived from Pi's installed model metadata."
+        return t("agents.help.thinking")
     case "Prompt Mode":
-        return "Replace makes this a focused specialist prompt. Append keeps more of Pi's normal base behavior and adds this agent's instructions on top."
+        return t("agents.help.promptMode")
     case "Inherit Project Context", "Project Context":
-        return "When enabled, the agent keeps Pi's project instruction context, including files like AGENTS.md or CLAUDE.md."
+        return t("agents.help.projectContext")
     case "Skills":
-        return "Skills and skill collections assigned to this agent are passed to Pi with explicit --skill paths. Collections expand to their member skills at launch. The agent needs the read tool to load full skill files."
+        return t("agents.help.skills")
     case "Disabled", "Availability":
-        return "Disabled agents are hidden from Deck agent discovery and normal launches."
+        return t("agents.help.disabled")
     case "Output", "Output File":
-        return "Default output file for single-agent runs. Most useful in managed workflows such as parallel runs."
+        return t("agents.help.output")
     case "Default Reads":
-        return "Files Pi should read before execution when this agent is launched through managed workflows."
+        return t("agents.help.defaultReads")
     case "Default Progress", "Progress":
-        return "When enabled, managed workflows maintain progress.md for this agent."
+        return t("agents.help.progress")
     case "Interactive", "Interaction":
-        return "Compatibility frontmatter field for interactive behavior. Parsed and preserved."
+        return t("agents.help.interactive")
     case "Max Subagent Depth", "Max Depth":
-        return "Limits how many more nested Deck agent launches this agent can create below itself."
+        return t("agents.help.maxDepth")
     case "Extensions":
-        return "Extension loading mode. Omitted means normal extension loading, empty means none, and explicit values act as an allowlist."
-    case LanguageStore.shared.t("agents.toolAccess"):
-        return "If tools are omitted, the agent keeps Pi's normal tool behavior. If tools are explicitly set, they become an allowlist."
+        return t("agents.help.extensions")
+    case t("agents.toolAccess"), "Tool Access":
+        return t("agents.help.toolAccess")
     case "Extension Mode":
-        return "If extensions are omitted, Pi uses normal extension loading. An explicit list acts as an allowlist. An empty list means no discovered extensions."
+        return t("agents.help.extensionMode")
     case "Add Tool":
-        return "Choose from built-in Pi tools visible in this agent's scope."
+        return t("agents.help.addTool")
     case "Selected":
-        return "Current explicit values for this field. Remove any item with the x button."
+        return t("agents.help.selected")
     case "Add Extension":
-        return "Choose from installed Pi package references already visible to \(AppBrand.displayName)."
+        return LanguageStore.shared.t("agents.help.addExtension", AppBrand.displayName)
     case "Add Skill":
-        return "Choose from skills and skill collections in Agent Deck's catalog."
+        return t("agents.help.addSkill")
     case "Skill Catalog":
-        return "All catalog skills and skill collections are available for explicit assignment; duplicate names must be resolved before launch."
+        return t("agents.help.skillCatalog")
     default:
         return nil
     }
@@ -2615,19 +2628,19 @@ private struct SubagentsProjectRecapPanel: View {
             HStack(spacing: 10) {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32, assetName: project.projectType.assetName)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Deck Agents Recap").font(.headline).fontWidth(.expanded)
+                    Text(LanguageStore.shared.t("agents.recap.title")).font(.headline).fontWidth(.expanded)
                     Text(project.name).font(.caption).foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
                 Button(action: onClose) { Image(systemName: "xmark") }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Close recap")
+                    .accessibilityLabel(LanguageStore.shared.t("agents.recap.close"))
             }
             .padding(16)
             Divider()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the Deck agents \(AppBrand.displayName) discovers for this project, after global/project precedence and builtin overrides.")
+                    Text(LanguageStore.shared.t("agents.recap.body", AppBrand.displayName))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2649,15 +2662,15 @@ private struct SubagentsProjectRecapPanel: View {
     }
 
     private var libraryAgentSection: some View {
-        recapShell("Library Agents", count: libraryAgents.count, color: .secondary) {
-            ForEach(libraryAgents) { agent in recapRow(icon: "books.vertical", color: .secondary, title: agent.name, subtitle: "Stored, not loaded until assigned") }
+        recapShell(LanguageStore.shared.t("agents.section.library"), count: libraryAgents.count, color: .secondary) {
+            ForEach(libraryAgents) { agent in recapRow(icon: "books.vertical", color: .secondary, title: agent.name, subtitle: LanguageStore.shared.t("agents.recap.librarySubtitle")) }
         }
     }
 
     private func recapShell<Content: View>(_ title: String, count: Int, color: Color, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text(title).font(.headline).fontWidth(.expanded); Spacer() }
-            if count == 0 { Text("None").font(.caption).foregroundStyle(AppTheme.mutedText) } else { VStack(alignment: .leading, spacing: 8) { content() } }
+            if count == 0 { Text(LanguageStore.shared.t("agents.recap.none")).font(.caption).foregroundStyle(AppTheme.mutedText) } else { VStack(alignment: .leading, spacing: 8) { content() } }
         }
     }
 
@@ -2676,16 +2689,18 @@ private struct SubagentsProjectRecapPanel: View {
 }
 
 struct SubagentsInfoPopover: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(LanguageStore.shared.t("agents.library"))
+            Text(languageStore.t("agents.library"))
                 .font(.headline)
                 .fontWidth(.expanded)
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until assigned.")
-                infoRow("Default", "Default agents are passed to every parent Pi Agent session.")
-                infoRow("Project", "Project assignments are passed only to parent sessions for that project.")
-                infoRow("Builtins", "\(AppBrand.displayName) bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
+                infoRow(languageStore.t("agents.info.libraryTitle"), languageStore.t("agents.info.libraryBody"))
+                infoRow(languageStore.t("agents.info.defaultTitle"), languageStore.t("agents.info.defaultBody"))
+                infoRow(languageStore.t("agents.info.projectTitle"), languageStore.t("agents.info.projectBody"))
+                infoRow(languageStore.t("agents.info.builtinsTitle"), languageStore.t("agents.info.builtinsBody", AppBrand.displayName))
             }
         }
         .padding(16)

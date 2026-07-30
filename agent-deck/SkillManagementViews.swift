@@ -158,7 +158,7 @@ struct SkillsScreen: View {
 
     var body: some View {
         skillsScreenWithSheets
-            .alert("Skill Import", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.import"), isPresented: Binding(
                 get: { importSummaryMessage != nil },
                 set: { if !$0 { importSummaryMessage = nil } }
             )) {
@@ -166,7 +166,7 @@ struct SkillsScreen: View {
             } message: {
                 Text(importSummaryMessage ?? "")
             }
-            .alert("Skill Assignment", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.assignment"), isPresented: Binding(
                 get: { skillActionErrorMessage != nil },
                 set: { if !$0 { skillActionErrorMessage = nil } }
             )) {
@@ -174,25 +174,25 @@ struct SkillsScreen: View {
             } message: {
                 Text(skillActionErrorMessage ?? "")
             }
-            .alert("Delete Skill?", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.delete"), isPresented: Binding(
                 get: { skillPendingDeletion != nil },
                 set: { if !$0 { skillPendingDeletion = nil } }
             ), presenting: skillPendingDeletion) { skill in
                 Button(LanguageStore.shared.t("skills.moveTrash"), role: .destructive) { deleteSkill(skill) }
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingDeletion = nil }
             } message: { skill in
-                Text("Move \"\(skill.name)\" to the Trash and remove its Default, project, and agent assignments?")
+                Text(LanguageStore.shared.t("skills.alert.deleteMessage", skill.name))
             }
-            .alert("Delete Skills?", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.deleteMany"), isPresented: Binding(
                 get: { skillsPendingBatchDeletion != nil },
                 set: { if !$0 { skillsPendingBatchDeletion = nil } }
             ), presenting: skillsPendingBatchDeletion) { skills in
-                Button("Move \(skills.count) to Trash", role: .destructive) { batchDeleteSkills(skills) }
+                Button(LanguageStore.shared.t("skills.alert.moveManyTrash", skills.count), role: .destructive) { batchDeleteSkills(skills) }
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillsPendingBatchDeletion = nil }
             } message: { skills in
-                Text("Move \(skills.count) skills to the Trash and remove their Default, project, and agent assignments?")
+                Text(LanguageStore.shared.t("skills.alert.deleteManyMessage", skills.count))
             }
-            .alert("Delete Collection?", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.deleteCollection"), isPresented: Binding(
                 get: { collectionPendingDeletion != nil },
                 set: { if !$0 { collectionPendingDeletion = nil } }
             ), presenting: collectionPendingDeletion) { collection in
@@ -201,36 +201,36 @@ struct SkillsScreen: View {
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { collectionPendingDeletion = nil }
             } message: { collection in
                 let memberCount = cachedLayout.collectionMembersByID[collection.id]?.count ?? 0
-                Text("Delete \"\(collection.name)\" only, keeping its member skills as standalone catalog skills, or also move its \(memberCount) member skill\(memberCount == 1 ? "" : "s") to the Trash?")
+                Text(LanguageStore.shared.t("skills.alert.deleteCollectionMessage", collection.name, memberCount))
             }
-            .alert("Remove Skill?", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.remove"), isPresented: Binding(
                 get: { skillPendingRemoval != nil },
                 set: { if !$0 { skillPendingRemoval = nil } }
             ), presenting: skillPendingRemoval) { skill in
                 Button(LanguageStore.shared.t("skills.removeFromCatalog")) { removeSkill(skill) }
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingRemoval = nil }
             } message: { skill in
-                Text("Remove \"\(skill.name)\" from the \(AppBrand.displayName) catalog and clear its Default, project, and agent assignments? The skill files are not deleted — a Git-synced clone is kept.")
+                Text(LanguageStore.shared.t("skills.alert.removeMessage", skill.name, AppBrand.displayName))
             }
-            .alert("Remove Skills?", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.removeMany"), isPresented: Binding(
                 get: { skillsPendingBatchRemoval != nil },
                 set: { if !$0 { skillsPendingBatchRemoval = nil } }
             ), presenting: skillsPendingBatchRemoval) { skills in
-                Button("Remove \(skills.count) from Catalog") { batchRemoveSkills(skills) }
+                Button(LanguageStore.shared.t("skills.alert.removeManyAction", skills.count)) { batchRemoveSkills(skills) }
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillsPendingBatchRemoval = nil }
             } message: { skills in
-                Text("Remove \(skills.count) skills from the \(AppBrand.displayName) catalog and clear their assignments? The skill files are not deleted.")
+                Text(LanguageStore.shared.t("skills.alert.removeManyMessage", skills.count, AppBrand.displayName))
             }
-            .alert("Resolve Duplicate Skill?", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.resolveDup"), isPresented: Binding(
                 get: { skillPendingDuplicateResolution != nil },
                 set: { if !$0 { skillPendingDuplicateResolution = nil } }
             ), presenting: skillPendingDuplicateResolution) { context in
                 Button(LanguageStore.shared.t("skills.keepCopy"), role: .destructive) { resolveDuplicateSkill(context) }
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingDuplicateResolution = nil }
             } message: { context in
-                Text("Keep \"\(context.kept.name)\" from \(context.kept.filePath) and remove \(context.removed.count) other duplicate copy(s). Project assignments, global defaults, and agent skills will stay assigned to the kept copy.")
+                Text(LanguageStore.shared.t("skills.alert.resolveDupMessage", context.kept.name, context.kept.filePath, context.removed.count))
             }
-            .alert("Skill Updates", isPresented: Binding(
+            .alert(LanguageStore.shared.t("skills.alert.updates"), isPresented: Binding(
                 get: { viewModel.skillBatchActionMessage != nil },
                 set: { if !$0 { viewModel.skillBatchActionMessage = nil } }
             )) {
@@ -378,7 +378,7 @@ struct SkillsScreen: View {
                 )
             ) { outcome in
                 if case .updated = outcome {
-                    skillUpdateStatusMessage = "Updated to the latest version."
+                    skillUpdateStatusMessage = LanguageStore.shared.t("skills.updatedLatest")
                 }
             }
         }
@@ -584,25 +584,25 @@ struct SkillsScreen: View {
             sections.append(AppListSection(
                 id: "collections",
                 title: "Collections",
-                info: "User-organized skill groups. Assigning a collection expands to its skills at launch.",
+                info: LanguageStore.shared.t("skills.section.collections.info"),
                 items: filteredCollections.map { .collection($0) },
-                emptyMessage: "No matching collections."
+                emptyMessage: LanguageStore.shared.t("skills.section.collections.empty")
             ))
         }
 
         sections.append(AppListSection(
             id: "global",
-            title: "Default Skills",
-            info: "Injected into every parent Pi Agent session. This is global runtime injection, not per-project assignment.",
+            title: LanguageStore.shared.t("skills.section.default"),
+            info: LanguageStore.shared.t("skills.section.default.info"),
             items: global.map { .skill($0) },
-            emptyMessage: "No default skills."
+            emptyMessage: LanguageStore.shared.t("skills.section.default.empty")
         ))
         if !builtin.isEmpty {
             for item in builtin { inactiveByID[item.id] = !isAssignedSomewhere(item) }
             sections.append(AppListSection(
                 id: "builtin",
-                title: "Built-in Skills",
-                info: "Agent Deck skills bundled with the app. They are available out of the box but are not injected until made Default, assigned to a project runtime, or assigned to a Deck agent.",
+                title: LanguageStore.shared.t("skills.section.builtin"),
+                info: LanguageStore.shared.t("skills.section.builtin.info"),
                 items: builtin.map { .skill($0) }
             ))
         }
@@ -611,7 +611,7 @@ struct SkillsScreen: View {
             sections.append(AppListSection(
                 id: "catalog",
                 title: "Catalog",
-                info: "Available user and imported skills. They are not injected until made Default, assigned to a project runtime, or assigned to a Deck agent.",
+                info: LanguageStore.shared.t("skills.section.catalog.info"),
                 items: catalog.map { .skill($0) }
             ))
         }
@@ -639,14 +639,14 @@ struct SkillsScreen: View {
                 Button {
                     skillsPendingBatchRemoval = importable
                 } label: {
-                    Label("Remove \(importable.count) from Catalog", systemImage: "minus.circle")
+                    Label(LanguageStore.shared.t("skills.alert.removeManyAction", importable.count), systemImage: "minus.circle")
                 }
             }
             if !deletable.isEmpty {
                 Button(role: .destructive) {
                     skillsPendingBatchDeletion = deletable
                 } label: {
-                    Label("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")", systemImage: "trash")
+                    Label(LanguageStore.shared.t("skills.alert.moveManyTrash", deletable.count), systemImage: "trash")
                 }
             }
         } else if let skill = skills.first {
@@ -845,7 +845,7 @@ struct SkillsScreen: View {
 
             if skill.source.kind == .package {
                 AppCard(title: LanguageStore.shared.t("skills.packageSkill")) {
-                    Text("This skill is provided by an installed package. It is not injected unless assigned as Default, assigned to a project, or assigned to an agent.")
+                    Text(LanguageStore.shared.t("skills.packageBody"))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -855,8 +855,8 @@ struct SkillsScreen: View {
                 AppCard(title: LanguageStore.shared.t("skills.disable")) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(viewModel.bundledSkillIsDisabled(skill)
-                             ? "Re-enable this built-in skill so it appears in the composer's `/` menu and can be assigned as a Default."
-                             : "Turn this built-in skill off everywhere so it does not appear in the composer's `/` menu or get auto-assigned.")
+                             ? LanguageStore.shared.t("skills.enableBuiltinHelp")
+                             : LanguageStore.shared.t("skills.disableBuiltinHelp"))
                             .font(.callout)
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -880,7 +880,7 @@ struct SkillsScreen: View {
             if viewModel.isImportedSkill(skill) {
                 AppCard(title: LanguageStore.shared.t("skills.removeSkill")) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Remove this skill from the \(AppBrand.displayName) catalog and clear its Default, project, and agent assignments. The skill files are not deleted.")
+                        Text(LanguageStore.shared.t("skills.removeBody", AppBrand.displayName))
                             .font(.callout)
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -897,7 +897,7 @@ struct SkillsScreen: View {
             if skill.source.kind != .builtin && viewModel.canDeleteSkill(skill) {
                 AppCard(title: LanguageStore.shared.t("skills.deleteSkill")) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Move this skill's file to the Trash and remove its Default, project, and agent assignments.")
+                        Text(LanguageStore.shared.t("skills.deleteBody"))
                             .font(.callout)
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1302,7 +1302,7 @@ struct SkillsScreen: View {
                 isUpdatingSkillRepository = false
                 switch outcome {
                 case .updated:
-                    skillUpdateStatusMessage = "Updated to the latest version."
+                    skillUpdateStatusMessage = LanguageStore.shared.t("skills.updatedLatest")
                 case .alreadyUpToDate:
                     skillUpdateStatusMessage = "Already up to date."
                 case let .conflicts(conflicts):
@@ -2737,7 +2737,7 @@ private struct SkillCollectionEditorSheet: View {
             refreshCollectionEditorCaches()
             reloadSelectedCollectionIfNeeded()
         }
-        .alert("Delete Collection?", isPresented: Binding(
+        .alert(LanguageStore.shared.t("skills.alert.deleteCollection"), isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         ), presenting: pendingDelete) { collection in

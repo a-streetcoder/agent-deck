@@ -192,7 +192,7 @@ struct LoopBankScreen: View {
                 viewModel.pendingNewLoopEditorDraft = draft
             }
         }
-        .alert("Loop Bank", isPresented: Binding(
+        .alert(LanguageStore.shared.t("loops.alert.bank"), isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -200,7 +200,7 @@ struct LoopBankScreen: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .alert("Discard new loop draft?", isPresented: $isDiscardNewLoopDraftAlertPresented) {
+        .alert(LanguageStore.shared.t("loops.alert.discardDraft"), isPresented: $isDiscardNewLoopDraftAlertPresented) {
             Button(LanguageStore.shared.t("loops.discardCreateNew"), role: .destructive) {
                 startNewLoop(discardPendingDraft: true)
             }
@@ -208,7 +208,7 @@ struct LoopBankScreen: View {
         } message: {
             Text(LanguageStore.shared.t("loops.unsavedDraft"))
         }
-        .alert("Delete Loop?", isPresented: Binding(
+        .alert(LanguageStore.shared.t("loops.alert.delete"), isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         ), presenting: pendingDelete) { definition in
@@ -217,7 +217,7 @@ struct LoopBankScreen: View {
             }
             Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { pendingDelete = nil }
         } message: { definition in
-            Text("Delete \"\(definition.name)\" from the user Loop Bank? Built-in loop resources are never edited.")
+            Text(LanguageStore.shared.t("loops.alert.deleteMessage", definition.name))
         }
         .sheet(isPresented: $isEditorSheetPresented, onDismiss: handleEditorSheetDismiss) {
             loopEditSheet
@@ -329,36 +329,36 @@ struct LoopBankScreen: View {
 
     private func readOnlyDefinitionFields(for definition: LoopDefinition) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            readOnlyFieldRow("Name", value: definition.name, placeholder: "Untitled loop")
-            readOnlyMarkdownFieldRow("Description", value: definition.description, placeholder: "No description")
-            readOnlyFieldRow("Structure", value: definition.structure.displayName)
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.name"), value: definition.name, placeholder: LanguageStore.shared.t("loops.placeholder.untitled"))
+            readOnlyMarkdownFieldRow(LanguageStore.shared.t("loops.field.description"), value: definition.description, placeholder: LanguageStore.shared.t("loops.placeholder.noDescription"))
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.structure"), value: definition.structure.displayName)
             readOnlyFieldRow(LanguageStore.shared.t("loops.writeTarget"), value: definition.writeTarget.displayName)
-            readOnlyFieldRow("Max iterations", value: definition.maxIterations > 0 ? "\(definition.maxIterations)" : "No limit")
-            readOnlyMarkdownFieldRow("Goal template", value: definition.goalTemplate, placeholder: "No goal template")
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.maxIterations"), value: definition.maxIterations > 0 ? "\(definition.maxIterations)" : LanguageStore.shared.t("loops.noLimit"))
+            readOnlyMarkdownFieldRow(LanguageStore.shared.t("loops.field.goalTemplate"), value: definition.goalTemplate, placeholder: LanguageStore.shared.t("loops.placeholder.noGoal"))
             if let launchContext = definition.launchContext, !launchContext.isEmpty {
-                readOnlyMarkdownFieldRow("Launch context", value: launchContext)
+                readOnlyMarkdownFieldRow(LanguageStore.shared.t("loops.field.launchContext"), value: launchContext)
                 readOnlyFieldRow(LanguageStore.shared.t("loops.contextScope"), value: definition.launchContextScope.displayName)
             } else {
-                readOnlyFieldRow("Launch context", value: "None")
+                readOnlyFieldRow(LanguageStore.shared.t("loops.field.launchContext"), value: LanguageStore.shared.t("loops.placeholder.none"))
             }
-            readOnlyMarkdownFieldRow("Success condition", value: definition.goalEvaluation.successCondition.isEmpty ? definition.goalTemplate : definition.goalEvaluation.successCondition, placeholder: "Loop goal")
-            readOnlyFieldRow("Evaluator model", value: definition.goalEvaluation.model ?? "", placeholder: "Default")
-            readOnlyFieldRow("Evaluator thinking", value: definition.goalEvaluation.thinkingLevel ?? "", placeholder: "Default")
-            readOnlyFieldRow("Validation command", value: definition.validationCommand, placeholder: "None", isLast: true)
+            readOnlyMarkdownFieldRow(LanguageStore.shared.t("loops.field.successCondition"), value: definition.goalEvaluation.successCondition.isEmpty ? definition.goalTemplate : definition.goalEvaluation.successCondition, placeholder: LanguageStore.shared.t("loops.placeholder.loopGoal"))
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.evaluatorModel"), value: definition.goalEvaluation.model ?? "", placeholder: LanguageStore.shared.t("loops.placeholder.default"))
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.evaluatorThinking"), value: definition.goalEvaluation.thinkingLevel ?? "", placeholder: LanguageStore.shared.t("loops.placeholder.default"))
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.validationCommand"), value: definition.validationCommand, placeholder: LanguageStore.shared.t("loops.placeholder.none"), isLast: true)
         }
     }
 
     private var definitionFields: some View {
         VStack(alignment: .leading, spacing: 0) {
-            detailRow("Name", info: "Use a short action-oriented name. This is what appears in the Loop Bank and launch menus.") {
+            detailRow(LanguageStore.shared.t("loops.field.name"), info: LanguageStore.shared.t("loops.help.name")) {
                 TextField("", text: $editorDraft.name)
                     .multilineTextAlignment(.trailing)
                     .textFieldStyle(.plain)
                     .foregroundStyle(.primary)
             }
-            detailEditor("Description", text: $editorDraft.description, minHeight: 64, info: "Optional summary for the Loop Bank list. Use it to explain when someone should choose this loop.")
-            detailRow("Structure", infoRows: loopStructureInfoRows) {
-                Picker("Structure", selection: $editorDraft.structure) {
+            detailEditor(LanguageStore.shared.t("loops.field.description"), text: $editorDraft.description, minHeight: 64, info: LanguageStore.shared.t("loops.help.description"))
+            detailRow(LanguageStore.shared.t("loops.field.structure"), infoRows: loopStructureInfoRows) {
+                Picker(LanguageStore.shared.t("loops.field.structure"), selection: $editorDraft.structure) {
                     ForEach(LoopStructureKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
                     }
@@ -373,13 +373,13 @@ struct LoopBankScreen: View {
                 }
                 .labelsHidden()
             }
-            detailRow("Max iterations", info: "A hard safety limit. Set 0 for no iteration limit so the loop continues until it reaches its goal or another stop condition.") {
+            detailRow(LanguageStore.shared.t("loops.field.maxIterations"), info: LanguageStore.shared.t("loops.help.maxIterations")) {
                 let hasIterationLimit = editorDraft.maxIterations > 0
                 HStack(spacing: 8) {
                     LoopNumericStepper(value: $editorDraft.maxIterations, range: 0...LoopDraft.maximumMaxIterations)
                         .disabled(!hasIterationLimit)
                         .opacity(hasIterationLimit ? 1 : 0.45)
-                    Button(hasIterationLimit ? "No limit" : "Set limit") {
+                    Button(hasIterationLimit ? LanguageStore.shared.t("loops.noLimit") : LanguageStore.shared.t("loops.setLimit")) {
                         if hasIterationLimit {
                             editorDraft.maxIterations = 0
                         } else {
@@ -389,19 +389,19 @@ struct LoopBankScreen: View {
                     .appSmallSecondaryButton()
                 }
             }
-            detailEditor("Goal template", text: $editorDraft.goalTemplate, minHeight: 120, info: "The reusable instruction the loop runs against. Be explicit about the desired outcome, constraints, and what counts as done.")
-            detailEditor("Success condition", text: $editorDraft.successCondition, minHeight: 84, info: "Always-on report-only evaluator uses this natural-language condition after every iteration. Leave empty to use the loop goal.")
-            detailRow("Evaluator model", info: "Optional model override for the report-only goal evaluator. Leave empty to use Pi's current default/inherited model.") {
+            detailEditor(LanguageStore.shared.t("loops.field.goalTemplate"), text: $editorDraft.goalTemplate, minHeight: 120, info: LanguageStore.shared.t("loops.help.goalTemplate"))
+            detailEditor(LanguageStore.shared.t("loops.field.successCondition"), text: $editorDraft.successCondition, minHeight: 84, info: LanguageStore.shared.t("loops.help.successCondition"))
+            detailRow(LanguageStore.shared.t("loops.field.evaluatorModel"), info: LanguageStore.shared.t("loops.help.evaluatorModel")) {
                 AppTextField(text: $editorDraft.evaluatorModel, placeholder: "Default")
                     .frame(maxWidth: 360)
             }
-            detailRow("Evaluator thinking", info: "Optional thinking level for the report-only goal evaluator, such as off, low, medium, high, or xhigh.") {
+            detailRow(LanguageStore.shared.t("loops.field.evaluatorThinking"), info: LanguageStore.shared.t("loops.help.evaluatorThinking")) {
                 AppTextField(text: $editorDraft.evaluatorThinkingLevel, placeholder: "Default")
                     .frame(maxWidth: 360)
             }
-            detailEditor("Launch context (optional)", text: $editorDraft.launchContext, minHeight: 84, infoRows: loopLaunchContextInfoRows)
+            detailEditor(LanguageStore.shared.t("loops.field.launchContextOptional"), text: $editorDraft.launchContext, minHeight: 84, infoRows: loopLaunchContextInfoRows)
             if !editorDraft.launchContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                detailRow(LanguageStore.shared.t("loops.contextScope"), info: "First iteration only is the default. Every iteration repeats this context in each child-agent prompt.") {
+                detailRow(LanguageStore.shared.t("loops.contextScope"), info: LanguageStore.shared.t("loops.help.contextScope")) {
                     Picker(LanguageStore.shared.t("loops.contextScope"), selection: $editorDraft.launchContextScope) {
                         ForEach(LoopLaunchContextScope.allCases) { scope in
                             Text(scope.displayName).tag(scope)
@@ -410,8 +410,8 @@ struct LoopBankScreen: View {
                     .labelsHidden()
                 }
             }
-            detailRow("Validation command (optional)", info: "Agent Deck can run one shell command after each loop iteration, from the project directory when available. Its output is attached as evidence. Leave empty to skip automatic validation.", showsDivider: false) {
-                AppTextField(text: $editorDraft.validationCommand, placeholder: "Optional, e.g. swift test")
+            detailRow(LanguageStore.shared.t("loops.field.validationOptional"), info: LanguageStore.shared.t("loops.help.validation"), showsDivider: false) {
+                AppTextField(text: $editorDraft.validationCommand, placeholder: LanguageStore.shared.t("loops.placeholder.validation"))
                     .frame(maxWidth: 360)
             }
         }
@@ -420,7 +420,7 @@ struct LoopBankScreen: View {
     private var availabilitySection: some View {
         AppCard(title: LanguageStore.shared.t("loops.projectAssignment")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Enable for every project at once, or pick specific projects below. Assignments are stored in the Loop Bank and do not move loop files.")
+                Text(LanguageStore.shared.t("loops.assignmentHelp"))
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -432,7 +432,7 @@ struct LoopBankScreen: View {
                                 else { setUnassignedAvailability() }
                             }
                         ),
-                        subtitle: "Enable this loop for every project"
+                        subtitle: LanguageStore.shared.t("loops.enableEveryProject")
                     )
                     if !availableProjectsForLoopAssignment.isEmpty { Divider() }
                     ForEach(availableProjectsForLoopAssignment) { project in
@@ -491,9 +491,9 @@ struct LoopBankScreen: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(editorDraft.isNew ? "New Loop" : "Edit Loop")
+                    Text(editorDraft.isNew ? LanguageStore.shared.t("loops.newLoop") : LanguageStore.shared.t("loops.editLoop"))
                         .font(.headline.weight(.semibold))
-                    Text(editorDraft.name.nonEmpty ?? "Untitled loop")
+                    Text(editorDraft.name.nonEmpty ?? LanguageStore.shared.t("loops.placeholder.untitled"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -635,7 +635,7 @@ struct LoopBankScreen: View {
                 let projects = availableProjectsForLoopAssignment
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Enable for every project at once, or pick specific projects below. Assignments are stored in the Loop Bank and do not move loop files.")
+                    Text(LanguageStore.shared.t("loops.assignmentHelp"))
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -650,7 +650,7 @@ struct LoopBankScreen: View {
                                     )
                                 }
                             ),
-                            subtitle: "Enable this loop for every project"
+                            subtitle: LanguageStore.shared.t("loops.enableEveryProject")
                         )
                         if !projects.isEmpty { Divider() }
                         ForEach(projects) { project in
@@ -754,11 +754,11 @@ struct LoopBankScreen: View {
 
     private var loopStructureInfoRows: [LoopInlineInfoButton.Row] {
         [
-            .init(LanguageStore.shared.t("loops.singleAgent"), "Repeats one selected agent against the goal."),
-            .init(LanguageStore.shared.t("loops.makerChecker"), "A maker produces work, a checker reviews it, and iterations can retry."),
-            .init(LanguageStore.shared.t("loops.pipeline"), "Records ordered stages such as Explorer → Implementer → Verifier."),
-            .init(LanguageStore.shared.t("loops.parallel"), "Names independent branches or hypotheses in the same loop run."),
-            .init(LanguageStore.shared.t("loops.discovery"), "Collects findings and classifies them by severity or next action."),
+            .init(LanguageStore.shared.t("loops.singleAgent"), LanguageStore.shared.t("loops.structHelp.single")),
+            .init(LanguageStore.shared.t("loops.makerChecker"), LanguageStore.shared.t("loops.structHelp.maker")),
+            .init(LanguageStore.shared.t("loops.pipeline"), LanguageStore.shared.t("loops.structHelp.pipeline")),
+            .init(LanguageStore.shared.t("loops.parallel"), LanguageStore.shared.t("loops.structHelp.parallel")),
+            .init(LanguageStore.shared.t("loops.discovery"), LanguageStore.shared.t("loops.structHelp.discovery")),
             .init("Approval Checkpoint", "Records an explicit approval or rejection; start a new attempt for follow-up work.")
         ]
     }
@@ -942,7 +942,7 @@ struct LoopBankScreen: View {
                 title: "Default Loops",
                 info: "User loops available to every project. Assign one to specific projects from its detail card.",
                 items: defaults,
-                emptyMessage: "No default loops."
+                emptyMessage: LanguageStore.shared.t("loops.defaultEmpty")
             ),
             AppListSection(
                 id: "project",
