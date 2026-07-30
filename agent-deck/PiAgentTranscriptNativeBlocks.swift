@@ -836,7 +836,7 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         self.payload = payload
         if tagChanged { isExpanded = false }
 
-        tagLabel.stringValue = "[\(payload.tag)]"
+        tagLabel.stringValue = "[\(PiAgentTranscriptEntry.localizedSystemNoticeTag(payload.tag))]"
         applySeverityColors(payload.severity)
         applyBodyText()
         surfaceWidthC.constant = max(1, rowWidth)
@@ -867,11 +867,11 @@ final class PiAgentNativeSystemNoticeView: NSView, PiAgentNativeRowContent {
         let needsCollapse = lines.count > collapsedLineLimit
         if needsCollapse && !isExpanded {
             bodyLabel.stringValue = lines.prefix(collapsedLineLimit).joined(separator: "\n")
-            expandButton.title = "Show more…"
+            expandButton.title = LanguageStore.shared.t("notice.showMore")
             expandButton.isHidden = false
         } else if needsCollapse && isExpanded {
             bodyLabel.stringValue = payload.body
-            expandButton.title = "Show less"
+            expandButton.title = LanguageStore.shared.t("notice.showLess")
             expandButton.isHidden = false
         } else {
             bodyLabel.stringValue = payload.body

@@ -2395,7 +2395,7 @@ struct PiAgentStatusTranscriptRow: View {
             }
             .buttonStyle(.plain)
             .disabled(!showsErrorPopover)
-            .accessibilityLabel(showsErrorPopover ? "Show error details" : entry.title)
+            .accessibilityLabel(showsErrorPopover ? LanguageStore.shared.t("notice.a11y.errorDetails") : entry.title)
             .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
                     PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
                 }
@@ -2425,7 +2425,7 @@ struct PiAgentStatusTranscriptRow: View {
             }
         }()
         VStack(alignment: .leading, spacing: 6) {
-            Text("[\(tag)]")
+            Text("[\(PiAgentTranscriptEntry.localizedSystemNoticeTag(tag))]")
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .foregroundStyle(accent)
             Text(shownBody)
@@ -2434,7 +2434,7 @@ struct PiAgentStatusTranscriptRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if needsCollapse {
-                Button(isSystemNoticeExpanded ? "Show less" : "Show more…") {
+                Button(isSystemNoticeExpanded ? LanguageStore.shared.t("notice.showLess") : LanguageStore.shared.t("notice.showMore")) {
                     isSystemNoticeExpanded.toggle()
                 }
                 .buttonStyle(.plain)
@@ -2809,6 +2809,27 @@ extension PiAgentTranscriptEntry {
         default:
             return title.hasPrefix("Notify")
         }
+    }
+
+    /// Localized bracket label for soft system-notice cards (e.g. 通知 / notify).
+    ///
+    /// - Parameter rawTag: Machine tag from `systemNoticePresentation` (lowercase English key or custom).
+    /// - Returns: User-facing label for the `[…]` header.
+    static func localizedSystemNoticeTag(_ rawTag: String) -> String {
+        let key: String
+        switch rawTag.lowercased() {
+        case "notify": key = "notice.tag.notify"
+        case "warning", "warn": key = "notice.tag.warning"
+        case "error", "danger", "fail", "failure": key = "notice.tag.error"
+        case "status": key = "notice.tag.status"
+        case "widget": key = "notice.tag.widget"
+        case "compaction": key = "notice.tag.compaction"
+        case "notice": key = "notice.tag.notice"
+        default:
+            // Custom setStatus keys (e.g. ocr) stay as-is.
+            return rawTag
+        }
+        return LanguageStore.shared.t(key)
     }
 
     /// Bracket tag + body for soft system-notice cards.

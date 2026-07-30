@@ -2239,3 +2239,15 @@
 "sys.note.globalContext2" = "Global context loaded for every Pi session unless context files are disabled.";
 "sys.note.globalContextFallback2" = "Fallback global context. It is shadowed when global AGENTS.md exists.";
 "sys.note.globalUppercaseContext" = "Existing global context file using uppercase extension. Pi recognizes it during context discovery.";
+
+// Soft system notices (notify / status / widget)
+"notice.tag.notify" = "notify";
+"notice.tag.warning" = "warning";
+"notice.tag.error" = "error";
+"notice.tag.status" = "status";
+"notice.tag.widget" = "widget";
+"notice.tag.compaction" = "compaction";
+"notice.tag.notice" = "notice";
+"notice.showMore" = "Show more…";
+"notice.showLess" = "Show less";
+"notice.a11y.errorDetails" = "Show error details";

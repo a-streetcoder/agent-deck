@@ -2238,3 +2238,15 @@
 "sys.note.globalContext2" = "除非禁用上下文文件，否则会在每个 Pi 会话加载的全局上下文。";
 "sys.note.globalContextFallback2" = "备用全局上下文；存在全局 AGENTS.md 时会被覆盖。";
 "sys.note.globalUppercaseContext" = "使用大写扩展名的全局上下文文件；Pi 在发现上下文时会识别。";
+
+// Soft system notices (notify / status / widget)
+"notice.tag.notify" = "通知";
+"notice.tag.warning" = "警告";
+"notice.tag.error" = "错误";
+"notice.tag.status" = "状态";
+"notice.tag.widget" = "组件";
+"notice.tag.compaction" = "压缩";
+"notice.tag.notice" = "提示";
+"notice.showMore" = "展开更多…";
+"notice.showLess" = "收起";
+"notice.a11y.errorDetails" = "显示错误详情";
