@@ -24,7 +24,6 @@ struct MCPServersScreen: View {
     @State private var editorModel: MCPServerEditorModel?
     /// Name pending delete confirmation.
     @State private var pendingDeleteName: String?
-    @State private var isChatGPTRunning = ComputerUseChatGPTRuntime.isRunning
 
     /// Selected server in the master list.
     @State private var selectedServerID: MCPServerEntry.ID?
@@ -66,10 +65,8 @@ struct MCPServersScreen: View {
         .onChange(of: viewModel.mcpAddRequestToken) { _, _ in editorModel = .add }
         .onChange(of: viewModel.mcpRefreshRequestToken) { _, _ in reloadTick += 1 }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in
-            isChatGPTRunning = ComputerUseChatGPTRuntime.isRunning
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in
-            isChatGPTRunning = ComputerUseChatGPTRuntime.isRunning
         }
         .sheet(item: $editorModel) { model in
             MCPServerEditorSheet(model: model, existingNames: Set(servers.map(\.name)), projectRoot: viewModel.projectRootURL) { name, config in
@@ -222,7 +219,6 @@ struct MCPServersScreen: View {
             AppPage(entry.name, subtitle: transportLabel(entry)) {
                 VStack(alignment: .leading, spacing: 20) {
                     connectionCard(entry)
-                    if isTrustedComputerUse(entry) { computerUsePolicyCard }
                     projectAssignmentCard(entry)
                     toolsCard(entry)
                     removeCard(entry)
@@ -245,50 +241,7 @@ struct MCPServersScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func isTrustedComputerUse(_ entry: MCPServerEntry) -> Bool {
-        guard entry.name == ComputerUseCapability.serverName,
-              entry.isAvailable,
-              entry.toolPolicy == .computerUseAutoAccept else { return false }
-        if case .codexPlugin = entry.provenance { return entry.config.resolvedTransport == .stdio }
-        return false
-    }
 
-    private var computerUsePolicyCard: some View {
-        AppCard(title: LanguageStore.shared.t("mcp.computerUse")) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(LanguageStore.shared.t("mcp.chatgptRequired"))
-                    .fontWeight(.semibold)
-                HStack(spacing: 8) {
-                    Label(
-                        isChatGPTRunning ? LanguageStore.shared.t("mcp.chatgptRunning") : LanguageStore.shared.t("mcp.chatgptNotRunning"),
-                        systemImage: isChatGPTRunning ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
-                    )
-                    .foregroundStyle(isChatGPTRunning ? Color.green : Color.orange)
-                    Spacer()
-                    Button(LanguageStore.shared.t("mcp.openChatGPT")) {
-                        Task { _ = await ComputerUseChatGPTRuntime.openAndWaitUntilRunning() }
-                    }
-                        .controlSize(.small)
-                }
-                Text(LanguageStore.shared.t("mcp.availableToolsExample"))
-                Text("Automatic authority: assigning Computer Use gives sessions in this scope access to all ten methods—including clicking, typing, scrolling, dragging, and key presses—without an Agent Deck approval prompt. Signed OpenAI app-server requests are accepted automatically.")
-                Divider()
-                Toggle(LanguageStore.shared.t("mcp.generalChat"), isOn: Binding(
-                    get: { viewModel.computerUseIsEnabledForNoProjectMode(.general) },
-                    set: { viewModel.setComputerUseEnabledForNoProjectMode(.general, enabled: $0) }
-                ))
-                Toggle(LanguageStore.shared.t("mcp.deckBuilder"), isOn: Binding(
-                    get: { viewModel.computerUseIsEnabledForNoProjectMode(.agentDeckBuilder) },
-                    set: { viewModel.setComputerUseEnabledForNoProjectMode(.agentDeckBuilder, enabled: $0) }
-                ))
-                Text("No-project chats never inherit All Projects, project, default, or agent MCP assignments. These toggles explicitly assign only Computer Use to the selected chat mode.")
-                Text("Enable it only for projects, agents, or no-project modes you trust to control this Mac. Unassign or disable Computer Use to stop exposing it. ChatGPT availability and macOS privacy permissions are prerequisites; neither is consent for effects the user did not request.")
-            }
-            .font(.caption)
-            .foregroundStyle(AppTheme.mutedText)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-    }
 
     private func connectionCard(_ entry: MCPServerEntry) -> some View {
         AppCard(title: LanguageStore.shared.t("mcp.connection")) {
@@ -347,25 +300,16 @@ struct MCPServersScreen: View {
 
     @ViewBuilder
     private func detailStatusTag(_ entry: MCPServerEntry) -> some View {
-        let isComputerUse = entry.name == ComputerUseCapability.serverName && entry.toolPolicy == .computerUseAutoAccept
         switch statusByServer[entry.name] {
         case .probing:
             HStack(spacing: 6) { AppSpinner().controlSize(.small); Text(LanguageStore.shared.t("mcp.connecting")).font(.caption).foregroundStyle(.secondary) }
-        case let .ok(tools) where isComputerUse:
-            let ready = Set(tools.map(\.name)).isSuperset(of: MCPServerToolPolicy.computerUseKnownTools)
-            AppLabelTag(text: ready ? "Control ready" : "Control status unknown", color: ready ? .green : .orange)
         case let .ok(tools):
             AppLabelTag(text: "Connected · \(tools.count) tool\(tools.count == 1 ? "" : "s")", color: .green)
-        case let .failed(message) where isComputerUse:
-            let needsPermission = ["automation", "accessibility", "screen recording"].contains { message.localizedCaseInsensitiveContains($0) }
-            AppLabelTag(text: needsPermission ? "Permissions required" : "Control status unknown", color: .orange)
         case .failed:
             AppLabelTag(text: "Not reachable", color: .orange)
         case nil:
             if !entry.isAvailable {
                 AppLabelTag(text: "Unavailable", color: .orange)
-            } else if isComputerUse {
-                AppLabelTag(text: "Control status unknown", color: .secondary)
             } else if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
                 AppLabelTag(text: "Signed in", color: .green)
             } else {

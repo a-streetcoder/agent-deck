@@ -148,10 +148,9 @@ nonisolated enum ComputerUseCapability {
         mcpEnabled: Bool,
         entries: [MCPServerEntry]
     ) -> Set<String> {
-        guard mcpEnabled,
-              assignedModes.contains(mode),
-              hasTrustedAvailableAssignment(scope: [serverName], entries: entries) else { return [] }
-        return [serverName]
+        // Pi Deck no longer injects Computer Use for no-project modes.
+        _ = mode; _ = assignedModes; _ = mcpEnabled; _ = entries
+        return []
     }
 
     static func hasActiveAssignment(

@@ -3924,23 +3924,13 @@ final class AppViewModel: NSObject {
             await self.mcpConnectionManager.setAuthTokenProvider { server in
                 await MCPOAuthService.shared.accessToken(for: server)
             }
-            // Config I/O and the bounded, read-only Codex query both run away from the
-            // main actor. The plugin result is transient; only its stable server name
-            // participates in assignment persistence.
+            // Config I/O only — Pi Deck does not auto-inject Codex Computer Use.
             async let configuredTask = Task.detached(priority: .utility) { MCPConfigLoader().load(projectRoot: projectURL).servers }.value
-            async let discoveryTask = Task.detached(priority: .utility) { await CodexPluginMCPDiscovery().discover() }.value
-            async let brokerTask = Task.detached(priority: .utility) { CodexComputerUseBrokerDiscovery.discover() }.value
             let configured = await configuredTask
-            let discovery = await discoveryTask
-            let brokerDiscovery = await brokerTask
             guard !Task.isCancelled, self.mcpRefreshCoordinator.isCurrent(token) else { return }
 
-            self.codexComputerUseMCPDiscovery = discovery
-            self.codexComputerUseBrokerDiscovery = brokerDiscovery
             self.mcpCatalogRevision &+= 1
-            let merged = CodexComputerUseMCPIntegration.merge(
-                configured: configured, discovery: discovery, brokerDiscovery: brokerDiscovery
-            )
+            let merged = CodexComputerUseMCPIntegration.merge(configured: configured)
             self.mergedMCPEntries = merged
             self.mcpConfiguredServerNames = Set(merged.map(\.name))
             guard enabled else {
@@ -4082,12 +4072,9 @@ final class AppViewModel: NSObject {
     /// project's assignment. Always intersected with servers that actually exist in config.
     private func assignedMCPServerNames(for session: PiAgentSessionRecord) -> Set<String> {
         if session.isNoProject {
-            return ComputerUseCapability.noProjectScope(
-                mode: session.effectiveNoProjectMode,
-                assignedModes: appSettings.computerUseNoProjectModes,
-                mcpEnabled: appSettings.mcpEnabled,
-                entries: mergedMCPEntries
-            )
+            // No-project chats never inherit project/default MCP assignments.
+            // Computer Use auto-injection has been removed.
+            return []
         }
 
         let resolved: Set<String>
@@ -4128,11 +4115,7 @@ final class AppViewModel: NSObject {
         let configured = await Task.detached(priority: .utility) {
             MCPConfigLoader().load(projectRoot: root).servers
         }.value
-        return CodexComputerUseMCPIntegration.merge(
-            configured: configured,
-            discovery: codexComputerUseMCPDiscovery,
-            brokerDiscovery: codexComputerUseBrokerDiscovery
-        )
+        return CodexComputerUseMCPIntegration.merge(configured: configured)
     }
 
     func mcpServer(_ name: String, isEnabledFor project: DiscoveredProject) -> Bool {
@@ -5044,7 +5027,7 @@ final class AppViewModel: NSObject {
                     session: originalSession
                 )
             }
-            isComputerUseChatGPTStartAlertPresented = true
+            isComputerUseChatGPTStartAlertPresented = false
             return false
         }
         beforeStart()
@@ -5092,7 +5075,7 @@ final class AppViewModel: NSObject {
         isComputerUseChatGPTStartAlertPresented = false
         if openChatGPT, !(await ComputerUseChatGPTRuntime.openAndWaitUntilRunning()) {
             pendingComputerUseSessionStart = pending
-            isComputerUseChatGPTStartAlertPresented = true
+            isComputerUseChatGPTStartAlertPresented = false
             return nil
         }
         if piAgentSessionStore.selectedSession?.id == pending.sessionID { beforeStart() }
