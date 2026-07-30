@@ -939,29 +939,29 @@ struct LoopBankScreen: View {
         return [
             AppListSection(
                 id: "default",
-                title: "Default Loops",
-                info: "User loops available to every project. Assign one to specific projects from its detail card.",
+                title: LanguageStore.shared.t("loops.section.default"),
+                info: LanguageStore.shared.t("loops.section.default.info"),
                 items: defaults,
                 emptyMessage: LanguageStore.shared.t("loops.defaultEmpty")
             ),
             AppListSection(
                 id: "project",
-                title: "Project Loops",
+                title: LanguageStore.shared.t("loops.section.project"),
                 items: current,
-                emptyMessage: "No loops assigned to the selected project."
+                emptyMessage: LanguageStore.shared.t("loops.section.project.empty")
             ),
             AppListSection(
                 id: "catalog",
-                title: "Catalog Loops",
+                title: LanguageStore.shared.t("loops.section.catalog"),
                 items: catalog,
-                emptyMessage: "No catalog loops."
+                emptyMessage: LanguageStore.shared.t("loops.section.catalog.empty")
             ),
             AppListSection(
                 id: "builtin",
-                title: "Builtin Loops",
-                info: "Builtins are bundled with \(AppBrand.displayName) and customized by duplicating them into the user Loop Bank.",
+                title: LanguageStore.shared.t("loops.section.builtin"),
+                info: LanguageStore.shared.t("loops.section.builtin.info", AppBrand.displayName),
                 items: builtins,
-                emptyMessage: "No builtin loops discovered."
+                emptyMessage: LanguageStore.shared.t("loops.section.builtin.empty")
             )
         ]
     }

@@ -39,7 +39,7 @@
 "search.memory" = "搜索记忆";
 "search.skills" = "搜索技能";
 "search.prompts" = "搜索提示词";
-"search.loops" = "搜索 loops";
+"search.loops" = "搜索循环";
 "search.sessions" = "搜索会话";
 "search.default" = "搜索";
 
@@ -1227,7 +1227,7 @@
 "skills.section.default.empty" = "暂无默认 Skills。";
 "skills.section.builtin" = "内置 Skills";
 "skills.section.builtin.info" = "随应用打包的 Pi Deck 技能。开箱可用，但需设为默认、分配到项目运行时，或分配给 Deck Agent 后才会注入。";
-"skills.section.catalog" = "目录 Skills";
+"skills.section.catalog" = "目录";
 "skills.section.catalog.info" = "可用的用户与导入技能。需设为默认、分配到项目运行时，或分配给 Deck Agent 后才会注入。";
 "skills.packageBody" = "该技能由已安装 package 提供。除非设为默认、分配到项目或 Agent，否则不会注入。";
 "skills.enableBuiltinHelp" = "重新启用此内置技能，使其出现在输入框 `/` 菜单中，并可设为默认。";
@@ -1252,3 +1252,24 @@
 "skills.alert.resolveDupMessage" = "保留「%@」（路径 %@），并移除另外 %d 份重复副本。项目分配、全局默认与 Agent skills 会继续指向保留副本。";
 "skills.alert.updates" = "Skill 更新";
 "skills.updatedLatest" = "已更新到最新版本。";
+"skills.section.collections" = "集合";
+"skills.definition" = "定义";
+"skills.enableEveryProject" = "为全部项目启用此技能";
+"skills.enableCollectionEveryProject" = "为全部项目启用此集合";
+"skills.selectedCountCard" = "已选 %d 个 Skills";
+"skills.editNamed" = "编辑 %@";
+"skills.noCollectionsYet" = "还没有集合 — 用「新建集合」创建。";
+"skills.noMatchSearch" = "没有匹配搜索的 Skills。";
+"skills.noCatalogAvailable" = "目录中暂无 Skills。";
+"skills.collectionName" = "集合名称";
+"skills.collectionBody" = "集合是用户显式组织的资源。导入的仓库技能不会自动进入，除非你在此添加，或在导入时启用「导入为集合」。";
+"skills.collectionTitle" = "集合";
+"loops.section.default" = "默认循环";
+"loops.section.default.info" = "对每个项目可用的用户循环。可在详情卡里分配到特定项目。";
+"loops.section.project" = "项目循环";
+"loops.section.project.empty" = "所选项目尚未分配循环。";
+"loops.section.catalog" = "目录循环";
+"loops.section.catalog.empty" = "暂无目录循环。";
+"loops.section.builtin" = "内置循环";
+"loops.section.builtin.info" = "内置项随 %@ 打包；复制到用户循环库后可定制。";
+"loops.section.builtin.empty" = "未发现内置循环。";

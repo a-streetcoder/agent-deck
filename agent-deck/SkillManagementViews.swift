@@ -583,7 +583,7 @@ struct SkillsScreen: View {
             }
             sections.append(AppListSection(
                 id: "collections",
-                title: "Collections",
+                title: LanguageStore.shared.t("skills.section.collections"),
                 info: LanguageStore.shared.t("skills.section.collections.info"),
                 items: filteredCollections.map { .collection($0) },
                 emptyMessage: LanguageStore.shared.t("skills.section.collections.empty")
@@ -610,7 +610,7 @@ struct SkillsScreen: View {
             for item in catalog { inactiveByID[item.id] = !isAssignedSomewhere(item) }
             sections.append(AppListSection(
                 id: "catalog",
-                title: "Catalog",
+                title: LanguageStore.shared.t("skills.section.catalog"),
                 info: LanguageStore.shared.t("skills.section.catalog.info"),
                 items: catalog.map { .skill($0) }
             ))
@@ -825,7 +825,7 @@ struct SkillsScreen: View {
             }
 
             LazyMarkdownCard(
-                title: "Definition",
+                title: LanguageStore.shared.t("skills.definition"),
                 source: skill.body,
                 minimumHeight: 220,
                 trailing: {
@@ -833,7 +833,7 @@ struct SkillsScreen: View {
                         Button {
                             skillEditTarget = makeSkillEditTarget(skill)
                         } label: {
-                            Label("Edit", systemImage: "square.and.pencil")
+                            Label(LanguageStore.shared.t("common.edit"), systemImage: "square.and.pencil")
                                 .font(.caption.weight(.semibold))
                                 .labelStyle(.titleAndIcon)
                         }
@@ -1151,7 +1151,7 @@ struct SkillsScreen: View {
                         else { viewModel.disableSkillCollectionGlobally(collection) }
                     }
                 ),
-                subtitle: "Enable this collection for every project"
+                subtitle: LanguageStore.shared.t("skills.enableCollectionEveryProject")
             )
             Divider()
             ForEach(viewModel.enabledProjects) { project in
@@ -1401,7 +1401,7 @@ struct SkillsScreen: View {
     }
 
     private func diagnosticSkillWarningDetail(_ warning: DiagnosticWarning) -> some View {
-        AppCard(title: "Skill Warning") {
+        AppCard(title: LanguageStore.shared.t("skills.warningTitle")) {
             VStack(alignment: .leading, spacing: 14) {
                 Text(warning.message)
                     .foregroundStyle(AppTheme.mutedText)
@@ -1505,7 +1505,7 @@ struct SkillsScreen: View {
     }
 
     private func skillWarningSummaryCard(warnings: [DiagnosticWarning]) -> some View {
-        AppCard(title: "Warnings") {
+        AppCard(title: LanguageStore.shared.t("skills.warnings")) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(warnings) { warning in
                     HStack(alignment: .top, spacing: 10) {
@@ -1719,7 +1719,7 @@ struct SkillsScreen: View {
                             }
                         }
                     ),
-                    subtitle: "Enable this skill for every project"
+                    subtitle: LanguageStore.shared.t("skills.enableEveryProject")
                 )
                 Divider()
                 ForEach(viewModel.enabledProjects) { project in
@@ -2087,7 +2087,7 @@ struct SkillsScreen: View {
     private func batchSelectionDetail(_ skills: [SkillRecord]) -> some View {
         let deletable = skills.filter { viewModel.canDeleteSkill($0) }
         let importable = skills.filter { viewModel.isImportedSkill($0) }
-        AppCard(title: "\(skills.count) Skills Selected") {
+        AppCard(title: LanguageStore.shared.t("skills.selectedCountCard", skills.count)) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Cmd- or Shift-click rows to adjust the selection. Right-click the list — or use the button below — to act on every selected skill at once.")
                     .foregroundStyle(AppTheme.mutedText)
@@ -2147,7 +2147,7 @@ struct SkillsScreen: View {
 
     private func makeSkillEditTarget(_ skill: SkillRecord) -> MarkdownFileEditTarget {
         MarkdownFileEditTarget(
-            title: "Edit \(skill.name)",
+            title: LanguageStore.shared.t("skills.editNamed", skill.name),
             path: skill.filePath,
             note: "Editing the raw SKILL.md. Changes apply after you save."
         )
@@ -2299,7 +2299,7 @@ private struct SkillAgentAssignmentList: View {
                 .foregroundStyle(AppTheme.mutedText)
 
             AgentAssignmentSection(
-                title: "Agents",
+                title: LanguageStore.shared.t("sidebar.agents"),
                 agents: agents,
                 viewModel: viewModel,
                 isInactiveSection: false,
@@ -2335,7 +2335,7 @@ private struct SkillCollectionAgentAssignmentList: View {
                 .foregroundStyle(AppTheme.mutedText)
 
             AgentAssignmentSection(
-                title: "Agents",
+                title: LanguageStore.shared.t("sidebar.agents"),
                 agents: agents,
                 viewModel: viewModel,
                 isInactiveSection: false,
@@ -2772,9 +2772,9 @@ private struct SkillCollectionEditorSheet: View {
             AppList(
                 sections: [AppListSection(
                     id: "collections",
-                    title: "Collections",
+                    title: LanguageStore.shared.t("skills.section.collections"),
                     items: collections,
-                    emptyMessage: "No collections yet — use New Collection to create one."
+                    emptyMessage: LanguageStore.shared.t("skills.noCollectionsYet")
                 )],
                 selection: .single(Binding(
                     get: { selectedCollectionID },
@@ -2868,26 +2868,26 @@ private struct SkillCollectionEditorSheet: View {
         let filteredSkills = cachedFilteredCatalogSkills
         return ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                AppCard(title: selectedCollection == nil ? LanguageStore.shared.t("skills.newCollection") : "Collection") {
+                AppCard(title: selectedCollection == nil ? LanguageStore.shared.t("skills.newCollection") : LanguageStore.shared.t("skills.collectionTitle")) {
                     VStack(alignment: .leading, spacing: 12) {
-                        AppTextField(text: $draftName, placeholder: "Collection name")
-                        AppTextField(text: $draftDescription, placeholder: "Description", axis: .vertical)
+                        AppTextField(text: $draftName, placeholder: LanguageStore.shared.t("skills.collectionName"))
+                        AppTextField(text: $draftDescription, placeholder: LanguageStore.shared.t("loops.field.description"), axis: .vertical)
                             .lineLimit(2...4)
-                        Text("Collections are explicit user-organized resources. Imported repository skills are not included unless you add them here or enable Import as collection during import.")
+                        Text(LanguageStore.shared.t("skills.collectionBody"))
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
-                AppCard(title: "Skills") {
+                AppCard(title: LanguageStore.shared.t("sidebar.skills")) {
                     VStack(alignment: .leading, spacing: 12) {
                         skillSearchField
 
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 0) {
                                 if filteredSkills.isEmpty {
-                                    Text(isSkillSearchActive ? "No skills match your search." : "No catalog skills available.")
+                                    Text(isSkillSearchActive ? LanguageStore.shared.t("skills.noMatchSearch") : LanguageStore.shared.t("skills.noCatalogAvailable"))
                                         .font(.caption)
                                         .foregroundStyle(AppTheme.mutedText)
                                         .frame(maxWidth: .infinity, minHeight: 120)
