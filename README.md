@@ -205,6 +205,25 @@ Release 本地包（无 Developer ID 时同样可关签名）：
 
 需要 **Developer ID 签名** 的 export 仍可用上游 `scripts/package-app.sh`（需设置 `DEVELOPER_ID_APPLICATION` 等），产物名请改为 Pi Deck。
 
+发行目录示例（版本号随 tag）：
+
+```bash
+./scripts/build-pi-deck-app.sh
+# build/Pi-Deck.app
+# build/Pi-Deck-0.0.1.dmg
+# build/Pi-Deck-0.0.1.zip
+```
+
+### 未签名包与 Gatekeeper
+
+当前公开构建多为 **无 Developer ID / 未公证**。从 DMG 或 zip 装到 `/Applications` 后，若系统提示「无法验证开发者」或打不开，在终端清除隔离属性：
+
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+然后再次双击打开；仍被拦时可 **右键 App → 打开** 确认一次。本机 `xcodebuild` 直接产物一般不受此影响。
+
 > 同步上游：`git fetch upstream` 后按需 rebase / cherry-pick；**不要** `push` 到 `upstream`（已配置 `no_push`）。
 
 ---
