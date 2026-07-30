@@ -2303,3 +2303,24 @@
 "settings.profile.cropHelp" = "拖动移动位置，滑块缩放。圆圈内为对话中显示的区域。";
 "settings.profile.cropPreview" = "预览";
 "settings.profile.cropApply" = "使用照片";
+
+"composer.hint.sendSteer" = "发送 / 引导";
+"composer.hint.newline" = "换行";
+"composer.hint.stopTurn" = "停止当前回合";
+"composer.hint.clearInput" = "清空输入";
+"composer.hint.commands" = "斜杠命令";
+"composer.hint.fileSuggestions" = "文件建议";
+"projects.emptyTitle" = "还没有项目";
+"projects.noMatchingTitle" = "没有匹配的项目";
+"projects.emptyRootNone" = "在设置或 Doctor 中添加项目文件夹后，将自动发现项目。";
+"projects.emptyRootOne" = "来自 %@ 的项目会自动出现在这里。";
+"projects.emptyRootMany" = "来自已配置的 %d 个文件夹的项目会自动出现在这里。";
+"projects.setCustomIcon" = "设置自定义图标";
+"projects.changeCustomIcon" = "更改自定义图标";
+"projects.moveToTrashAction" = "移到废纸篓";
+"projects.hideFromList" = "从列表隐藏";
+"projects.noAgentsTitle" = "暂无 Agents";
+"projects.loadingAgents" = "正在加载 agents…";
+"projects.noSkillsTitle" = "暂无 Skills";
+"projects.loadingSkills" = "正在加载 skills…";
+"projects.loadingMcp" = "正在加载 MCP 服务器…";

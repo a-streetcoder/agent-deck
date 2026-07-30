@@ -134,7 +134,7 @@ private struct ProjectIconEditorButton: View {
         .onHover { hovering in
             isHovering = hovering
         }
-        .help(imageURL == nil ? "Set custom icon" : "Change custom icon")
+        .help(imageURL == nil ? LanguageStore.shared.t("projects.setCustomIcon") : LanguageStore.shared.t("projects.changeCustomIcon"))
     }
 }
 
@@ -393,7 +393,7 @@ struct ProjectsScreen: View {
 
             if viewModel.discoveredProjects.isEmpty {
                 ContentUnavailableView(
-                    "No Projects Yet",
+                    LanguageStore.shared.t("projects.emptyTitle"),
                     systemImage: "folder",
                     description: Text(emptyProjectsRootDescription)
                 )
@@ -401,7 +401,7 @@ struct ProjectsScreen: View {
                 .padding(.vertical, 12)
             } else if visibleProjects.isEmpty {
                 ContentUnavailableView(
-                    "No Matching Projects",
+                    LanguageStore.shared.t("projects.noMatchingTitle"),
                     systemImage: "magnifyingglass",
                     description: Text(LanguageStore.shared.t("common.tryAnotherSearch"))
                 )
@@ -421,11 +421,11 @@ struct ProjectsScreen: View {
         let paths = viewModel.configuredProjectsRootPaths
         switch paths.count {
         case 0:
-            return "Add a projects folder in Settings or Doctor to start discovering projects."
+            return LanguageStore.shared.t("projects.emptyRootNone")
         case 1:
-            return "Projects from \(paths[0]) will appear here automatically."
+            return LanguageStore.shared.t("projects.emptyRootOne", paths[0])
         default:
-            return "Projects from \(paths.count) configured folders will appear here automatically."
+            return LanguageStore.shared.t("projects.emptyRootMany", paths.count)
         }
     }
 
@@ -666,7 +666,7 @@ private struct ProjectRemovalConfirmationSheet: View {
             HStack {
                 Spacer()
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel, action: onCancel)
-                Button(moveToTrash ? "Move to Trash" : "Hide from List", role: moveToTrash ? .destructive : nil, action: onConfirm)
+                Button(moveToTrash ? LanguageStore.shared.t("projects.moveToTrashAction") : LanguageStore.shared.t("projects.hideFromList"), role: moveToTrash ? .destructive : nil, action: onConfirm)
             }
         }
         .padding(20)
@@ -728,14 +728,14 @@ private struct ProjectAgentsRecapSheet: View {
                         }
                     } else if hasLoadedProjectAssignments {
                         ContentUnavailableView(
-                            "No Agents",
+                            LanguageStore.shared.t("projects.noAgentsTitle"),
                             systemImage: "paperplane",
                             description: Text(LanguageStore.shared.t("projects.noAgents"))
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
                     } else {
-                        loadingRow("Loading agents…")
+                        loadingRow(LanguageStore.shared.t("projects.loadingAgents"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 32)
                     }
@@ -880,14 +880,14 @@ private struct ProjectSkillsRecapSheet: View {
                         }
                     } else if hasLoadedProjectAssignments {
                         ContentUnavailableView(
-                            "No Skills",
+                            LanguageStore.shared.t("projects.noSkillsTitle"),
                             systemImage: "wand.and.stars",
                             description: Text(LanguageStore.shared.t("projects.noSkills"))
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
                     } else {
-                        loadingRow("Loading skills…")
+                        loadingRow(LanguageStore.shared.t("projects.loadingSkills"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 32)
                     }
@@ -1039,7 +1039,7 @@ private struct ProjectMcpServersRecapSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
                     } else {
-                        loadingRow("Loading MCP servers…")
+                        loadingRow(LanguageStore.shared.t("projects.loadingMcp"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 32)
                     }

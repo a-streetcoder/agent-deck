@@ -2304,3 +2304,24 @@
 "settings.profile.cropHelp" = "Drag to reposition. Use the slider to zoom. The circle is what appears in chat.";
 "settings.profile.cropPreview" = "Preview";
 "settings.profile.cropApply" = "Use Photo";
+
+"composer.hint.sendSteer" = "send / steer";
+"composer.hint.newline" = "newline";
+"composer.hint.stopTurn" = "stop running turn";
+"composer.hint.clearInput" = "clear input";
+"composer.hint.commands" = "commands";
+"composer.hint.fileSuggestions" = "file suggestions";
+"projects.emptyTitle" = "No Projects Yet";
+"projects.noMatchingTitle" = "No Matching Projects";
+"projects.emptyRootNone" = "Add a projects folder in Settings or Doctor to start discovering projects.";
+"projects.emptyRootOne" = "Projects from %@ will appear here automatically.";
+"projects.emptyRootMany" = "Projects from %d configured folders will appear here automatically.";
+"projects.setCustomIcon" = "Set custom icon";
+"projects.changeCustomIcon" = "Change custom icon";
+"projects.moveToTrashAction" = "Move to Trash";
+"projects.hideFromList" = "Hide from List";
+"projects.noAgentsTitle" = "No Agents";
+"projects.loadingAgents" = "Loading agents…";
+"projects.noSkillsTitle" = "No Skills";
+"projects.loadingSkills" = "Loading skills…";
+"projects.loadingMcp" = "Loading MCP servers…";

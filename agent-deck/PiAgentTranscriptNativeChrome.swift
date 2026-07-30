@@ -29,13 +29,14 @@ final class PiAgentNativeShortcutsStripView: NSView, PiAgentNativeRowContent {
     var onIntrinsicHeightChange: (() -> Void)?
 
     private let stack = NSStackView()
-    private static let hints: [(keys: [String], label: String)] = [
-        (["↩"], "send / steer"),
-        (["⇧", "↩"], "newline"),
-        (["esc"], "stop running turn"),
-        (["esc ×2"], "clear input"),
-        (["/"], "commands"),
-        (["@"], "file suggestions")
+    private var labelFields: [NSTextField] = []
+    private static let hintKeys: [(keys: [String], l10nKey: String)] = [
+        (["↩"], "composer.hint.sendSteer"),
+        (["⇧", "↩"], "composer.hint.newline"),
+        (["esc"], "composer.hint.stopTurn"),
+        (["esc ×2"], "composer.hint.clearInput"),
+        (["/"], "composer.hint.commands"),
+        (["@"], "composer.hint.fileSuggestions")
     ]
 
     required init() {
@@ -46,8 +47,9 @@ final class PiAgentNativeShortcutsStripView: NSView, PiAgentNativeRowContent {
         stack.orientation = .horizontal
         stack.spacing = 14
         stack.alignment = .centerY
-        for hint in Self.hints {
-            stack.addArrangedSubview(makeHint(keys: hint.keys, label: hint.label))
+        for hint in Self.hintKeys {
+            let row = makeHint(keys: hint.keys, label: LanguageStore.shared.t(hint.l10nKey))
+            stack.addArrangedSubview(row)
         }
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -59,6 +61,13 @@ final class PiAgentNativeShortcutsStripView: NSView, PiAgentNativeRowContent {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
+
+    /// Refresh label copy when the app language changes.
+    func reloadLocalizedLabels() {
+        for (index, hint) in Self.hintKeys.enumerated() where index < labelFields.count {
+            labelFields[index].stringValue = LanguageStore.shared.t(hint.l10nKey)
+        }
+    }
 
     private func makeHint(keys: [String], label: String) -> NSView {
         let row = NSStackView()
@@ -79,6 +88,7 @@ final class PiAgentNativeShortcutsStripView: NSView, PiAgentNativeRowContent {
         text.lineBreakMode = .byTruncatingTail
         text.maximumNumberOfLines = 1
         text.setContentHuggingPriority(.required, for: .horizontal)
+        labelFields.append(text)
         row.addArrangedSubview(text)
         return row
     }
@@ -109,7 +119,11 @@ final class PiAgentNativeShortcutsStripView: NSView, PiAgentNativeRowContent {
         return surface
     }
 
-    func configure(width rowWidth: CGFloat) { /* fixed content */ }
+    func configure(width rowWidth: CGFloat) {
+        // Labels are language-sensitive; refresh on each configure so language
+        // switches update without rebuilding the native row pool.
+        reloadLocalizedLabels()
+    }
 
     func measuredHeight(forWidth rowWidth: CGFloat) -> CGFloat {
         22 /* key cap */ + 4 /* outer .vertical 2 */

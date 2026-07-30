@@ -41,14 +41,16 @@ private extension Array where Element == PiStartupResourceItem {
 /// moved to a toolbar popover (`PiAgentStartupResourcesPopover`) and the
 /// shortcuts stay here as a fixed-height, always-visible row.
 struct PiAgentShortcutsStrip: View {
+    @ObservedObject private var languageStore = LanguageStore.shared
+
     var body: some View {
         HStack(spacing: 14) {
-            hintChip(["↩"], "send / steer")
-            hintChip(["⇧", "↩"], "newline")
-            hintChip(["esc"], "stop running turn")
-            hintChip(["esc ×2"], "clear input")
-            hintChip(["/"], "commands")
-            hintChip(["@"], "file suggestions")
+            hintChip(["↩"], languageStore.t("composer.hint.sendSteer"))
+            hintChip(["⇧", "↩"], languageStore.t("composer.hint.newline"))
+            hintChip(["esc"], languageStore.t("composer.hint.stopTurn"))
+            hintChip(["esc ×2"], languageStore.t("composer.hint.clearInput"))
+            hintChip(["/"], languageStore.t("composer.hint.commands"))
+            hintChip(["@"], languageStore.t("composer.hint.fileSuggestions"))
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
