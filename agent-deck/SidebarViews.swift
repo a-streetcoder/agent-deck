@@ -183,7 +183,7 @@ struct ProjectToolbarSelector: View {
                         Image(systemName: "square.grid.2x2")
                             .frame(width: 24, height: 24)
                             .foregroundStyle(AppTheme.mutedText)
-                        Text("All Projects")
+                        Text(LanguageStore.shared.t("common.allProjects"))
                             .font(.body.weight(.medium))
                         Spacer(minLength: 12)
                         if viewModel.selectedProjectPath == nil {
@@ -251,7 +251,7 @@ struct ProjectPickerPopover: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ProjectSidebarRow(
-                        title: "All Projects",
+                        title: LanguageStore.shared.t("common.allProjects"),
                         subtitle: "Show sessions across every project",
                         symbolName: "square.grid.2x2",
                         imageURL: nil,

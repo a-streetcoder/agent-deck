@@ -1699,7 +1699,7 @@ struct SkillsScreen: View {
     private func projectAssignmentList(for skill: SkillRecord) -> some View {
         let isGlobal = viewModel.skillIsEnabledGlobally(skill)
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Enable this skill for every project at once, or pick specific projects below. Per-project assignments are preserved when you toggle All Projects.")
+            Text(LanguageStore.shared.t("skills.projectAssignmentHelp"))
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -2295,7 +2295,7 @@ private struct SkillAgentAssignmentList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Assign this skill only to the selected Deck agents when they run. Parent Pi Agent sessions do not receive it from this setting.")
+            Text(LanguageStore.shared.t("skills.agentAssignmentHelp"))
                 .foregroundStyle(AppTheme.mutedText)
 
             AgentAssignmentSection(
@@ -2303,7 +2303,7 @@ private struct SkillAgentAssignmentList: View {
                 agents: agents,
                 viewModel: viewModel,
                 isInactiveSection: false,
-                emptyText: "No Deck agents.",
+                emptyText: LanguageStore.shared.t("skills.noDeckAgents"),
                 isAssigned: { agent in viewModel.skill(skill, isAssignedTo: agent) },
                 setAssigned: { agent, enabled in
                     do { try viewModel.setSkill(skill, enabled: enabled, for: agent) }
@@ -2339,7 +2339,7 @@ private struct SkillCollectionAgentAssignmentList: View {
                 agents: agents,
                 viewModel: viewModel,
                 isInactiveSection: false,
-                emptyText: "No Deck agents.",
+                emptyText: LanguageStore.shared.t("skills.noDeckAgents"),
                 isAssigned: { agent in viewModel.skillCollection(collection, isAssignedTo: agent) },
                 setAssigned: { agent, enabled in
                     do { try viewModel.setSkillCollection(collection, enabled: enabled, for: agent) }

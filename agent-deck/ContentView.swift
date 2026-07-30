@@ -1759,18 +1759,22 @@ struct ContentView: View {
     private var toolbarTitle: String {
         switch viewModel.selectedSidebarItem {
         case .agent:
-            return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Coding Agent"
+            return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? languageStore.t("sidebar.agent")
         case .memory:
             // Mirrors the toolbar toggle so the state reads at a glance.
             return viewModel.appSettings.agentMemoryEnabled ? languageStore.t("memory.title.on") : languageStore.t("memory.title.off")
         case .agents:
             // Same at-a-glance state as Memory, driven by the same toolbar toggle.
-            return viewModel.appSettings.nativeSubagentsEnabledForNewSessions ? "Agents: On" : "Agents: Off"
+            return viewModel.appSettings.nativeSubagentsEnabledForNewSessions
+                ? languageStore.t("toolbar.agentsOn")
+                : languageStore.t("toolbar.agentsOff")
         case .mcp:
             // Same at-a-glance state as Memory, driven by the toolbar enable toggle.
-            return viewModel.appSettings.mcpEnabled ? "MCP: On" : "MCP: Off"
+            return viewModel.appSettings.mcpEnabled
+                ? languageStore.t("toolbar.mcpOn")
+                : languageStore.t("toolbar.mcpOff")
         default:
-            return viewModel.selectedSidebarItem.rawValue
+            return languageStore.t(viewModel.selectedSidebarItem.l10nKey)
         }
     }
 

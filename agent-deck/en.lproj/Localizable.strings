@@ -1274,3 +1274,11 @@
 "loops.section.builtin" = "Builtin Loops";
 "loops.section.builtin.info" = "Builtins are bundled with %@ and customized by duplicating them into the user Loop Bank.";
 "loops.section.builtin.empty" = "No builtin loops discovered.";
+"toolbar.agentsOn" = "Agents: On";
+"toolbar.agentsOff" = "Agents: Off";
+"toolbar.mcpOn" = "MCP: On";
+"toolbar.mcpOff" = "MCP: Off";
+"skills.projectAssignmentHelp" = "Enable this skill for every project at once, or pick specific projects below. Per-project assignments are preserved when you toggle All Projects.";
+"skills.agentAssignmentHelp" = "Assign this skill only to the selected Deck agents when they run. Parent Pi Agent sessions do not receive it from this setting.";
+"skills.noDeckAgents" = "No Deck agents.";
+"common.allProjects" = "All Projects";

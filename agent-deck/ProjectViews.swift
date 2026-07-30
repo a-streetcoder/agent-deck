@@ -58,7 +58,7 @@ struct AllProjectsAssignmentRow: View {
                 ProjectIconView(imageURL: nil, symbolName: "square.grid.2x2", size: 30)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("All Projects")
+                    Text(LanguageStore.shared.t("common.allProjects"))
                         .font(AppTheme.Font.primary.weight(.semibold))
                     Text(subtitle)
                         .font(AppTheme.Font.metadata)

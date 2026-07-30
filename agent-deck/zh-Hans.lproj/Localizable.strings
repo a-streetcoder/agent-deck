@@ -1273,3 +1273,11 @@
 "loops.section.builtin" = "内置循环";
 "loops.section.builtin.info" = "内置项随 %@ 打包；复制到用户循环库后可定制。";
 "loops.section.builtin.empty" = "未发现内置循环。";
+"toolbar.agentsOn" = "Agents：开";
+"toolbar.agentsOff" = "Agents：关";
+"toolbar.mcpOn" = "MCP：开";
+"toolbar.mcpOff" = "MCP：关";
+"skills.projectAssignmentHelp" = "可一次为全部项目启用此技能，或在下方选择具体项目。切换「全部项目」时会保留各项目单独分配。";
+"skills.agentAssignmentHelp" = "仅在所选 Deck Agents 运行时分配此技能。父级 Pi Agent 会话不会从本设置获得它。";
+"skills.noDeckAgents" = "暂无 Deck Agents。";
+"common.allProjects" = "全部项目";
