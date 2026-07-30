@@ -5205,35 +5205,70 @@ final class AppViewModel: NSObject {
     }
 
     private func schedulePiAgentTitleGenerationIfNeeded(for session: PiAgentSessionRecord, firstMessage: String) {
-        let trimmedMessage = firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Auto-title only applies while the session still has the provisional
+        // "Draft · …" name and the user has not renamed it. Older logic also
+        // required an empty transcript so generation ran exactly once on the
+        // first send; if the hidden Pi helper failed (unknown provider, empty
+        // model catalog, timeout), the session stayed Draft forever because
+        // later sends no longer matched that gate. Retry while still Draft.
         guard appSettings.autoGeneratePiAgentSessionTitles,
-              !trimmedMessage.isEmpty,
               session.title.hasPrefix("Draft ·"),
               !session.isTitleUserEdited,
               !piAgentTitleGeneratingSessionIDs.contains(session.id),
-              piAgentSessionStore.transcript(for: session.id).filter(\.isProviderBackedUserMessage).isEmpty,
               let model = piAgentTitleGenerationModel() else { return }
+
+        let trimmedIncoming = firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingUsers = piAgentSessionStore.transcript(for: session.id).filter(\.isProviderBackedUserMessage)
+        // Prefer the first real user turn for naming (stable goal); fall back
+        // to the message that triggered this send when transcript is empty.
+        let sourceMessage: String
+        if let firstUser = existingUsers.min(by: { $0.timestamp < $1.timestamp }) {
+            let text = firstUser.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            sourceMessage = text.isEmpty ? trimmedIncoming : text
+        } else {
+            sourceMessage = trimmedIncoming
+        }
+        guard !sourceMessage.isEmpty else { return }
 
         piAgentTitleGeneratingSessionIDs.insert(session.id)
         let projectURL = session.launchWorkingDirectory
         try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let environment = EnvRuntimeEnvironment().environment()
+        let sessionID = session.id
+        let modelLabel = model.identifier
         piSessionTitleGenerator.generateTitle(
-            for: trimmedMessage,
+            for: sourceMessage,
             model: model,
             projectURL: projectURL,
             environment: environment
         ) { [weak self] result in
             guard let self else { return }
-            self.piAgentTitleGeneratingSessionIDs.remove(session.id)
-            guard case let .success(title) = result else { return }
-            guard let current = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }),
-                  current.title.hasPrefix("Draft ·"),
-                  !current.isTitleUserEdited else { return }
-            withAnimation(.snappy(duration: 0.26)) {
-                self.piAgentSessionStore.applyGeneratedTitle(session.id, title: title)
+            self.piAgentTitleGeneratingSessionIDs.remove(sessionID)
+            switch result {
+            case let .success(title):
+                guard let current = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
+                      current.title.hasPrefix("Draft ·"),
+                      !current.isTitleUserEdited else { return }
+                withAnimation(.snappy(duration: 0.26)) {
+                    self.piAgentSessionStore.applyGeneratedTitle(sessionID, title: title)
+                }
+                self.piAgentRunner.syncSessionName(for: sessionID, force: true)
+            case let .failure(error):
+                // Silent failures made auto-title look "gone". Surface once in
+                // the session error slot without interrupting the main chat.
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                NSLog("[Pi Deck] session title generation failed session=%@ model=%@ error=%@", sessionID.uuidString, modelLabel, message)
+                if let current = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
+                   current.title.hasPrefix("Draft ·"),
+                   !current.isTitleUserEdited {
+                    self.piAgentSessionStore.updateSession(sessionID) { record in
+                        // Only stamp when empty so we don't clobber a live agent error.
+                        if record.lastError == nil || record.lastError?.isEmpty == true {
+                            record.lastError = "Session title generation failed (\(modelLabel)): \(message)"
+                        }
+                    }
+                }
             }
-            self.piAgentRunner.syncSessionName(for: session.id, force: true)
         }
     }
 
