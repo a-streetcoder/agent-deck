@@ -2325,3 +2325,6 @@
 "projects.noSkillsTitle" = "No Skills";
 "projects.loadingSkills" = "Loading skills…";
 "projects.loadingMcp" = "Loading MCP servers…";
+
+"common.moveToTrash" = "Move to Trash";
+"skills.removeFromCatalogAction" = "Remove from Catalog…";

@@ -2324,3 +2324,6 @@
 "projects.noSkillsTitle" = "暂无 Skills";
 "projects.loadingSkills" = "正在加载 skills…";
 "projects.loadingMcp" = "正在加载 MCP 服务器…";
+
+"common.moveToTrash" = "移到废纸篓";
+"skills.removeFromCatalogAction" = "从目录移除…";

@@ -88,6 +88,8 @@ final class LanguageStore: ObservableObject {
      - Else → detect system language once and persist.
      */
     private init() {
+        // Warm string tables before first UI paint so `t` never races an empty cache.
+        L10n.warmCaches()
         if let raw = UserDefaults.standard.string(forKey: Self.defaultsKey),
            let lang = AppLanguage(rawValue: raw)
         {
@@ -107,6 +109,8 @@ final class LanguageStore: ObservableObject {
         guard self.language != language else { return }
         self.language = language
         UserDefaults.standard.set(language.rawValue, forKey: Self.defaultsKey)
+        // Force observers that only read `t` via shared store to refresh.
+        objectWillChange.send()
     }
 
     /**
@@ -155,12 +159,19 @@ final class LanguageStore: ObservableObject {
     }
 }
 
-// MARK: - Bundle lookup
+// MARK: - Bundle / dictionary lookup
 
 /// Bundle-backed lookup for `Localizable.strings` (app target → `Bundle.main`).
 ///
+/// Prefer **direct `.strings` dictionary load** over `Bundle.localizedString`,
+/// which can return the raw key when the wrong table/bundle is resolved
+/// (especially with in-app language switching independent of system locale).
+///
 /// **Add a string:** edit `en.lproj` + `zh-Hans.lproj`, then call `language.t("key")` in UI.
 enum L10n {
+    private static let cacheLock = NSLock()
+    private static var tableCache: [String: [String: String]] = [:]
+
     /**
      Resolve a localized string from `Localizable.strings`.
 
@@ -170,11 +181,30 @@ enum L10n {
      - Returns: Localized text; falls back to English, then to the raw key.
      */
     static func string(_ key: String, language: AppLanguage) -> String {
-        let value = localizedString(key, language: language)
-        if value != key || language == .english {
+        if let value = table(for: language)[key], !value.isEmpty {
             return value
         }
-        return localizedString(key, language: .english)
+        if language != .english, let value = table(for: .english)[key], !value.isEmpty {
+            return value
+        }
+        // Last resort: Apple API on the lproj bundle (still better than silent English system locale).
+        let fallback = localizationBundle(for: language)
+            .localizedString(forKey: key, value: key, table: "Localizable")
+        if fallback != key {
+            return fallback
+        }
+        if language != .english {
+            let en = localizationBundle(for: .english)
+                .localizedString(forKey: key, value: key, table: "Localizable")
+            if en != key { return en }
+        }
+        return key
+    }
+
+    /// Preload en + zh tables once at app start.
+    static func warmCaches() {
+        _ = table(for: .english)
+        _ = table(for: .chinese)
     }
 
     /**
@@ -202,9 +232,66 @@ enum L10n {
         return .main
     }
 
-    private static func localizedString(_ key: String, language: AppLanguage) -> String {
-        let bundle = localizationBundle(for: language)
-        return bundle.localizedString(forKey: key, value: nil, table: "Localizable")
+    /**
+     Read `Localizable.strings` as a dictionary for the language.
+
+     - Parameter language: Target language.
+     - Returns: key → value map (empty if the file is missing).
+     */
+    private static func table(for language: AppLanguage) -> [String: String] {
+        let cacheKey = language.rawValue
+        cacheLock.lock()
+        if let cached = tableCache[cacheKey] {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+
+        let loaded = loadTable(for: language)
+        cacheLock.lock()
+        tableCache[cacheKey] = loaded
+        cacheLock.unlock()
+        return loaded
+    }
+
+    private static func loadTable(for language: AppLanguage) -> [String: String] {
+        for code in language.lprojCandidates {
+            if let url = Bundle.main.url(forResource: "Localizable", withExtension: "strings", subdirectory: "\(code).lproj"),
+               let dict = dictionary(at: url)
+            {
+                return dict
+            }
+            if let lproj = Bundle.main.path(forResource: code, ofType: "lproj") {
+                let url = URL(fileURLWithPath: lproj).appendingPathComponent("Localizable.strings")
+                if let dict = dictionary(at: url) {
+                    return dict
+                }
+            }
+        }
+        // Flat resource (some packaging layouts)
+        if let url = Bundle.main.url(forResource: "Localizable", withExtension: "strings"),
+           let dict = dictionary(at: url)
+        {
+            return dict
+        }
+        return [:]
+    }
+
+    private static func dictionary(at url: URL) -> [String: String]? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        // UTF-16 / UTF-8 .strings both parse via PropertyListSerialization.
+        if let dict = NSDictionary(contentsOf: url) as? [String: String], !dict.isEmpty {
+            return dict
+        }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        var format = PropertyListSerialization.PropertyListFormat.openStep
+        if let obj = try? PropertyListSerialization.propertyList(from: data, options: [], format: &format),
+           let dict = obj as? [String: String],
+           !dict.isEmpty
+        {
+            return dict
+        }
+        return nil
     }
 }
 
@@ -214,5 +301,8 @@ extension View {
     /// Observe language changes so chrome re-renders after switch.
     func observingLanguage(_ store: LanguageStore = .shared) -> some View {
         environmentObject(store)
+            // Re-identity a thin dependency so deep trees refresh when language flips.
+            .environment(\.locale, store.language.locale)
+            .id(store.language.rawValue)
     }
 }

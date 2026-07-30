@@ -207,7 +207,7 @@ struct SkillsScreen: View {
                 get: { skillPendingRemoval != nil },
                 set: { if !$0 { skillPendingRemoval = nil } }
             ), presenting: skillPendingRemoval) { skill in
-                Button(LanguageStore.shared.t("skills.removeFromCatalog")) { removeSkill(skill) }
+                Button(LanguageStore.shared.t("skills.removeFromCatalogAction")) { removeSkill(skill) }
                 Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { skillPendingRemoval = nil }
             } message: { skill in
                 Text(LanguageStore.shared.t("skills.alert.removeMessage", skill.name, AppBrand.displayName))
@@ -696,7 +696,7 @@ struct SkillsScreen: View {
                 Button {
                     skillPendingRemoval = skill
                 } label: {
-                    Label(LanguageStore.shared.t("skills.removeFromCatalog"), systemImage: "minus.circle")
+                    Label(LanguageStore.shared.t("skills.removeFromCatalogAction"), systemImage: "minus.circle")
                 }
             }
 
@@ -734,7 +734,7 @@ struct SkillsScreen: View {
             }
             .appSmallSecondaryButton()
             .tint(.orange)
-            .help(LanguageStore.shared.t("skills.resolveMissing"))
+            .help(LanguageStore.shared.t("skills.resolveMissing", warning.missingSkill))
         }
         .padding(.leading, 8).padding(.trailing, 12)
         .padding(.vertical, 10)
@@ -886,7 +886,7 @@ struct SkillsScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Button(LanguageStore.shared.t("skills.removeFromCatalog")) {
+                        Button(LanguageStore.shared.t("skills.removeFromCatalogAction")) {
                             skillPendingRemoval = skill
                         }
                         .appSecondaryButton()

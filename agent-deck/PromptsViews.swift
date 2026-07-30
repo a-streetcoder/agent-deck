@@ -84,7 +84,7 @@ struct PromptsScreen: View {
                     deletePrompt(prompt)
                 }
             } else {
-                Button(LanguageStore.shared.t("prompts.moveTrash"), role: .destructive) {
+                Button(LanguageStore.shared.t("common.moveToTrash"), role: .destructive) {
                     deletePrompt(prompt)
                 }
             }
