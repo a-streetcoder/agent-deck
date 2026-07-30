@@ -510,6 +510,13 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.dropHandler = context.coordinator
         textView.keyHandler = context.coordinator
+        textView.registerForDraggedTypes([
+            .fileURL,
+            NSPasteboard.PasteboardType("NSFilenamesPboardType"),
+            .png,
+            .tiff,
+            .string
+        ])
 
         scrollView.documentView = textView
         return scrollView
@@ -570,25 +577,21 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         }
 
         func handleDrop(_ pasteboard: NSPasteboard) -> Bool {
-            let urls = PiAgentComposerImageLoader.fileURLs(from: pasteboard)
+            var urls = PiAgentComposerImageLoader.fileURLs(from: pasteboard)
+            if urls.isEmpty {
+                urls = PiAgentComposerImageLoader.fileURLsFromPlainTextPaths(pasteboard)
+            }
             let folders = urls.filter { PiAgentFolderAttachment(url: $0) != nil }
             let nonFolderURLs = urls.filter { PiAgentFolderAttachment(url: $0) == nil }
             let pathImages = nonFolderURLs.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) }
             let files = nonFolderURLs.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
             // Bitmap-only clipboard (screenshots) still come from imagesFromPasteboard.
-            let clipboardImages = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).filter { attachment in
-                !pathImages.contains(where: { $0.fileReference == attachment.fileReference && $0.data == attachment.data })
-            }
+            // Call the bitmap-only path so we don't re-walk file URLs twice.
+            let clipboardImages = PiAgentComposerImageLoader.bitmapImagesFromPasteboard(pasteboard)
             let images = pathImages + clipboardImages
 
             if images.isEmpty && files.isEmpty && folders.isEmpty {
-                // Don't show an error when paste was plain text — let text path handle it.
-                if pasteboard.string(forType: .string)?.isEmpty == false,
-                   PiAgentComposerImageLoader.fileURLs(from: pasteboard).isEmpty,
-                   PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty {
-                    return false
-                }
-                parent.onUnsupportedDrop()
+                // Plain text (or nothing attachable) — let the text paste path handle it.
                 return false
             }
             parent.onImages(images)
@@ -765,6 +768,20 @@ final class DropSafeNSTextView: NSTextView {
         super.paste(sender)
     }
 
+    override func pasteAsPlainText(_ sender: Any?) {
+        paste(sender)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command,
+           (event.charactersIgnoringModifiers?.lowercased() == "v") {
+            paste(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     private func acceptsDrop(_ pasteboard: NSPasteboard) -> Bool {
         if !PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty {
             return true
@@ -904,12 +921,51 @@ enum PiAgentComposerImageLoader {
         var attachments: [PiAgentImageAttachment] = []
         let urls = fileURLs(from: pasteboard)
         attachments.append(contentsOf: urls.compactMap(imageAttachment(fromFileURL:)))
-        if let data = pasteboard.data(forType: .png), let attachment = imageAttachment(data: data, name: "pasted-image.png", mimeType: "image/png", fileReference: "pasted-image.png") {
-            attachments.append(attachment)
-        } else if let data = pasteboard.data(forType: .tiff), let pngData = pngData(fromImageData: data), let attachment = imageAttachment(data: pngData, name: "pasted-image.png", mimeType: "image/png", fileReference: "pasted-image.png") {
-            attachments.append(attachment)
-        }
+        attachments.append(contentsOf: bitmapImagesFromPasteboard(pasteboard))
         return attachments
+    }
+
+    /// PNG/TIFF clipboard bitmaps only (no file-URL walk).
+    nonisolated static func bitmapImagesFromPasteboard(_ pasteboard: NSPasteboard) -> [PiAgentImageAttachment] {
+        if let data = pasteboard.data(forType: .png),
+           let attachment = imageAttachment(data: data, name: "pasted-image.png", mimeType: "image/png", fileReference: "pasted-image.png") {
+            return [attachment]
+        }
+        if let data = pasteboard.data(forType: .tiff),
+           let pngData = pngData(fromImageData: data),
+           let attachment = imageAttachment(data: pngData, name: "pasted-image.png", mimeType: "image/png", fileReference: "pasted-image.png") {
+            return [attachment]
+        }
+        return []
+    }
+
+    /// Terminal / some apps paste absolute paths as plain text instead of file URLs.
+    nonisolated static func fileURLsFromPlainTextPaths(_ pasteboard: NSPasteboard) -> [URL] {
+        guard let raw = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return [] }
+        // Only treat as paths when every non-empty line looks like an absolute path.
+        let lines = raw
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty, lines.count <= 32 else { return [] }
+        guard lines.allSatisfy({ $0.hasPrefix("/") || $0.hasPrefix("file:") }) else { return [] }
+
+        var urls: [URL] = []
+        for line in lines {
+            if let fromString = resolvedFileURL(fromPasteboardString: line) {
+                urls.append(fromString)
+            } else if line.hasPrefix("/") {
+                urls.append(URL(fileURLWithPath: line))
+            }
+        }
+        var seen = Set<String>()
+        return urls
+            .compactMap(normalizedLocalFileURL(_:))
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .filter { seen.insert($0.path).inserted }
     }
 
     nonisolated static func loadImages(from providers: [NSItemProvider], completion: @escaping ([PiAgentImageAttachment]) -> Void) {
@@ -1013,44 +1069,93 @@ enum PiAgentComposerImageLoader {
             urls.append(contentsOf: read)
         }
 
+        // Finder multi-select still uses the legacy filenames property list.
         let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
         if let paths = pasteboard.propertyList(forType: filenamesType) as? [String] {
             urls.append(contentsOf: paths.map { URL(fileURLWithPath: $0) })
         }
 
+        // Some sources only publish promised-file metadata until a consumer reads it.
+        let promisedNamesType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url")
+        if let promised = pasteboard.propertyList(forType: promisedNamesType) as? [String] {
+            urls.append(contentsOf: promised.compactMap(resolvedFileURL(fromPasteboardString:)))
+        }
+        let promisedFilenamesType = NSPasteboard.PasteboardType("NSPromiseContentsPboardType")
+        _ = promisedFilenamesType // reserved marker; actual names come via filenames/fileURL
+
         for item in pasteboard.pasteboardItems ?? [] {
-            if let value = item.string(forType: .fileURL), let url = resolvedFileURL(fromPasteboardString: value) {
-                urls.append(url)
-            } else if let data = item.data(forType: .fileURL),
-                      let raw = String(data: data, encoding: .utf8),
-                      let url = resolvedFileURL(fromPasteboardString: raw) {
-                urls.append(url)
-            }
-            let publicFileURL = NSPasteboard.PasteboardType("public.file-url")
-            if let value = item.string(forType: publicFileURL), let url = resolvedFileURL(fromPasteboardString: value) {
-                urls.append(url)
+            for type in item.types {
+                let raw = type.rawValue
+                let isFileTyped =
+                    type == .fileURL
+                    || raw == "public.file-url"
+                    || raw == "com.apple.pasteboard.promised-file-url"
+                    || raw.hasSuffix("file-url")
+                guard isFileTyped else { continue }
+
+                if let data = item.data(forType: type) {
+                    if let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL {
+                        urls.append(url)
+                    } else if let rawString = String(data: data, encoding: .utf8),
+                              let url = resolvedFileURL(fromPasteboardString: rawString) {
+                        urls.append(url)
+                    } else if let rawString = String(data: data, encoding: .utf16),
+                              let url = resolvedFileURL(fromPasteboardString: rawString) {
+                        urls.append(url)
+                    }
+                }
+                if let value = item.string(forType: type), let url = resolvedFileURL(fromPasteboardString: value) {
+                    urls.append(url)
+                }
             }
         }
 
         if let value = pasteboard.string(forType: .fileURL), let url = resolvedFileURL(fromPasteboardString: value) {
             urls.append(url)
         }
+        if let data = pasteboard.data(forType: .fileURL) {
+            if let url = URL(dataRepresentation: data, relativeTo: nil), url.isFileURL {
+                urls.append(url)
+            } else if let rawString = String(data: data, encoding: .utf8),
+                      let url = resolvedFileURL(fromPasteboardString: rawString) {
+                urls.append(url)
+            }
+        }
 
         var seen = Set<String>()
         return urls
-            .map { $0.standardizedFileURL }
-            .filter { !$0.path.isEmpty }
+            .compactMap(normalizedLocalFileURL(_:))
             .filter { seen.insert($0.path).inserted }
+    }
+
+    /// Convert Finder file-reference / percent-encoded pasteboard URLs into local paths.
+    nonisolated private static func normalizedLocalFileURL(_ url: URL) -> URL? {
+        var candidate = url
+        // file:///.file/id=... must be resolved before path checks.
+        if let pathURL = (candidate as NSURL).filePathURL as URL? {
+            candidate = pathURL
+        }
+        candidate = candidate.standardizedFileURL
+        if candidate.path.isEmpty, let pathURL = (url as NSURL).filePathURL as URL? {
+            candidate = pathURL.standardizedFileURL
+        }
+        guard !candidate.path.isEmpty else { return nil }
+        // Prefer a real path when the file still exists; keep unresolved path for
+        // cloud-placeholder files that report exists=false until materialised.
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate.resolvingSymlinksInPath()
+        }
+        return candidate
     }
 
     /// Normalize Finder / pasteboard file-url strings into a usable file URL.
     nonisolated private static func resolvedFileURL(fromPasteboardString raw: String) -> URL? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\0")))
         guard !trimmed.isEmpty else { return nil }
 
         if trimmed.hasPrefix("file:") {
             if let url = URL(string: trimmed), url.isFileURL {
-                return url
+                return normalizedLocalFileURL(url)
             }
             var path = trimmed
             if path.hasPrefix("file://") {
@@ -1060,6 +1165,15 @@ enum PiAgentComposerImageLoader {
             }
             while path.hasPrefix("//") {
                 path = String(path.dropFirst())
+            }
+            // Drop optional host ("localhost") before absolute path.
+            if let slash = path.firstIndex(of: "/"), path[..<slash].contains(where: { $0 != "/" && !$0.isNumber }) == false {
+                // keep
+            } else if let slash = path.firstIndex(of: "/"), !path.hasPrefix("/") {
+                let host = path[..<slash]
+                if host == "localhost" || host.isEmpty {
+                    path = String(path[slash...])
+                }
             }
             if path.hasPrefix("/") {
                 return URL(fileURLWithPath: path.removingPercentEncoding ?? path)
