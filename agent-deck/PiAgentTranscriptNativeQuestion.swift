@@ -613,7 +613,7 @@ private final class PiAgentNativeChipView: NativeAccessiblePressableView {
         labelField.font = NativeTranscriptFont.caption()
         labelField.textColor = .labelColor
         toolTip = "Preview \(chip.label)"
-        setAccessibilityLabel("Preview \(chip.label)")
+        setAccessibilityLabel(LanguageStore.shared.t("question.previewChip", chip.label))
         setAccessibilityHelp("Press Return or Space to open the attachment preview.")
 
         // Image chips first paint with their normal photo glyph unless a cached
@@ -1158,10 +1158,10 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
         if fork.agentOptions.isEmpty { fork.onForkSession(); return }
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let piItem = NSMenuItem(title: "Fork as Pi session", action: #selector(forkPiSessionSelected), keyEquivalent: "")
+        let piItem = NSMenuItem(title: LanguageStore.shared.t("transcript.forkAsPiSession"), action: #selector(forkPiSessionSelected), keyEquivalent: "")
         piItem.target = self
         menu.addItem(piItem)
-        let parent = NSMenuItem(title: "Fork as 1:1 agent chat…", action: nil, keyEquivalent: "")
+        let parent = NSMenuItem(title: LanguageStore.shared.t("transcript.forkAs11"), action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         for (index, option) in fork.agentOptions.enumerated() {

@@ -93,13 +93,13 @@ final class PiAgentAttachmentPopoverController: NSViewController {
         case .command(let name):
             return commandBody(name: name)
         case .missing:
-            return emptyLabel("Preview is not available for older attachment metadata.")
+            return emptyLabel(LanguageStore.shared.t("attach.previewUnavailableOlder"))
         }
     }
 
     private func imageBody(_ image: PiAgentImageAttachment) -> NSView {
         guard let nsImage = PiAgentComposerImageLoader.previewImage(for: image) else {
-            return emptyLabel("Preview is not available for this image.")
+            return emptyLabel(LanguageStore.shared.t("attach.previewUnavailableImage"))
         }
         let container = roundedContainer()
         let imageView = NSImageView()
@@ -124,7 +124,7 @@ final class PiAgentAttachmentPopoverController: NSViewController {
 
     private func fileBody(path: String?) -> NSView {
         guard let path else {
-            return emptyLabel("Preview is not available for this attachment.")
+            return emptyLabel(LanguageStore.shared.t("attach.previewUnavailable"))
         }
         if let text = Self.textPreview(atPath: path) {
             return codeScroll(text)
@@ -134,7 +134,7 @@ final class PiAgentAttachmentPopoverController: NSViewController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
-        stack.addArrangedSubview(captionLabel("Preview is not available for this file type."))
+        stack.addArrangedSubview(captionLabel(LanguageStore.shared.t("attach.previewUnavailableType")))
         stack.addArrangedSubview(pathLabel(path))
         return stack
     }
@@ -146,7 +146,7 @@ final class PiAgentAttachmentPopoverController: NSViewController {
         stack.spacing = 8
         stack.addArrangedSubview(pathLabel(path))
 
-        let reveal = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealFolder))
+        let reveal = NSButton(title: LanguageStore.shared.t("attach.revealFinder"), target: self, action: #selector(revealFolder))
         reveal.bezelStyle = .rounded
         reveal.controlSize = .small
         revealPath = path
@@ -178,7 +178,7 @@ final class PiAgentAttachmentPopoverController: NSViewController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        stack.addArrangedSubview(captionLabel("Command invocation sent to Pi."))
+        stack.addArrangedSubview(captionLabel(LanguageStore.shared.t("attach.commandInvocationSent")))
         let container = roundedContainer()
         let code = NSTextField(labelWithString: "/\(name)")
         code.translatesAutoresizingMaskIntoConstraints = false

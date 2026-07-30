@@ -93,9 +93,9 @@ struct PromptsScreen: View {
             }
         } message: { prompt in
             if prompt.discoveryKind == .externalReference {
-                Text("Stop referencing \"\(prompt.invocation)\" and remove its Default and project assignments? The original file is not deleted.")
+                Text(LanguageStore.shared.t("prompts.stopReferencing", prompt.invocation))
             } else {
-                Text("Move \"\(prompt.invocation)\" to the Trash and remove its Default and project assignments?")
+                Text(LanguageStore.shared.t("prompts.moveTrash", prompt.invocation))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckNewPromptRequested)) { _ in
@@ -626,7 +626,7 @@ struct PromptsScreen: View {
             .buttonStyle(.plain)
             .onHover { isPromptNameHovered = $0 }
             .help(viewModel.canRenamePrompt(prompt) ? "Rename prompt" : "")
-            .accessibilityLabel("Rename prompt \(prompt.name)")
+            .accessibilityLabel(LanguageStore.shared.t("prompts.renameA11y", prompt.name))
             .disabled(!viewModel.canRenamePrompt(prompt))
         }
     }

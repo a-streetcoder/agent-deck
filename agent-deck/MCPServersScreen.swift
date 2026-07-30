@@ -270,7 +270,7 @@ struct MCPServersScreen: View {
                     }
                         .controlSize(.small)
                 }
-                Text("Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_text, scroll, drag, press_key, and type_text.")
+                Text(LanguageStore.shared.t("mcp.availableToolsExample"))
                 Text("Automatic authority: assigning Computer Use gives sessions in this scope access to all ten methods—including clicking, typing, scrolling, dragging, and key presses—without an Agent Deck approval prompt. Signed OpenAI app-server requests are accepted automatically.")
                 Divider()
                 Toggle(LanguageStore.shared.t("mcp.generalChat"), isOn: Binding(
@@ -924,7 +924,7 @@ private struct MCPServerEditorSheet: View {
     private var importSection: some View {
         AppCard(title: LanguageStore.shared.t("mcp.available")) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Scans Claude Desktop, Claude Code, and Codex config files read-only. Selected servers are copied into ~/.pi/agent/mcp.json.")
+                Text(LanguageStore.shared.t("mcp.importScanHelp"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)

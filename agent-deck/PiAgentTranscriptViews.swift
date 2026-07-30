@@ -975,7 +975,7 @@ private struct ThreadMessageRow<Content: View>: View {
                     }
                     AppCopyIconButton(
                         text: copyText,
-                        help: "Copy message",
+                        help: LanguageStore.shared.t("transcript.copyMessage"),
                         size: CGSize(width: 28, height: 28)
                     )
                     if copyOn == .trailing, onFork != nil {
@@ -995,7 +995,7 @@ private struct ThreadMessageRow<Content: View>: View {
             if let options = forkAgentOptions, !options.isEmpty {
                 Menu {
                     Button(LanguageStore.shared.t("transcript.forkAsPi"), action: onFork)
-                    Menu("Fork as 1:1 agent chat…") {
+                    Menu(LanguageStore.shared.t("transcript.forkAs11")) {
                         ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                             Button(option.title, action: option.action)
                                 .disabled(option.isDisabled)
@@ -2507,7 +2507,7 @@ struct PiAgentStatusTranscriptRow: View {
             if isCopyableToolError {
                 AppCopyIconButton(
                     text: errorClipboardText,
-                    help: "Copy tool error",
+                    help: LanguageStore.shared.t("transcript.copyToolError"),
                     size: CGSize(width: AppTheme.Control.regularActionTarget, height: AppTheme.Control.regularActionTarget)
                 )
             }
@@ -2593,7 +2593,7 @@ struct PiAgentStatusTranscriptRow: View {
                 PromptAuditAction(
                     title: LanguageStore.shared.t("transcript.finalSystemPrompt"),
                     icon: "doc.text.magnifyingglass",
-                    help: "Show final system prompt captured from Pi runtime",
+                    help: LanguageStore.shared.t("transcript.showFinalSystem"),
                     isEnabled: true,
                     text: { prompt }
                 )
@@ -2605,14 +2605,14 @@ struct PiAgentStatusTranscriptRow: View {
             PromptAuditAction(
                 title: "\(AppBrand.displayName) Authored System Prompt",
                 icon: "doc.text",
-                help: "Show system prompt \(AppBrand.displayName) passed to the child",
+                help: LanguageStore.shared.t("transcript.showChildSystemDeck", AppBrand.displayName),
                 isEnabled: true,
                 text: { promptFileText(path: metadata.authoredSystemPromptPath) }
             ),
             PromptAuditAction(
                 title: LanguageStore.shared.t("transcript.finalRuntimePrompt"),
                 icon: "doc.text.magnifyingglass",
-                help: "Show system prompt captured from the child Pi runtime",
+                help: LanguageStore.shared.t("transcript.showChildSystemRuntime"),
                 isEnabled: true,
                 text: { promptFileText(path: metadata.finalSystemPromptPath) }
             )
@@ -2723,7 +2723,7 @@ struct PiAgentForkOriginCard: View {
                     .appSecondaryButton()
                     .controlSize(.small)
                     .popover(isPresented: $isSnapshotPresented, arrowEdge: .bottom) {
-                        PiAgentPromptAuditPopover(title: "Forked from \u{201C}\(parentTitle)\u{201D}", text: snapshot)
+                        PiAgentPromptAuditPopover(title: LanguageStore.shared.t("transcript.forkedFromTitle", parentTitle), text: snapshot)
                     }
                 }
             }
@@ -2886,7 +2886,7 @@ struct PiAgentPromptAuditPopover: View {
                 Spacer(minLength: 0)
                 AppCopyIconButton(
                     text: text,
-                    help: "Copy prompt",
+                    help: LanguageStore.shared.t("transcript.copyPrompt"),
                     size: CGSize(width: 26, height: 26)
                 )
             }
@@ -2920,7 +2920,7 @@ struct PiAgentErrorDetailPopover: View {
                 Spacer(minLength: 0)
                 AppCopyIconButton(
                     text: text,
-                    help: "Copy error",
+                    help: LanguageStore.shared.t("transcript.copyError"),
                     size: CGSize(width: 26, height: 26)
                 )
             }

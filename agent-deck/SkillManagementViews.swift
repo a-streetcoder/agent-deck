@@ -912,7 +912,7 @@ struct SkillsScreen: View {
             }
         } else {
             AppCard {
-                ContentUnavailableView("No Skill Selected", systemImage: "wand.and.stars")
+                ContentUnavailableView(LanguageStore.shared.t("skills.noSkillSelected"), systemImage: "wand.and.stars")
                     .frame(maxWidth: .infinity, minHeight: 240)
             }
         }

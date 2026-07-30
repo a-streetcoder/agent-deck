@@ -274,7 +274,7 @@ final class PiAgentNativeTranscriptImageAttachmentView: NativeAccessiblePressabl
         addSubview(captionLabel)
 
         pressAction = { [weak self] in self?.openPreview() }
-        setAccessibilityLabel("Open image preview")
+        setAccessibilityLabel(LanguageStore.shared.t("transcript.openImagePreview"))
         setAccessibilityHelp("Press Return or Space to preview this attachment.")
 
         imageHeightC = imageView.heightAnchor.constraint(equalToConstant: 120)
@@ -371,10 +371,10 @@ final class PiAgentNativeTranscriptImageAttachmentView: NativeAccessiblePressabl
     private func buildMenu() {
         let menu = NSMenu()
         if reference?.localPath != nil {
-            menu.addItem(NSMenuItem(title: "Reveal in Finder", action: #selector(revealInFinder), keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: LanguageStore.shared.t("attach.revealFinder"), action: #selector(revealInFinder), keyEquivalent: ""))
         }
-        menu.addItem(NSMenuItem(title: "Copy Path", action: #selector(copyPath), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Source", action: #selector(copySource), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: LanguageStore.shared.t("transcript.copyPath"), action: #selector(copyPath), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: LanguageStore.shared.t("transcript.copySource"), action: #selector(copySource), keyEquivalent: ""))
         for item in menu.items { item.target = self }
         self.menu = menu
     }
@@ -1064,10 +1064,10 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         }
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let piItem = NSMenuItem(title: "Fork as Pi session", action: #selector(forkPiSessionSelected), keyEquivalent: "")
+        let piItem = NSMenuItem(title: LanguageStore.shared.t("transcript.forkAsPiSession"), action: #selector(forkPiSessionSelected), keyEquivalent: "")
         piItem.target = self
         menu.addItem(piItem)
-        let parent = NSMenuItem(title: "Fork as 1:1 agent chat…", action: nil, keyEquivalent: "")
+        let parent = NSMenuItem(title: LanguageStore.shared.t("transcript.forkAs11"), action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         for (index, option) in fork.agentOptions.enumerated() {

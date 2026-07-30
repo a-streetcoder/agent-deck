@@ -1318,17 +1318,17 @@ struct PiNativeSubagentRunSheet: View {
                     }
                 }
                 .appMenuPicker()
-                Toggle("Use git worktree isolation", isOn: $useWorktreeIsolation)
+                Toggle(LanguageStore.shared.t("sub.useGitWorktree"), isOn: $useWorktreeIsolation)
                     .font(AppTheme.Font.caption)
                 Text(LanguageStore.shared.t("sub.worktreeIsolationHint"))
                     .font(AppTheme.Font.caption2)
                     .foregroundStyle(.secondary)
                 if expectedOutcome == .writeProjectFile {
                     AppTextField(text: $requestedOutputPath, placeholder: LanguageStore.shared.t("sub.outputPathHint"))
-                    Toggle("Allow overwrite if the file exists", isOn: $allowOverwrite)
+                    Toggle(LanguageStore.shared.t("sub.allowOverwrite"), isOn: $allowOverwrite)
                         .font(AppTheme.Font.caption)
                 }
-                Toggle("Allow direct project writes without a worktree", isOn: $allowDirectProjectWrites)
+                Toggle(LanguageStore.shared.t("sub.allowDirectWrites"), isOn: $allowDirectProjectWrites)
                     .font(AppTheme.Font.caption)
                     .disabled(useWorktreeIsolation || expectedOutcome != .directProjectWrites)
                 if let outputPolicyError {

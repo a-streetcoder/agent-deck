@@ -2028,7 +2028,7 @@ private struct AgentEditSheet: View {
             AppCard(title: LanguageStore.shared.t("agents.behavior")) {
                 editSection {
                     configRow(LanguageStore.shared.t("agents.availability")) {
-                        Toggle("Disabled", isOn: optionalBoolBinding(for: \.disabled))
+                        Toggle(LanguageStore.shared.t("agents.disabled"), isOn: optionalBoolBinding(for: \.disabled))
                             .appSwitch()
                         Text(agentFieldHelpText(for: "Disabled") ?? "")
                             .font(.caption)
@@ -2048,7 +2048,7 @@ private struct AgentEditSheet: View {
                         }
 
                         configRow(LanguageStore.shared.t("agents.progress")) {
-                            Toggle("Default progress", isOn: optionalBoolBinding(for: \.defaultProgress))
+                            Toggle(LanguageStore.shared.t("agents.defaultProgress"), isOn: optionalBoolBinding(for: \.defaultProgress))
                                 .appSwitch()
                             Text(agentFieldHelpText(for: "Default Progress") ?? "")
                                 .font(.caption)
@@ -2056,7 +2056,7 @@ private struct AgentEditSheet: View {
                         }
 
                         configRow(LanguageStore.shared.t("agents.interaction")) {
-                            Toggle("Interactive", isOn: optionalBoolBinding(for: \.interactive))
+                            Toggle(LanguageStore.shared.t("agents.interactive"), isOn: optionalBoolBinding(for: \.interactive))
                                 .appSwitch()
                             Text(agentFieldHelpText(for: "Interactive") ?? "")
                                 .font(.caption)
@@ -2078,7 +2078,7 @@ private struct AgentEditSheet: View {
                         }
 
                         configRow(LanguageStore.shared.t("agents.defaultReads")) {
-                            AppTextField(text: stringListBinding(for: \.defaultReads), placeholder: "fileA, fileB")
+                            AppTextField(text: stringListBinding(for: \.defaultReads), placeholder: LanguageStore.shared.t("agents.fileListPlaceholder"))
                                 .frame(maxWidth: 360, alignment: .leading)
                             Text(agentFieldHelpText(for: "Default Reads") ?? "")
                                 .font(.caption)

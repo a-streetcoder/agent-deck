@@ -16,10 +16,10 @@ struct SkillCompareSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Compare Skills")
+                Text(LanguageStore.shared.t("skills.compareTitle"))
                     .font(.headline)
                     .fontWidth(.expanded)
-                Text("Review both copies of \"\(context.left.name)\" before choosing which one to keep.")
+                Text(LanguageStore.shared.t("skills.compareBody", context.left.name))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -49,7 +49,7 @@ struct SkillCompareSheet: View {
 
             HStack {
                 Spacer()
-                Button("Done") { isPresented = false }
+                Button(LanguageStore.shared.t("common.done")) { isPresented = false }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
             }

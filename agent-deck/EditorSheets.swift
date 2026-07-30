@@ -493,7 +493,7 @@ struct NewSkillEditorSheet: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             LabeledContent {
-                                AppTextField(text: nameBinding, placeholder: "macos-development")
+                                AppTextField(text: nameBinding, placeholder: LanguageStore.shared.t("editor.skillNamePlaceholder"))
                                     .labelsHidden()
                             } label: {
                                 fieldLabel(
@@ -504,7 +504,7 @@ struct NewSkillEditorSheet: View {
                             }
 
                             LabeledContent {
-                                AppTextField(text: $draft.description, placeholder: "What the skill does and when Pi should use it", axis: .vertical)
+                                AppTextField(text: $draft.description, placeholder: LanguageStore.shared.t("editor.skillWhenHelp"), axis: .vertical)
                                     .lineLimit(2...4)
                                     .labelsHidden()
                             } label: {
@@ -760,7 +760,7 @@ struct AgentEditorSheet: View {
                             }
 
                             LabeledContent {
-                                Menu("Choose Model") {
+                                Menu(LanguageStore.shared.t("editor.chooseModel")) {
                                     Button(LanguageStore.shared.t("editor.usePiDefaultModel")) {
                                         draft.config.model = nil
                                         clampThinkingForSelectedModel()
@@ -783,7 +783,7 @@ struct AgentEditorSheet: View {
                             }
 
                             LabeledContent {
-                                Menu("Add Fallback Model") {
+                                Menu(LanguageStore.shared.t("editor.addFallbackModel")) {
                                     modelPickerMenu { model in
                                         addFallbackModel(model.identifier)
                                     }
@@ -824,13 +824,13 @@ struct AgentEditorSheet: View {
 
                             LabeledContent {
                                 HStack(spacing: 10) {
-                                    Menu("Choose Tool") {
+                                    Menu(LanguageStore.shared.t("editor.chooseTool")) {
                                         ForEach(availableTools, id: \.self) { tool in
                                             Button(tool) { addTool(tool) }
                                         }
                                     }
 
-                                    Menu("Apply Preset") {
+                                    Menu(LanguageStore.shared.t("editor.applyPreset")) {
                                         Button(LanguageStore.shared.t("editor.core")) { applyToolPreset(["read", "grep", "find", "ls", "bash"]) }
                                         Button(LanguageStore.shared.t("editor.coding")) { applyToolPreset(["read", "grep", "find", "ls", "bash", "edit", "write"]) }
                                         if availableTools.contains("web_search") {
@@ -858,7 +858,7 @@ struct AgentEditorSheet: View {
                                 .foregroundStyle(AppTheme.mutedText)
 
                             LabeledContent {
-                                Menu("Choose Skill") {
+                                Menu(LanguageStore.shared.t("editor.chooseSkill")) {
                                     ForEach(selectableSkills, id: \.self) { skill in
                                         Button(skill) { addSkill(skill) }
                                     }
@@ -881,15 +881,15 @@ struct AgentEditorSheet: View {
                             Section("Files") {
                                 TextField("Extensions", text: listBinding(for: \ .extensions))
                                 TextField("Output", text: binding(for: \ .output))
-                                Picker("Default Outcome", selection: defaultExpectedOutcomeBinding()) {
+                                Picker(LanguageStore.shared.t("editor.defaultOutcome"), selection: defaultExpectedOutcomeBinding()) {
                                     Text(LanguageStore.shared.t("editor.unspecified")).tag(PiSubagentExpectedOutcome?.none)
                                     ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
                                         Text(outcome.displayName).tag(Optional(outcome))
                                     }
                                 }
                                 TextField("Default Reads", text: listBinding(for: \ .defaultReads))
-                                Toggle("Default Progress", isOn: optionalBoolBinding(for: \ .defaultProgress))
-                                Toggle("Interactive", isOn: optionalBoolBinding(for: \ .interactive))
+                                Toggle(LanguageStore.shared.t("editor.defaultProgress"), isOn: optionalBoolBinding(for: \ .defaultProgress))
+                                Toggle(LanguageStore.shared.t("editor.interactive"), isOn: optionalBoolBinding(for: \ .interactive))
                                 Stepper("Max Subagent Depth: \(draft.config.maxSubagentDepth ?? 0)", value: intBinding(for: \ .maxSubagentDepth), in: 0...10)
                                     .appBrandTint()
                             }

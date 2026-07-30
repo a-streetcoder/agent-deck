@@ -123,14 +123,14 @@ struct RenameResourceSheet: View {
                 .font(.title2.bold())
                 .fontWidth(.expanded)
 
-            AppTextField(text: $newName, placeholder: "New name")
+            AppTextField(text: $newName, placeholder: LanguageStore.shared.t("rename.newName"))
                 .onChange(of: newName) { _, value in
                     preview = makePreview(value)
                     errorMessage = nil
                 }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Impact")
+                Text(LanguageStore.shared.t("rename.impact"))
                     .font(.headline)
                 if preview.changes.isEmpty {
                     Text(newName == currentName ? "Enter a different name to preview changes." : "No file or reference changes detected.")
@@ -162,9 +162,9 @@ struct RenameResourceSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
-                Button("Rename") {
+                Button(LanguageStore.shared.t("rename.rename")) {
                     do {
                         try onRename(newName)
                         dismiss()

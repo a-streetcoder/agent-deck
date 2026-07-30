@@ -162,7 +162,7 @@ struct ProjectToolbarSelector: View {
                     Text(project.repositoryDisplayName)
                 } else {
                     Image(systemName: "folder")
-                    Text("Select Project")
+                    Text(LanguageStore.shared.t("sidebar.selectProject"))
                 }
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10, weight: .semibold))
@@ -170,10 +170,10 @@ struct ProjectToolbarSelector: View {
             }
         }
         .toolbarNeutralChrome()
-        .help("Choose project")
+        .help(LanguageStore.shared.t("sidebar.chooseProject"))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Projects")
+                Text(LanguageStore.shared.t("sidebar.projects"))
                     .font(.headline)
                 Button {
                     viewModel.clearProjectRoot()
@@ -242,7 +242,7 @@ struct ProjectPickerPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SearchFieldWithProgress(
-                placeholder: "Search enabled projects",
+                placeholder: LanguageStore.shared.t("sidebar.searchEnabledProjects"),
                 text: $filterText,
                 isLoading: isSearchDebouncing,
                 font: .subheadline
@@ -252,7 +252,7 @@ struct ProjectPickerPopover: View {
                 LazyVStack(spacing: 2) {
                     ProjectSidebarRow(
                         title: LanguageStore.shared.t("common.allProjects"),
-                        subtitle: "Show sessions across every project",
+                        subtitle: LanguageStore.shared.t("sidebar.showSessionsAcrossProjects"),
                         symbolName: "square.grid.2x2",
                         imageURL: nil,
                         isSelected: selectedProjectPath == nil,
