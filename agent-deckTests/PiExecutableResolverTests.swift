@@ -99,3 +99,33 @@ final class PiExecutableResolverTests: XCTestCase {
         XCTAssertNil(resolver.resolve())
     }
 }
+
+    func testPreferredPathSkipsScan() {
+        let tempDir = FileManager.default.temporaryDirectory
+        let fakePi = tempDir.appendingPathComponent("preferred-pi-\(UUID().uuidString)")
+        try? "#!/bin/sh\necho preferred".write(to: fakePi, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakePi.path)
+        defer {
+            try? FileManager.default.removeItem(at: fakePi)
+            PiExecutableResolver.setPreferredPath(nil)
+        }
+
+        // Even with empty PATH / candidates, preferred path wins.
+        PiExecutableResolver.setPreferredPath(fakePi.path)
+        let resolver = PiExecutableResolver(candidatesProvider: { [] }, defaultPathDirectories: { [] })
+        XCTAssertEqual(resolver.resolve()?.path, fakePi.path)
+    }
+
+    func testClearPreferredPathRestoresAutoDetect() {
+        PiExecutableResolver.setPreferredPath("/nonexistent/pi-binary-\(UUID().uuidString)")
+        defer { PiExecutableResolver.setPreferredPath(nil) }
+
+        // Invalid preferred falls through; with empty candidates stays nil.
+        let resolver = PiExecutableResolver(candidatesProvider: { [] }, defaultPathDirectories: { [] }, cacheResults: false)
+        unsetenv("AGENT_DECK_PI_PATH")
+        unsetenv("PI_CLI_PATH")
+        let oldPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        setenv("PATH", "/nonexistent-path-for-test", 1)
+        defer { setenv("PATH", oldPath, 1) }
+        XCTAssertNil(resolver.resolve())
+    }

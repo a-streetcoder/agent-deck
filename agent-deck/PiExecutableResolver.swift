@@ -4,6 +4,10 @@ struct PiExecutableResolver: Sendable {
     nonisolated private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cachedURL: (key: String, url: URL)?
 
+    /// Preferred absolute path from app settings (or env). When executable,
+    /// process-wide resolution skips PATH and install-location scanning.
+    nonisolated(unsafe) private static var preferredPathOverride: String?
+
     /// Overridable candidate list so tests can force a "pi not found" state on
     /// machines that have pi installed in a standard location. Defaults to the
     /// standard install paths; see `commonPiCandidates()`.
@@ -42,6 +46,34 @@ struct PiExecutableResolver: Sendable {
         self.cacheResults = cacheResults
     }
 
+    /// Installs a user/app-settings preferred `pi` path for subsequent `resolve()` calls.
+    ///
+    /// - Parameter path: Absolute path or empty/nil to clear and re-enable auto-detect.
+    nonisolated static func setPreferredPath(_ path: String?) {
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = (trimmed?.isEmpty == false) ? trimmed : nil
+        cacheLock.lock()
+        preferredPathOverride = stored
+        cachedURL = nil
+        cacheLock.unlock()
+    }
+
+    /// Current preferred path from app settings (not environment).
+    ///
+    /// - Returns: Absolute path string, or `nil` when auto-detect is active.
+    nonisolated static func preferredPath() -> String? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return preferredPathOverride
+    }
+
+    /// Drops the process-wide resolved-URL cache so the next `resolve()` re-reads disk.
+    nonisolated static func invalidateCache() {
+        cacheLock.lock()
+        cachedURL = nil
+        cacheLock.unlock()
+    }
+
     nonisolated func resolve() -> URL? {
         let environment = ProcessInfo.processInfo.environment
         let cacheKey = Self.cacheKey(for: environment)
@@ -69,24 +101,40 @@ struct PiExecutableResolver: Sendable {
     }
 
     nonisolated private static func cacheKey(for environment: [String: String]) -> String {
-        [
+        cacheLock.lock()
+        let preferred = preferredPathOverride ?? ""
+        cacheLock.unlock()
+        return [
+            preferred,
             environment["AGENT_DECK_PI_PATH"] ?? "",
             environment["PI_CLI_PATH"] ?? "",
             environment["BUN_INSTALL"] ?? "",
             environment["BUN_INSTALL_BIN"] ?? "",
             environment["PNPM_HOME"] ?? "",
             environment["SHELL"] ?? "",
-            environment["PATH"] ?? ""
+            // When a preferred path is set, ignore PATH drift in the cache key so
+            // session launches stay pinned to the saved binary.
+            preferred.isEmpty ? (environment["PATH"] ?? "") : ""
         ].joined(separator: "\u{1f}")
     }
 
     nonisolated private func resolveUncached(environment: [String: String]) -> URL? {
+        // 1) App-settings preferred path (Doctor / Settings). Skip scan when valid.
+        PiExecutableResolver.cacheLock.lock()
+        let preferred = PiExecutableResolver.preferredPathOverride
+        PiExecutableResolver.cacheLock.unlock()
+        if let preferred, let url = executableURL(from: preferred) {
+            return url
+        }
+
+        // 2) Explicit process environment overrides (launchd / CI / shell wrappers).
         for key in ["AGENT_DECK_PI_PATH", "PI_CLI_PATH"] {
             if let raw = environment[key], let url = executableURL(from: raw) {
                 return url
             }
         }
 
+        // 3) PATH + common install locations (auto-detect).
         if let pathResolved = resolveExecutableInPATH("pi", environment: environment) {
             return pathResolved
         }

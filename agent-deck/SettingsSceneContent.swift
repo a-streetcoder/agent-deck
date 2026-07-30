@@ -460,6 +460,40 @@ private struct GeneralSettingsTab: View {
 
             SettingsSection {
                 SettingsRow(
+                    title: languageStore.t("settings.piPath"),
+                    note: languageStore.t("settings.piPathHelp")
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(viewModel.appSettings.piExecutablePath?.isEmpty == false
+                             ? (viewModel.appSettings.piExecutablePath ?? "")
+                             : languageStore.t("settings.piPathAuto"))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                            .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+                        HStack(spacing: 8) {
+                            Button(languageStore.t("settings.piPathChoose")) {
+                                choosePiExecutable()
+                            }
+                            .appSecondaryButton()
+                            Button(languageStore.t("settings.piPathDetect")) {
+                                _ = viewModel.detectAndSavePiExecutablePath(forceScan: true)
+                            }
+                            .appSecondaryButton()
+                            Button(languageStore.t("settings.piPathClear")) {
+                                viewModel.setPiExecutablePath(nil)
+                            }
+                            .appSecondaryButton()
+                            .disabled(viewModel.appSettings.piExecutablePath == nil)
+                        }
+                        .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+                    }
+                }
+            }
+
+            SettingsSection {
+                SettingsRow(
                     title: languageStore.t("settings.language"),
                     note: languageStore.t("settings.languageHelp")
                 ) {
@@ -549,6 +583,24 @@ private struct GeneralSettingsTab: View {
         .clipShape(Circle())
         .overlay(Circle().stroke(AppTheme.contentStroke, lineWidth: 1))
     }
+
+    /// Opens a file panel for selecting the `pi` CLI binary.
+    private func choosePiExecutable() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = LanguageStore.shared.t("settings.piPathChoose")
+        panel.message = LanguageStore.shared.t("settings.piPathPanelMessage")
+        if let current = viewModel.appSettings.piExecutablePath, !current.isEmpty {
+            let url = URL(fileURLWithPath: current)
+            panel.directoryURL = url.deletingLastPathComponent()
+            panel.nameFieldStringValue = url.lastPathComponent
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        viewModel.setPiExecutablePath(url.path)
+    }
+
 }
 
 
@@ -633,6 +685,7 @@ private struct ProjectsRootListRow: View {
         .padding(.horizontal, 8)
         .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
+
 }
 
 // MARK: - Appearance

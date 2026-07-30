@@ -343,6 +343,24 @@ struct DoctorScreen: View {
                             .font(.caption.monospaced())
                             .foregroundStyle(AppTheme.mutedText)
                             .textSelection(.enabled)
+                        HStack(spacing: 8) {
+                            let saved = viewModel.appSettings.piExecutablePath
+                            if saved == path {
+                                Text(LanguageStore.shared.t("doctor.piPathSaved"))
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                            } else {
+                                Button(LanguageStore.shared.t("doctor.piPathSave")) {
+                                    viewModel.setPiExecutablePath(path)
+                                }
+                                .appSecondaryButton()
+                            }
+                            Button(LanguageStore.shared.t("doctor.piPathRescan")) {
+                                _ = viewModel.detectAndSavePiExecutablePath(forceScan: true)
+                                Task { await refreshPiRuntimeStatus() }
+                            }
+                            .appSecondaryButton()
+                        }
                     }
                     if !status.isInstalled {
                         piAutoInstallControls(isUpdate: false)

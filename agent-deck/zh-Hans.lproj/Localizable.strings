@@ -2327,3 +2327,15 @@
 
 "common.moveToTrash" = "移到废纸篓";
 "skills.removeFromCatalogAction" = "从目录移除…";
+
+/* Pi executable path */
+"settings.piPath" = "Pi CLI 路径";
+"settings.piPathHelp" = "保存后的绝对路径用于所有会话与诊断。已设置时不再扫描 PATH。";
+"settings.piPathAuto" = "自动检测（扫描 PATH）";
+"settings.piPathChoose" = "选择…";
+"settings.piPathDetect" = "检测并保存";
+"settings.piPathClear" = "清除";
+"settings.piPathPanelMessage" = "选择 pi 可执行文件（例如 Homebrew 或 mise 安装路径）。";
+"doctor.piPathSave" = "使用此路径";
+"doctor.piPathSaved" = "已保存为应用默认";
+"doctor.piPathRescan" = "重新扫描并保存";

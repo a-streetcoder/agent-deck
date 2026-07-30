@@ -14,6 +14,7 @@ final class AppSettingsController {
         self.settings = sharedStore.settings
         discardUnsupportedTerminalSelection()
         discardUnknownThemeSelection()
+        applyPiExecutablePathOverride()
     }
 
     @MainActor
@@ -22,6 +23,7 @@ final class AppSettingsController {
         self.settings = store.settings
         discardUnsupportedTerminalSelection()
         discardUnknownThemeSelection()
+        applyPiExecutablePathOverride()
     }
 
     /// Earlier builds allowed selecting any terminal app, including ones Agent Deck
@@ -422,6 +424,35 @@ final class AppSettingsController {
             return false
         }
         return setPiAgentTerminalApplicationPath(url.path)
+    }
+
+
+    /// Absolute `pi` CLI path from settings (nil/empty = auto-detect).
+    var piExecutablePath: String? {
+        settings.piExecutablePath
+    }
+
+    /// Persists the preferred `pi` executable path used by all session launches.
+    ///
+    /// - Parameter path: Absolute path to `pi`, or `nil`/empty to clear and re-enable scanning.
+    /// - Returns: `true` when the stored value changed.
+    @discardableResult
+    func setPiExecutablePath(_ path: String?) -> Bool {
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = (trimmed?.isEmpty == false) ? trimmed : nil
+        guard settings.piExecutablePath != stored else {
+            applyPiExecutablePathOverride()
+            return false
+        }
+        settings.piExecutablePath = stored
+        persist()
+        applyPiExecutablePathOverride()
+        return true
+    }
+
+    /// Pushes the saved path into `PiExecutableResolver` so process launches skip scan.
+    private func applyPiExecutablePathOverride() {
+        PiExecutableResolver.setPreferredPath(settings.piExecutablePath)
     }
 
     @discardableResult

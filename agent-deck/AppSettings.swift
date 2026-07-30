@@ -196,6 +196,10 @@ struct AppSettings: Codable, Hashable {
     /// Newly discovered extensions default to enabled until the user unchecks them.
     var disabledPiExtensionIDs: Set<String> = []
     var piAgentTerminalApplicationPath: String?
+    /// Absolute path to the `pi` CLI used for sessions, Doctor, and catalog tools.
+    /// When set and executable, resolvers skip PATH / candidate scanning.
+    /// Empty / nil means auto-detect (same as pre-0.0.3 behavior).
+    var piExecutablePath: String?
     var projectsRootPaths: [String] = [ProjectDiscovery.defaultRootDirectoryURL().path]
     var didConfirmProjectsRootPaths: Bool = false
     var nativeSubagentsEnabledForNewSessions: Bool = true
@@ -276,6 +280,7 @@ struct AppSettings: Codable, Hashable {
         case piAgentExtensionLoadingMode
         case disabledPiExtensionIDs
         case piAgentTerminalApplicationPath
+        case piExecutablePath
         case projectsRootPaths
         case didConfirmProjectsRootPaths
         case nativeSubagentsEnabledForNewSessions
@@ -345,6 +350,7 @@ struct AppSettings: Codable, Hashable {
         piAgentExtensionLoadingMode = (try? container.decodeIfPresent(PiAgentExtensionLoadingMode.self, forKey: .piAgentExtensionLoadingMode)) ?? .agentDeckManaged
         disabledPiExtensionIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledPiExtensionIDs) ?? []
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
+        piExecutablePath = try container.decodeIfPresent(String.self, forKey: .piExecutablePath)
         let hasStoredProjectsRootPaths = container.contains(.projectsRootPaths)
         projectsRootPaths = try container.decodeIfPresent([String].self, forKey: .projectsRootPaths) ?? [ProjectDiscovery.defaultRootDirectoryURL().path]
         didConfirmProjectsRootPaths = try container.decodeIfPresent(Bool.self, forKey: .didConfirmProjectsRootPaths) ?? hasStoredProjectsRootPaths

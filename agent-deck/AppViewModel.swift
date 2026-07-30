@@ -437,6 +437,7 @@ final class AppViewModel: NSObject {
         super.init()
 
         appSettings = appSettingsController.settings
+        PiExecutableResolver.setPreferredPath(appSettings.piExecutablePath)
         legacyComputerUseSkillNames = appSettings.legacyComputerUseSkillNames
         // A previous release could store the Codex-only Computer Use skill as a
         // generic plugin reference. Drop only that exact reference: do not alter
@@ -5897,6 +5898,39 @@ final class AppViewModel: NSObject {
         UserAvatarStore.imageURL(fileName: appSettings.userAvatarFileName)
     }
 
+    /// Preferred `pi` CLI absolute path from settings (`nil` = auto-detect).
+    var piExecutablePathSetting: String? {
+        appSettings.piExecutablePath
+    }
+
+    /// Saves the preferred `pi` path (Settings / Doctor). Session launches then skip scan.
+    ///
+    /// - Parameter path: Absolute path to an executable `pi`, or empty/`nil` to clear.
+    func setPiExecutablePath(_ path: String?) {
+        _ = appSettingsController.setPiExecutablePath(path)
+        syncAppSettings()
+    }
+
+    /// Runs Doctor-style resolution once, persists the path when found, and returns it.
+    ///
+    /// - Parameter forceScan: When `true`, temporarily clears preferred path to re-scan PATH/candidates.
+    /// - Returns: Resolved absolute path, or `nil` if `pi` is not found.
+    @discardableResult
+    func detectAndSavePiExecutablePath(forceScan: Bool = false) -> String? {
+        if forceScan {
+            PiExecutableResolver.setPreferredPath(nil)
+        }
+        let resolved = PiExecutableResolver().resolve()?.path
+        if let resolved, !resolved.isEmpty {
+            setPiExecutablePath(resolved)
+            return resolved
+        }
+        return appSettings.piExecutablePath.flatMap { raw in
+            let expanded = (raw as NSString).expandingTildeInPath
+            return FileManager.default.isExecutableFile(atPath: expanded) ? expanded : nil
+        }
+    }
+
     /// Update the display name shown on user transcript bubbles.
     ///
     /// - Parameter name: Free-form display name; empty restores default "You".
@@ -6386,6 +6420,8 @@ final class AppViewModel: NSObject {
 
     private func syncAppSettings() {
         appSettings = appSettingsController.settings
+        // Keep process-wide pi resolution pinned to Settings without rescanning PATH.
+        PiExecutableResolver.setPreferredPath(appSettings.piExecutablePath)
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
     }

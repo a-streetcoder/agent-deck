@@ -63,13 +63,20 @@ enum PiAgentLaunchArgumentBuilder {
     /// regular Pi sessions and emits its own `--no-extensions` upfront, so it
     /// passes `false` here to avoid clobbering its preceding `--extension`
     /// arguments.
+    ///
+    /// Deck-superseded packages (`pi-web-access`, `pi-ask-user`, …) are **skipped**:
+    /// Deck already injects first-party bridges for those tool names. Re-loading
+    /// the npm package would hard-fail launch with "Tool X conflicts with …".
     static func agentExtensionArguments(for agent: EffectiveAgentRecord, prependNoExtensions: Bool = true) -> [String] {
         var args: [String] = []
         if prependNoExtensions {
             args.append("--no-extensions")
         }
-        for ext in agent.resolved.extensions ?? [] where !ext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args.append(contentsOf: ["--extension", ext])
+        for ext in agent.resolved.extensions ?? [] {
+            let trimmed = ext.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if isDeckSupersededExtensionRef(trimmed) { continue }
+            args.append(contentsOf: ["--extension", trimmed])
         }
         return args
     }
@@ -153,7 +160,7 @@ enum PiAgentLaunchArgumentBuilder {
 
     /// Packages that register chat model providers (not tools/UI).
     /// Keep this conservative so managed mode does not pull in pi-subagents / MCP / etc.
-    static func isModelProviderPackage(_ candidate: PiExtensionCandidate) -> Bool {
+    nonisolated static func isModelProviderPackage(_ candidate: PiExtensionCandidate) -> Bool {
         let baseName = packageBaseName(candidate)
         guard !baseName.isEmpty else { return false }
         let knownBaseNames: Set<String> = [
@@ -169,21 +176,58 @@ enum PiAgentLaunchArgumentBuilder {
 
     /// Packages whose tools Deck already injects as first-party bridges.
     /// Loading them (before or after) causes hard launch failures: tool name conflicts.
-    static func isDeckSupersededPackage(_ candidate: PiExtensionCandidate) -> Bool {
+    nonisolated static func isDeckSupersededPackage(_ candidate: PiExtensionCandidate) -> Bool {
         let baseName = packageBaseName(candidate)
         guard !baseName.isEmpty else { return false }
+        return isDeckSupersededPackageBaseName(baseName)
+    }
+
+    /// Same rule as `isDeckSupersededPackage`, for raw agent frontmatter
+    /// `extensions:` entries (`npm:pi-web-access`, `pi-web-access`, paths, …).
+    nonisolated static func isDeckSupersededExtensionRef(_ ref: String) -> Bool {
+        let normalized = ref.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        // Path / file refs that are clearly Deck-owned bridges.
+        if normalized.contains("agent-deck-web-access")
+            || normalized.contains("agent-deck-web-fetch")
+            || normalized.contains("agent-deck-ask-user") {
+            return true
+        }
+        // Strip common package prefixes: `npm:`, `@scope/`.
+        var token = normalized
+        if token.hasPrefix("npm:") {
+            token = String(token.dropFirst(4))
+        }
+        if let slash = token.lastIndex(of: "/") {
+            token = String(token[token.index(after: slash)...])
+        }
+        // Bare package base, or a path ending with the package folder name.
+        if isDeckSupersededPackageBaseName(token) { return true }
+        if let lastPath = token.split(separator: "/").last.map(String.init),
+           isDeckSupersededPackageBaseName(lastPath) {
+            return true
+        }
+        return false
+    }
+
+    /// Lowercased package base name → superseded?
+    nonisolated static func isDeckSupersededPackageBaseName(_ baseName: String) -> Bool {
+        let name = baseName.lowercased()
+        guard !name.isEmpty else { return false }
         let knownBaseNames: Set<String> = [
             "pi-ask-user",
             "pi-web-access",
         ]
-        if knownBaseNames.contains(baseName) { return true }
+        if knownBaseNames.contains(name) { return true }
         // Scoped npm names like `rpiv-ask-user-question` still register ask_* tools.
-        if baseName.contains("ask-user") { return true }
+        if name.contains("ask-user") { return true }
+        // Any *web-access* package that would re-register web_search / fetch_content.
+        if name.contains("web-access") { return true }
         return false
     }
 
     /// Lowercased last path segment of `packageName` (`@scope/name` → `name`).
-    private static func packageBaseName(_ candidate: PiExtensionCandidate) -> String {
+    private nonisolated static func packageBaseName(_ candidate: PiExtensionCandidate) -> String {
         let name = (candidate.packageName ?? "").lowercased()
         guard !name.isEmpty else { return "" }
         return name.split(separator: "/").last.map(String.init) ?? name

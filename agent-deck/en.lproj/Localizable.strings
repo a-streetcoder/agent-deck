@@ -2328,3 +2328,15 @@
 
 "common.moveToTrash" = "Move to Trash";
 "skills.removeFromCatalogAction" = "Remove from Catalog…";
+
+/* Pi executable path */
+"settings.piPath" = "Pi CLI path";
+"settings.piPathHelp" = "Saved absolute path used for every session and Doctor check. When set, PATH scanning is skipped.";
+"settings.piPathAuto" = "Auto-detect (scan PATH)";
+"settings.piPathChoose" = "Choose…";
+"settings.piPathDetect" = "Detect & Save";
+"settings.piPathClear" = "Clear";
+"settings.piPathPanelMessage" = "Select the pi executable (for example from Homebrew or mise).";
+"doctor.piPathSave" = "Use this path";
+"doctor.piPathSaved" = "Saved as app default";
+"doctor.piPathRescan" = "Rescan & Save";
