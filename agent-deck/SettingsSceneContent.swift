@@ -958,41 +958,42 @@ private struct AppearanceSettingsTab: View {
 
 private struct AgentSettingsTab: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         SettingsForm {
             SettingsSection {
                 SettingsStepperRow(
-                    title: "Notification delay:",
+                    title: languageStore.t("settings.agent.notificationDelay"),
                     value: piAgentNotificationDelayBinding,
                     range: 1...60,
-                    valueText: "\(viewModel.piAgentNotificationDelayMinutes) minutes",
-                    note: "Before notifying about unread sessions."
+                    valueText: languageStore.t("common.minutes", viewModel.piAgentNotificationDelayMinutes),
+                    note: languageStore.t("settings.agent.notificationDelayNote")
                 )
             }
 
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Deck agents:",
-                    label: "Enable Deck agents by default",
-                    note: "Applies to newly created Pi Agent drafts and sessions. Already-running sessions keep the instructions they launched with.",
+                    title: languageStore.t("settings.agent.deckAgents"),
+                    label: languageStore.t("settings.agent.deckAgentsLabel"),
+                    note: languageStore.t("settings.agent.deckAgentsNote"),
                     isOn: newSessionsSubagentsBinding
                 )
 
                 SettingsRow(
-                    title: "Delegation policy:",
+                    title: languageStore.t("settings.agent.delegation"),
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Picker("Delegation policy", selection: subagentDelegationPolicyBinding) {
+                        Picker(languageStore.t("settings.agent.delegationA11y"), selection: subagentDelegationPolicyBinding) {
                             ForEach(NativeSubagentDelegationPolicy.allCases) { policy in
-                                Text(policy.displayName).tag(policy)
+                                Text(languageStore.t(policy.l10nTitleKey)).tag(policy)
                             }
                         }
                         .appSegmentedPicker()
                         .labelsHidden()
                         .frame(width: SettingsLayout.controlWidth, alignment: .leading)
 
-                        Text(viewModel.appSettings.nativeSubagentDelegationPolicy.settingsDescription)
+                        Text(languageStore.t(viewModel.appSettings.nativeSubagentDelegationPolicy.l10nDescriptionKey))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1003,19 +1004,19 @@ private struct AgentSettingsTab: View {
 
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Context zones:",
-                    label: "Show smart/dumb zone hint",
-                    note: "Off by default. When enabled, the context meter shows a 40% smart-zone marker and explains Matt Pocock's warning that added context can degrade model decisions.",
+                    title: languageStore.t("settings.agent.contextZones"),
+                    label: languageStore.t("settings.agent.contextZonesLabel"),
+                    note: languageStore.t("settings.agent.contextZonesNote"),
                     isOn: showContextSmartZoneHintBinding
                 )
 
                 SettingsRow(title: "") {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("“As LLMs receive more tokens, the relationships between tokens scale quadratically… every LLM has a smart zone and a dumb zone.”")
+                        Text(languageStore.t("settings.agent.contextQuote"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Link("Read the AIHero article", destination: URL(string: "https://www.aihero.dev/why-the-anthropic-ralph-plugin-sucks")!)
+                        Link(languageStore.t("settings.agent.readArticle"), destination: URL(string: "https://www.aihero.dev/why-the-anthropic-ralph-plugin-sucks")!)
                             .font(.caption.weight(.semibold))
                             .appBrandTint()
                     }
@@ -1023,21 +1024,21 @@ private struct AgentSettingsTab: View {
             }
 
             SettingsSection {
-                SettingsPickerRow(title: "Terminal app:", selection: piAgentTerminalApplicationSelectionBinding) {
+                SettingsPickerRow(title: languageStore.t("settings.agent.terminalApp"), selection: piAgentTerminalApplicationSelectionBinding) {
                     ForEach(viewModel.piAgentTerminalApplicationOptions) { option in
                         Text(option.name).tag(option.id)
                     }
                 }
 
-                SettingsValueButtonRow(title: "Application:", value: selectedTerminalPathText) {
-                    Button("Choose Other...") { viewModel.choosePiAgentTerminalApplication() }
+                SettingsValueButtonRow(title: languageStore.t("settings.agent.application"), value: selectedTerminalPathText) {
+                    Button(languageStore.t("settings.agent.chooseOther")) { viewModel.choosePiAgentTerminalApplication() }
                         .appSecondaryButton()
-                    Button("Use macOS Default") { viewModel.resetPiAgentTerminalApplicationToDefault() }
+                    Button(languageStore.t("settings.agent.useMacOSDefault")) { viewModel.resetPiAgentTerminalApplicationToDefault() }
                         .appSecondaryButton()
                 }
 
                 SettingsRow(title: "") {
-                    Text("Supported terminals: \(SupportedTerminal.displayList). Others (such as Warp) can't be driven to open a new window and run a command.")
+                    Text(languageStore.t("settings.agent.terminalSupport", SupportedTerminal.displayList))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1082,7 +1083,7 @@ private struct AgentSettingsTab: View {
     }
 
     private var selectedTerminalPathText: String {
-        viewModel.appSettings.piAgentTerminalApplicationPath ?? "macOS default"
+        viewModel.appSettings.piAgentTerminalApplicationPath ?? languageStore.t("settings.agent.macOSDefault")
     }
 }
 
@@ -1091,31 +1092,32 @@ private struct AgentSettingsTab: View {
 
 private struct AutomationsSettingsTab: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         SettingsForm {
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Session titles:",
-                    label: "Generate titles with AI",
-                    note: "On by default. The first draft prompt starts a hidden one-turn Pi session with no session persistence, extensions, skills, or tools.",
+                    title: languageStore.t("settings.auto.sessionTitles"),
+                    label: languageStore.t("settings.auto.sessionTitlesLabel"),
+                    note: languageStore.t("settings.auto.sessionTitlesNote"),
                     isOn: autoGenerateSessionTitlesBinding
                 )
 
                 SettingsToggleRow(
-                    title: "Update titles:",
-                    label: "Refresh generated titles as plans change",
-                    note: "When enabled, new session plans may start a hidden helper to keep AI-generated, non-user-edited titles aligned with the latest request.",
+                    title: languageStore.t("settings.auto.updateTitles"),
+                    label: languageStore.t("settings.auto.updateTitlesLabel"),
+                    note: languageStore.t("settings.auto.updateTitlesNote"),
                     isOn: autoUpdateSessionTitlesBinding
                 )
                 .disabled(!viewModel.appSettings.autoGeneratePiAgentSessionTitles)
 
                 SettingsPickerRow(
-                    title: "Title model:",
+                    title: languageStore.t("settings.auto.titleModel"),
                     selection: titleGenerationModelBinding,
-                    note: "Uses your Pi default model unless you pick a cheaper, faster one here."
+                    note: languageStore.t("settings.auto.titleModelNote")
                 ) {
-                    Text("Default model").tag("")
+                    Text(languageStore.t("common.defaultModel")).tag("")
                     ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                         Text(model.displayName).tag(model.identifier)
                     }
@@ -1124,26 +1126,26 @@ private struct AutomationsSettingsTab: View {
 
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Git actions:",
-                    label: "Enable Commit / Push toolbar actions",
-                    note: "On by default. Pi Agent shows native Commit, Push, and Commit & Push toolbar actions.",
+                    title: languageStore.t("settings.auto.gitActions"),
+                    label: languageStore.t("settings.auto.gitActionsLabel"),
+                    note: languageStore.t("settings.auto.gitActionsNote"),
                     isOn: gitAutomationEnabledBinding
                 )
 
                 SettingsToggleRow(
-                    title: "Confirm actions:",
-                    label: "Ask before committing or pushing",
-                    note: "On by default. Turn off to run Commit and Commit & Push immediately from the toolbar.",
+                    title: languageStore.t("settings.auto.confirmActions"),
+                    label: languageStore.t("settings.auto.confirmActionsLabel"),
+                    note: languageStore.t("settings.auto.confirmActionsNote"),
                     isOn: gitAutomationConfirmationBinding
                 )
                 .disabled(!viewModel.appSettings.piAgentGitAutomationEnabled)
 
                 SettingsPickerRow(
-                    title: "Commit model:",
+                    title: languageStore.t("settings.auto.commitModel"),
                     selection: commitMessageModelBinding,
-                    note: "Uses your Pi default model unless you pick a cheaper, faster one here. Apple Foundation Model runs locally; other models use a hidden no-thinking Pi helper session."
+                    note: languageStore.t("settings.auto.commitModelNote")
                 ) {
-                    Text("Default model").tag("")
+                    Text(languageStore.t("common.defaultModel")).tag("")
                     ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                         Text(model.displayName).tag(model.identifier)
                     }
@@ -1152,10 +1154,10 @@ private struct AutomationsSettingsTab: View {
 
                 if viewModel.automationAvailableModels.isEmpty {
                     HStack(spacing: 8) {
-                        Label("No enabled models available", systemImage: "exclamationmark.triangle")
+                        Label(languageStore.t("settings.auto.noModels"), systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                         Spacer()
-                        Button("Refresh Models") {
+                        Button(languageStore.t("common.refreshModels")) {
                             viewModel.refreshModels()
                         }
                         .appSecondaryButton()
@@ -1167,16 +1169,16 @@ private struct AutomationsSettingsTab: View {
 
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Worktree isolation:",
-                    label: "Run each new session in its own git branch + worktree",
-                    note: "Off by default. When enabled, every new session creates a branch named agent-deck/session-<id> and an isolated working copy under ~/Library/Application Support/agent-deck/Session Worktrees/. Use the Merge toolbar button to bring the work back into the source branch. Only affects new sessions; existing sessions stay in the project root.",
+                    title: languageStore.t("settings.auto.worktree"),
+                    label: languageStore.t("settings.auto.worktreeLabel"),
+                    note: languageStore.t("settings.auto.worktreeNote"),
                     isOn: sessionsUseWorktreeBinding
                 )
 
                 SettingsToggleRow(
-                    title: "Keep after merge:",
-                    label: "Keep worktree and branch after a successful merge",
-                    note: "On by default. A successful Merge lands the work on the source branch and preserves the session worktree and branch so you can keep iterating and merge again later. Turn off if you'd rather have the worktree removed and the branch deleted as soon as it's merged. Deleting a session from the list always removes its worktree regardless of this setting. Only matters when Worktree isolation is on.",
+                    title: languageStore.t("settings.auto.keepAfterMerge"),
+                    label: languageStore.t("settings.auto.keepAfterMergeLabel"),
+                    note: languageStore.t("settings.auto.keepAfterMergeNote"),
                     isOn: keepWorktreeAfterMergeBinding
                 )
                 .disabled(!viewModel.appSettings.piAgentSessionsUseWorktree)
@@ -1184,18 +1186,18 @@ private struct AutomationsSettingsTab: View {
 
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Agent avatars:",
-                    label: "Generate Image Playground prompts with AI",
-                    note: "On by default. Agent Deck uses the agent frontmatter to draft a short prompt before generating an avatar with Image Playground. When disabled, it uses a simple fallback prompt.",
+                    title: languageStore.t("settings.auto.agentAvatars"),
+                    label: languageStore.t("settings.auto.agentAvatarsLabel"),
+                    note: languageStore.t("settings.auto.agentAvatarsNote"),
                     isOn: agentAvatarPromptAutomationBinding
                 )
 
                 SettingsPickerRow(
-                    title: "Prompt model:",
+                    title: languageStore.t("settings.auto.promptModel"),
                     selection: agentAvatarPromptModelBinding,
                     note: agentAvatarPromptModelNote
                 ) {
-                    Text("Default model").tag("")
+                    Text(languageStore.t("common.defaultModel")).tag("")
                     ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                         Text(model.displayName).tag(model.identifier)
                     }
@@ -1205,11 +1207,11 @@ private struct AutomationsSettingsTab: View {
 
             SettingsSection {
                 SettingsPickerRow(
-                    title: "Skill summaries:",
+                    title: languageStore.t("settings.auto.skillSummaries"),
                     selection: skillDescriptionModelBinding,
                     note: skillDescriptionModelNote
                 ) {
-                    Text("Default model").tag("")
+                    Text(languageStore.t("common.defaultModel")).tag("")
                     ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                         Text(model.displayName).tag(model.identifier)
                     }
@@ -1294,9 +1296,9 @@ private struct AutomationsSettingsTab: View {
     private var agentAvatarPromptModelNote: String {
         let identifier = viewModel.appSettings.agentAvatarPromptModelIdentifier ?? viewModel.agentAvatarPromptGenerationModel()?.identifier
         if identifier == FoundationModelAutomationService.identifier {
-            return "Apple Foundation Model runs locally. Other models use a hidden no-thinking Pi helper session."
+            return languageStore.t("settings.auto.avatarNote.foundation")
         }
-        return "Uses the selected model in a hidden no-thinking Pi helper session to draft the avatar prompt."
+        return languageStore.t("settings.auto.avatarNote.helper")
     }
 
     private var skillDescriptionModelBinding: Binding<String> {
@@ -1309,12 +1311,12 @@ private struct AutomationsSettingsTab: View {
     private var skillDescriptionModelNote: String {
         let resolved = viewModel.skillDescriptionGenerationModel()
         guard let resolved else {
-            return "Powers the ✨ summary button in the Import Skills sheet. Set a Pi default model or pick a model to enable summaries."
+            return languageStore.t("settings.auto.skillNote.empty")
         }
         if resolved.identifier == FoundationModelAutomationService.identifier {
-            return "Powers the ✨ summary button in the Import Skills sheet. Apple Foundation Models runs locally on-device."
+            return languageStore.t("settings.auto.skillNote.foundation")
         }
-        return "Powers the ✨ summary button in the Import Skills sheet, in a hidden no-thinking Pi helper session."
+        return languageStore.t("settings.auto.skillNote.helper")
     }
 }
 
@@ -1322,23 +1324,24 @@ private struct AutomationsSettingsTab: View {
 
 private struct PerformanceSettingsTab: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         SettingsForm {
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Idle parking:",
-                    label: "Stop idle Pi RPC processes",
-                    note: "When enabled, idle parent chat processes are stopped and resumed from the saved session on the next prompt.",
+                    title: languageStore.t("settings.perf.idleParking"),
+                    label: languageStore.t("settings.perf.idleParkingLabel"),
+                    note: languageStore.t("settings.perf.idleParkingNote"),
                     isOn: piAgentIdleParkingEnabledBinding
                 )
 
                 SettingsStepperRow(
-                    title: "Parking delay:",
+                    title: languageStore.t("settings.perf.parkingDelay"),
                     value: piAgentIdleParkingTimeoutBinding,
                     range: 1...120,
-                    valueText: "\(viewModel.piAgentIdleParkingTimeoutMinutes) minutes",
-                    note: "How long an idle parent chat process can stay warm."
+                    valueText: languageStore.t("common.minutes", viewModel.piAgentIdleParkingTimeoutMinutes),
+                    note: languageStore.t("settings.perf.parkingDelayNote")
                 )
                 .disabled(!viewModel.isPiAgentIdleParkingEnabled)
             }
@@ -1364,34 +1367,35 @@ private struct PerformanceSettingsTab: View {
 
 private struct CommandsSettingsTab: View {
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         SettingsForm {
             SettingsSection {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Injected Slash Commands")
+                    Text(languageStore.t("settings.cmd.injectedTitle"))
                         .font(.headline)
-                    SettingsNote(text: "Only Agent Deck bundled commands are shown here. Enabled commands are loaded into parent Pi RPC sessions with explicit --extension arguments while ambient Pi extension discovery remains disabled. Future imported commands should live in \(PiInjectedCommandCatalog.commandLibraryPath).")
+                    SettingsNote(text: languageStore.t("settings.cmd.injectedNote", PiInjectedCommandCatalog.commandLibraryPath))
                 }
 
                 HStack {
                     Button {
                         viewModel.importCommandFile()
                     } label: {
-                        Label("Import Command…", systemImage: "square.and.arrow.down")
+                        Label(languageStore.t("settings.cmd.import"), systemImage: "square.and.arrow.down")
                     }
                     Button {
                         revealCommandLibraryInFinder()
                     } label: {
-                        Label("Reveal Library", systemImage: "folder")
+                        Label(languageStore.t("settings.cmd.revealLibrary"), systemImage: "folder")
                     }
                 }
                 .appSecondaryButton()
             }
 
             CommandGroupSection(
-                title: "Agent Deck Bundled",
-                subtitle: "Commands shipped with the app.",
+                title: languageStore.t("settings.cmd.bundledTitle"),
+                subtitle: languageStore.t("settings.cmd.bundledSubtitle"),
                 commands: PiInjectedCommandCatalog.all.filter { $0.source == .builtIn },
                 viewModel: viewModel
             )
@@ -1399,14 +1403,14 @@ private struct CommandsSettingsTab: View {
             let importedCommands = PiInjectedCommandCatalog.all.filter { $0.source == .library }
             if !importedCommands.isEmpty {
                 CommandGroupSection(
-                    title: "Imported",
-                    subtitle: "Commands copied into the Agent Deck command library. Imported commands are disabled by default.",
+                    title: languageStore.t("settings.cmd.importedTitle"),
+                    subtitle: languageStore.t("settings.cmd.importedSubtitle"),
                     commands: importedCommands,
                     viewModel: viewModel
                 )
             }
 
-            SettingsNote(text: "Changes apply to newly started or resumed RPC sessions. Restart an active Pi session to change which injected commands it has loaded.")
+            SettingsNote(text: languageStore.t("settings.cmd.changesNote"))
                 .padding(.horizontal, 14)
         }
     }
@@ -1454,6 +1458,7 @@ private struct CommandGroupSection: View {
 private struct CommandSettingsRow: View {
     let command: PiInjectedCommand
     var viewModel: AppViewModel
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         HStack(alignment: .center, spacing: 20) {
@@ -1493,7 +1498,7 @@ private struct CommandSettingsRow: View {
     }
 
     private var sourcePill: some View {
-        Label(command.source == .builtIn ? "Bundled" : "Imported", systemImage: command.source == .builtIn ? "shippingbox" : "square.and.arrow.down")
+        Label(command.source == .builtIn ? languageStore.t("settings.cmd.bundledTag") : languageStore.t("settings.cmd.importedTitle"), systemImage: command.source == .builtIn ? "shippingbox" : "square.and.arrow.down")
             .font(AppTheme.Font.micro.weight(.semibold))
             .foregroundStyle(command.source == .builtIn ? AppTheme.brandAccent : .blue)
             .labelStyle(.titleAndIcon)

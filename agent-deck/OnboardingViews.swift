@@ -778,10 +778,11 @@ enum SetupCheckStatus: Hashable {
     case failed
 
     var label: String {
+        // UI-facing; routes through LanguageStore so Doctor/Onboarding tags localize.
         switch self {
-        case .passed: "Ready"
-        case .warning: "Optional"
-        case .failed: "Missing"
+        case .passed: LanguageStore.shared.t("common.ready")
+        case .warning: LanguageStore.shared.t("common.optional")
+        case .failed: LanguageStore.shared.t("common.missing")
         }
     }
 
@@ -853,9 +854,11 @@ struct SetupDependencyService {
     }
 
     private func piItem(installed: Bool) -> SetupCheckItem {
-        installed
-            ? SetupCheckItem(id: "pi-cli", title: "Pi", detail: "Pi is installed and available to \(AppBrand.displayName).", status: .passed, recovery: nil)
-            : SetupCheckItem(id: "pi-cli", title: "Pi", detail: "Pi powers every coding session and is not installed yet. \(AppBrand.displayName) can install it for you.", status: .failed, recovery: nil, action: .installPi)
+        let t = LanguageStore.shared
+        if installed {
+            return SetupCheckItem(id: "pi-cli", title: t.t("doctor.dep.pi"), detail: t.t("doctor.dep.piReady", AppBrand.displayName), status: .passed, recovery: nil)
+        }
+        return SetupCheckItem(id: "pi-cli", title: t.t("doctor.dep.pi"), detail: t.t("doctor.dep.piMissing", AppBrand.displayName), status: .failed, recovery: nil, action: .installPi)
     }
 
     // MARK: Models
@@ -871,15 +874,16 @@ struct SetupDependencyService {
     }
 
     private func modelsItem(available: Bool, count: Int, piInstalled: Bool) -> SetupCheckItem {
+        let t = LanguageStore.shared
         if available {
-            return SetupCheckItem(id: "pi-models", title: "Pi Models", detail: "\(count) models are available to \(AppBrand.displayName).", status: .passed, recovery: nil)
+            return SetupCheckItem(id: "pi-models", title: t.t("doctor.dep.models"), detail: t.t("doctor.dep.modelsReady", count, AppBrand.displayName), status: .passed, recovery: nil)
         }
         return SetupCheckItem(
             id: "pi-models",
-            title: "Pi Models",
-            detail: "`pi --list-models` did not return any usable models.",
+            title: t.t("doctor.dep.models"),
+            detail: t.t("doctor.dep.modelsEmpty"),
             status: .failed,
-            recovery: piInstalled ? "Connect a model provider to load its models." : "Install Pi first (above), then connect a model provider.",
+            recovery: piInstalled ? t.t("doctor.dep.modelsRecovery") : t.t("doctor.dep.modelsRecoveryInstallFirst"),
             action: piInstalled ? .connectProvider : nil
         )
     }
@@ -901,28 +905,30 @@ struct SetupDependencyService {
         if !isConfirmed || !hasAnyConfigured {
             return projectItem(configured: false, detail: nil, suggestedPath: suggestedPath)
         }
+        let t = LanguageStore.shared
         let detail: String
         if hasAnyExisting {
-            detail = existingPaths.count == 1 ? existingPaths[0] : "\(existingPaths.count) folders configured: \(existingPaths.joined(separator: ", "))"
+            detail = existingPaths.count == 1 ? existingPaths[0] : t.t("doctor.dep.foldersConfigured", existingPaths.count, existingPaths.joined(separator: ", "))
         } else {
-            detail = "None of the configured folders exist anymore. Choose a parent folder that contains your projects."
+            detail = t.t("doctor.dep.projectsGone")
         }
         return SetupCheckItem(
-            id: "project-root", title: "Projects Folders", detail: detail,
+            id: "project-root", title: t.t("doctor.dep.projects"), detail: detail,
             status: hasAnyExisting ? .passed : .failed,
-            recovery: hasAnyExisting ? nil : "Choose an existing parent folder for your projects.",
+            recovery: hasAnyExisting ? nil : t.t("doctor.dep.projectsRecovery"),
             action: hasAnyExisting ? nil : .chooseProjectRoot
         )
     }
 
     private func projectItem(configured: Bool, detail: String?, suggestedPath: String?) -> SetupCheckItem {
+        let t = LanguageStore.shared
         if configured {
-            return SetupCheckItem(id: "project-root", title: "Projects Folders", detail: detail ?? "Projects folder configured.", status: .passed, recovery: nil)
+            return SetupCheckItem(id: "project-root", title: t.t("doctor.dep.projects"), detail: detail ?? t.t("doctor.dep.projectsConfigured"), status: .passed, recovery: nil)
         }
         let hasSuggested = suggestedPath?.isEmpty == false
         return SetupCheckItem(
-            id: "project-root", title: "Projects Folders",
-            detail: hasSuggested ? "Choose at least one parent folder that contains your projects. Suggested: \(suggestedPath!)" : "Choose at least one parent folder that contains your projects.",
+            id: "project-root", title: t.t("doctor.dep.projects"),
+            detail: hasSuggested ? t.t("doctor.dep.projectsSuggested", suggestedPath!) : t.t("doctor.dep.projectsMissing"),
             status: .failed, recovery: nil,
             action: hasSuggested ? .useSuggestedProjectRoot : .chooseProjectRoot,
             secondaryAction: hasSuggested ? .chooseProjectRoot : nil

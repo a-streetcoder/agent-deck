@@ -57,6 +57,24 @@ enum NativeSubagentDelegationPolicy: String, Codable, CaseIterable, Hashable, Id
         }
     }
 
+    /// Localizable.strings key for the segmented control title.
+    var l10nTitleKey: String {
+        switch self {
+        case .light: return "settings.agent.delegation.light"
+        case .balanced: return "settings.agent.delegation.balanced"
+        case .strict: return "settings.agent.delegation.strict"
+        }
+    }
+
+    /// Localizable.strings key for the settings caption under the picker.
+    var l10nDescriptionKey: String {
+        switch self {
+        case .light: return "settings.agent.delegation.light.desc"
+        case .balanced: return "settings.agent.delegation.balanced.desc"
+        case .strict: return "settings.agent.delegation.strict.desc"
+        }
+    }
+
     var settingsDescription: String {
         switch self {
         case .light:

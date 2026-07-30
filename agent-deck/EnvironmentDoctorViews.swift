@@ -559,19 +559,19 @@ struct DoctorScreen: View {
     }
 
     private var piAgentStatusLabel: String {
-        guard let status = piRuntimeStatus else { return "Checking" }
-        guard status.isInstalled else { return "Missing" }
-        if case .some(.updateAvailable) = status.updateState { return "Update" }
-        if case .some(.unableToCheck) = status.updateState { return "Check Failed" }
-        if status.isOfficialReleaseAheadOfSource { return "Waiting" }
-        return "Ready"
+        guard let status = piRuntimeStatus else { return languageStore.t("common.checking") }
+        guard status.isInstalled else { return languageStore.t("common.missing") }
+        if case .some(.updateAvailable) = status.updateState { return languageStore.t("common.update") }
+        if case .some(.unableToCheck) = status.updateState { return languageStore.t("common.checkFailed") }
+        if status.isOfficialReleaseAheadOfSource { return languageStore.t("common.waiting") }
+        return languageStore.t("common.ready")
     }
 
     // MARK: - Foundation Model
 
     private var foundationModelSection: some View {
         let isAvailable = FoundationModelAutomationService.isAvailable()
-        return AppCard(title: "Apple Foundation Model") {
+        return AppCard(title: languageStore.t("doctor.foundationTitle")) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: isAvailable ? "checkmark.circle.fill" : "circle.dashed")
                     .font(.title3)
@@ -596,31 +596,31 @@ struct DoctorScreen: View {
                 }
 
                 Spacer(minLength: 8)
-                AppLabelTag(text: isAvailable ? "Ready" : "Unavailable", color: isAvailable ? .green : .secondary)
+                AppLabelTag(text: isAvailable ? languageStore.t("common.ready") : languageStore.t("common.unavailable"), color: isAvailable ? .green : .secondary)
             }
             .padding(.vertical, 12)
         }
     }
 
     private var foundationModelReadyDetail: String {
-        "Available for local automation tasks. Session titles and commit messages can use Apple Foundation Model in Settings → Automations without starting a hidden Pi helper or using paid API tokens."
+        languageStore.t("doctor.foundationReady")
     }
 
     private var foundationModelUnavailableDetail: String {
-        "Not currently available to Agent Deck. Apple Foundation Model require Apple Intelligence to be available and enabled on this Mac. Pi chat models are unaffected."
+        languageStore.t("doctor.foundationUnavailable")
     }
 
     private func foundationModelRows(isAvailable: Bool) -> [(String, String)] {
         [
-            ("Model", "apple/foundation"),
-            ("Runtime", isAvailable ? "Local on-device" : "Unavailable")
+            (languageStore.t("common.model"), "apple/foundation"),
+            (languageStore.t("common.runtime"), isAvailable ? languageStore.t("doctor.runtimeLocal") : languageStore.t("common.unavailable"))
         ]
     }
 
     // MARK: - Dependencies
 
     private var dependenciesSection: some View {
-        AppCard(title: "Dependencies", trailing: {
+        AppCard(title: languageStore.t("doctor.dependencies"), trailing: {
             Button {
                 Task { await refreshSetupChecks() }
             } label: {
@@ -754,16 +754,16 @@ struct DoctorScreen: View {
     // MARK: - Web Access
 
     private var webAccessSection: some View {
-        AppCard(title: "Web Access") {
+        AppCard(title: languageStore.t("doctor.webAccess")) {
             VStack(alignment: .leading, spacing: 0) {
                 webAccessOptionRow(
                     icon: hasWebSearchCredential ? "checkmark.circle.fill" : "circle.dashed",
                     iconColor: hasWebSearchCredential ? .green : .secondary,
-                    title: "Web Search (Exa / Brave / Tavily)",
+                    title: languageStore.t("doctor.webSearchTitle"),
                     detail: hasWebSearchCredential
-                        ? "Configured via ~/.pi/web-search.json (same as pi-web-access) and/or EXA_/BRAVE_/TAVILY_API_KEY. web_search, fetch_content, and get_search_content are available to new Pi sessions."
-                        : "Optional. Add keys in ~/.pi/web-search.json (exaApiKey / braveApiKey / tavilyApiKey) or Environment EXA_/BRAVE_/TAVILY_API_KEY.",
-                    tag: hasWebSearchCredential ? "Ready" : "Optional",
+                        ? languageStore.t("doctor.webSearchReady")
+                        : languageStore.t("doctor.webSearchOptional"),
+                    tag: hasWebSearchCredential ? languageStore.t("common.ready") : languageStore.t("common.optional"),
                     tagColor: hasWebSearchCredential ? .green : .secondary
                 )
 
@@ -786,7 +786,7 @@ struct DoctorScreen: View {
                     Text(title)
                         .font(.body.weight(.semibold))
                         .fontWidth(.expanded)
-                    if title.hasPrefix("Web Search"), let infoURL = URL(string: "https://dashboard.exa.ai/api-keys") {
+                    if title == languageStore.t("doctor.webSearchTitle"), let infoURL = URL(string: "https://dashboard.exa.ai/api-keys") {
                         Button {
                             NSWorkspace.shared.open(infoURL)
                         } label: {
@@ -794,7 +794,7 @@ struct DoctorScreen: View {
                                 .font(.system(size: 13))
                         }
                         .buttonStyle(.borderless)
-                        .help("Get an Exa API key (or configure Brave/Tavily in ~/.pi/web-search.json)")
+                        .help(languageStore.t("doctor.webSearchHelp"))
                     }
                 }
                 Text(detail)
@@ -802,7 +802,7 @@ struct DoctorScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if title.hasPrefix("Web Search"), !hasWebSearchCredential {
+                if title == languageStore.t("doctor.webSearchTitle"), !hasWebSearchCredential {
                     Button(languageStore.t("doctor.addExaKey")) {
                         envDraft = viewModel.makeNewEnvDraft(prefilledKey: "EXA_API_KEY")
                     }
@@ -829,8 +829,8 @@ struct DoctorScreen: View {
                     .fontWidth(.expanded)
 
                 Text(webFetchStatus.isInstalled
-                     ? "Installed. Used as a fallback for known URLs when no Exa/Brave/Tavily provider is configured or direct URL fetching is enough."
-                     : "Optional fallback for fetching known URLs without web search. Installs htmlparser2 and turndown locally for Agent Deck.")
+                     ? languageStore.t("doctor.urlFetchInstalled")
+                     : languageStore.t("doctor.urlFetchOptional"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -845,7 +845,7 @@ struct DoctorScreen: View {
                             AppSpinner()
                                 .controlSize(.small)
                         } else {
-                            Text(webFetchStatus.isInstalled ? "Reinstall Dependencies" : "Install Dependencies")
+                            Text(webFetchStatus.isInstalled ? languageStore.t("doctor.reinstallDeps") : languageStore.t("doctor.installDeps"))
                         }
                     }
                     .appPrimaryButton()
@@ -861,19 +861,19 @@ struct DoctorScreen: View {
             }
 
             Spacer(minLength: 8)
-            AppLabelTag(text: webFetchStatus.isInstalled ? "Ready" : "Optional", color: webFetchStatus.isInstalled ? .green : .orange)
+            AppLabelTag(text: webFetchStatus.isInstalled ? languageStore.t("common.ready") : languageStore.t("common.optional"), color: webFetchStatus.isInstalled ? .green : .orange)
         }
         .padding(.vertical, 12)
     }
 
     private var webFetchFallbackRows: [(String, String)] {
         var rows = [
-            ("Status", webFetchStatus.isInstalled ? "Installed" : "Dependencies missing"),
-            ("Packages", WebFetchDependencyService.packages.joined(separator: ", ")),
-            ("Install Path", webFetchStatus.installDirectory.path)
+            (languageStore.t("common.status"), webFetchStatus.isInstalled ? languageStore.t("common.installed") : languageStore.t("doctor.depsMissing")),
+            (languageStore.t("common.packages"), WebFetchDependencyService.packages.joined(separator: ", ")),
+            (languageStore.t("doctor.installPath"), webFetchStatus.installDirectory.path)
         ]
         if !webFetchStatus.missingPackages.isEmpty {
-            rows.insert(("Missing", webFetchStatus.missingPackages.joined(separator: ", ")), at: 1)
+            rows.insert((languageStore.t("common.missing"), webFetchStatus.missingPackages.joined(separator: ", ")), at: 1)
         }
         return rows
     }
@@ -884,7 +884,7 @@ struct DoctorScreen: View {
 
     private func installWebFetchDependencies() async {
         isInstallingWebFetchDependencies = true
-        webFetchInstallMessage = "Installing latest htmlparser2 and turndown with npm..."
+        webFetchInstallMessage = languageStore.t("doctor.installingWebFetch")
         defer {
             isInstallingWebFetchDependencies = false
             refreshWebFetchStatus()
