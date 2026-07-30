@@ -308,10 +308,10 @@ struct MCPServersScreen: View {
                         Button(LanguageStore.shared.t("mcp.signOut")) { Task { await signOut(entry) } }.controlSize(.small)
                         probeButton(entry, disconnectedTitle: "Load tools")
                     } else {
-                        Button("Connect") { Task { await connect(entry) } }.controlSize(.small)
+                        Button(LanguageStore.shared.t("common.connect")) { Task { await connect(entry) } }.controlSize(.small)
                     }
                     if viewModel.mcpServerIsEditable(entry) {
-                        Button("Edit") { editorModel = .edit(entry) }.controlSize(.small)
+                        Button(LanguageStore.shared.t("common.edit")) { editorModel = .edit(entry) }.controlSize(.small)
                     }
                 }
                 detailRow(icon: entry.config.resolvedTransport == .stdio ? "terminal" : "globe", text: transportLabel(entry))
@@ -420,7 +420,7 @@ struct MCPServersScreen: View {
         let isGlobal = viewModel.isMcpServerEnabledForAllProjects(name)
         return AppCard(title: LanguageStore.shared.t("mcp.projectAssignment")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Enable this server for every project, or pick specific ones. A session only gets a server assigned to its project (or to a Deck agent's `mcpServers`).")
+                Text(LanguageStore.shared.t("mcp.projectAssignmentHelpFull"))
                     .font(.caption).foregroundStyle(AppTheme.mutedText).fixedSize(horizontal: false, vertical: true)
                 LazyVStack(alignment: .leading, spacing: 0) {
                     AllProjectsAssignmentRow(
@@ -428,7 +428,7 @@ struct MCPServersScreen: View {
                             get: { isGlobal },
                             set: { viewModel.setMcpServerEnabledForAllProjects(name, enabled: $0) }
                         ),
-                        subtitle: "Enable this server for every project"
+                        subtitle: LanguageStore.shared.t("mcp.enableEveryProject")
                     )
                     Divider()
                     ForEach(viewModel.enabledProjects) { project in
@@ -623,7 +623,7 @@ private struct MCPServerListRowView<Status: View>: View {
 
             if canEdit {
                 Button(action: onEdit) {
-                    Text("Edit")
+                    Text(LanguageStore.shared.t("common.edit"))
                         .font(.caption.weight(.semibold))
                 }
                 .appSmallSecondaryButton()
@@ -796,7 +796,7 @@ private struct MCPServerEditorSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
                 Button(isImportingServers ? "Import" : (isEditing ? "Save" : "Add")) { save() }
                     .appPrimaryButton()

@@ -215,7 +215,7 @@ struct AddProviderFlowSheet: View {
                         } description: {
                             Text(error)
                         } actions: {
-                            Button("Try Again") { viewModel.reloadConnectableProviders() }
+                            Button(LanguageStore.shared.t("common.tryAgain")) { viewModel.reloadConnectableProviders() }
                                 .appSecondaryButton()
                         }
                         .padding(.vertical, 24)
@@ -326,10 +326,10 @@ struct AddProviderFlowSheet: View {
             Spacer(minLength: 0)
             switch step {
             case .picker:
-                Button("Cancel") { close() }
+                Button(LanguageStore.shared.t("common.cancel")) { close() }
                     .appSecondaryButton()
             case .method:
-                Button("Cancel") { close() }
+                Button(LanguageStore.shared.t("common.cancel")) { close() }
                     .appSecondaryButton()
             case .apiKey, .oauth:
                 Button(authIsTerminal ? "Close" : "Cancel") {

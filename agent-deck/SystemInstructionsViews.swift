@@ -45,8 +45,8 @@ struct SystemInstructionsScreen: View {
         .appDebugLayout("SystemPrompt.hsplit", logger: Self.layoutLog)
         .sheet(isPresented: $isPreviewPresented) {
             PiPromptPreviewSheet(
-                title: "System Prompt Preview",
-                subtitle: project?.path ?? "Global · ~/.pi/agent",
+                title: LanguageStore.shared.t("sys.previewTitle"),
+                subtitle: project?.path ?? LanguageStore.shared.t("sys.previewSubtitleGlobal"),
                 preview: makePreview()
             )
         }
@@ -65,21 +65,21 @@ struct SystemInstructionsScreen: View {
                     Button {
                         isInfoPresented.toggle()
                     } label: {
-                        Label("Info", systemImage: "info.circle")
+                        Label(LanguageStore.shared.t("sys.info"), systemImage: "info.circle")
                     }
                     .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
                         PiSystemInstructionsInfoPopover()
                     }
                     .toolbarNeutralChrome()
-                    .help("Explain Pi prompt assembly")
+                    .help(LanguageStore.shared.t("sys.infoHelp"))
 
                     Button {
                         isPreviewPresented = true
                     } label: {
-                        Label("Preview", systemImage: "doc.text.magnifyingglass")
+                        Label(LanguageStore.shared.t("sys.preview"), systemImage: "doc.text.magnifyingglass")
                     }
                     .toolbarPrimaryActionChrome()
-                    .help("Preview the effective prompt from the current editor contents")
+                    .help(LanguageStore.shared.t("sys.previewHelp"))
                 }
             }
         }
@@ -108,25 +108,25 @@ struct SystemInstructionsScreen: View {
         var built: [AppListSection<PiInstructionFile>] = [
             AppListSection(
                 id: "global",
-                title: "Global",
-                info: "`~/.pi/agent` files — the fallback for every session.",
+                title: LanguageStore.shared.t("sys.section.global"),
+                info: LanguageStore.shared.t("sys.section.globalInfo"),
                 items: PiInstructionFile.globalCatalog(existingPaths: existingPaths)
             )
         ]
         if let projectURL {
             built.append(AppListSection(
                 id: "project",
-                title: "Project",
+                title: LanguageStore.shared.t("sys.section.project"),
                 info: projHeaderInfo,
                 items: PiInstructionFile.projectCatalog(for: projectURL, existingPaths: existingPaths),
-                emptyMessage: "This project has no instruction files yet."
+                emptyMessage: LanguageStore.shared.t("sys.section.projectEmptyNoFiles")
             ))
         } else {
             built.append(AppListSection(
                 id: "project",
-                title: "Project",
+                title: LanguageStore.shared.t("sys.section.project"),
                 items: [],
-                emptyMessage: "Select a project from the toolbar to edit its instruction files."
+                emptyMessage: LanguageStore.shared.t("sys.section.projectEmptySelect")
             ))
         }
         return built
@@ -134,7 +134,7 @@ struct SystemInstructionsScreen: View {
 
     private var projHeaderInfo: String? {
         guard let project else { return nil }
-        return "Project `.pi/` files override their global counterparts for sessions in \(project.repositoryDisplayName)."
+        return LanguageStore.shared.t("sys.section.projectInfo", project.repositoryDisplayName)
     }
 
     private var selectedFile: PiInstructionFile? {
@@ -162,10 +162,10 @@ struct SystemInstructionsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .contextMenu {
-                Button(file.exists ? "Reveal in Finder" : "Reveal Parent Folder") {
+                Button(file.exists ? LanguageStore.shared.t("sys.revealFinder") : LanguageStore.shared.t("sys.revealParent")) {
                     revealInFinder(file)
                 }
-                Button("Copy Path") {
+                Button(LanguageStore.shared.t("sys.copyPath")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(file.url.path, forType: .string)
                 }
@@ -179,9 +179,9 @@ struct SystemInstructionsScreen: View {
 
     private func statusDotHelp(_ file: PiInstructionFile) -> String {
         switch file.status {
-        case .active: return "Active — this is the file Pi loads."
-        case .shadowed: return "Inactive — exists but Pi loads another file for this slot."
-        case .available: return "Not created — select it, start typing, then Create to write it to disk."
+        case .active: return LanguageStore.shared.t("sys.status.active")
+        case .shadowed: return LanguageStore.shared.t("sys.status.shadowed")
+        case .available: return LanguageStore.shared.t("sys.status.available")
         }
     }
 
@@ -384,7 +384,7 @@ struct SystemPromptFileDetail: View {
                 }
             }
 
-            AppCard(title: "Prompt Role", info: "Explains how this instruction file participates in Pi's prompt assembly.") {
+            AppCard(title: LanguageStore.shared.t("sys.promptRole"), info: LanguageStore.shared.t("sys.promptRoleInfo")) {
                 note
             }
 

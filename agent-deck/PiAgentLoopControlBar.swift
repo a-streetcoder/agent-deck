@@ -55,17 +55,17 @@ struct PiAgentLoopControlBar: View {
             if canResolveHumanApproval || run.isActive {
                 HStack(spacing: 8) {
                     if canResolveHumanApproval {
-                        Button("Record Approval", action: { onApproveHumanApproval?() })
+                        Button(LanguageStore.shared.t("loop.recordApproval"), action: { onApproveHumanApproval?() })
                             .appPrimaryButton()
                             .controlSize(.small)
                             .disabled(onApproveHumanApproval == nil)
-                        Button("Reject", role: .destructive, action: { onRejectHumanApproval?() })
+                        Button(LanguageStore.shared.t("loop.reject"), role: .destructive, action: { onRejectHumanApproval?() })
                             .appDestructiveButton()
                             .controlSize(.small)
                             .disabled(onRejectHumanApproval == nil)
                     }
                     if run.isActive {
-                        Button("Stop", role: .destructive, action: onStop)
+                        Button(LanguageStore.shared.t("loop.stop"), role: .destructive, action: onStop)
                             .appDestructiveButton()
                             .controlSize(.small)
                     }
@@ -77,15 +77,15 @@ struct PiAgentLoopControlBar: View {
             }
 
             HStack(spacing: 8) {
-                Button("Details", action: onOpenDetails)
+                Button(LanguageStore.shared.t("loop.details"), action: onOpenDetails)
                     .appSmallSecondaryButton()
                 if canRetry {
-                    Button("Start New Attempt", action: { onRetry?() })
+                    Button(LanguageStore.shared.t("loop.startNewAttempt"), action: { onRetry?() })
                         .appSmallSecondaryButton()
                         .disabled(onRetry == nil)
                 }
                 if canSave {
-                    Button("Save Loop", action: { onSave?() })
+                    Button(LanguageStore.shared.t("loop.saveLoop"), action: { onSave?() })
                         .appSmallSecondaryButton()
                         .disabled(onSave == nil)
                 }
@@ -95,22 +95,22 @@ struct PiAgentLoopControlBar: View {
                 actionDivider
                 HStack(spacing: 8) {
                     if canRevealArtifacts {
-                        Button("Reveal Artifacts", action: { onRevealArtifacts?() })
+                        Button(LanguageStore.shared.t("loop.revealArtifacts"), action: { onRevealArtifacts?() })
                             .appSmallSecondaryButton()
                             .disabled(onRevealArtifacts == nil)
                     }
                     if canRevealWorktree {
-                        Button("Reveal Worktree", action: { onRevealWorktree?() })
+                        Button(LanguageStore.shared.t("loop.revealWorktree"), action: { onRevealWorktree?() })
                             .appSmallSecondaryButton()
                             .disabled(onRevealWorktree == nil)
                     }
                     if canApplyWorktree {
-                        Button("Apply Worktree", action: { onApplyWorktree?() })
+                        Button(LanguageStore.shared.t("loop.applyWorktree"), action: { onApplyWorktree?() })
                             .appSmallSecondaryButton()
                             .disabled(onApplyWorktree == nil)
                     }
                     if canDiscardWorktree {
-                        Button("Discard Worktree", role: .destructive, action: { onDiscardWorktree?() })
+                        Button(LanguageStore.shared.t("loop.discardWorktree"), role: .destructive, action: { onDiscardWorktree?() })
                             .appDestructiveButton()
                             .controlSize(.small)
                             .disabled(onDiscardWorktree == nil)
@@ -214,14 +214,14 @@ struct PiAgentLoopDetailsSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Loop Details")
+                    Text(LanguageStore.shared.t("loop.detailsTitle"))
                         .font(.title2.weight(.bold))
                     Text("\(run.structure.displayName) · \(run.displayStatusName) · \(run.iterationProgressText)")
                         .font(AppTheme.Font.footnote)
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(LanguageStore.shared.t("common.done")) { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
 
@@ -235,7 +235,7 @@ struct PiAgentLoopDetailsSheet: View {
                     }
                     ForEach(run.iterations) { iteration in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Iteration \(iteration.index)")
+                            Text(LanguageStore.shared.t("loop.iterationN", iteration.index))
                                 .font(AppTheme.Font.body.weight(.semibold))
                             Text(iteration.summary)
                                 .font(AppTheme.Font.footnote)

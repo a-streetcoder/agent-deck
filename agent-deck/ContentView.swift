@@ -644,27 +644,27 @@ struct ContentView: View {
                 viewModel.openMemory(byID: id)
             }
         }
-        .alert("Enable all projects?", isPresented: $showingEnableAllProjectsAlert) {
-            Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
-            Button("Cancel", role: .cancel) {}
+        .alert(LanguageStore.shared.t("projects.enableAllConfirmTitle"), isPresented: $showingEnableAllProjectsAlert) {
+            Button(LanguageStore.shared.t("common.enableAll")) { viewModel.setAllProjectsEnabled(true) }
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("This will enable every project currently in \(AppBrand.displayName).")
+            Text(LanguageStore.shared.t("projects.enableAllBody", AppBrand.displayName))
         }
-        .alert("Disable all projects?", isPresented: $showingDisableAllProjectsAlert) {
-            Button("Disable All", role: .destructive) { viewModel.setAllProjectsEnabled(false) }
-            Button("Cancel", role: .cancel) {}
+        .alert(LanguageStore.shared.t("projects.disableAllConfirmTitle"), isPresented: $showingDisableAllProjectsAlert) {
+            Button(LanguageStore.shared.t("common.disableAll"), role: .destructive) { viewModel.setAllProjectsEnabled(false) }
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("This will disable every project currently in \(AppBrand.displayName) and clear the active project selection.")
+            Text(LanguageStore.shared.t("projects.disableAllBody", AppBrand.displayName))
         }
-        .alert("Delete Pi Agent session?", isPresented: $showingPiAgentDeleteAlert) {
-            Button("Delete", role: .destructive) {
+        .alert(LanguageStore.shared.t("session.deleteTitle"), isPresented: $showingPiAgentDeleteAlert) {
+            Button(LanguageStore.shared.t("common.delete"), role: .destructive) {
                 if let session = viewModel.piAgentSessionStore.selectedSession {
                     viewModel.deletePiAgentSession(session.id)
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("This removes the selected session’s local conversation data, saved MCP images, and Deck agent artifacts from this Mac.")
+            Text(LanguageStore.shared.t("session.deleteBody"))
         }
         .toolbar { mainToolbarContent }
         // Detect the selected project's dev-server commands off the render path

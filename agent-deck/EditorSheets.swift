@@ -107,9 +107,9 @@ struct EnvEditorSheet: View {
 
     private var columnHeaders: some View {
         HStack(spacing: 10) {
-            Text("Key")
+            Text(LanguageStore.shared.t("common.key"))
                 .frame(width: keyColumnWidth, alignment: .leading)
-            Text("Value")
+            Text(LanguageStore.shared.t("common.value"))
                 .frame(maxWidth: .infinity, alignment: .leading)
             if isNew {
                 Color.clear.frame(width: removeColumnWidth, height: 1)
@@ -170,12 +170,12 @@ struct EnvEditorSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            Button("Cancel") {
+            Button(LanguageStore.shared.t("common.cancel")) {
                 onCancel()
                 dismiss()
             }
             .appSecondaryButton()
-            Button("Save") { save() }
+            Button(LanguageStore.shared.t("common.save")) { save() }
                 .appPrimaryButton()
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
@@ -337,9 +337,9 @@ struct MarkdownFileEditorSheet: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
-                Button("Save") { save() }
+                Button(LanguageStore.shared.t("common.save")) { save() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!hasLoaded || errorMessage != nil)
@@ -575,9 +575,9 @@ struct NewSkillEditorSheet: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
-                Button("Save") { save() }
+                Button(LanguageStore.shared.t("common.save")) { save() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
@@ -920,12 +920,12 @@ struct AgentEditorSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") {
+                Button(LanguageStore.shared.t("common.cancel")) {
                     onCancel()
                     dismiss()
                 }
                 .appSecondaryButton()
-                Button("Save") {
+                Button(LanguageStore.shared.t("common.save")) {
                     do {
                         try onSave(normalizedDraft())
                         dismiss()

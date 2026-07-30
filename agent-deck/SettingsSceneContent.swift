@@ -637,7 +637,7 @@ private struct AppearanceSettingsTab: View {
                 Button("Duplicate", action: duplicateSelectedTheme)
                     .appSecondaryButton()
                 if isEditingCustomTheme {
-                    Button("Delete", role: .destructive) { isConfirmingDelete = true }
+                    Button(LanguageStore.shared.t("common.delete"), role: .destructive) { isConfirmingDelete = true }
                         .appSecondaryButton()
                 }
                 Spacer(minLength: 0)
@@ -645,7 +645,7 @@ private struct AppearanceSettingsTab: View {
         }
         .alert("Delete “\(selectedTheme.name)”?", isPresented: $isConfirmingDelete) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
+            Button(LanguageStore.shared.t("common.delete"), role: .destructive) {
                 viewModel.deleteCustomTheme(id: selectedTheme.id)
             }
         } message: {

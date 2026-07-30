@@ -162,7 +162,7 @@ struct SkillsScreen: View {
                 get: { importSummaryMessage != nil },
                 set: { if !$0 { importSummaryMessage = nil } }
             )) {
-                Button("OK") { importSummaryMessage = nil }
+                Button(LanguageStore.shared.t("common.ok")) { importSummaryMessage = nil }
             } message: {
                 Text(importSummaryMessage ?? "")
             }
@@ -170,7 +170,7 @@ struct SkillsScreen: View {
                 get: { skillActionErrorMessage != nil },
                 set: { if !$0 { skillActionErrorMessage = nil } }
             )) {
-                Button("OK") { skillActionErrorMessage = nil }
+                Button(LanguageStore.shared.t("common.ok")) { skillActionErrorMessage = nil }
             } message: {
                 Text(skillActionErrorMessage ?? "")
             }
@@ -234,7 +234,7 @@ struct SkillsScreen: View {
                 get: { viewModel.skillBatchActionMessage != nil },
                 set: { if !$0 { viewModel.skillBatchActionMessage = nil } }
             )) {
-                Button("OK") { viewModel.skillBatchActionMessage = nil }
+                Button(LanguageStore.shared.t("common.ok")) { viewModel.skillBatchActionMessage = nil }
             } message: {
                 Text(viewModel.skillBatchActionMessage ?? "")
             }

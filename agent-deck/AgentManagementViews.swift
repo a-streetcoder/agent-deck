@@ -16,7 +16,7 @@ struct AgentsFilterPopover: View {
                     .foregroundStyle(AppTheme.mutedText)
                 Spacer()
                 if viewModel.selectedAgentFilter != .all {
-                    Button("Clear") { viewModel.selectedAgentFilter = .all }
+                    Button(LanguageStore.shared.t("common.clear")) { viewModel.selectedAgentFilter = .all }
                         .buttonStyle(.borderless)
                         .font(.caption)
                 }
@@ -300,7 +300,7 @@ private struct EditAgentAvatarSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Edit Avatar")
+                Text(LanguageStore.shared.t("agents.editAvatar"))
                     .font(.title2.bold())
                     .fontWidth(.expanded)
                 Text(agentName)
@@ -308,16 +308,16 @@ private struct EditAgentAvatarSheet: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
 
-            Text("Choose how to set the avatar for this agent.")
+            Text(LanguageStore.shared.t("agents.editAvatarHint"))
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 10) {
                 avatarOptionButton(
-                    title: "Generate with Image Playground",
+                    title: LanguageStore.shared.t("agents.generateAvatarPlayground"),
                     subtitle: canGenerate
-                        ? "Create an illustrated avatar based on the agent's description."
-                        : "Image Playground is not available on this Mac.",
+                        ? LanguageStore.shared.t("agents.generateAvatarDesc")
+                        : LanguageStore.shared.t("agents.generateAvatarUnavailable"),
                     systemImage: "wand.and.stars",
                     isPrimary: true,
                     isDisabled: !canGenerate || isGenerating,
@@ -325,8 +325,8 @@ private struct EditAgentAvatarSheet: View {
                 )
 
                 avatarOptionButton(
-                    title: "Import from File…",
-                    subtitle: "Pick an image file from your computer to use as the avatar.",
+                    title: LanguageStore.shared.t("agents.importAvatarFile"),
+                    subtitle: LanguageStore.shared.t("agents.importAvatarFileHint"),
                     systemImage: "photo.on.rectangle",
                     isPrimary: false,
                     isDisabled: isGenerating,
@@ -498,7 +498,7 @@ private struct AgentListRow: View {
             Spacer(minLength: 0)
 
             Button(action: onEdit) {
-                Text("Edit")
+                Text(LanguageStore.shared.t("common.edit"))
                     .font(.caption.weight(.semibold))
             }
             .appSmallSecondaryButton()
@@ -1337,24 +1337,24 @@ private struct AgentDetailView: View {
         if let whenToUse = agent.resolved.whenToUse, !whenToUse.isEmpty { rows.append(("When to Use", whenToUse)) }
         if agent.resolved.disabled == true { rows.append(("Disabled", "Yes")) }
         if let output = agent.resolved.output { rows.append(("Output", output)) }
-        if let outcome = agent.resolved.defaultExpectedOutcome { rows.append(("Default Outcome", outcome.displayName)) }
-        if let reads = agent.resolved.defaultReads, !reads.isEmpty { rows.append(("Default Reads", reads.joined(separator: ", "))) }
-        if let progress = agent.resolved.defaultProgress { rows.append(("Default Progress", display(progress))) }
-        if let interactive = agent.resolved.interactive { rows.append(("Interactive", display(interactive))) }
-        if let depth = agent.resolved.maxSubagentDepth { rows.append(("Max Subagent Depth", String(depth))) }
+        if let outcome = agent.resolved.defaultExpectedOutcome { rows.append((LanguageStore.shared.t("agents.defaultOutcome"), outcome.displayName)) }
+        if let reads = agent.resolved.defaultReads, !reads.isEmpty { rows.append((LanguageStore.shared.t("agents.defaultReads"), reads.joined(separator: ", "))) }
+        if let progress = agent.resolved.defaultProgress { rows.append((LanguageStore.shared.t("agents.defaultProgress"), display(progress))) }
+        if let interactive = agent.resolved.interactive { rows.append((LanguageStore.shared.t("agents.interactive"), display(interactive))) }
+        if let depth = agent.resolved.maxSubagentDepth { rows.append((LanguageStore.shared.t("agents.maxSubagentDepth"), String(depth))) }
         return rows
     }
 
     private var promptTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             LazyMarkdownCard(
-                title: resolvedPromptDiffers ? "Resolved Prompt" : "Prompt",
+                title: resolvedPromptDiffers ? LanguageStore.shared.t("agents.resolvedPrompt") : LanguageStore.shared.t("agents.prompt"),
                 source: agent.resolved.systemPrompt,
                 trailing: { sectionEditButton(.prompt) }
             )
             if resolvedPromptDiffers {
                 LazyMarkdownCard(
-                    title: "Raw Source Prompt",
+                    title: LanguageStore.shared.t("agents.rawSourcePrompt"),
                     source: agent.winningRecord?.promptBody ?? ""
                 )
             }
@@ -1365,7 +1365,7 @@ private struct AgentDetailView: View {
         let tools = (agent.resolved.tools ?? []) + (agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }
         let extensions = agent.resolved.extensions ?? []
         return VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Tools", info: Self.toolAccessInfo, trailing: { sectionEditButton(.tools) }) {
+            AppCard(title: LanguageStore.shared.t("common.tools"), info: Self.toolAccessInfo, trailing: { sectionEditButton(.tools) }) {
                 if tools.isEmpty {
                     Text(LanguageStore.shared.t("agents.usesDefaultTools"))
                         .foregroundStyle(AppTheme.mutedText)
@@ -1376,7 +1376,7 @@ private struct AgentDetailView: View {
             }
 
             if !extensions.isEmpty {
-                AppCard(title: "Extensions") {
+                AppCard(title: LanguageStore.shared.t("common.extensions")) {
                     iconList(extensions, systemImage: "puzzlepiece.extension", tint: .blue)
                 }
             }
@@ -1400,14 +1400,14 @@ private struct AgentDetailView: View {
 
     private var skillsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Skills", info: Self.skillsInfo, trailing: { sectionEditButton(.skills) }) {
+            AppCard(title: LanguageStore.shared.t("common.skills"), info: Self.skillsInfo, trailing: { sectionEditButton(.skills) }) {
                 VStack(alignment: .leading, spacing: 16) {
                     let issues = skillVisibilityIssues(agent)
                     if !issues.isEmpty {
                         skillVisibilityWarningBlock(issues)
                     }
                     if agent.resolved.skills.isEmpty {
-                        Text("No explicit skills")
+                        Text(LanguageStore.shared.t("agents.noExplicitSkills"))
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
@@ -1445,7 +1445,7 @@ private struct AgentDetailView: View {
                     .textSelection(.enabled)
             }
             if members.isEmpty {
-                Text("No active skills resolved from this collection.")
+                Text(LanguageStore.shared.t("agents.noActiveSkillsResolved"))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .padding(.leading, 28)
@@ -1538,7 +1538,7 @@ private struct AgentDetailView: View {
         if deletableAgentRecord != nil {
             AppCard(title: LanguageStore.shared.t("agents.delete")) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Move this agent's file to the Trash and remove its global and project assignments.")
+                    Text(LanguageStore.shared.t("agents.deleteMoveTrash"))
                         .font(.callout)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1566,10 +1566,10 @@ private struct AgentDetailView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 6) {
-                Text("Some assigned agent skills cannot be resolved unambiguously.")
+                Text(LanguageStore.shared.t("agents.skillAmbiguous"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text("Agents carry skill names only. Make sure each assigned skill exists once in the Agent Deck skill catalog.")
+                Text(LanguageStore.shared.t("agents.skillAmbiguousBody"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1596,7 +1596,7 @@ private struct AgentDetailView: View {
                         let assignedProjectIDs = Set(assignedAgentProjects(managedAgent).map(\.id))
                         let isGlobal = isAgentGlobal(managedAgent)
 
-                        Text("Enable for every project at once, or pick specific projects below. Assignments are stored in Agent Deck and do not move agent files.")
+                        Text(LanguageStore.shared.t("agents.projectAssignmentHelp"))
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                         if !visibilityIssues.isEmpty {
@@ -2157,7 +2157,7 @@ private struct AgentEditSheet: View {
             }
 
             if case .custom = draft?.target {
-                AppCard(title: "Extensions") {
+                AppCard(title: LanguageStore.shared.t("common.extensions")) {
                     VStack(alignment: .leading, spacing: 18) {
                         editSection {
                             configRow("Extension Mode") {
@@ -2209,7 +2209,7 @@ private struct AgentEditSheet: View {
 
     private var editSkillsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Skills") {
+            AppCard(title: LanguageStore.shared.t("common.skills")) {
                 VStack(alignment: .leading, spacing: 18) {
                     editSection {
                         configRow("Skill Catalog") {

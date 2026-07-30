@@ -55,7 +55,7 @@ private struct SidebarNewFeatureBadge: View {
     let isSelected: Bool
 
     var body: some View {
-        Text("NEW")
+        Text(LanguageStore.shared.t("sidebar.badgeNew"))
             .font(AppTheme.Font.caption2.weight(.bold))
             .foregroundStyle(isSelected ? .primary : AppTheme.brandAccent)
             .padding(.horizontal, 5)
@@ -68,8 +68,8 @@ private struct SidebarNewFeatureBadge: View {
                 Capsule(style: .continuous)
                     .stroke(AppTheme.brandAccent.opacity(isSelected ? 0.55 : 0.35), lineWidth: 0.75)
             }
-            .help("New Loop functionality")
-            .accessibilityLabel("New functionality")
+            .help(LanguageStore.shared.t("sidebar.newLoopHelp"))
+            .accessibilityLabel(LanguageStore.shared.t("sidebar.newFunctionality"))
     }
 }
 
@@ -106,8 +106,8 @@ struct SidebarTitleBar: View {
                         .appActionTarget()
                 }
                 .buttonStyle(.plain)
-                .help(updater.availableVersion.map { "Update to version \($0)" } ?? "Update available")
-                .accessibilityLabel("Install update")
+                .help(updater.availableVersion.map { LanguageStore.shared.t("sidebar.updateToVersion", $0) } ?? LanguageStore.shared.t("sidebar.updateAvailable"))
+                .accessibilityLabel(LanguageStore.shared.t("sidebar.installUpdate"))
             }
 
             Button {
@@ -120,8 +120,8 @@ struct SidebarTitleBar: View {
                     .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
             }
             .buttonStyle(.plain)
-            .help("Refresh projects, Git status, and repository data")
-            .accessibilityLabel("Refresh projects and Git status")
+            .help(LanguageStore.shared.t("sidebar.refreshEverythingHelp"))
+            .accessibilityLabel(LanguageStore.shared.t("sidebar.refreshProjectsGit"))
             .disabled(viewModel.githubIsRefreshingEverything)
 
             Button {
@@ -133,8 +133,8 @@ struct SidebarTitleBar: View {
                     .appActionTarget()
             }
             .buttonStyle(.plain)
-            .help("Settings…")
-            .accessibilityLabel("Settings")
+            .help(LanguageStore.shared.t("sidebar.settingsEllipsis"))
+            .accessibilityLabel(LanguageStore.shared.t("sidebar.settings"))
         }
     }
 }

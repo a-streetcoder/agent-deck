@@ -994,7 +994,7 @@ private struct ThreadMessageRow<Content: View>: View {
         if let onFork {
             if let options = forkAgentOptions, !options.isEmpty {
                 Menu {
-                    Button("Fork as Pi session", action: onFork)
+                    Button(LanguageStore.shared.t("transcript.forkAsPi"), action: onFork)
                     Menu("Fork as 1:1 agent chat…") {
                         ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                             Button(option.title, action: option.action)
@@ -1015,7 +1015,7 @@ private struct ThreadMessageRow<Content: View>: View {
                 }
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
-                .help("Fork session…")
+                .help(LanguageStore.shared.t("transcript.forkSession"))
             } else {
                 AppForkIconButton(action: onFork)
             }
@@ -1648,7 +1648,7 @@ private struct PiAgentInlineDiffCard: View {
                 }
                 .font(AppTheme.Font.caption2.weight(.semibold))
                 .appSmallSecondaryButton()
-                .help("Open full diff")
+                .help(LanguageStore.shared.t("transcript.openFullDiff"))
                 PiAgentDiffCopyButton(text: row.diff)
             }
             PiAgentCompactDiffPreview(diffText: row.diff)
@@ -1711,13 +1711,13 @@ private struct PiAgentFullDiffSheet: View {
         .frame(minWidth: 780, idealWidth: 920, minHeight: 520, idealHeight: 680)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Copy Diff") {
+                Button(LanguageStore.shared.t("transcript.copyDiff")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(row.diff, forType: .string)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+                Button(LanguageStore.shared.t("common.done")) { dismiss() }
             }
         }
     }
@@ -1743,11 +1743,11 @@ struct PiAgentNativeFullDiffSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer(minLength: 0)
-                Button("Copy Diff") {
+                Button(LanguageStore.shared.t("transcript.copyDiff")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(row.diff, forType: .string)
                 }
-                Button("Done", action: onDone)
+                Button(LanguageStore.shared.t("common.done"), action: onDone)
                     .keyboardShortcut(.cancelAction)
             }
             PiAgentFullDiffView(diffText: row.diff)
@@ -1780,11 +1780,11 @@ struct PiAgentNativeMCPResultSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer(minLength: 0)
-                Button("Copy") {
+                Button(LanguageStore.shared.t("transcript.copy")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
-                Button("Done", action: onDone)
+                Button(LanguageStore.shared.t("common.done"), action: onDone)
                     .keyboardShortcut(.cancelAction)
             }
             if let blocks {
@@ -2591,7 +2591,7 @@ struct PiAgentStatusTranscriptRow: View {
         if entry.title == "System Prompt Captured", let prompt = capturedSystemPrompt {
             return [
                 PromptAuditAction(
-                    title: "Final System Prompt",
+                    title: LanguageStore.shared.t("transcript.finalSystemPrompt"),
                     icon: "doc.text.magnifyingglass",
                     help: "Show final system prompt captured from Pi runtime",
                     isEnabled: true,
@@ -2610,7 +2610,7 @@ struct PiAgentStatusTranscriptRow: View {
                 text: { promptFileText(path: metadata.authoredSystemPromptPath) }
             ),
             PromptAuditAction(
-                title: "Final Runtime System Prompt",
+                title: LanguageStore.shared.t("transcript.finalRuntimePrompt"),
                 icon: "doc.text.magnifyingglass",
                 help: "Show system prompt captured from the child Pi runtime",
                 isEnabled: true,
@@ -2709,7 +2709,7 @@ struct PiAgentForkOriginCard: View {
                 Spacer(minLength: 0)
 
                 if let parentSessionID, let onSelectParent {
-                    Button("Open Parent") {
+                    Button(LanguageStore.shared.t("transcript.openParent")) {
                         onSelectParent(parentSessionID)
                     }
                     .appSecondaryButton()
@@ -2717,7 +2717,7 @@ struct PiAgentForkOriginCard: View {
                 }
 
                 if let snapshot = transcriptSnapshot, !snapshot.isEmpty {
-                    Button("View") {
+                    Button(LanguageStore.shared.t("transcript.view")) {
                         isSnapshotPresented = true
                     }
                     .appSecondaryButton()
@@ -2764,7 +2764,7 @@ struct PiAgentSystemPromptAuditCard: View {
 
                 Spacer(minLength: 0)
 
-                Button("View") {
+                Button(LanguageStore.shared.t("transcript.view")) {
                     isPromptPresented = true
                 }
                 .appSecondaryButton()
@@ -3690,7 +3690,7 @@ private struct AttachmentPreviewPopover: View {
                 .lineLimit(3)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
-            Button("Reveal in Finder") {
+            Button(LanguageStore.shared.t("transcript.revealFinder")) {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder.path, isDirectory: true)])
             }
             .appSecondaryButton()

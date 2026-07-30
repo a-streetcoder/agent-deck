@@ -47,7 +47,7 @@ struct ProjectAssignmentToggleRow: View {
 /// All Projects entry.
 struct AllProjectsAssignmentRow: View {
     @Binding var isOn: Bool
-    var subtitle: String = "Enable this agent for every project"
+    var subtitle: String = LanguageStore.shared.t("agents.enableEveryProject")
 
     var body: some View {
         AppCheckboxRow(
@@ -390,7 +390,7 @@ struct ProjectsScreen: View {
                 ContentUnavailableView(
                     "No Matching Projects",
                     systemImage: "magnifyingglass",
-                    description: Text("Try another search or filter.")
+                    description: Text(LanguageStore.shared.t("common.tryAnotherSearch"))
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)

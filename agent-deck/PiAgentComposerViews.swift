@@ -359,9 +359,9 @@ struct PiAgentComposerBox: View {
                     .appGlassCircle()
             }
             .buttonStyle(.plain)
-            .help("Attach files")
-            .accessibilityLabel("Attach files")
-            .accessibilityHint("Attach images, text files, or local file paths")
+            .help(LanguageStore.shared.t("composer.attachFiles"))
+            .accessibilityLabel(LanguageStore.shared.t("composer.attachFiles"))
+            .accessibilityHint(LanguageStore.shared.t("composer.attachHint"))
         }
     }
 
@@ -746,7 +746,7 @@ struct PiAgentSubagentPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Label("Deck agents", systemImage: "paperplane")
+                Label(LanguageStore.shared.t("composer.deckAgents"), systemImage: "paperplane")
                     .font(AppTheme.Font.body.weight(.medium))
                 Spacer(minLength: 24)
                 Toggle("Deck agents", isOn: $isEnabled)
@@ -849,7 +849,7 @@ struct PiAgentImageAttachmentThumbnail: View {
                     .background(Circle().fill(.black.opacity(0.7)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Remove image attachment")
+            .accessibilityLabel(LanguageStore.shared.t("composer.removeImage"))
             .offset(x: 6, y: -6)
         }
         .help("\(image.name) · \(ByteCountFormatter.string(fromByteCount: Int64(image.sizeBytes), countStyle: .file))")
@@ -1148,7 +1148,7 @@ private struct PiAgentComposerProjectPickerPopover: View {
     let onSelectProject: (DiscoveredProject) -> Void
 
     var body: some View {
-        AppPopoverContainer(title: "New Session", subtitle: "Choose a project for Pi Agent.") {
+        AppPopoverContainer(title: LanguageStore.shared.t("composer.newSession"), subtitle: LanguageStore.shared.t("composer.newSessionSubtitle")) {
             AppProjectPickerPopoverList {
                 ForEach(projects) { project in
                     AppPopoverProjectRow(
@@ -1257,7 +1257,7 @@ struct PiAgentContextUsageMeter: View {
             HStack(spacing: 7) {
                 AppSpinner()
                     .controlSize(.small)
-                Text("Compacting context")
+                Text(LanguageStore.shared.t("composer.compactingContext"))
                     .font(AppTheme.Font.caption.weight(.semibold))
                 if let tokens = session.contextTokens {
                     Text("\(compact(tokens)) tokens")
@@ -1270,12 +1270,12 @@ struct PiAgentContextUsageMeter: View {
             .padding(.vertical, 5)
             .appGlassCapsule()
             .fixedSize(horizontal: true, vertical: false)
-            .help("Pi is compacting this conversation. Input is disabled until compaction finishes.")
+            .help(LanguageStore.shared.t("composer.compactHelp"))
         } else if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
             GlassEffectContainer(spacing: 6) {
                 HStack(spacing: 6) {
                     HStack(spacing: 7) {
-                        Text("Context")
+                        Text(LanguageStore.shared.t("composer.context"))
                             .font(AppTheme.Font.caption.weight(.semibold))
                             .lineLimit(1)
                             .fixedSize()
@@ -1298,7 +1298,7 @@ struct PiAgentContextUsageMeter: View {
                     .padding(.vertical, 5)
                     .appGlassCapsule()
                     .fixedSize(horizontal: true, vertical: false)
-                    .help(showsSmartZoneHint ? "Context usage. Smart zone hint is enabled in Settings." : "Context usage")
+                    .help(showsSmartZoneHint ? LanguageStore.shared.t("composer.contextSmartZone") : LanguageStore.shared.t("composer.contextUsage"))
 
                     Button {
                         isConfirmingCompaction = true
@@ -1310,17 +1310,17 @@ struct PiAgentContextUsageMeter: View {
                             .appGlassCircle()
                     }
                     .buttonStyle(.plain)
-                    .help("Compact context")
-                    .accessibilityLabel("Compact context")
+                    .help(LanguageStore.shared.t("composer.compactContext"))
+                    .accessibilityLabel(LanguageStore.shared.t("composer.compactContext"))
                 }
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
-            .alert("Compact context?", isPresented: $isConfirmingCompaction) {
-                Button("Cancel", role: .cancel) {}
-                Button("Compact") { onCompact() }
+            .alert(LanguageStore.shared.t("composer.compactConfirmTitle"), isPresented: $isConfirmingCompaction) {
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel) {}
+                Button(LanguageStore.shared.t("composer.compact")) { onCompact() }
             } message: {
-                Text("Pi will summarize older conversation history to free context. This keeps the session usable for longer prompts.")
+                Text(LanguageStore.shared.t("composer.compactConfirmBody"))
             }
         }
     }
@@ -1684,11 +1684,11 @@ struct PiAgentRuntimeFooter: View {
         if tappable, let aggregate {
             Button { isCostBreakdownPresented.toggle() } label: { chips }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Show token and cost breakdown")
+                .accessibilityLabel(LanguageStore.shared.t("composer.showTokenCost"))
                 .popover(isPresented: $isCostBreakdownPresented, arrowEdge: .bottom) {
                     PiAgentCostBreakdownPopover(aggregate: aggregate)
                 }
-                .help("Show token & cost breakdown")
+                .help(LanguageStore.shared.t("composer.showTokenCost"))
         } else {
             chips
         }
@@ -1966,17 +1966,17 @@ struct PiAgentCostBreakdownPopover: View {
         let hasCategoryData = source.hasTokenBreakdown || source.inputCost != nil || source.outputCost != nil || source.cacheCost != nil
         if hasCategoryData {
             var metrics = [
-                CategoryMetric(title: "Input", tokens: source.inputTokens, cost: source.inputCost),
-                CategoryMetric(title: "Output", tokens: source.outputTokens, cost: source.outputCost)
+                CategoryMetric(title: LanguageStore.shared.t("composer.metric.input"), tokens: source.inputTokens, cost: source.inputCost),
+                CategoryMetric(title: LanguageStore.shared.t("composer.metric.output"), tokens: source.outputTokens, cost: source.outputCost)
             ]
             if source.cacheTokens != nil || source.cacheCost != nil {
-                metrics.append(CategoryMetric(title: "Cache", tokens: source.cacheTokens, cost: source.cacheCost))
+                metrics.append(CategoryMetric(title: LanguageStore.shared.t("composer.metric.cache"), tokens: source.cacheTokens, cost: source.cacheCost))
             }
             return metrics
         }
 
         if source.totalTokens != nil || source.cost != nil {
-            return [CategoryMetric(title: "Tokens", tokens: source.totalTokens, cost: source.cost)]
+            return [CategoryMetric(title: LanguageStore.shared.t("composer.metric.tokens"), tokens: source.totalTokens, cost: source.cost)]
         }
         return []
     }
@@ -2064,15 +2064,15 @@ struct PiAgentModelPicker: View {
         // when AppKit happened to flip it).
         .popover(isPresented: $isPresented, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 0) {
-                AppPopoverHeader(title: "Model") {
+                AppPopoverHeader(title: LanguageStore.shared.t("composer.popoverModel")) {
                     Button {
                         onRefresh()
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.plain)
-                    .help("Refresh models")
-                    .accessibilityLabel("Refresh models")
+                    .help(LanguageStore.shared.t("composer.refreshModels"))
+                    .accessibilityLabel(LanguageStore.shared.t("composer.refreshModels"))
                 }
 
                 Divider()
@@ -2224,7 +2224,7 @@ struct PiAgentThinkingPicker: View {
         .buttonStyle(.plain)
         // .top so it opens above the composer like the model picker does.
         .popover(isPresented: $isPresented, arrowEdge: .top) {
-            AppPopoverContainer(width: AppTheme.Popover.compactWidth, title: "Thinking") {
+            AppPopoverContainer(width: AppTheme.Popover.compactWidth, title: LanguageStore.shared.t("composer.popoverThinking")) {
                 if isLoadingLevels {
                     HStack(spacing: 10) {
                         AppSpinner()
@@ -2321,13 +2321,13 @@ private struct PiAgentModelOptionRow: View {
                 HStack(spacing: 6) {
                     if model.supportsThinking != false {
                         Image(systemName: "brain.head.profile")
-                            .help("Supports thinking")
-                            .accessibilityLabel("Supports thinking")
+                            .help(LanguageStore.shared.t("composer.supportsThinking"))
+                            .accessibilityLabel(LanguageStore.shared.t("composer.supportsThinking"))
                     }
                     if model.supportsImages == true {
                         Image(systemName: "photo")
-                            .help("Supports image input")
-                            .accessibilityLabel("Supports image input")
+                            .help(LanguageStore.shared.t("composer.supportsImage"))
+                            .accessibilityLabel(LanguageStore.shared.t("composer.supportsImage"))
                     }
                 }
                 .imageScale(.small)

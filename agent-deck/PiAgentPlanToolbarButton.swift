@@ -21,12 +21,12 @@ struct PiAgentPlanToolbarButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            Label("Plan", systemImage: "checklist")
+            Label(LanguageStore.shared.t("transcript.plan"), systemImage: "checklist")
         }
         .symbolRenderingMode(.monochrome)
         .foregroundStyle(tint)
         .tint(tint)
-        .help("Current plan")
+        .help(LanguageStore.shared.t("transcript.planHelp"))
         .disabled(plan == nil)
         .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
             if let plan {

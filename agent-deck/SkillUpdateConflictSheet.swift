@@ -24,10 +24,10 @@ struct SkillUpdateConflictSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Resolve Update Conflicts")
+                Text(LanguageStore.shared.t("skills.conflict.title"))
                     .font(.headline)
                     .fontWidth(.expanded)
-                Text("These files in \(context.repository.displayName) were edited here and upstream. Choose which version to keep for each.")
+                Text(LanguageStore.shared.t("skills.conflict.body", context.repository.displayName))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -59,7 +59,7 @@ struct SkillUpdateConflictSheet: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                Button("Cancel") { isPresented = false }
+                Button(LanguageStore.shared.t("common.cancel")) { isPresented = false }
                     .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
                 Button {
@@ -68,7 +68,7 @@ struct SkillUpdateConflictSheet: View {
                     if isApplying {
                         AppSpinner().controlSize(.small)
                     } else {
-                        Text("Apply Update")
+                        Text(LanguageStore.shared.t("skills.conflict.apply"))
                     }
                 }
                 .appPrimaryButton()
@@ -98,8 +98,8 @@ struct SkillUpdateConflictSheet: View {
                 get: { resolutions[conflict.repoRelativePath] ?? .keepMine },
                 set: { resolutions[conflict.repoRelativePath] = $0 }
             )) {
-                Text("Keep Mine").tag(SkillConflictResolution.keepMine)
-                Text("Take Remote").tag(SkillConflictResolution.takeRemote)
+                Text(LanguageStore.shared.t("skills.conflict.keepMine")).tag(SkillConflictResolution.keepMine)
+                Text(LanguageStore.shared.t("skills.conflict.takeRemote")).tag(SkillConflictResolution.takeRemote)
             }
             .appSegmentedPicker()
             .labelsHidden()
