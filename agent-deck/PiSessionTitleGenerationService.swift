@@ -46,8 +46,9 @@ final class PiSessionTitleGenerationService {
         environment: [String: String],
         completion: @escaping (Result<String, Error>) -> Void
     ) {
+        let language = Self.detectTitleLanguage(from: firstMessage)
         startHelper(
-            systemPrompt: Self.titleSystemPrompt(language: LanguageStore.shared.language),
+            systemPrompt: Self.titleSystemPrompt(language: language),
             userPrompt: prompt(for: firstMessage),
             model: model,
             projectURL: projectURL,
@@ -65,8 +66,10 @@ final class PiSessionTitleGenerationService {
         environment: [String: String],
         completion: @escaping (Result<String, Error>) -> Void
     ) {
+        // Prefer the latest user message language; fall back to current title script if message is code-only.
+        let language = Self.detectTitleLanguage(from: latestUserMessage, fallbackText: currentTitle)
         startHelper(
-            systemPrompt: Self.titleUpdateSystemPrompt(language: LanguageStore.shared.language),
+            systemPrompt: Self.titleUpdateSystemPrompt(language: language),
             userPrompt: updatePrompt(currentTitle: currentTitle, latestUserMessage: latestUserMessage, planItems: planItems),
             model: model,
             projectURL: projectURL,
@@ -237,13 +240,105 @@ final class PiSessionTitleGenerationService {
         run.completion(result)
     }
 
-    /**
-     Build the title-generation system prompt for the active app language.
+    /// Script family used for session title generation (from user text, not app UI language).
+    private enum TitleLanguage: String {
+        case chinese
+        case english
+    }
 
-     - Parameter language: App UI language (drives title language).
+    /**
+     Detect title language from the conversation's first user message.
+
+     Counts Han characters vs Latin letters after stripping code fences and common path/URL noise.
+     Defaults to English when the signal is ambiguous (code-only, mixed, empty).
+
+     - Parameters:
+       - text: Primary sample (first message or latest user message).
+       - fallbackText: Optional second sample (e.g. current title) when primary is code-heavy.
+     - Returns: `.chinese` when Chinese script dominates; otherwise `.english`.
+     */
+    private static func detectTitleLanguage(from text: String, fallbackText: String? = nil) -> TitleLanguage {
+        if let detected = scriptSignal(in: text) {
+            return detected
+        }
+        if let fallbackText, let detected = scriptSignal(in: fallbackText) {
+            return detected
+        }
+        return .english
+    }
+
+    /**
+     Extract a language signal from free text.
+
+     - Parameter text: Raw user or title text.
+     - Returns: Detected language, or `nil` when not enough letters/Han to decide.
+     */
+    private static func scriptSignal(in text: String) -> TitleLanguage? {
+        var sample = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sample.isEmpty else { return nil }
+
+        // Drop fenced code blocks — they skew English letter counts.
+        sample = sample.replacingOccurrences(
+            of: #"```[\s\S]*?```"#,
+            with: " ",
+            options: .regularExpression
+        )
+        // Drop inline code ticks content lightly by removing backticks only.
+        sample = sample.replacingOccurrences(of: "`", with: " ")
+        // Drop URLs / file paths-ish tokens.
+        sample = sample.replacingOccurrences(
+            of: #"https?://\S+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        sample = sample.replacingOccurrences(
+            of: #"(?:[\w.-]+/)+[\w.-]+"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        var han = 0
+        var latin = 0
+        for scalar in sample.unicodeScalars {
+            if CharacterSet(charactersIn: "\u{4E00}"..."\u{9FFF}").contains(scalar)
+                || CharacterSet(charactersIn: "\u{3400}"..."\u{4DBF}").contains(scalar)
+                || CharacterSet(charactersIn: "\u{F900}"..."\u{FAFF}").contains(scalar)
+            {
+                han += 1
+            } else if CharacterSet.letters.contains(scalar) {
+                // Basic Latin + Latin-1 Supplement letters only for "English-ish" signal.
+                let v = scalar.value
+                if (0x41...0x5A).contains(v) || (0x61...0x7A).contains(v)
+                    || (0xC0...0x24F).contains(v)
+                {
+                    latin += 1
+                }
+            }
+        }
+
+        let total = han + latin
+        // Need a few content characters; pure code/punctuation → undecided.
+        guard total >= 2 else { return nil }
+        // Chinese wins when Han is at least half of letter-like content, or absolute Han >= 2 with sparse Latin.
+        if han >= 2 && han * 2 >= total {
+            return .chinese
+        }
+        if han >= 4 && han >= latin {
+            return .chinese
+        }
+        if latin >= 2 {
+            return .english
+        }
+        return nil
+    }
+
+    /**
+     Build the title-generation system prompt for the conversation language.
+
+     - Parameter language: Language inferred from the first user message.
      - Returns: System prompt instructing the helper model.
      */
-    private static func titleSystemPrompt(language: AppLanguage) -> String {
+    private static func titleSystemPrompt(language: TitleLanguage) -> String {
         let languageRule = titleLanguageRule(language: language)
         let examples: String
         switch language {
@@ -295,12 +390,12 @@ final class PiSessionTitleGenerationService {
     }
 
     /**
-     Build the title-update system prompt for the active app language.
+     Build the title-update system prompt for the conversation language.
 
-     - Parameter language: App UI language (drives title language).
+     - Parameter language: Language inferred from the latest user message (fallback: current title).
      - Returns: System prompt for KEEP / rewrite decisions.
      */
-    private static func titleUpdateSystemPrompt(language: AppLanguage) -> String {
+    private static func titleUpdateSystemPrompt(language: TitleLanguage) -> String {
         let languageRule = titleLanguageRule(language: language)
         let wordRule: String
         switch language {
@@ -331,25 +426,25 @@ final class PiSessionTitleGenerationService {
     /**
      Language policy injected into title helper prompts.
 
-     - Parameter language: Active app language.
-     - Returns: Explicit instruction so the model matches the session/UI language.
+     - Parameter language: Inferred conversation language from user text.
+     - Returns: Explicit instruction so the model matches the first-message language.
      */
-    private static func titleLanguageRule(language: AppLanguage) -> String {
+    private static func titleLanguageRule(language: TitleLanguage) -> String {
         switch language {
         case .chinese:
             return """
             Language policy (mandatory):
-            - Write the session title in Simplified Chinese (简体中文).
-            - Match the user's Chinese phrasing when the first message is Chinese.
-            - Keep technical terms, product names, file names, and code identifiers in their original form when that is clearer (e.g. Liquid Glass, RPC, MCP).
-            - Do not return an English Title-Case title when the app language is Chinese.
+            - The user's first message is in Chinese. Write the session title in Simplified Chinese (简体中文).
+            - Match the user's Chinese phrasing of the goal.
+            - Keep technical terms, product names, file names, and code identifiers in their original form when clearer (e.g. Liquid Glass, RPC, MCP).
+            - Do not return an English Title-Case title for a Chinese first message.
             """
         case .english:
             return """
             Language policy (mandatory):
-            - Write the session title in English.
+            - The user's first message is in English (or non-Chinese). Write the session title in English.
             - Use Title Case for normal English titles.
-            - If the first message is clearly in another language and English would misrepresent the goal, you may keep essential foreign proper nouns, but the title structure must still be English unless the entire user goal is non-English and an English title would be inaccurate — prefer English for app language English.
+            - Keep product/code identifiers unchanged when needed.
             """
         }
     }
