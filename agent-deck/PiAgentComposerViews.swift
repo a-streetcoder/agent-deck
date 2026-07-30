@@ -303,8 +303,26 @@ struct PiAgentComposerBox: View {
             }
         }
         .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 7)
-        .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL]) { _ in
-            addImages(PiAgentComposerImageLoader.imagesFromPasteboard())
+        .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL, .image]) { _ in
+            let pasteboard = NSPasteboard.general
+            let urls = PiAgentComposerImageLoader.fileURLs(from: pasteboard)
+            if !urls.isEmpty {
+                let folderURLs = urls.filter { PiAgentFolderAttachment(url: $0) != nil }
+                let fileCandidates = urls.filter { PiAgentFolderAttachment(url: $0) == nil }
+                let imageAttachments = fileCandidates.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) }
+                let files = fileCandidates.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
+                addImages(imageAttachments)
+                onFiles(files)
+                onFolders(folderURLs)
+            }
+            let images = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard)
+            // Avoid double-adding path-backed images already attached above.
+            let extra = images.filter { image in
+                urls.allSatisfy { $0.path != image.fileReference }
+            }
+            if !extra.isEmpty {
+                addImages(extra)
+            }
         }
         .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image], isTargeted: $isDropTargeted) { providers in
             // Defer NSItemProvider loading off the drop callback so AppKit can
@@ -552,13 +570,24 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         }
 
         func handleDrop(_ pasteboard: NSPasteboard) -> Bool {
-            let images = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard)
-            let droppedURLs = PiAgentComposerImageLoader.fileURLs(from: pasteboard).filter { url in
-                PiAgentFolderAttachment(url: url) != nil || PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) == nil
+            let urls = PiAgentComposerImageLoader.fileURLs(from: pasteboard)
+            let folders = urls.filter { PiAgentFolderAttachment(url: $0) != nil }
+            let nonFolderURLs = urls.filter { PiAgentFolderAttachment(url: $0) == nil }
+            let pathImages = nonFolderURLs.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) }
+            let files = nonFolderURLs.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
+            // Bitmap-only clipboard (screenshots) still come from imagesFromPasteboard.
+            let clipboardImages = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).filter { attachment in
+                !pathImages.contains(where: { $0.fileReference == attachment.fileReference && $0.data == attachment.data })
             }
-            let folders = droppedURLs.filter { PiAgentFolderAttachment(url: $0) != nil }
-            let files = droppedURLs.filter { PiAgentFolderAttachment(url: $0) == nil }
+            let images = pathImages + clipboardImages
+
             if images.isEmpty && files.isEmpty && folders.isEmpty {
+                // Don't show an error when paste was plain text — let text path handle it.
+                if pasteboard.string(forType: .string)?.isEmpty == false,
+                   PiAgentComposerImageLoader.fileURLs(from: pasteboard).isEmpty,
+                   PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty {
+                    return false
+                }
                 parent.onUnsupportedDrop()
                 return false
             }
@@ -726,7 +755,8 @@ final class DropSafeNSTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
-        if acceptsDrop(pasteboard), dropHandler?.handleDrop(pasteboard) == true {
+        // Try file/image attachment paste first (Finder file copies, screenshots).
+        if dropHandler?.handleDrop(pasteboard) == true {
             return
         }
         if dropHandler?.handleTextPaste(pasteboard, in: self) == true {
@@ -736,7 +766,17 @@ final class DropSafeNSTextView: NSTextView {
     }
 
     private func acceptsDrop(_ pasteboard: NSPasteboard) -> Bool {
-        !PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty || !PiAgentComposerImageLoader.fileURLs(from: pasteboard).isEmpty
+        if !PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty {
+            return true
+        }
+        if !PiAgentComposerImageLoader.fileURLs(from: pasteboard).isEmpty {
+            return true
+        }
+        let types = pasteboard.types ?? []
+        if types.contains(.fileURL) { return true }
+        if types.contains(NSPasteboard.PasteboardType("NSFilenamesPboardType")) { return true }
+        if types.contains(NSPasteboard.PasteboardType("public.file-url")) { return true }
+        return false
     }
 }
 
@@ -966,20 +1006,71 @@ enum PiAgentComposerImageLoader {
 
     nonisolated static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         var urls: [URL] = []
-        if let read = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+
+        if let read = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] {
             urls.append(contentsOf: read)
         }
+
         let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
         if let paths = pasteboard.propertyList(forType: filenamesType) as? [String] {
-            urls.append(contentsOf: paths.map(URL.init(fileURLWithPath:)))
+            urls.append(contentsOf: paths.map { URL(fileURLWithPath: $0) })
         }
+
         for item in pasteboard.pasteboardItems ?? [] {
-            if let value = item.string(forType: .fileURL), let url = URL(string: value) {
+            if let value = item.string(forType: .fileURL), let url = resolvedFileURL(fromPasteboardString: value) {
+                urls.append(url)
+            } else if let data = item.data(forType: .fileURL),
+                      let raw = String(data: data, encoding: .utf8),
+                      let url = resolvedFileURL(fromPasteboardString: raw) {
+                urls.append(url)
+            }
+            let publicFileURL = NSPasteboard.PasteboardType("public.file-url")
+            if let value = item.string(forType: publicFileURL), let url = resolvedFileURL(fromPasteboardString: value) {
                 urls.append(url)
             }
         }
+
+        if let value = pasteboard.string(forType: .fileURL), let url = resolvedFileURL(fromPasteboardString: value) {
+            urls.append(url)
+        }
+
         var seen = Set<String>()
-        return urls.filter { seen.insert($0.path).inserted }
+        return urls
+            .map { $0.standardizedFileURL }
+            .filter { !$0.path.isEmpty }
+            .filter { seen.insert($0.path).inserted }
+    }
+
+    /// Normalize Finder / pasteboard file-url strings into a usable file URL.
+    nonisolated private static func resolvedFileURL(fromPasteboardString raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("file:") {
+            if let url = URL(string: trimmed), url.isFileURL {
+                return url
+            }
+            var path = trimmed
+            if path.hasPrefix("file://") {
+                path = String(path.dropFirst("file://".count))
+            } else if path.hasPrefix("file:") {
+                path = String(path.dropFirst("file:".count))
+            }
+            while path.hasPrefix("//") {
+                path = String(path.dropFirst())
+            }
+            if path.hasPrefix("/") {
+                return URL(fileURLWithPath: path.removingPercentEncoding ?? path)
+            }
+            return nil
+        }
+
+        if trimmed.hasPrefix("/") {
+            return URL(fileURLWithPath: trimmed)
+        }
+        return nil
     }
 
     nonisolated static func imageAttachment(fromFileURL url: URL) -> PiAgentImageAttachment? {

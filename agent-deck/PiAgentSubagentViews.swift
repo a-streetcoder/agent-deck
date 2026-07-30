@@ -16,7 +16,16 @@ struct PiAgentFileAttachment: Identifiable, Hashable {
     let url: URL
 
     init?(url: URL) {
-        guard !url.hasDirectoryPath else { return nil }
+        // Prefer FileManager over `hasDirectoryPath`: Finder pasteboard URLs often
+        // omit the trailing slash, so directory URLs would incorrectly pass as files
+        // and folders would fail `PiAgentFolderAttachment` — attach nothing.
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        if exists {
+            guard !isDirectory.boolValue else { return nil }
+        } else if url.hasDirectoryPath {
+            return nil
+        }
         self.url = url
     }
 }
@@ -27,7 +36,13 @@ struct PiAgentFolderAttachment: Identifiable, Hashable {
 
     init?(url: URL) {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else { return nil }
+            self.url = url
+            return
+        }
+        // Fallback for not-yet-resolved / permission-edge paths that still look like dirs.
+        guard url.hasDirectoryPath else { return nil }
         self.url = url
     }
 }
