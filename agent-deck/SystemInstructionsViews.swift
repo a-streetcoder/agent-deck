@@ -324,7 +324,7 @@ private struct SystemPromptFileRowView: View {
                         Circle()
                             .fill(.orange)
                             .frame(width: 6, height: 6)
-                            .help("Unsaved edits")
+                            .help(LanguageStore.shared.t("sys.unsavedEdits"))
                     }
                 }
 
@@ -338,7 +338,7 @@ private struct SystemPromptFileRowView: View {
             Spacer(minLength: 0)
 
             Button { onReveal() } label: {
-                Label("Reveal", systemImage: "folder")
+                Label(LanguageStore.shared.t("common.reveal"), systemImage: "folder")
                     .labelStyle(.titleAndIcon)
             }
             .appSmallSecondaryButton()
@@ -397,7 +397,7 @@ struct SystemPromptFileDetail: View {
     private var headerActions: some View {
         HStack(spacing: 8) {
             Button { onReveal() } label: {
-                Label("Reveal", systemImage: "folder")
+                Label(LanguageStore.shared.t("common.reveal"), systemImage: "folder")
                     .labelStyle(.titleAndIcon)
             }
             .appSmallSecondaryButton()
@@ -512,11 +512,11 @@ struct SystemPromptFileDetail: View {
 private struct PiSystemInstructionsInfoPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("How the system prompt is built")
+            Text(LanguageStore.shared.t("sys.howBuilt"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
-            Text("Pi assembles every session's system prompt from a handful of Markdown files on disk. Each section below shows the files that can contribute — the first existing file in each slot is the one Pi loads.")
+            Text(LanguageStore.shared.t("sys.assemblyIntro"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -565,8 +565,8 @@ struct PiPromptPreviewSheet: View {
                 subtitle: subtitle,
                 metadata: metadataLine
             ) {
-                AppCopyTextButton(text: preview.fullText, help: "Copy the full assembled system prompt")
-                Button("Done") { dismiss() }
+                AppCopyTextButton(text: preview.fullText, help: LanguageStore.shared.t("sys.copyFull"))
+                Button(LanguageStore.shared.t("common.done")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
 
@@ -623,7 +623,7 @@ private struct PiPromptPreviewSectionView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
-                AppCopyTextButton(text: section.content, help: "Copy this section")
+                AppCopyTextButton(text: section.content, help: LanguageStore.shared.t("sys.copySection"))
             }
 
             if section.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -670,7 +670,7 @@ private struct PiPromptPreviewSectionView: View {
                     .font(.subheadline.weight(.semibold))
                     .fontWidth(.expanded)
                 Spacer(minLength: 8)
-                Text("Inserted at runtime")
+                Text(LanguageStore.shared.t("sys.insertedRuntime"))
                     .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -754,7 +754,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: globalSystem,
                 role: .base,
-                title: "Global SYSTEM.md",
+                title: LanguageStore.shared.t("sys.globalSystem"),
                 note: "Global replacement for Pi’s built-in base prompt.",
                 status: status(for: globalSystem.path, activePath: existingPaths.contains(globalSystem.path) ? globalSystem.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalSystem.path)
@@ -762,7 +762,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: globalAppend,
                 role: .append,
-                title: "Global APPEND_SYSTEM.md",
+                title: LanguageStore.shared.t("sys.globalAppend"),
                 note: "Global append prompt used when no project append prompt overrides it.",
                 status: status(for: globalAppend.path, activePath: existingPaths.contains(globalAppend.path) ? globalAppend.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalAppend.path)
@@ -770,7 +770,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: globalDir.appendingPathComponent("AGENTS.md"),
                 role: .context,
-                title: "Global AGENTS.md",
+                title: LanguageStore.shared.t("sys.globalAgents"),
                 note: "Global context loaded for every Pi session unless context files are disabled.",
                 status: status(for: globalDir.appendingPathComponent("AGENTS.md").path, activePath: globalActiveContext, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalDir.appendingPathComponent("AGENTS.md").path)
@@ -778,7 +778,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: globalDir.appendingPathComponent("CLAUDE.md"),
                 role: .context,
-                title: "Global CLAUDE.md",
+                title: LanguageStore.shared.t("sys.globalClaude"),
                 note: "Fallback global context. Shadowed when global AGENTS.md exists.",
                 status: status(for: globalDir.appendingPathComponent("CLAUDE.md").path, activePath: globalActiveContext, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalDir.appendingPathComponent("CLAUDE.md").path)
@@ -802,7 +802,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: projectSystem,
                 role: .base,
-                title: "Project SYSTEM.md",
+                title: LanguageStore.shared.t("sys.projectSystem"),
                 note: "Project-local replacement for the Pi base prompt. Overrides global SYSTEM.md and the built-in Pi prompt.",
                 status: status(for: projectSystem.path, activePath: existingPaths.contains(projectSystem.path) ? projectSystem.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectSystem.path)
@@ -810,7 +810,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: projectAppend,
                 role: .append,
-                title: "Project APPEND_SYSTEM.md",
+                title: LanguageStore.shared.t("sys.projectAppend"),
                 note: "Project-local append prompt. Overrides the global append file when present.",
                 status: status(for: projectAppend.path, activePath: existingPaths.contains(projectAppend.path) ? projectAppend.path : nil, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectAppend.path)
@@ -839,7 +839,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: projectSystem,
                 role: .base,
-                title: "Project SYSTEM.md",
+                title: LanguageStore.shared.t("sys.projectSystem"),
                 note: "Project-local replacement for the Pi base prompt. If this file exists, it wins over the global SYSTEM.md and the built-in Pi prompt.",
                 status: status(for: projectSystem.path, activePath: activeSystem, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectSystem.path)
@@ -847,7 +847,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: globalSystem,
                 role: .base,
-                title: "Global SYSTEM.md",
+                title: LanguageStore.shared.t("sys.globalSystem"),
                 note: "Global replacement for the Pi base prompt. Used only when this project does not have `.pi/SYSTEM.md`.",
                 status: status(for: globalSystem.path, activePath: activeSystem, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalSystem.path)
@@ -855,7 +855,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: projectAppend,
                 role: .append,
-                title: "Project APPEND_SYSTEM.md",
+                title: LanguageStore.shared.t("sys.projectAppend"),
                 note: "Project-local append prompt. If this file exists, Pi uses it instead of the global append file.",
                 status: status(for: projectAppend.path, activePath: activeAppend, existingPaths: existingPaths),
                 exists: existingPaths.contains(projectAppend.path)
@@ -863,7 +863,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             PiInstructionFile(
                 url: globalAppend,
                 role: .append,
-                title: "Global APPEND_SYSTEM.md",
+                title: LanguageStore.shared.t("sys.globalAppend"),
                 note: "Global append prompt. Used only when this project does not have `.pi/APPEND_SYSTEM.md`.",
                 status: status(for: globalAppend.path, activePath: activeAppend, existingPaths: existingPaths),
                 exists: existingPaths.contains(globalAppend.path)
@@ -1015,13 +1015,13 @@ struct PiInstructionFile: Identifiable, Hashable {
         let globalActive = activeContextFile(in: globalDir, existingPaths: existingPaths)?.path
         appendContextCandidate(
             url: globalDir.appendingPathComponent("AGENTS.md"),
-            title: "Global AGENTS.md",
+            title: LanguageStore.shared.t("sys.globalAgents"),
             note: "Global context loaded for every Pi session unless context files are disabled.",
             activePath: globalActive
         )
         appendContextCandidate(
             url: globalDir.appendingPathComponent("CLAUDE.md"),
-            title: "Global CLAUDE.md",
+            title: LanguageStore.shared.t("sys.globalClaude"),
             note: "Fallback global context. It is shadowed when global AGENTS.md exists.",
             activePath: globalActive
         )
@@ -1030,7 +1030,7 @@ struct PiInstructionFile: Identifiable, Hashable {
             if existingPaths.contains(url.path) {
                 appendContextCandidate(
                     url: url,
-                    title: "Global \(filename)",
+                    title: LanguageStore.shared.t("sys.globalNamed", filename),
                     note: "Existing global context file using uppercase extension. Pi recognizes it during context discovery.",
                     activePath: globalActive
                 )
@@ -1233,7 +1233,7 @@ private enum PiInstructionPreviewBuilder {
 
         if let baseFile = catalog.first(where: { $0.role == .base && $0.status == .active }) {
             prompt = content(for: baseFile.url, drafts: drafts)
-            sections.append(fileSection(baseFile, kind: .base, title: "Base prompt", drafts: drafts))
+            sections.append(fileSection(baseFile, kind: .base, title: LanguageStore.shared.t("sys.basePrompt"), drafts: drafts))
         } else {
             prompt = builtinDefaultText
             sections.append(builtinDefaultSection)
@@ -1241,7 +1241,7 @@ private enum PiInstructionPreviewBuilder {
 
         if let appendFile = catalog.first(where: { $0.role == .append && $0.status == .active }) {
             prompt += "\n\n\(content(for: appendFile.url, drafts: drafts))"
-            sections.append(fileSection(appendFile, kind: .append, title: "Append prompt", drafts: drafts))
+            sections.append(fileSection(appendFile, kind: .append, title: LanguageStore.shared.t("sys.appendPrompt"), drafts: drafts))
         }
 
         if includesNativeSubagentCatalog {
@@ -1251,7 +1251,7 @@ private enum PiInstructionPreviewBuilder {
 
         if let contextFile = catalog.first(where: { $0.role == .context && $0.status == .active }) {
             prompt += "\n\n# Global Context\n\n## \(contextFile.url.path)\n\n\(content(for: contextFile.url, drafts: drafts))"
-            sections.append(fileSection(contextFile, kind: .context, title: "Global context", drafts: drafts))
+            sections.append(fileSection(contextFile, kind: .context, title: LanguageStore.shared.t("sys.globalContext"), drafts: drafts))
         }
 
         // Mirrors the original trailing block: a leading newline plus these lines.
@@ -1279,7 +1279,7 @@ private enum PiInstructionPreviewBuilder {
 
         if let baseFile = catalog.first(where: { $0.role == .base && $0.status == .active }) {
             prompt = content(for: baseFile.url, drafts: drafts)
-            sections.append(fileSection(baseFile, kind: .base, title: "Base prompt", drafts: drafts))
+            sections.append(fileSection(baseFile, kind: .base, title: LanguageStore.shared.t("sys.basePrompt"), drafts: drafts))
         } else {
             prompt = builtinDefaultText
             sections.append(builtinDefaultSection)
@@ -1287,7 +1287,7 @@ private enum PiInstructionPreviewBuilder {
 
         if let appendFile = catalog.first(where: { $0.role == .append && $0.status == .active }) {
             prompt += "\n\n\(content(for: appendFile.url, drafts: drafts))"
-            sections.append(fileSection(appendFile, kind: .append, title: "Append prompt", drafts: drafts))
+            sections.append(fileSection(appendFile, kind: .append, title: LanguageStore.shared.t("sys.appendPrompt"), drafts: drafts))
         }
 
         if includesNativeSubagentCatalog {
@@ -1303,7 +1303,7 @@ private enum PiInstructionPreviewBuilder {
                 sections.append(PiPromptPreview.Section(
                     id: url.path,
                     kind: .context,
-                    title: "Context file",
+                    title: LanguageStore.shared.t("sys.contextFile"),
                     sourceLabel: catalog.first { $0.id == url.path }?.title ?? url.lastPathComponent,
                     sourcePath: url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
                     content: content(for: url, drafts: drafts)
@@ -1333,7 +1333,7 @@ private enum PiInstructionPreviewBuilder {
         PiPromptPreview.Section(
             id: "builtin-default",
             kind: .builtinDefault,
-            title: "Built-in Pi base prompt",
+            title: LanguageStore.shared.t("sys.builtinBase"),
             sourceLabel: PiBuiltinPromptExtractor.promptSourceLabel,
             sourcePath: PiBuiltinPromptExtractor.promptSourcePath,
             content: builtinDefaultText
@@ -1344,7 +1344,7 @@ private enum PiInstructionPreviewBuilder {
         PiPromptPreview.Section(
             id: "subagent-catalog",
             kind: .subagentCatalog,
-            title: "Deck agent catalog",
+            title: LanguageStore.shared.t("sys.deckAgentCatalog"),
             sourceLabel: nil,
             sourcePath: nil,
             content: "Agent Deck inserts its Deck agent catalog here when Deck agents are enabled."
@@ -1366,7 +1366,7 @@ private enum PiInstructionPreviewBuilder {
         PiPromptPreview.Section(
             id: "runtime",
             kind: .runtime,
-            title: "Runtime additions",
+            title: LanguageStore.shared.t("sys.runtimeAdditions"),
             sourceLabel: nil,
             sourcePath: nil,
             content: text

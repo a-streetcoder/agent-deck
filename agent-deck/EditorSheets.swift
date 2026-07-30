@@ -93,7 +93,7 @@ struct EnvEditorSheet: View {
                 Button {
                     entries.append(EnvKeyEntry())
                 } label: {
-                    Label("Add another key", systemImage: "plus")
+                    Label(LanguageStore.shared.t("common.addAnotherKey"), systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
@@ -137,7 +137,7 @@ struct EnvEditorSheet: View {
                 .frame(width: removeColumnWidth)
                 .disabled(entries.count == 1)
                 .opacity(entries.count == 1 ? 0.3 : 1)
-                .help("Remove this key")
+                .help(LanguageStore.shared.t("editor.removeKey"))
             }
         }
     }
@@ -312,7 +312,7 @@ struct MarkdownFileEditorSheet: View {
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([target.url])
                     } label: {
-                        Label("Reveal", systemImage: "folder")
+                        Label(LanguageStore.shared.t("common.reveal"), systemImage: "folder")
                     }
                 }
             }
@@ -397,10 +397,10 @@ struct PiAgentFinalSystemPromptSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Final System Prompt")
+                    Text(LanguageStore.shared.t("editor.finalSystemPrompt"))
                         .font(.headline)
                         .fontWidth(.expanded)
-                    Text("The full system prompt sent to the agent")
+                    Text(LanguageStore.shared.t("editor.finalSystemPromptHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -427,10 +427,10 @@ struct PiAgentFinalSystemPromptSheet: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+                    Label(LanguageStore.shared.t("transcript.copy"), systemImage: "doc.on.doc")
                 }
                 .appSecondaryButton()
-                Button("Done") { dismiss() }
+                Button(LanguageStore.shared.t("common.done")) { dismiss() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
             }
@@ -468,7 +468,7 @@ struct NewSkillEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("New Skill")
+                Text(LanguageStore.shared.t("editor.newSkill"))
                     .font(.headline)
                     .fontWidth(.expanded)
                 Text(destinationDisplayPath)
@@ -476,7 +476,7 @@ struct NewSkillEditorSheet: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Create the skill folder, frontmatter, and `SKILL.md` from these fields when you save.")
+                Text(LanguageStore.shared.t("editor.newSkillHint"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -487,7 +487,7 @@ struct NewSkillEditorSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Identity")
+                        Text(LanguageStore.shared.t("editor.identity"))
                             .font(.headline)
                             .fontWidth(.expanded)
 
@@ -498,7 +498,7 @@ struct NewSkillEditorSheet: View {
                             } label: {
                                 fieldLabel(
                                     "Skill name",
-                                    help: "Use a lowercase slug with letters, numbers, and hyphens. This becomes the folder name and frontmatter `name`."
+                                    help: LanguageStore.shared.t("editor.skillSlugHelp")
                                 )
                                 .frame(width: identityLabelWidth, alignment: .leading)
                             }
@@ -510,7 +510,7 @@ struct NewSkillEditorSheet: View {
                             } label: {
                                 fieldLabel(
                                     "Description",
-                                    help: "This becomes the frontmatter `description`. Keep it specific enough that Pi knows when to use the skill."
+                                    help: LanguageStore.shared.t("editor.skillDescHelp")
                                 )
                                 .frame(width: identityLabelWidth, alignment: .leading)
                             }
@@ -520,10 +520,10 @@ struct NewSkillEditorSheet: View {
                     .appContentSurface()
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Instructions")
+                        Text(LanguageStore.shared.t("editor.instructions"))
                             .font(.headline)
                             .fontWidth(.expanded)
-                        Text("Write the body of `SKILL.md` here. Agent Deck adds the `# \(previewName)` heading above this content automatically.")
+                        Text(LanguageStore.shared.t("editor.skillBodyHint", previewName))
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
 
@@ -543,7 +543,7 @@ struct NewSkillEditorSheet: View {
                     .appContentSurface()
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("What Gets Created")
+                        Text(LanguageStore.shared.t("editor.whatGetsCreated"))
                             .font(.headline)
                             .fontWidth(.expanded)
 
@@ -554,7 +554,7 @@ struct NewSkillEditorSheet: View {
 
                             Divider()
 
-                            Text("Generated `SKILL.md` preview")
+                            Text(LanguageStore.shared.t("editor.skillMdPreview"))
                                 .font(.subheadline.weight(.semibold))
                             previewBlock
                         }
@@ -737,13 +737,13 @@ struct AgentEditorSheet: View {
                                 TextField("Name", text: $draft.config.name)
                                 TextField("Description", text: $draft.config.description)
                                 TextField("When to Use", text: binding(for: \.whenToUse))
-                                    .help("Concise routing guidance injected into parent sessions when Deck agents are enabled. Prefer one short sentence.")
+                                    .help(LanguageStore.shared.t("editor.routingHelp"))
                             }
                         } else {
                             Section("Builtin") {
                                 TextField("Name", text: .constant(draft.originalName))
                                     .disabled(true)
-                                Text("Builtin overrides only patch the supported Deck agent settings fields.")
+                                Text(LanguageStore.shared.t("editor.builtinOverridesHint"))
                                     .foregroundStyle(AppTheme.mutedText)
                             }
                         }
@@ -756,12 +756,12 @@ struct AgentEditorSheet: View {
                                 TextField("", text: binding(for: \ .model))
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Model", help: "Default model for this agent. \(AppBrand.displayName) reads these from `pi --list-models`, and saved configs usually use `provider/model`.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.model"), help: "Default model for this agent. \(AppBrand.displayName) reads these from `pi --list-models`, and saved configs usually use `provider/model`.")
                             }
 
                             LabeledContent {
                                 Menu("Choose Model") {
-                                    Button("Use Pi Default Model") {
+                                    Button(LanguageStore.shared.t("editor.usePiDefaultModel")) {
                                         draft.config.model = nil
                                         clampThinkingForSelectedModel()
                                     }
@@ -772,14 +772,14 @@ struct AgentEditorSheet: View {
                                     }
                                 }
                             } label: {
-                                editorFieldLabel("Choose Model", help: "Pick from models Pi currently knows about. Choosing one also constrains the thinking levels shown below.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.chooseModel"), help: "Pick from models Pi currently knows about. Choosing one also constrains the thinking levels shown below.")
                             }
 
                             LabeledContent {
                                 TextField("", text: arrayBinding(for: \ .fallbackModels))
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Fallback Models", help: "Ordered backup models Pi can try if the primary model is unavailable or a pattern resolves differently.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.fallbackModels"), help: "Ordered backup models Pi can try if the primary model is unavailable or a pattern resolves differently.")
                             }
 
                             LabeledContent {
@@ -789,10 +789,10 @@ struct AgentEditorSheet: View {
                                     }
                                 }
                             } label: {
-                                editorFieldLabel("Add Fallback Model", help: "Adds one model to the fallback list without editing the comma-separated field manually.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.addFallbackModel"), help: "Adds one model to the fallback list without editing the comma-separated field manually.")
                             }
 
-                            selectedListView(title: "Selected Fallback Models", values: draft.config.fallbackModels, remove: removeFallbackModel)
+                            selectedListView(title: LanguageStore.shared.t("editor.selectedFallbackModels"), values: draft.config.fallbackModels, remove: removeFallbackModel)
 
                             LabeledContent {
                                 Picker("", selection: thinkingSelectionBinding) {
@@ -803,18 +803,18 @@ struct AgentEditorSheet: View {
                                 .labelsHidden()
                                 .appMenuPicker()
                             } label: {
-                                editorFieldLabel("Thinking", help: selectedAvailableModel == nil ? "Reasoning effort to use with Pi's default model when supported." : "Reasoning effort for the selected model. Pi only shows levels that the current model supports.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.thinking"), help: selectedAvailableModel == nil ? "Reasoning effort to use with Pi's default model when supported." : "Reasoning effort for the selected model. Pi only shows levels that the current model supports.")
                             }
 
                             LabeledContent {
                                 TextField("", text: binding(for: \ .systemPromptMode))
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Prompt Mode", help: "`replace` makes this agent’s prompt the main system prompt. `append` keeps more of Pi’s base behavior and adds this agent’s instructions on top.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.promptMode"), help: "`replace` makes this agent’s prompt the main system prompt. `append` keeps more of Pi’s base behavior and adds this agent’s instructions on top.")
                             }
 
                             Toggle(isOn: optionalBoolBinding(for: \ .disabled)) {
-                                editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal Deck agent discovery and launch flows while keeping the agent installed.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.disabled"), help: "Disabled agents are hidden from normal Deck agent discovery and launch flows while keeping the agent installed.")
                             }
                         }
 
@@ -831,28 +831,28 @@ struct AgentEditorSheet: View {
                                     }
 
                                     Menu("Apply Preset") {
-                                        Button("Core") { applyToolPreset(["read", "grep", "find", "ls", "bash"]) }
-                                        Button("Coding") { applyToolPreset(["read", "grep", "find", "ls", "bash", "edit", "write"]) }
+                                        Button(LanguageStore.shared.t("editor.core")) { applyToolPreset(["read", "grep", "find", "ls", "bash"]) }
+                                        Button(LanguageStore.shared.t("editor.coding")) { applyToolPreset(["read", "grep", "find", "ls", "bash", "edit", "write"]) }
                                         if availableTools.contains("web_search") {
-                                            Button("Research") { applyToolPreset(["read", "web_search", "fetch_content", "get_search_content"]) }
+                                            Button(LanguageStore.shared.t("editor.research")) { applyToolPreset(["read", "web_search", "fetch_content", "get_search_content"]) }
                                         } else if availableTools.contains("web_fetch") {
-                                            Button("URL Fetch") { applyToolPreset(["read", "web_fetch"]) }
+                                            Button(LanguageStore.shared.t("editor.urlFetch")) { applyToolPreset(["read", "web_fetch"]) }
                                         }
-                                        Button("Clear Tools") { draft.config.tools = [] }
+                                        Button(LanguageStore.shared.t("editor.clearTools")) { draft.config.tools = [] }
                                     }
                                 }
                             } label: {
-                                editorFieldLabel("Tools", help: "Explicit tools become the agent’s allowlist. New custom agents start with a core preset: read, grep, find, ls, bash.")
+                                editorFieldLabel(LanguageStore.shared.t("common.tools"), help: "Explicit tools become the agent’s allowlist. New custom agents start with a core preset: read, grep, find, ls, bash.")
                             }
 
                             LabeledContent {
                                 TextField("Comma-separated tools", text: toolsBinding())
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Tool List", help: "You can edit tool names directly here. \(AppBrand.displayName) stores them as a comma-separated list in frontmatter.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.toolList"), help: "You can edit tool names directly here. \(AppBrand.displayName) stores them as a comma-separated list in frontmatter.")
                             }
 
-                            selectedListView(title: "Selected Tools", values: selectedToolValues, remove: removeTool)
+                            selectedListView(title: LanguageStore.shared.t("editor.selectedTools"), values: selectedToolValues, remove: removeTool)
 
                             Text(skillSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
@@ -864,17 +864,17 @@ struct AgentEditorSheet: View {
                                     }
                                 }
                             } label: {
-                                editorFieldLabel("Skills", help: "Choose from Agent Deck's skill catalog. Assigned skills are passed to Pi with native --skill arguments when this agent runs.")
+                                editorFieldLabel(LanguageStore.shared.t("common.skills"), help: "Choose from Agent Deck's skill catalog. Assigned skills are passed to Pi with native --skill arguments when this agent runs.")
                             }
 
                             LabeledContent {
                                 TextField("Comma-separated skills", text: arrayBinding(for: \ .skills))
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Skill List", help: "Explicit skills are attached by name to this agent. You can add them from the picker above or edit the list directly here.")
+                                editorFieldLabel(LanguageStore.shared.t("editor.skillList"), help: "Explicit skills are attached by name to this agent. You can add them from the picker above or edit the list directly here.")
                             }
 
-                            selectedListView(title: "Selected Skills", values: draft.config.skills, remove: removeSkill)
+                            selectedListView(title: LanguageStore.shared.t("editor.selectedSkills"), values: draft.config.skills, remove: removeSkill)
                         }
 
                         if case .custom = draft.target {
@@ -882,7 +882,7 @@ struct AgentEditorSheet: View {
                                 TextField("Extensions", text: listBinding(for: \ .extensions))
                                 TextField("Output", text: binding(for: \ .output))
                                 Picker("Default Outcome", selection: defaultExpectedOutcomeBinding()) {
-                                    Text("Unspecified").tag(PiSubagentExpectedOutcome?.none)
+                                    Text(LanguageStore.shared.t("editor.unspecified")).tag(PiSubagentExpectedOutcome?.none)
                                     ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
                                         Text(outcome.displayName).tag(Optional(outcome))
                                     }
@@ -898,7 +898,7 @@ struct AgentEditorSheet: View {
                     .formStyle(.grouped)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Prompt")
+                        Text(LanguageStore.shared.t("editor.prompt"))
                             .font(.headline)
                             .fontWidth(.expanded)
                         Text(promptSectionSummary)
@@ -1091,8 +1091,8 @@ struct AgentEditorSheet: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Remove \(value)")
-                            .help("Remove \(value)")
+                            .accessibilityLabel(LanguageStore.shared.t("editor.removeNamed", value))
+                            .help(LanguageStore.shared.t("editor.removeNamed", value))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)

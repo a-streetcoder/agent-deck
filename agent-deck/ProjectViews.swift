@@ -18,7 +18,7 @@ struct ProjectAssignmentToggleRow: View {
     var body: some View {
         AppCheckboxRow(
             isOn: $isOn,
-            accessibilityLabel: "Toggle project \(project.name)"
+            accessibilityLabel: LanguageStore.shared.t("projects.toggleProject", project.name)
         ) {
             HStack(alignment: .center, spacing: 12) {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30, assetName: project.projectType.assetName)
@@ -52,7 +52,7 @@ struct AllProjectsAssignmentRow: View {
     var body: some View {
         AppCheckboxRow(
             isOn: $isOn,
-            accessibilityLabel: "Toggle all projects"
+            accessibilityLabel: LanguageStore.shared.t("projects.toggleAll")
         ) {
             HStack(alignment: .center, spacing: 12) {
                 ProjectIconView(imageURL: nil, symbolName: "square.grid.2x2", size: 30)
@@ -286,7 +286,7 @@ struct ProjectsScreen: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            AppCard(title: "Library") {
+            AppCard(title: LanguageStore.shared.t("common.library")) {
                 projectList
             }
             .padding(AppTheme.pagePadding)
@@ -333,7 +333,7 @@ struct ProjectsScreen: View {
             get: { projectDeleteError != nil },
             set: { if !$0 { projectDeleteError = nil } }
         )) {
-            Button("OK", role: .cancel) { projectDeleteError = nil }
+            Button(LanguageStore.shared.t("common.ok"), role: .cancel) { projectDeleteError = nil }
         } message: {
             Text(projectDeleteError ?? "Unknown error")
         }
@@ -373,7 +373,7 @@ struct ProjectsScreen: View {
             .appSegmentedPicker()
             .frame(maxWidth: 320)
 
-            Text("Manage project visibility, icons, and assigned resource summaries. Use the System Prompt view to inspect and edit Pi instruction files.")
+            Text(LanguageStore.shared.t("projects.manageIntro"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -497,7 +497,7 @@ struct ProjectsScreen: View {
 
                     if isActiveSessionProject {
                         AppLabelTag(text: "Active", color: AppTheme.brandAccent)
-                            .help("Active session project")
+                            .help(LanguageStore.shared.t("projects.activeSessionProject"))
                     }
                 }
 
@@ -528,7 +528,7 @@ struct ProjectsScreen: View {
             .buttonStyle(.plain)
             .disabled(!hasAgentAssignments)
             .help(hasAgentAssignments ? "Show agents for this project" : "No agents assigned to this project")
-            .accessibilityLabel("Show agents for \(project.repositoryDisplayName)")
+            .accessibilityLabel(LanguageStore.shared.t("projects.showAgents", project.repositoryDisplayName))
 
             Button {
                 skillsRecapProject = project
@@ -540,7 +540,7 @@ struct ProjectsScreen: View {
             .buttonStyle(.plain)
             .disabled(!hasSkillAssignments)
             .help(hasSkillAssignments ? "Show skills for this project" : "No skills assigned to this project")
-            .accessibilityLabel("Show skills for \(project.repositoryDisplayName)")
+            .accessibilityLabel(LanguageStore.shared.t("projects.showSkills", project.repositoryDisplayName))
 
             Button {
                 mcpRecapProject = project
@@ -556,7 +556,7 @@ struct ProjectsScreen: View {
             .buttonStyle(.plain)
             .disabled(!hasMcpAssignments)
             .help(hasMcpAssignments ? "Show MCP servers for this project" : "No MCP servers assigned to this project")
-            .accessibilityLabel("Show MCP servers for \(project.repositoryDisplayName)")
+            .accessibilityLabel(LanguageStore.shared.t("projects.showMcp", project.repositoryDisplayName))
 
             Button {
                 showProjectInFinder(project)
@@ -566,8 +566,8 @@ struct ProjectsScreen: View {
                     .appActionTarget()
             }
             .buttonStyle(.plain)
-            .help("Show in Finder")
-            .accessibilityLabel("Show \(project.repositoryDisplayName) in Finder")
+            .help(LanguageStore.shared.t("projects.showInFinder"))
+            .accessibilityLabel(LanguageStore.shared.t("projects.showInFinderNamed", project.repositoryDisplayName))
 
             Button(role: .destructive) {
                 showProjectRemovalConfirmation(for: project)
@@ -577,8 +577,8 @@ struct ProjectsScreen: View {
                     .appActionTarget()
             }
             .buttonStyle(.plain)
-            .help("Hide from \(AppBrand.displayName)")
-            .accessibilityLabel("Hide \(project.repositoryDisplayName) from \(AppBrand.displayName)")
+            .help(LanguageStore.shared.t("projects.hideFromApp", AppBrand.displayName))
+            .accessibilityLabel(LanguageStore.shared.t("projects.hideNamedFromApp", project.repositoryDisplayName, AppBrand.displayName))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -593,13 +593,13 @@ struct ProjectsScreen: View {
             Button {
                 showProjectInFinder(project)
             } label: {
-                Label("Show in Finder", systemImage: "folder")
+                Label(LanguageStore.shared.t("projects.showInFinder"), systemImage: "folder")
             }
 
             Button(role: .destructive) {
                 showProjectRemovalConfirmation(for: project)
             } label: {
-                Label("Delete Project", systemImage: "trash")
+                Label(LanguageStore.shared.t("projects.deleteProject"), systemImage: "trash")
             }
         }
     }
@@ -620,7 +620,7 @@ private struct ProjectRemovalConfirmationSheet: View {
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Remove Project")
+                    Text(LanguageStore.shared.t("projects.removeProject"))
                         .font(.headline)
                         .fontWidth(.expanded)
                     Text(project.repositoryDisplayName)
@@ -634,16 +634,16 @@ private struct ProjectRemovalConfirmationSheet: View {
                 }
             }
 
-            Text("By default, this only hides the project from \(AppBrand.displayName). The project folder stays on disk.")
+            Text(LanguageStore.shared.t("projects.hideOnlyBody", AppBrand.displayName))
                 .font(.callout)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: $moveToTrash) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Move project folder to macOS Trash")
+                    Text(LanguageStore.shared.t("projects.moveToTrash"))
                         .font(.subheadline.weight(.semibold))
-                    Text("This moves the entire folder from disk to the Trash. You can restore it from Finder until the Trash is emptied.")
+                    Text(LanguageStore.shared.t("projects.trashBody"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -652,7 +652,7 @@ private struct ProjectRemovalConfirmationSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel, action: onCancel)
+                Button(LanguageStore.shared.t("common.cancel"), role: .cancel, action: onCancel)
                 Button(moveToTrash ? "Move to Trash" : "Hide from List", role: moveToTrash ? .destructive : nil, action: onConfirm)
             }
         }
@@ -682,7 +682,7 @@ private struct ProjectAgentsRecapSheet: View {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34, assetName: project.projectType.assetName)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Project Agents")
+                    Text(LanguageStore.shared.t("projects.projectAgents"))
                         .font(.headline)
                         .fontWidth(.expanded)
                     Text(project.repositoryDisplayName)
@@ -693,7 +693,7 @@ private struct ProjectAgentsRecapSheet: View {
 
                 Spacer()
 
-                Button("Done") {
+                Button(LanguageStore.shared.t("common.done")) {
                     dismiss()
                 }
             }
@@ -705,19 +705,19 @@ private struct ProjectAgentsRecapSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if hasResolvedAgents {
                         if !recap.defaultAgents.isEmpty {
-                            agentRecapSection(title: "Global", agents: recap.defaultAgents, color: .blue)
+                            agentRecapSection(title: LanguageStore.shared.t("projects.scope.global"), agents: recap.defaultAgents, color: .blue)
                         }
                         if !recap.projectAgents.isEmpty {
-                            agentRecapSection(title: "Project", agents: recap.projectAgents, color: .green)
+                            agentRecapSection(title: LanguageStore.shared.t("projects.scope.project"), agents: recap.projectAgents, color: .green)
                         }
                         if !recap.otherEffectiveAgents.isEmpty {
-                            agentRecapSection(title: "Default", agents: recap.otherEffectiveAgents, color: AppTheme.assistantAccent)
+                            agentRecapSection(title: LanguageStore.shared.t("projects.scope.default"), agents: recap.otherEffectiveAgents, color: AppTheme.assistantAccent)
                         }
                     } else if hasLoadedProjectAssignments {
                         ContentUnavailableView(
                             "No Agents",
                             systemImage: "paperplane",
-                            description: Text("No default or project-assigned catalog agents are configured for this project.")
+                            description: Text(LanguageStore.shared.t("projects.noAgents"))
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
@@ -790,7 +790,7 @@ private struct ProjectAgentsRecapSheet: View {
 
     private var unresolvedAgentSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Needs Attention")
+            Text(LanguageStore.shared.t("projects.needsAttention"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
@@ -831,7 +831,7 @@ private struct ProjectSkillsRecapSheet: View {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34, assetName: project.projectType.assetName)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Project Skills")
+                    Text(LanguageStore.shared.t("projects.projectSkills"))
                         .font(.headline)
                         .fontWidth(.expanded)
                     Text(project.repositoryDisplayName)
@@ -842,7 +842,7 @@ private struct ProjectSkillsRecapSheet: View {
 
                 Spacer()
 
-                Button("Done") {
+                Button(LanguageStore.shared.t("common.done")) {
                     dismiss()
                 }
             }
@@ -852,24 +852,24 @@ private struct ProjectSkillsRecapSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the skills Agent Deck will pass to parent Pi sessions for this project with explicit --skill arguments.")
+                    Text(LanguageStore.shared.t("projects.skillsPassHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
                     if hasResolvedSkills {
                         if !recap.defaultSkills.isEmpty {
-                            skillRecapSection(title: "Default", skills: recap.defaultSkills, color: .blue)
+                            skillRecapSection(title: LanguageStore.shared.t("projects.scope.default"), skills: recap.defaultSkills, color: .blue)
                         }
 
                         if !recap.projectSkills.isEmpty {
-                            skillRecapSection(title: "Project", skills: recap.projectSkills, color: .green)
+                            skillRecapSection(title: LanguageStore.shared.t("projects.scope.project"), skills: recap.projectSkills, color: .green)
                         }
                     } else if hasLoadedProjectAssignments {
                         ContentUnavailableView(
                             "No Skills",
                             systemImage: "wand.and.stars",
-                            description: Text("No default or project-assigned catalog skills are configured for this project.")
+                            description: Text(LanguageStore.shared.t("projects.noSkills"))
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
@@ -938,7 +938,7 @@ private struct ProjectSkillsRecapSheet: View {
 
     private var unresolvedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Needs Attention")
+            Text(LanguageStore.shared.t("projects.needsAttention"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
@@ -979,7 +979,7 @@ private struct ProjectMcpServersRecapSheet: View {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34, assetName: project.projectType.assetName)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Project MCP Servers")
+                    Text(LanguageStore.shared.t("projects.projectMcp"))
                         .font(.headline)
                         .fontWidth(.expanded)
                     Text(project.repositoryDisplayName)
@@ -990,7 +990,7 @@ private struct ProjectMcpServersRecapSheet: View {
 
                 Spacer()
 
-                Button("Done") {
+                Button(LanguageStore.shared.t("common.done")) {
                     dismiss()
                 }
             }
@@ -1000,28 +1000,28 @@ private struct ProjectMcpServersRecapSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the MCP servers Agent Deck advertises to parent Pi sessions for this project. The agent reaches their tools through the `mcp` proxy tool. Requires MCP enabled in Runtime → MCP.")
+                    Text(LanguageStore.shared.t("projects.mcpPassHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
                     if recap.hasResolvedServers {
                         if !recap.defaultServers.isEmpty {
-                            serverRecapSection(title: "All Projects", servers: recap.defaultServers, color: .blue)
+                            serverRecapSection(title: LanguageStore.shared.t("projects.scope.allProjects"), servers: recap.defaultServers, color: .blue)
                         }
 
                         if !recap.projectServers.isEmpty {
-                            serverRecapSection(title: "Project", servers: recap.projectServers, color: .green)
+                            serverRecapSection(title: LanguageStore.shared.t("projects.scope.project"), servers: recap.projectServers, color: .green)
                         }
                     } else if hasLoadedProjectAssignments {
                         ContentUnavailableView {
                             Label {
-                                Text("No MCP Servers")
+                                Text(LanguageStore.shared.t("projects.noMcpTitle"))
                             } icon: {
                                 Image(AppSymbols.mcp)
                             }
                         } description: {
-                            Text("No MCP servers are assigned to this project. Assign them in Runtime → MCP.")
+                            Text(LanguageStore.shared.t("projects.noMcpBody"))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
@@ -1090,7 +1090,7 @@ private struct ProjectMcpServersRecapSheet: View {
 
     private var unresolvedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Needs Attention")
+            Text(LanguageStore.shared.t("projects.needsAttention"))
                 .font(.headline)
                 .fontWidth(.expanded)
 
@@ -1102,7 +1102,7 @@ private struct ProjectMcpServersRecapSheet: View {
                         Text(name)
                             .font(.caption.weight(.semibold))
                         Spacer(minLength: 0)
-                        Text("not in mcp.json")
+                        Text(LanguageStore.shared.t("projects.notInMcpJson"))
                             .font(AppTheme.Font.micro)
                             .foregroundStyle(AppTheme.mutedText)
                     }

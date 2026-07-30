@@ -13,33 +13,33 @@ private enum WelcomeTourContent {
         [
             WelcomeTourPage(
                 imageName: "pop-onb-1",
-                title: "Command Pi from \(AppBrand.displayName)",
-                description: "Run Pi coding sessions from a focused Mac workspace with project context, models, repo activity, and session state in one place."
+                title: LanguageStore.shared.t("onboard.cmdPi", AppBrand.displayName),
+                description: LanguageStore.shared.t("onboard.tour.1.desc")
             ),
             WelcomeTourPage(
                 imageName: "pop-onb-2",
-                title: "Work in a Coding Chat",
-                description: "Use a customizable chat view built for implementation work: full transcripts, tool calls, file previews, attachments, and live controls."
+                title: LanguageStore.shared.t("onboard.workCodingChat"),
+                description: LanguageStore.shared.t("onboard.tour.2.desc")
             ),
             WelcomeTourPage(
                 imageName: "pop-onb-3",
-                title: "Orchestrate Deck Agents",
-                description: "Delegate focused work to custom Deck agents, run them alone or in parallel, supervise decisions, and keep worktrees isolated."
+                title: LanguageStore.shared.t("onboard.orchestrateAgents"),
+                description: LanguageStore.shared.t("onboard.tour.3.desc")
             ),
             WelcomeTourPage(
                 imageName: "pop-onb-4",
-                title: "Shape Your Agent System",
-                description: "Create, organize, assign, and reuse agents, skills, and prompts so project workflows become clear, portable, and repeatable."
+                title: LanguageStore.shared.t("onboard.shapeAgentSystem"),
+                description: LanguageStore.shared.t("onboard.tour.4.desc")
             ),
             WelcomeTourPage(
                 imageName: "pop-onb-5",
-                title: "Manage Project Instructions",
-                description: "Control system guidance, AGENTS.md, CLAUDE.md, and project-scoped instructions from one place instead of hunting through files."
+                title: LanguageStore.shared.t("onboard.manageInstructions"),
+                description: LanguageStore.shared.t("onboard.tour.5.desc")
             ),
             WelcomeTourPage(
                 imageName: "pop-onb-6",
-                title: "Connect the Wider Workflow",
-                description: "Bring in project folders, environment keys, and model setup when you need them. Setup checks confirm the workspace is ready."
+                title: LanguageStore.shared.t("onboard.connectWider"),
+                description: LanguageStore.shared.t("onboard.tour.6.desc")
             )
         ]
     }
@@ -195,7 +195,7 @@ private struct WelcomeTourView: View {
 
             Divider()
             HStack {
-                Button("Back") { pageIndex -= 1 }
+                Button(LanguageStore.shared.t("common.back")) { pageIndex -= 1 }
                     .appSecondaryButton()
                     .opacity(pageIndex == 0 ? 0 : 1)
                     .disabled(pageIndex == 0)
@@ -208,7 +208,7 @@ private struct WelcomeTourView: View {
                     }
                 }
                 Spacer()
-                Button(isFinalPage ? "Check Setup" : "Continue") {
+                Button(isFinalPage ? LanguageStore.shared.t("onboard.checkSetup") : LanguageStore.shared.t("onboard.continue")) {
                     if isFinalPage {
                         onFinish()
                     } else {
@@ -282,20 +282,20 @@ struct OnboardingFinalView: View {
     }
 
     private var primaryButtonTitle: String {
-        if canStartCoding { return "Start Coding" }
-        if !piPassed { return "Review Setup" }
-        if !modelsPassed { return "Connect a Provider" }
-        if !projectPassed { return "Choose Projects Folder" }
-        return "Review Setup"
+        if canStartCoding { return LanguageStore.shared.t("onboard.startCoding") }
+        if !piPassed { return LanguageStore.shared.t("onboard.reviewSetup") }
+        if !modelsPassed { return LanguageStore.shared.t("onboard.connectProvider") }
+        if !projectPassed { return LanguageStore.shared.t("onboard.chooseProjectsFolder") }
+        return LanguageStore.shared.t("onboard.reviewSetup")
     }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(canStartCoding ? "You're ready to code" : "You're set up")
+                Text(canStartCoding ? LanguageStore.shared.t("onboard.readyToCode") : LanguageStore.shared.t("onboard.youreSetUp"))
                     .font(.title2.bold())
                     .fontWidth(.expanded)
-                Text("Three places you'll use in \(AppBrand.displayName).")
+                Text(LanguageStore.shared.t("onboard.threePlaces", AppBrand.displayName))
                     .foregroundStyle(AppTheme.mutedText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -309,18 +309,18 @@ struct OnboardingFinalView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     infoCard(
                         icon: "stethoscope",
-                        title: "Doctor",
-                        detail: "Check runtime health and install or fix anything that's missing — Pi, models, and project folders."
+                        title: LanguageStore.shared.t("onboard.doctor"),
+                        detail: LanguageStore.shared.t("onboard.doctorDetail")
                     )
                     infoCard(
                         icon: "cpu",
-                        title: "Models",
-                        detail: "Connect providers and choose which models are available. Add a provider any time with the + button in Models."
+                        title: LanguageStore.shared.t("onboard.models"),
+                        detail: LanguageStore.shared.t("onboard.modelsDetail")
                     )
                     infoCard(
                         icon: "sparkles.rectangle.stack",
-                        title: "Coding Agent",
-                        detail: "Start coding sessions with Pi Agent. You'll find this chip at the bottom of your sidebar — tap it any time to jump back in.",
+                        title: LanguageStore.shared.t("onboard.codingAgent"),
+                        detail: LanguageStore.shared.t("onboard.codingAgentDetail"),
                         usePiSymbol: true
                     )
                 }
@@ -330,7 +330,7 @@ struct OnboardingFinalView: View {
 
             Divider()
             HStack {
-                Button("Back") { onBack() }
+                Button(LanguageStore.shared.t("common.back")) { onBack() }
                     .appSecondaryButton()
                 Spacer()
                 Button(primaryButtonTitle) {
@@ -447,10 +447,10 @@ struct SetupChecklistView: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Setup Check")
+                    Text(LanguageStore.shared.t("onboard.setupCheck"))
                         .font(.title2.bold())
                         .fontWidth(.expanded)
-                    Text("\(AppBrand.displayName) works best after these checks pass.")
+                    Text(LanguageStore.shared.t("onboard.setupBest", AppBrand.displayName))
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
@@ -464,7 +464,7 @@ struct SetupChecklistView: View {
                 .buttonStyle(.borderless)
                 .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .disabled(isRefreshing)
-                .help("Refresh setup checks")
+                .help(LanguageStore.shared.t("onboard.refreshSetup"))
             }
             .padding(.horizontal, 24)
             .padding(.top, 22)
@@ -499,12 +499,12 @@ struct SetupChecklistView: View {
 
             Divider()
             HStack {
-                Button("Back") {
+                Button(LanguageStore.shared.t("common.back")) {
                     onBack()
                 }
                 .appSecondaryButton()
                 Spacer()
-                Button("Continue") {
+                Button(LanguageStore.shared.t("onboard.continue")) {
                     onContinue(items)
                 }
                 .appPrimaryButton()
@@ -521,7 +521,7 @@ struct SetupChecklistView: View {
                 .controlSize(.small)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 5) {
-                Text("Checking setup")
+                Text(LanguageStore.shared.t("onboard.checkingSetup"))
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
                 Text("\(AppBrand.displayName) is checking Pi, models, project settings, and integrations.")
@@ -628,7 +628,7 @@ struct SetupChecklistView: View {
         // previewed without the real dependency installed.
         Button { debugToggleStatus(item) } label: { statusIconImage(item) }
             .buttonStyle(.plain)
-            .help("Debug: toggle this check's status")
+            .help(LanguageStore.shared.t("onboard.debugToggle"))
         #else
         statusIconImage(item)
         #endif
@@ -659,7 +659,7 @@ struct SetupChecklistView: View {
             HStack(spacing: 8) {
                 AppSpinner()
                     .controlSize(.small)
-                Text("Installing Pi via \(method.displayName)… this can take a few minutes.")
+                Text(LanguageStore.shared.t("onboard.installingPi", method.displayName))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -672,9 +672,9 @@ struct SetupChecklistView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
-                    Button("Try Again") { runPiAutoInstall() }
+                    Button(LanguageStore.shared.t("common.tryAgain")) { runPiAutoInstall() }
                         .appPrimaryButton()
-                    Button("Install in Terminal") { viewModel.openPiInstallInTerminal() }
+                    Button(LanguageStore.shared.t("onboard.installTerminal")) { viewModel.openPiInstallInTerminal() }
                         .appSecondaryButton()
                 }
             }
@@ -948,10 +948,10 @@ struct OnboardingPreferencesView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Preferences")
+                Text(LanguageStore.shared.t("onboard.preferences"))
                     .font(.title2.bold())
                     .fontWidth(.expanded)
-                Text("Tune the defaults for new sessions.")
+                Text(LanguageStore.shared.t("onboard.tuneDefaults"))
                     .foregroundStyle(AppTheme.mutedText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -983,7 +983,7 @@ struct OnboardingPreferencesView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "gearshape")
                             .font(AppTheme.Font.micro)
-                        Text("Every option here can be changed later in Settings.")
+                        Text(LanguageStore.shared.t("onboard.changeLater"))
                             .font(.caption)
                     }
                     .foregroundStyle(AppTheme.mutedText)
@@ -996,7 +996,7 @@ struct OnboardingPreferencesView: View {
 
             Divider()
             HStack {
-                Button("Back") { onBack() }
+                Button(LanguageStore.shared.t("common.back")) { onBack() }
                     .appSecondaryButton()
                 Spacer()
                 Button(finishButtonTitle) {
@@ -1038,7 +1038,7 @@ struct OnboardingPreferencesView: View {
     }
 
     private var finishButtonTitle: String {
-        needsDoctor ? "Review Setup" : "Done"
+        needsDoctor ? LanguageStore.shared.t("onboard.reviewSetup") : LanguageStore.shared.t("common.done")
     }
 
     // MARK: Rows
@@ -1046,8 +1046,8 @@ struct OnboardingPreferencesView: View {
     private var worktreeRow: some View {
         OnboardingPreferenceRow(
             icon: "point.3.connected.trianglepath.dotted",
-            title: "Worktree isolation",
-            caption: "Each new Pi session gets its own git branch in an isolated working copy. Use the Merge toolbar action to bring work back."
+            title: LanguageStore.shared.t("onboard.worktreeIsolation"),
+            caption: LanguageStore.shared.t("onboard.worktreeCaption")
         ) {
             Toggle("", isOn: Binding(
                 get: { viewModel.appSettings.piAgentSessionsUseWorktree },
@@ -1061,8 +1061,8 @@ struct OnboardingPreferencesView: View {
     private var modelRow: some View {
         OnboardingPreferenceRow(
             icon: "cpu",
-            title: "Default model",
-            caption: "Used when starting new sessions. You can still pick a different model per session.",
+            title: LanguageStore.shared.t("onboard.defaultModel"),
+            caption: LanguageStore.shared.t("onboard.defaultModelCaption"),
             secondary: AnyView(modelAndThinkingControl)
         ) {
             EmptyView()
@@ -1073,7 +1073,7 @@ struct OnboardingPreferencesView: View {
         HStack(spacing: 16) {
             Picker("", selection: defaultModelBinding) {
                 if viewModel.enabledAvailableModels.isEmpty {
-                    Text(modelsAreLoading ? "Loading models…" : "No models available").tag("")
+                    Text(modelsAreLoading ? LanguageStore.shared.t("onboard.loadingModels") : LanguageStore.shared.t("onboard.noModels")).tag("")
                 }
                 ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
                     Text(model.displayName).tag(model.identifier)
@@ -1085,14 +1085,14 @@ struct OnboardingPreferencesView: View {
             .frame(width: 220)
 
             HStack(spacing: 8) {
-                Text("Thinking:")
+                Text(LanguageStore.shared.t("onboard.thinking"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                 Picker("", selection: thinkingLevelBinding) {
-                    Text("Off").tag("off")
-                    Text("Low").tag("low")
-                    Text("Medium").tag("medium")
-                    Text("High").tag("high")
+                    Text(LanguageStore.shared.t("onboard.thinking.off")).tag("off")
+                    Text(LanguageStore.shared.t("onboard.thinking.low")).tag("low")
+                    Text(LanguageStore.shared.t("onboard.thinking.medium")).tag("medium")
+                    Text(LanguageStore.shared.t("onboard.thinking.high")).tag("high")
                 }
                 .appMenuPicker()
                 .labelsHidden()
@@ -1106,8 +1106,8 @@ struct OnboardingPreferencesView: View {
     private var autoTitlesRow: some View {
         OnboardingPreferenceRow(
             icon: "sparkles",
-            title: "Auto-generate session titles",
-            caption: "Drafts a short title from the first request in each session.",
+            title: LanguageStore.shared.t("onboard.autoTitles"),
+            caption: LanguageStore.shared.t("onboard.autoTitlesCaption"),
             secondary: viewModel.appSettings.autoGeneratePiAgentSessionTitles ? AnyView(titleModelControl) : nil
         ) {
             Toggle("", isOn: Binding(
@@ -1121,11 +1121,11 @@ struct OnboardingPreferencesView: View {
 
     private var titleModelControl: some View {
         HStack(spacing: 8) {
-            Text("Title model:")
+            Text(LanguageStore.shared.t("onboard.titleModel"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
             Picker("", selection: titleGenerationModelBinding) {
-                Text("Default model").tag("")
+                Text(LanguageStore.shared.t("onboard.defaultModel")).tag("")
                 ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                     Text(model.displayName).tag(model.identifier)
                 }
@@ -1141,8 +1141,8 @@ struct OnboardingPreferencesView: View {
     private var gitAutomationRow: some View {
         OnboardingPreferenceRow(
             icon: "arrow.triangle.branch",
-            title: "Git automation",
-            caption: "Show Commit and Push actions in the session toolbar. Commit messages are drafted by a model.",
+            title: LanguageStore.shared.t("onboard.gitAutomation"),
+            caption: LanguageStore.shared.t("onboard.gitAutomationCaption"),
             secondary: viewModel.appSettings.piAgentGitAutomationEnabled ? AnyView(commitMessageModelControl) : nil
         ) {
             Toggle("", isOn: Binding(
@@ -1156,11 +1156,11 @@ struct OnboardingPreferencesView: View {
 
     private var commitMessageModelControl: some View {
         HStack(spacing: 8) {
-            Text("Commit model:")
+            Text(LanguageStore.shared.t("onboard.commitModel"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
             Picker("", selection: commitMessageModelBinding) {
-                Text("Default model").tag("")
+                Text(LanguageStore.shared.t("onboard.defaultModel")).tag("")
                 ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
                     Text(model.displayName).tag(model.identifier)
                 }
@@ -1176,8 +1176,8 @@ struct OnboardingPreferencesView: View {
     private var subagentsRow: some View {
         OnboardingPreferenceRow(
             icon: "paperplane",
-            title: "Deck agents",
-            caption: "Let new sessions delegate focused work to Deck agents you've configured."
+            title: LanguageStore.shared.t("onboard.deckAgents"),
+            caption: LanguageStore.shared.t("onboard.deckAgentsCaption")
         ) {
             Toggle("", isOn: Binding(
                 get: { viewModel.areSubagentsEnabledForNewSessions },
@@ -1259,7 +1259,7 @@ private struct OnboardingPreferenceRow<Control: View>: View {
                         Text(disabledHint)
                             .font(.caption.weight(.medium))
                         if let openSetup {
-                            Button("Open Setup", action: openSetup)
+                            Button(LanguageStore.shared.t("onboard.openSetup"), action: openSetup)
                                 .buttonStyle(.link)
                                 .font(.caption.weight(.medium))
                         }
