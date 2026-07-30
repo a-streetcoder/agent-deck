@@ -242,7 +242,7 @@ struct LoopLaunchSheet: View {
                                 HStack(spacing: 8) {
                                     Picker(languageStore.t("loopLaunch.structurePicker"), selection: $draft.structure) {
                                         ForEach(LoopStructureKind.allCases) { kind in
-                                            Text(kind.displayName).tag(kind)
+                                            Text(kind.localizedDisplayName).tag(kind)
                                         }
                                     }
                                     .labelsHidden()
@@ -266,7 +266,7 @@ struct LoopLaunchSheet: View {
                                 HStack(spacing: 8) {
                                     Picker(languageStore.t("loopLaunch.writeTargetTitle"), selection: $draft.writeTarget) {
                                         ForEach(LoopWriteTarget.allCases) { target in
-                                            Text(target.displayName).tag(target)
+                                            Text(target.localizedDisplayName).tag(target)
                                         }
                                     }
                                     .labelsHidden()
@@ -605,7 +605,7 @@ struct LoopLaunchSheet: View {
     }
 
     private var structureFields: some View {
-        AppCard(title: draft.structure.displayName) {
+        AppCard(title: draft.structure.localizedDisplayName) {
             VStack(alignment: .leading, spacing: 14) {
                 switch draft.structure {
                 case .makerChecker:

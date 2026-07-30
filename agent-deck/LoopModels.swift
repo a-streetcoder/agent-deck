@@ -10,6 +10,7 @@ nonisolated enum LoopStructureKind: String, Codable, CaseIterable, Identifiable,
 
     var id: String { rawValue }
 
+    /// English display name (persistence / search / English fallback).
     var displayName: String {
         switch self {
         case .singleAgent: return "Single Agent"
@@ -20,6 +21,21 @@ nonisolated enum LoopStructureKind: String, Codable, CaseIterable, Identifiable,
         case .humanApproval: return "Approval Checkpoint"
         }
     }
+
+    /// UI label for the current app language.
+    @MainActor
+    var localizedDisplayName: String {
+        let key: String
+        switch self {
+        case .singleAgent: key = "loops.structure.singleAgent"
+        case .makerChecker: key = "loops.structure.makerChecker"
+        case .agentPipeline: key = "loops.structure.agentPipeline"
+        case .parallelAgents: key = "loops.structure.parallelAgents"
+        case .discoveryTriage: key = "loops.structure.discoveryTriage"
+        case .humanApproval: key = "loops.structure.humanApproval"
+        }
+        return LanguageStore.shared.t(key)
+    }
 }
 
 nonisolated enum LoopWriteTarget: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -29,12 +45,25 @@ nonisolated enum LoopWriteTarget: String, Codable, CaseIterable, Identifiable, S
 
     var id: String { rawValue }
 
+    /// English display name (persistence / English fallback).
     var displayName: String {
         switch self {
         case .artifactMarkdown: return "Artifact / Markdown output"
         case .newWorktree: return "New worktree (explicit coding target)"
         case .currentCheckout: return "Current checkout (explicit/direct)"
         }
+    }
+
+    /// UI label for the current app language.
+    @MainActor
+    var localizedDisplayName: String {
+        let key: String
+        switch self {
+        case .artifactMarkdown: key = "loops.writeTarget.artifactMarkdown"
+        case .newWorktree: key = "loops.writeTarget.newWorktree"
+        case .currentCheckout: key = "loops.writeTarget.currentCheckout"
+        }
+        return LanguageStore.shared.t(key)
     }
 }
 

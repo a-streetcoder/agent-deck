@@ -497,7 +497,7 @@ struct NewSkillEditorSheet: View {
                                     .labelsHidden()
                             } label: {
                                 fieldLabel(
-                                    "Skill name",
+                                    LanguageStore.shared.t("editor.skillName"),
                                     help: LanguageStore.shared.t("editor.skillSlugHelp")
                                 )
                                 .frame(width: identityLabelWidth, alignment: .leading)
@@ -509,7 +509,7 @@ struct NewSkillEditorSheet: View {
                                     .labelsHidden()
                             } label: {
                                 fieldLabel(
-                                    "Description",
+                                    LanguageStore.shared.t("editor.skillDescription"),
                                     help: LanguageStore.shared.t("editor.skillDescHelp")
                                 )
                                 .frame(width: identityLabelWidth, alignment: .leading)
@@ -625,7 +625,7 @@ struct NewSkillEditorSheet: View {
 
         # \(previewName)
 
-        \(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Document the skill instructions here." : draft.body.trimmingCharacters(in: .whitespacesAndNewlines))
+        \(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? LanguageStore.shared.t("editor.skillBodyPlaceholder") : draft.body.trimmingCharacters(in: .whitespacesAndNewlines))
         """
 
         Text(preview)
@@ -733,14 +733,14 @@ struct AgentEditorSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Form {
                         if case .custom = draft.target {
-                            Section("Identity") {
-                                TextField("Name", text: $draft.config.name)
-                                TextField("Description", text: $draft.config.description)
-                                TextField("When to Use", text: binding(for: \.whenToUse))
+                            Section(LanguageStore.shared.t("editor.section.identity")) {
+                                TextField(LanguageStore.shared.t("editor.field.name"), text: $draft.config.name)
+                                TextField(LanguageStore.shared.t("editor.field.description"), text: $draft.config.description)
+                                TextField(LanguageStore.shared.t("editor.field.whenToUse"), text: binding(for: \.whenToUse))
                                     .help(LanguageStore.shared.t("editor.routingHelp"))
                             }
                         } else {
-                            Section("Builtin") {
+                            Section(LanguageStore.shared.t("editor.section.builtin")) {
                                 TextField("Name", text: .constant(draft.originalName))
                                     .disabled(true)
                                 Text(LanguageStore.shared.t("editor.builtinOverridesHint"))
@@ -748,7 +748,7 @@ struct AgentEditorSheet: View {
                             }
                         }
 
-                        Section("Behavior") {
+                        Section(LanguageStore.shared.t("editor.section.behavior")) {
                             Text(modelSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
 
@@ -818,7 +818,7 @@ struct AgentEditorSheet: View {
                             }
                         }
 
-                        Section("Tools & Skills") {
+                        Section(LanguageStore.shared.t("editor.section.toolsSkills")) {
                             Text(toolSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
 
@@ -846,7 +846,7 @@ struct AgentEditorSheet: View {
                             }
 
                             LabeledContent {
-                                TextField("Comma-separated tools", text: toolsBinding())
+                                TextField(LanguageStore.shared.t("editor.commaTools"), text: toolsBinding())
                                     .labelsHidden()
                             } label: {
                                 editorFieldLabel(LanguageStore.shared.t("editor.toolList"), help: "You can edit tool names directly here. \(AppBrand.displayName) stores them as a comma-separated list in frontmatter.")
@@ -868,7 +868,7 @@ struct AgentEditorSheet: View {
                             }
 
                             LabeledContent {
-                                TextField("Comma-separated skills", text: arrayBinding(for: \ .skills))
+                                TextField(LanguageStore.shared.t("editor.commaSkills"), text: arrayBinding(for: \ .skills))
                                     .labelsHidden()
                             } label: {
                                 editorFieldLabel(LanguageStore.shared.t("editor.skillList"), help: "Explicit skills are attached by name to this agent. You can add them from the picker above or edit the list directly here.")
@@ -878,19 +878,19 @@ struct AgentEditorSheet: View {
                         }
 
                         if case .custom = draft.target {
-                            Section("Files") {
-                                TextField("Extensions", text: listBinding(for: \ .extensions))
-                                TextField("Output", text: binding(for: \ .output))
+                            Section(LanguageStore.shared.t("editor.section.files")) {
+                                TextField(LanguageStore.shared.t("editor.field.extensions"), text: listBinding(for: \ .extensions))
+                                TextField(LanguageStore.shared.t("editor.field.output"), text: binding(for: \ .output))
                                 Picker(LanguageStore.shared.t("editor.defaultOutcome"), selection: defaultExpectedOutcomeBinding()) {
                                     Text(LanguageStore.shared.t("editor.unspecified")).tag(PiSubagentExpectedOutcome?.none)
                                     ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
                                         Text(outcome.displayName).tag(Optional(outcome))
                                     }
                                 }
-                                TextField("Default Reads", text: listBinding(for: \ .defaultReads))
+                                TextField(LanguageStore.shared.t("editor.field.defaultReads"), text: listBinding(for: \ .defaultReads))
                                 Toggle(LanguageStore.shared.t("editor.defaultProgress"), isOn: optionalBoolBinding(for: \ .defaultProgress))
                                 Toggle(LanguageStore.shared.t("editor.interactive"), isOn: optionalBoolBinding(for: \ .interactive))
-                                Stepper("Max Subagent Depth: \(draft.config.maxSubagentDepth ?? 0)", value: intBinding(for: \ .maxSubagentDepth), in: 0...10)
+                                Stepper(LanguageStore.shared.t("editor.maxSubagentDepth", draft.config.maxSubagentDepth ?? 0), value: intBinding(for: \ .maxSubagentDepth), in: 0...10)
                                     .appBrandTint()
                             }
                         }
@@ -943,9 +943,11 @@ struct AgentEditorSheet: View {
     private var editorTitle: String {
         switch draft.target {
         case let .builtinOverride(scope):
-            return "Edit Builtin Override · \(scope.displayName)"
+            return LanguageStore.shared.t("editor.editBuiltinOverride", scope.displayName)
         case let .custom(scope):
-            return draft.sourcePath == nil ? "New Custom Agent · \(scope.displayName)" : "Edit Custom Agent · \(scope.displayName)"
+            return draft.sourcePath == nil
+                ? LanguageStore.shared.t("editor.newCustomAgent", scope.displayName)
+                : LanguageStore.shared.t("editor.editCustomAgent", scope.displayName)
         }
     }
 
@@ -972,27 +974,23 @@ struct AgentEditorSheet: View {
         let freshness = modelsLastUpdatedAt.map { date in
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .short
-            return " Refreshed \(formatter.localizedString(for: date, relativeTo: Date()))."
+            let rel = formatter.localizedString(for: date, relativeTo: Date())
+            return LanguageStore.shared.t("editor.modelsRefreshed", rel)
         } ?? ""
-        return "Available models come from `pi --list-models` and are cached in the app on refresh.\(freshness)"
+        return LanguageStore.shared.t("editor.modelsSummary", freshness)
     }
 
     private var toolSelectionSummary: String {
         switch draft.target {
         case .builtinOverride(scope: .global), .custom(scope: .global), .custom(scope: .library):
-            return "Library/global agent: tools are based on the global environment only."
+            return LanguageStore.shared.t("editor.toolsSummary.global")
         case .builtinOverride(scope: .project), .custom(scope: .project):
-            return "Project-scoped agent settings: tools are based on global + selected project scope."
+            return LanguageStore.shared.t("editor.toolsSummary.project")
         }
     }
 
     private var skillSelectionSummary: String {
-        switch draft.target {
-        case .builtinOverride(scope: .global), .custom(scope: .global), .custom(scope: .library):
-            return "Choose catalog skills to assign explicitly to this agent. Agents do not inherit Default or Project skills."
-        case .builtinOverride(scope: .project), .custom(scope: .project):
-            return "Choose catalog skills to assign explicitly to this agent. Agents do not inherit Default or Project skills."
-        }
+        LanguageStore.shared.t("editor.skillsSummary")
     }
 
     private var promptSectionSummary: String {

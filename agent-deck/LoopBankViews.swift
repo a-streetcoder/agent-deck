@@ -111,11 +111,21 @@ struct LoopDefinitionEditorDraft: Equatable {
 }
 
 private enum LoopEditTab: String, CaseIterable, Identifiable {
-    case definition = "Definition"
-    case structure = "Structure"
-    case assignment = "Assignment"
+    case definition
+    case structure
+    case assignment
 
     var id: String { rawValue }
+
+    /// Localized tab title for the loop editor sheet.
+    @MainActor
+    var localizedTitle: String {
+        switch self {
+        case .definition: return LanguageStore.shared.t("loops.tab.definition")
+        case .structure: return LanguageStore.shared.t("loops.tab.structure")
+        case .assignment: return LanguageStore.shared.t("loops.tab.assignment")
+        }
+    }
 }
 
 struct LoopBankScreen: View {
@@ -331,8 +341,8 @@ struct LoopBankScreen: View {
         VStack(alignment: .leading, spacing: 10) {
             readOnlyFieldRow(LanguageStore.shared.t("loops.field.name"), value: definition.name, placeholder: LanguageStore.shared.t("loops.placeholder.untitled"))
             readOnlyMarkdownFieldRow(LanguageStore.shared.t("loops.field.description"), value: definition.description, placeholder: LanguageStore.shared.t("loops.placeholder.noDescription"))
-            readOnlyFieldRow(LanguageStore.shared.t("loops.field.structure"), value: definition.structure.displayName)
-            readOnlyFieldRow(LanguageStore.shared.t("loops.writeTarget"), value: definition.writeTarget.displayName)
+            readOnlyFieldRow(LanguageStore.shared.t("loops.field.structure"), value: definition.structure.localizedDisplayName)
+            readOnlyFieldRow(LanguageStore.shared.t("loops.writeTarget"), value: definition.writeTarget.localizedDisplayName)
             readOnlyFieldRow(LanguageStore.shared.t("loops.field.maxIterations"), value: definition.maxIterations > 0 ? "\(definition.maxIterations)" : LanguageStore.shared.t("loops.noLimit"))
             readOnlyMarkdownFieldRow(LanguageStore.shared.t("loops.field.goalTemplate"), value: definition.goalTemplate, placeholder: LanguageStore.shared.t("loops.placeholder.noGoal"))
             if let launchContext = definition.launchContext, !launchContext.isEmpty {
@@ -360,7 +370,7 @@ struct LoopBankScreen: View {
             detailRow(LanguageStore.shared.t("loops.field.structure"), infoRows: loopStructureInfoRows) {
                 Picker(LanguageStore.shared.t("loops.field.structure"), selection: $editorDraft.structure) {
                     ForEach(LoopStructureKind.allCases) { kind in
-                        Text(kind.displayName).tag(kind)
+                        Text(kind.localizedDisplayName).tag(kind)
                     }
                 }
                 .labelsHidden()
@@ -368,7 +378,7 @@ struct LoopBankScreen: View {
             detailRow(LanguageStore.shared.t("loops.writeTarget"), infoRows: loopWriteTargetInfoRows) {
                 Picker(LanguageStore.shared.t("loops.writeTarget"), selection: $editorDraft.writeTarget) {
                     ForEach(LoopWriteTarget.allCases) { target in
-                        Text(target.displayName).tag(target)
+                        Text(target.localizedDisplayName).tag(target)
                     }
                 }
                 .labelsHidden()
@@ -511,7 +521,7 @@ struct LoopBankScreen: View {
                         Button {
                             selectedEditTab = tab
                         } label: {
-                            Text(tab.rawValue)
+                            Text(tab.localizedTitle)
                                 .font(.subheadline.weight(.semibold))
                                 .fontWidth(.expanded)
                                 .foregroundStyle(.primary)
