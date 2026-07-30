@@ -201,6 +201,8 @@ struct NativeBubblePayload {
     var headerTitle: String
     /// SF Symbol name for the header icon; `nil` renders the bundled "pi" logo.
     var iconSymbol: String?
+    /// Optional custom avatar (user profile). When set, replaces the SF Symbol icon.
+    var headerAvatarImage: NSImage? = nil
     var markdownSource: String
     var imageReferences: [PiAgentTranscriptImageReference] = []
     var showInlineImagePreviews: Bool = true
@@ -687,9 +689,20 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         // Header — the glyph is tinted to the bubble's own role color in
         // applyChromeColors(); the title text keeps its role header color.
         headerLabel.stringValue = payload.headerTitle
-        if let symbol = payload.iconSymbol {
+        if let avatar = payload.headerAvatarImage {
+            iconView.image = avatar
+            iconView.contentTintColor = nil
+            iconView.wantsLayer = true
+            iconView.layer?.cornerRadius = NativeTranscriptFont.headerIconSize / 2
+            iconView.layer?.masksToBounds = true
+            iconView.imageScaling = .scaleProportionallyUpOrDown
+        } else if let symbol = payload.iconSymbol {
+            iconView.layer?.cornerRadius = 0
+            iconView.layer?.masksToBounds = false
             iconView.image = NativeTranscriptFont.headerIcon(symbol)
         } else {
+            iconView.layer?.cornerRadius = 0
+            iconView.layer?.masksToBounds = false
             iconView.image = NSImage(named: "pi")
             iconView.image?.isTemplate = true
         }
@@ -775,7 +788,9 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         // The glyph takes the bubble's own color (the same `base` driving the
         // fill/stroke); neutral status/raw rows get a muted glyph to match their
         // neutral fill.
-        iconView.contentTintColor = neutral ? AppTheme.ns(AppTheme.mutedText) : base
+        if payload.headerAvatarImage == nil {
+            iconView.contentTintColor = neutral ? AppTheme.ns(AppTheme.mutedText) : base
+        }
         headerLabel.textColor = headerColor
         // Glass button glyphs use the primary label color — matches the SwiftUI
         // AppCopyIconButton / AppForkIconButton (.foregroundStyle(.primary)).

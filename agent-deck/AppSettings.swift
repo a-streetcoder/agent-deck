@@ -263,6 +263,10 @@ struct AppSettings: Codable, Hashable {
     /// Asset-catalog name of the user-chosen Dock icon. `nil` = bundle default.
     var selectedAppIconName: String?
     var didOpenLoopsFromSidebar: Bool = false
+    /// Transcript user bubble label. Empty uses localized default ("You").
+    var userDisplayName: String = ""
+    /// Relative file name under User Profile support dir; empty means SF Symbol avatar.
+    var userAvatarFileName: String?
 
     enum CodingKeys: String, CodingKey {
         case piAgentNotificationDelayMinutes
@@ -320,6 +324,8 @@ struct AppSettings: Codable, Hashable {
         case piAgentMarkdownHighlightingEnabled
         case selectedAppIconName
         case didOpenLoopsFromSidebar
+        case userDisplayName
+        case userAvatarFileName
     }
 
     private enum LegacyCodingKeys: String, CodingKey {
@@ -390,6 +396,8 @@ struct AppSettings: Codable, Hashable {
         piAgentMarkdownHighlightingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentMarkdownHighlightingEnabled) ?? true
         selectedAppIconName = try container.decodeIfPresent(String.self, forKey: .selectedAppIconName)
         didOpenLoopsFromSidebar = try container.decodeIfPresent(Bool.self, forKey: .didOpenLoopsFromSidebar) ?? false
+        userDisplayName = try container.decodeIfPresent(String.self, forKey: .userDisplayName) ?? ""
+        userAvatarFileName = try container.decodeIfPresent(String.self, forKey: .userAvatarFileName)
     }
 }
 

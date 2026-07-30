@@ -2289,3 +2289,12 @@
 "editor.editBuiltinOverride" = "编辑内置覆盖 · %@";
 "editor.commaTools" = "逗号分隔的工具";
 "editor.commaSkills" = "逗号分隔的技能";
+
+"profile.defaultYou" = "你";
+"settings.profile.name" = "显示名称";
+"settings.profile.nameHelp" = "显示在对话气泡的用户标题上。";
+"settings.profile.namePlaceholder" = "你";
+"settings.profile.avatar" = "头像";
+"settings.profile.avatarHelp" = "可选，显示在用户气泡标题旁。";
+"settings.profile.chooseAvatar" = "选择…";
+"settings.profile.clearAvatar" = "移除";

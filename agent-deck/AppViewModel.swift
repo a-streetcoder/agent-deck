@@ -5883,6 +5883,46 @@ final class AppViewModel: NSObject {
         appSettingsController.isPiAgentIdleParkingEnabled
     }
 
+    // MARK: - User profile (transcript "You" bubble)
+
+    /// Effective label for user message headers.
+    var resolvedUserDisplayName: String {
+        let trimmed = appSettings.userDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return LanguageStore.shared.t("profile.defaultYou")
+    }
+
+    /// File URL of the custom user avatar, if configured.
+    var userAvatarImageURL: URL? {
+        UserAvatarStore.imageURL(fileName: appSettings.userAvatarFileName)
+    }
+
+    /// Update the display name shown on user transcript bubbles.
+    ///
+    /// - Parameter name: Free-form display name; empty restores default "You".
+    func setUserDisplayName(_ name: String) {
+        appSettingsController.userDisplayName = name
+        syncAppSettings()
+    }
+
+    /// Import a user-picked image as the transcript avatar.
+    ///
+    /// - Parameter url: Local image file. Required.
+    func setUserAvatar(from url: URL) {
+        do {
+            try appSettingsController.setUserAvatar(from: url)
+            syncAppSettings()
+        } catch {
+            NSLog("[profile] setUserAvatar failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Remove the custom user avatar.
+    func clearUserAvatar() {
+        appSettingsController.clearUserAvatar()
+        syncAppSettings()
+    }
+
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) {
         guard appSettingsController.setPiAgentNotificationDelayMinutes(minutes) else { return }
         syncAppSettings()

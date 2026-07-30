@@ -1153,7 +1153,47 @@ final class AppSettingsController {
         return true
     }
 
+    /// Display name for transcript user bubbles. Empty falls back to localized "You".
+    var userDisplayName: String {
+        get { settings.userDisplayName }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard settings.userDisplayName != trimmed else { return }
+            settings.userDisplayName = trimmed
+            persist()
+        }
+    }
+
+    /// Relative avatar file name under User Profile support directory.
+    var userAvatarFileName: String? {
+        settings.userAvatarFileName
+    }
+
+    /// Import a user-picked avatar image and persist its file name.
+    ///
+    /// - Parameter sourceURL: Image file URL. Required.
+    /// - Throws: File system errors from copy.
+    func setUserAvatar(from sourceURL: URL) throws {
+        let old = settings.userAvatarFileName
+        let fileName = try UserAvatarStore.importImage(from: sourceURL)
+        settings.userAvatarFileName = fileName
+        persist()
+        if old != fileName {
+            UserAvatarStore.removeImage(fileName: old)
+        }
+    }
+
+    /// Clear the custom user avatar and delete the stored file.
+    func clearUserAvatar() {
+        let old = settings.userAvatarFileName
+        guard old != nil else { return }
+        settings.userAvatarFileName = nil
+        persist()
+        UserAvatarStore.removeImage(fileName: old)
+    }
+
     private func persist() {
         store.settings = settings
     }
 }
+

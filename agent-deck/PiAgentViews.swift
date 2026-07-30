@@ -6006,7 +6006,8 @@ struct PiAgentScreen: View {
             "archived": showArchivedPreCompactionTranscript ? 1 : 0,
             "visibility": String(describing: viewModel.appSettings.piAgentTranscriptVisibility).hashValue,
             "skills": visibleSkillsForSelectedSession.map(\.name).hashValue,
-            "agents": viewModel.displayAgentsRevision
+            "agents": viewModel.displayAgentsRevision,
+            "userProfile": viewModel.appSettings.userDisplayName.hashValue ^ (viewModel.appSettings.userAvatarFileName?.hashValue ?? 0)
         ]
         if let session = store.selectedSession {
             components["sessionID"] = session.id.hashValue
@@ -6363,9 +6364,13 @@ struct PiAgentScreen: View {
         // when a cell actually configures — i.e. for visible rows — instead of for
         // every question on every `itemsBuild` pulse.
         let fork = questionForkModel(question)
+        let userTitle = viewModel.resolvedUserDisplayName
+        let userAvatar = UserAvatarStore.loadImage(fileName: viewModel.appSettings.userAvatarFileName)
         return .native(.of(PiAgentNativeQuestionView.self) { view, width in
-            let payload = NativeQuestionPayload.make(
+            var payload = NativeQuestionPayload.make(
                 entry: question, skills: skills, commandSlashNames: commandSlashNames, fork: fork)
+            payload.headerTitle = userTitle
+            payload.headerAvatarImage = userAvatar
             view.configure(payload: payload, width: width)
         })
     }
@@ -6381,8 +6386,9 @@ struct PiAgentScreen: View {
         let fork = questionForkModel(question)
         return .bubble(NativeBubblePayload(
             role: .user,
-            headerTitle: "You",
+            headerTitle: viewModel.resolvedUserDisplayName,
             iconSymbol: "person.crop.circle",
+            headerAvatarImage: UserAvatarStore.loadImage(fileName: viewModel.appSettings.userAvatarFileName),
             markdownSource: text,
             imageReferences: question.imageReferences,
             showInlineImagePreviews: showImages,
@@ -6676,6 +6682,8 @@ struct PiAgentScreen: View {
         hasher.combine(store.isSelectedTranscriptLoading)
         hasher.combine(String(describing: viewModel.appSettings.piAgentTranscriptVisibility))
         hasher.combine(visibleSkillsForSelectedSession.map(\.name))
+        hasher.combine(viewModel.appSettings.userDisplayName)
+        hasher.combine(viewModel.appSettings.userAvatarFileName)
         return hasher.finalize()
     }
 

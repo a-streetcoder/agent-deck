@@ -59,6 +59,8 @@ struct NativeQuestionPayload {
     /// for steering messages.
     var headerTitle: String = "You"
     var headerIcon: String = "person.fill"
+    /// Optional custom user avatar; when set replaces headerIcon.
+    var headerAvatarImage: NSImage? = nil
 
     /// Pre-measured natural chip-row width (from `displayChipsNaturalWidth`) so
     /// the card can grow to fit wide pills within the cap, matching the bubble.
@@ -861,7 +863,18 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
         cardView.layer?.removeAllAnimations()
 
         headerLabel.stringValue = payload.headerTitle
-        iconView.image = NativeTranscriptFont.headerIcon(payload.headerIcon)
+        if let avatar = payload.headerAvatarImage {
+            iconView.image = avatar
+            iconView.contentTintColor = nil
+            iconView.wantsLayer = true
+            iconView.layer?.cornerRadius = NativeTranscriptFont.headerIconSize / 2
+            iconView.layer?.masksToBounds = true
+        } else {
+            iconView.layer?.cornerRadius = 0
+            iconView.layer?.masksToBounds = false
+            iconView.image = NativeTranscriptFont.headerIcon(payload.headerIcon)
+            iconView.contentTintColor = .labelColor
+        }
 
         let cardW = cardWidth(forRowWidth: rowWidth)
         cardWidthC.constant = cardW

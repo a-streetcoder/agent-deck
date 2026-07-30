@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsSceneContent: View {
     @Environment(AppViewModel.self) private var viewModel
@@ -415,8 +416,47 @@ private struct GeneralSettingsTab: View {
     var viewModel: AppViewModel
     @ObservedObject private var languageStore = LanguageStore.shared
 
+    @State private var isAvatarImporterPresented = false
+
     var body: some View {
         SettingsForm {
+            SettingsSection {
+                SettingsRow(
+                    title: languageStore.t("settings.profile.name"),
+                    note: languageStore.t("settings.profile.nameHelp")
+                ) {
+                    TextField(
+                        languageStore.t("settings.profile.namePlaceholder"),
+                        text: Binding(
+                            get: { viewModel.appSettings.userDisplayName },
+                            set: { viewModel.setUserDisplayName($0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+                }
+
+                SettingsRow(
+                    title: languageStore.t("settings.profile.avatar"),
+                    note: languageStore.t("settings.profile.avatarHelp")
+                ) {
+                    HStack(spacing: 12) {
+                        userAvatarPreview
+                        Button(languageStore.t("settings.profile.chooseAvatar")) {
+                            isAvatarImporterPresented = true
+                        }
+                        .appSecondaryButton()
+                        if viewModel.appSettings.userAvatarFileName != nil {
+                            Button(languageStore.t("settings.profile.clearAvatar")) {
+                                viewModel.clearUserAvatar()
+                            }
+                            .appSecondaryButton()
+                        }
+                    }
+                    .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+                }
+            }
+
             SettingsSection {
                 SettingsRow(
                     title: languageStore.t("settings.language"),
@@ -464,6 +504,38 @@ private struct GeneralSettingsTab: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $isAvatarImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            viewModel.setUserAvatar(from: url)
+        }
+    }
+
+    @ViewBuilder
+    private var userAvatarPreview: some View {
+        let size: CGFloat = 40
+        Group {
+            if let url = viewModel.userAvatarImageURL,
+               let ns = NSImage(contentsOf: url) {
+                Image(nsImage: ns)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 }
 

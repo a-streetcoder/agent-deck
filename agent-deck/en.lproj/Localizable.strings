@@ -2290,3 +2290,12 @@
 "editor.editBuiltinOverride" = "Edit Builtin Override · %@";
 "editor.commaTools" = "Comma-separated tools";
 "editor.commaSkills" = "Comma-separated skills";
+
+"profile.defaultYou" = "You";
+"settings.profile.name" = "Display name";
+"settings.profile.nameHelp" = "Shown on your messages in the transcript.";
+"settings.profile.namePlaceholder" = "You";
+"settings.profile.avatar" = "Avatar";
+"settings.profile.avatarHelp" = "Optional photo used next to your display name.";
+"settings.profile.chooseAvatar" = "Choose…";
+"settings.profile.clearAvatar" = "Remove";
