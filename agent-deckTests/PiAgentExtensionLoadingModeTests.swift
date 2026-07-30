@@ -213,6 +213,14 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
             discoveryKind: .package,
             packageName: "@juicesharp/rpiv-ask-user-question"
         )
+        let web = PiExtensionCandidate(
+            id: "path:/tmp/web",
+            name: "index",
+            launchSource: "/tmp/web",
+            source: ScopeID(kind: .package, path: "npm:pi-web-access"),
+            discoveryKind: .package,
+            packageName: "pi-web-access"
+        )
         let sub = PiExtensionCandidate(
             id: "path:/tmp/sub",
             name: "index",
@@ -223,7 +231,23 @@ final class PiAgentExtensionLoadingModeTests: XCTestCase {
         )
         XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(ask))
         XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(scopedAsk))
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(web))
         XCTAssertFalse(PiAgentLaunchArgumentBuilder.isDeckSupersededPackage(sub))
+    }
+
+    func testIsDeckSupersededExtensionRef() {
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("npm:pi-web-access"))
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("pi-web-access"))
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("npm:pi-ask-user"))
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("/tmp/agent-deck-web-access.ts"))
+        XCTAssertFalse(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("npm:pi-subagents"))
+        XCTAssertFalse(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("npm:pi-grok-cli"))
+    }
+
+    func testAgentExtensionArgumentsSkipsDeckSuperseded() {
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef("npm:pi-web-access"))
+        XCTAssertTrue(PiAgentLaunchArgumentBuilder.isDeckSupersededPackageBaseName("pi-web-access"))
+        XCTAssertFalse(PiAgentLaunchArgumentBuilder.isDeckSupersededPackageBaseName("pi-subagents"))
     }
 
     // MARK: - Injected bridge list (Session resources popover)

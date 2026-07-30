@@ -794,9 +794,14 @@ nonisolated struct PiScanner: @unchecked Sendable {
     ) -> [DiagnosticWarning] {
         var warnings: [DiagnosticWarning] = malformedWarnings
         let skillNames = Set(skills.map(\.name)).union(skillCollectionNames)
-        let exaConfigured = envKeys.contains {
-            $0.key == "EXA_API_KEY" && ($0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        // Match launch-time `isWebSearchConfigured`: env keys OR ~/.pi/web-search.json.
+        var envMap: [String: String] = [:]
+        for record in envKeys {
+            if let value = record.value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                envMap[record.key] = value
+            }
         }
+        let webSearchConfigured = PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: envMap)
         let duplicatePromptNames = Dictionary(grouping: promptTemplates, by: \.name).compactMapValues { records in
             let uniqueRecords = dedupePromptWarningRecords(records)
             return uniqueRecords.count > 1 ? uniqueRecords : nil
@@ -816,13 +821,27 @@ nonisolated struct PiScanner: @unchecked Sendable {
             }
             if let tools = agent.resolved.tools,
                tools.contains(where: { PiNativeSubagentBridgeExtensions.exaToolNames.contains($0.lowercased()) }),
-               !exaConfigured {
-                warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses bundled web tools but EXA_API_KEY was not found."))
+               !webSearchConfigured {
+                warnings.append(.init(
+                    id: "env:\(agent.name)",
+                    message: "Agent \(agent.name) uses web tools (web_search / fetch_content / get_search_content) but no Exa/Brave/Tavily credential was found (env or ~/.pi/web-search.json)."
+                ))
             }
             if let tools = agent.resolved.tools,
                tools.contains(where: { $0.lowercased() == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName }),
-               exaConfigured {
-                warnings.append(.init(id: "env:\(agent.name):web-fetch", message: "Agent \(agent.name) uses web_fetch, but Exa is configured. Agent Deck exposes Exa web tools instead."))
+               webSearchConfigured {
+                warnings.append(.init(id: "env:\(agent.name):web-fetch", message: "Agent \(agent.name) uses web_fetch, but web search is configured. Agent Deck exposes web_search / fetch_content instead."))
+            }
+            // Agent still lists npm:pi-web-access while Deck already bridges those tools
+            // — extension is skipped at launch, warn for clarity.
+            if let extensions = agent.resolved.extensions {
+                let superseded = extensions.filter { PiAgentLaunchArgumentBuilder.isDeckSupersededExtensionRef($0) }
+                if !superseded.isEmpty {
+                    warnings.append(.init(
+                        id: "extensions-superseded:\(agent.name)",
+                        message: "Agent \(agent.name) lists extension(s) already provided by Agent Deck bridges (\(superseded.joined(separator: ", "))); they are skipped at launch to avoid tool-name conflicts. Tools remain available via Deck when web search is configured."
+                    ))
+                }
             }
             if let extensions = agent.resolved.extensions, !extensions.isEmpty,
                ((agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty) {
