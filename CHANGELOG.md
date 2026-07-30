@@ -1,31 +1,10 @@
 # Changelog
 
-## 0.0.4 — 2026-07-30
-
-### Highlights
-- **l10n 运行时加固**：`Localizable.strings` 改为字典缓存加载，避免应用内语言与系统语言不一致时整页回退成 key。
-- **粘贴与打包链路**（自 0.0.3）：Composer 文件粘贴加固；默认屏蔽上游 Agent Deck Sparkle。
-
-### Fixed
-- `L10n` / `LanguageStore`：启动预热 en + zh-Hans 表；查表顺序为当前语言 → 英文 → Bundle API → raw key。
-- 语言切换：`objectWillChange` + `observingLanguage` 绑定 `locale` / `.id(language)`，切换后 UI 强制刷新。
-- 误用 format key：`skills.resolveMissing` help 补参数；Prompt 删除按钮改 `common.moveToTrash`；Skills「从目录移除」按钮改无 `%d` 的 `skills.removeFromCatalogAction`。
-
-### Packaging
-- `MARKETING_VERSION` **0.0.4**，`CURRENT_PROJECT_VERSION` **4**
-- Tag: `v0.0.4`
-- Artifacts: `build/Pi-Deck-0.0.4.zip`, `build/Pi-Deck-0.0.4.dmg`（未签名，尽力生成）
-
-### Install (unsigned)
-```bash
-xattr -cr "/Applications/Pi Deck.app"
-```
-
----
-
 ## 0.0.3 — 2026-07-30
 
 ### Highlights
+- **l10n 运行时加固**：`Localizable.strings` 字典缓存；应用内语言与系统语言不一致时不再整页回退成 key。
+- 语言切换强制刷新 UI；修正若干 format key 误用。
 - **Composer 文件粘贴**：Finder ⌘C → 输入框 ⌘V 可挂文件/文件夹；兼容 file-reference URL 与绝对路径文本。
 - **屏蔽上游 Sparkle**：默认不再检查 `agentdeck.site` 更新；打包禁止注入上游 appcast。
 
