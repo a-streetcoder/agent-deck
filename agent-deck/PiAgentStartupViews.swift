@@ -466,7 +466,8 @@ struct PiAgentStartupResourcesPopover: View {
             viewModel.selectedCommandItemID = id
             viewModel.selectedSidebarItem = .prompts
         case .environment:
-            viewModel.selectedSidebarItem = .environment
+            // Environment sidebar removed; keep session resource chip non-navigating.
+            break
         case .file(let url):
             NSWorkspace.shared.activateFileViewerSelecting([url])
         case .none:

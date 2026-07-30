@@ -397,7 +397,6 @@ struct ContentView: View {
     @ObservedObject private var languageStore = LanguageStore.shared
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
-    @State private var envDraft: EnvEditorDraft?
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
     @State private var agentSearchText = ""
@@ -410,7 +409,6 @@ struct ContentView: View {
     @State private var isMemoryInfoPresented = false
     @State private var isSkillsInfoPresented = false
     @State private var isSubagentsInfoPresented = false
-    @State private var isEnvironmentInfoPresented = false
     @State private var isModelsInfoPresented = false
     @State private var showingEnableAllProjectsAlert = false
     @State private var showingDisableAllProjectsAlert = false
@@ -712,16 +710,6 @@ struct ContentView: View {
                 },
                 onSaveAll: { pairs in
                     try viewModel.saveAgentDrafts(pairs)
-                }
-            )
-        }
-        .sheet(item: $envDraft) { draft in
-            EnvEditorSheet(
-                draft: draft,
-                onCancel: { envDraft = nil },
-                onSave: { drafts in
-                    try viewModel.saveEnvDrafts(drafts)
-                    envDraft = nil
                 }
             )
         }
@@ -1089,9 +1077,6 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var runtimeToolbarItems: some ToolbarContent {
-        if viewModel.selectedSidebarItem == .environment {
-            environmentPrimaryToolbarContent
-        }
         if viewModel.selectedSidebarItem == .models {
             modelsPrimaryToolbarContent
         }
@@ -1252,32 +1237,6 @@ struct ContentView: View {
             SubagentsInfoPopover()
         }
         .toolbarNeutralChrome()
-    }
-
-    @ToolbarContentBuilder
-    private var environmentPrimaryToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                Button {
-                    isEnvironmentInfoPresented.toggle()
-                } label: {
-                    Label(LanguageStore.shared.t("toolbar.info"), systemImage: "info.circle")
-                }
-                .help(LanguageStore.shared.t("toolbar.envInfo"))
-                .popover(isPresented: $isEnvironmentInfoPresented, arrowEdge: .bottom) {
-                    EnvironmentInfoPopover()
-                }
-                .toolbarNeutralChrome()
-
-                Button {
-                    envDraft = viewModel.makeNewEnvDraft()
-                } label: {
-                    Label(LanguageStore.shared.t("toolbar.newKey"), systemImage: "plus")
-                }
-                .toolbarPrimaryActionChrome()
-                .help(LanguageStore.shared.t("toolbar.newKeyHelp"))
-            }
-        }
     }
 
     @ToolbarContentBuilder
@@ -1716,17 +1675,6 @@ struct ContentView: View {
             ModelsScreen(viewModel: viewModel)
         case .subagents:
             SubagentsScreen(viewModel: viewModel)
-        case .environment:
-            EnvironmentScreen(
-                snapshot: viewModel.snapshot,
-                onEditKey: { record in
-                    envDraft = viewModel.makeEnvDraft(for: record)
-                },
-                onDeleteKey: { record in
-                    do { try viewModel.deleteEnvKey(record) }
-                    catch { NSSound.beep() }
-                }
-            )
         case .extensions:
             ExtensionsScreen(viewModel: viewModel)
         case .mcp:
