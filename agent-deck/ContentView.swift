@@ -1707,7 +1707,7 @@ struct ContentView: View {
     private var toolbarTitle: String {
         switch viewModel.selectedSidebarItem {
         case .agent:
-            return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? languageStore.t("sidebar.agent")
+            return viewModel.piAgentSessionStore.selectedSession?.chromeTitle ?? languageStore.t("sidebar.agent")
         case .memory:
             // Mirrors the toolbar toggle so the state reads at a glance.
             return viewModel.appSettings.agentMemoryEnabled ? languageStore.t("memory.title.on") : languageStore.t("memory.title.off")

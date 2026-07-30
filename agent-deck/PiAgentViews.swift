@@ -4008,7 +4008,7 @@ private struct SessionListContent: View, Equatable {
                 .equatable()
                 .simultaneousGesture(TapGesture().onEnded { onSelect(session) })
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(LanguageStore.shared.t("agent.openSession", session.displayTitle))
+                .accessibilityLabel(LanguageStore.shared.t("agent.openSession", session.chromeTitle))
                 .accessibilityAction { onSelect(session) }
                 .focusable()
                 .onKeyPress(.space) {

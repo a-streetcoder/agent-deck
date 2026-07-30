@@ -725,11 +725,16 @@ struct PiAgentSessionRow: View, Equatable {
     }
 
     private var subtitle: String {
+        // Prefer the human project name so auto-titled sessions stay anchored
+        // to a workspace even when the topic string no longer mentions it.
         if session.isNoProject { return session.projectNameForDisplay }
-        if let repository = session.repository {
+        let name = session.projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return name }
+        if let repository = session.repository?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !repository.isEmpty {
             return repository
         }
-        return session.projectName
+        return session.projectScopeLabel
     }
 
     private var statusHelp: String {

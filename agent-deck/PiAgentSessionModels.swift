@@ -1081,6 +1081,41 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         title
     }
 
+    /// Short project/scope label for chrome that sits next to the session title
+    /// (toolbar, compact recents, accessibility). Empty for unlabeled scopes.
+    var projectScopeLabel: String {
+        if isNoProject {
+            return projectNameForDisplay
+        }
+        let name = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return name }
+        if let repository, !repository.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return repository
+        }
+        let path = projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !path.isEmpty {
+            return URL(fileURLWithPath: path).lastPathComponent
+        }
+        return ""
+    }
+
+    /// Toolbar / window chrome: keep generated topic titles readable while always
+    /// anchoring them to a project (or General Chat) scope.
+    ///
+    /// Format: `Project · Session title` when a project scope exists.
+    var chromeTitle: String {
+        let topic = displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scope = projectScopeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if scope.isEmpty { return topic.isEmpty ? displayTitle : topic }
+        if topic.isEmpty { return scope }
+        // Avoid "pi-deck · pi-deck" style duplication for draft titles that already
+        // embed the project name.
+        if topic == scope || topic.hasPrefix(scope + " · ") || topic.hasPrefix(scope + " - ") {
+            return topic
+        }
+        return "\(scope) · \(topic)"
+    }
+
     static let noProjectDisplayName = "General Chat"
     static let agentDeckBuilderDisplayName = "Agent Deck Builder"
 

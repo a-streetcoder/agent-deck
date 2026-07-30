@@ -391,7 +391,7 @@ struct CodingAgentRecentRow: View, Equatable {
     let onDelete: () -> Void
 
     /// Fixed so the collapsed panel can size its visible window exactly.
-    static let rowHeight: CGFloat = 33
+    static let rowHeight: CGFloat = 44
 
     // Closures intentionally excluded: when the value inputs match, the retained
     // instance's closure captured the same session id, so it stays correct.
@@ -426,16 +426,26 @@ struct CodingAgentRecentRow: View, Equatable {
                     .accessibilityHidden(true)
             }
 
-            Text(session.displayTitle)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
-                .font(AppTheme.Font.footnote.weight(.medium))
-                .fontWidth(.expanded)
-                .foregroundStyle(.primary)
-                // Same seen-inactive dimming as the expanded rows.
-                .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
-                .layoutPriority(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.displayTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 16, alignment: .leading)
+                    .font(AppTheme.Font.footnote.weight(.medium))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
+                if showsProjectSubtitle {
+                    Text(projectSubtitleText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, minHeight: 12, maxHeight: 12, alignment: .leading)
+                        .font(AppTheme.Font.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+            // Same seen-inactive dimming as the expanded rows.
+            .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
+            .layoutPriority(1)
 
             Spacer(minLength: 6)
 
@@ -455,7 +465,16 @@ struct CodingAgentRecentRow: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .help(session.displayTitle)
+        .help(session.chromeTitle)
+    }
+
+    /// Compact recents mix projects; after auto-title the topic alone is not enough.
+    private var showsProjectSubtitle: Bool {
+        !session.projectScopeLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var projectSubtitleText: String {
+        session.projectScopeLabel
     }
 
     var iconImageURL: URL? {
