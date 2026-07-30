@@ -212,19 +212,19 @@ struct PromptsScreen: View {
         // via the detail card's project toggles.
         sections.append(AppListSection(
             id: "global",
-            title: "Global Prompts",
+            title: LanguageStore.shared.t("prompts.section.global"),
             items: globalPrompts,
-            emptyMessage: "No global prompt templates."
+            emptyMessage: LanguageStore.shared.t("prompts.section.global.empty")
         ))
         if !libraryPrompts.isEmpty {
-            sections.append(AppListSection(id: "library", title: "Prompt Library", items: libraryPrompts))
+            sections.append(AppListSection(id: "library", title: LanguageStore.shared.t("prompts.section.library"), items: libraryPrompts))
         }
 
         if !settingsPrompts.isEmpty {
             sections.append(AppListSection(
                 id: "settings",
-                title: "Settings Prompts",
-                info: "Loaded from explicit settings.json prompt paths.",
+                title: LanguageStore.shared.t("prompts.section.settings"),
+                info: LanguageStore.shared.t("prompts.section.settings.info"),
                 items: settingsPrompts
             ))
         }
@@ -232,8 +232,8 @@ struct PromptsScreen: View {
         if !packagePrompts.isEmpty {
             sections.append(AppListSection(
                 id: "package",
-                title: "Package Prompts",
-                info: "Package prompt templates are provided by installed packages and are read-only.",
+                title: LanguageStore.shared.t("prompts.section.package"),
+                info: LanguageStore.shared.t("prompts.section.package.info"),
                 items: packagePrompts
             ))
         }
@@ -241,8 +241,8 @@ struct PromptsScreen: View {
         if !builtinPrompts.isEmpty {
             sections.append(AppListSection(
                 id: "builtin",
-                title: "Builtin Prompts",
-                info: "Builtins are bundled with \(AppBrand.displayName). Duplicate one into the prompt library or import an existing template by reference to customize it.",
+                title: LanguageStore.shared.t("prompts.section.builtin"),
+                info: LanguageStore.shared.t("prompts.section.builtin.info", AppBrand.displayName),
                 items: builtinPrompts
             ))
         }
@@ -250,9 +250,9 @@ struct PromptsScreen: View {
         if visible.isEmpty {
             sections.append(AppListSection(
                 id: "empty",
-                title: "Prompts",
+                title: LanguageStore.shared.t("prompts.section.emptyTitle"),
                 items: [],
-                emptyMessage: "No prompt templates discovered."
+                emptyMessage: LanguageStore.shared.t("prompts.section.empty")
             ))
         }
 
@@ -532,7 +532,7 @@ struct PromptsScreen: View {
                 VStack(alignment: .leading, spacing: 10) {
                     let isGlobal = viewModel.promptIsEnabledGlobally(prompt)
 
-                    Text("Enable this prompt for every project at once, or pick specific projects below. Project assignment is stored in Agent Deck and does not create or remove prompt files.")
+                    Text(LanguageStore.shared.t("prompts.projectAssignmentHelp"))
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -550,7 +550,7 @@ struct PromptsScreen: View {
                                     } catch { NSSound.beep() }
                                 }
                             ),
-                            subtitle: "Enable this prompt for every project"
+                            subtitle: LanguageStore.shared.t("prompts.enableEveryProject")
                         )
                         Divider()
                         ForEach(viewModel.enabledProjects) { project in
@@ -670,28 +670,28 @@ struct PromptsScreen: View {
     private func promptMetadataRows(_ prompt: PromptTemplateRecord) -> [(String, String)] {
         var rows: [(String, String)] = []
         if let argumentHint = prompt.argumentHint, !argumentHint.isEmpty {
-            rows.append(("Argument Hint", argumentHint))
+            rows.append((LanguageStore.shared.t("prompts.argumentHint"), argumentHint))
         }
         if !prompt.filePath.isEmpty {
-            rows.append(("File", prompt.filePath))
+            rows.append((LanguageStore.shared.t("prompts.file"), prompt.filePath))
         }
         return rows
     }
 
     private func makePromptEditTarget(_ prompt: PromptTemplateRecord) -> MarkdownFileEditTarget {
         MarkdownFileEditTarget(
-            title: "Edit \(prompt.invocation)",
+            title: LanguageStore.shared.t("prompts.editNamed", prompt.invocation),
             path: prompt.filePath,
-            note: "Editing the raw prompt markdown. Changes apply after you save."
+            note: LanguageStore.shared.t("prompts.editNote")
         )
     }
 
     private func createNewPrompt() {
         let draft = viewModel.newLibraryPromptTemplateDraft()
         promptEditTarget = MarkdownFileEditTarget(
-            title: "New Prompt",
+            title: LanguageStore.shared.t("prompts.newPrompt"),
             path: draft.path,
-            note: "Edit this prompt template, then save to add it to your library. Cancelling discards it.",
+            note: LanguageStore.shared.t("prompts.newNote"),
             seedContent: draft.seedContent
         )
     }
@@ -773,7 +773,7 @@ private struct PromptListRowView: View {
 
             if canRename {
                 Button(action: onEdit) {
-                    Text("Edit")
+                    Text(LanguageStore.shared.t("prompts.edit"))
                         .font(.caption.weight(.semibold))
                 }
                 .appSmallSecondaryButton()
