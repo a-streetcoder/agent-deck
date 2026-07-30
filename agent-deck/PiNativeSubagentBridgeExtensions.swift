@@ -43,6 +43,10 @@ struct PiNativeSubagentBridgeExtensions {
         let summary: String
         let toolNames: [String]
         let condition: String?
+        /// Localizable.strings keys for Extensions UI (English `displayName`/`summary` remain for logs / fallbacks).
+        let nameKey: String
+        let summaryKey: String
+        let conditionKey: String?
     }
 
     /// The bridges Agent Deck may load into a parent Pi session, in display order.
@@ -54,42 +58,60 @@ struct PiNativeSubagentBridgeExtensions {
             displayName: "Ask User",
             summary: "Lets the agent ask you questions through Agent Deck's native prompt cards.",
             toolNames: [askUserToolName],
-            condition: nil
+            condition: nil,
+            nameKey: "ext.bridge.askUser.name",
+            summaryKey: "ext.bridge.askUser.summary",
+            conditionKey: nil
         ),
         BridgeDescriptor(
             id: "web_exa",
             displayName: "Web search (Exa / Brave / Tavily)",
             summary: "Gives the agent web_search / fetch_content / get_search_content. Reads ~/.pi/web-search.json like pi-web-access (Exa, Brave, Tavily).",
             toolNames: exaToolNames.sorted(),
-            condition: "Requires a key in ~/.pi/web-search.json or EXA_/BRAVE_/TAVILY_API_KEY"
+            condition: "Requires a key in ~/.pi/web-search.json or EXA_/BRAVE_/TAVILY_API_KEY",
+            nameKey: "ext.bridge.webSearch.name",
+            summaryKey: "ext.bridge.webSearch.summary",
+            conditionKey: "ext.bridge.webSearch.condition"
         ),
         BridgeDescriptor(
             id: "web_fetch",
             displayName: "Web fetch",
             summary: "Lets the agent fetch the contents of a known URL when no web-search provider is configured.",
             toolNames: [fallbackWebFetchToolName],
-            condition: "When no Exa/Brave/Tavily key is set and web fetch is available"
+            condition: "When no Exa/Brave/Tavily key is set and web fetch is available",
+            nameKey: "ext.bridge.webFetch.name",
+            summaryKey: "ext.bridge.webFetch.summary",
+            conditionKey: "ext.bridge.webFetch.condition"
         ),
         BridgeDescriptor(
             id: "memory",
             displayName: "Memory",
             summary: "Lets the agent save and recall long-term memories across your sessions.",
             toolNames: memoryToolNames,
-            condition: "When memory is enabled"
+            condition: "When memory is enabled",
+            nameKey: "ext.bridge.memory.name",
+            summaryKey: "ext.bridge.memory.summary",
+            conditionKey: "ext.bridge.memory.condition"
         ),
         BridgeDescriptor(
             id: "deck_agents",
             displayName: "Deck agents",
             summary: "Lets the agent delegate work to your Deck agents and coordinate plans and supervision.",
             toolNames: parentSubagentToolNames.sorted(),
-            condition: "When Deck agents are enabled"
+            condition: "When Deck agents are enabled",
+            nameKey: "ext.bridge.deckAgents.name",
+            summaryKey: "ext.bridge.deckAgents.summary",
+            conditionKey: "ext.bridge.deckAgents.condition"
         ),
         BridgeDescriptor(
             id: "mcp",
             displayName: "MCP",
             summary: "Lets the agent call tools from your assigned MCP servers through a single proxy tool.",
             toolNames: [mcpProxyToolName],
-            condition: "When MCP is enabled and at least one server is assigned"
+            condition: "When MCP is enabled and at least one server is assigned",
+            nameKey: "ext.bridge.mcp.name",
+            summaryKey: "ext.bridge.mcp.summary",
+            conditionKey: "ext.bridge.mcp.condition"
         )
     ]
 

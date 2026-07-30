@@ -575,7 +575,7 @@
 "ext.pageSubtitle" = "Which Pi extensions load into your agent sessions";
 "ext.loadingMode" = "Loading mode";
 "ext.loadingModePicker" = "Extension loading mode";
-"ext.bridgesTitle" = "Agent Deck bridges";
+"ext.bridgesTitle" = "Pi Deck bridges";
 "ext.bridgesBody" = "%@'s own extensions. They take priority over yours if a tool name clashes. State below reflects your current settings.";
 "ext.yourExtensions" = "Your Pi extensions";
 "ext.all" = "All";
@@ -1080,4 +1080,34 @@
 "doctor.dep.projectsGone" = "None of the configured folders exist anymore. Choose a parent folder that contains your projects.";
 "doctor.dep.projectsRecovery" = "Choose an existing parent folder for your projects.";
 "doctor.dep.foldersConfigured" = "%d folders configured: %@";
-
+/* Phase 8 — Extensions screen: modes, bridges, empty/conflict chrome */
+"ext.mode.managed" = "Pi Deck managed";
+"ext.mode.mine" = "Use my extensions";
+"ext.mode.managed.desc" = "Only Pi Deck's built-in bridges load. Your own Pi extensions stay off.";
+"ext.mode.mine.desc" = "Load your Pi extensions alongside Pi Deck's bridges. Deselect any you don't want below.";
+"ext.mode.managed.detail" = "Pi extension discovery is disabled. Pi Deck loads only its required bridges.";
+"ext.mode.mine.detail" = "Pi Deck loads its required bridges first, then your selected Pi extensions explicitly.";
+"ext.active" = "Active";
+"ext.off" = "Off";
+"ext.looking" = "Looking for Pi extensions…";
+"ext.noneFound" = "No Pi extensions were discovered.";
+"ext.discoveryHelp" = "Pi Deck looks in ~/.pi/agent/extensions, the selected project's .pi/extensions folder, settings.json extension paths, and installed package extension directories.";
+"ext.conflict.one" = "Tool %@ is also provided by a Pi Deck bridge. Pi Deck loads its bridge first, so the bridge takes precedence and this extension's version may be shadowed.";
+"ext.conflict.many" = "Tools %@ are also provided by a Pi Deck bridge. Pi Deck loads its bridge first, so the bridge takes precedence and this extension's version may be shadowed.";
+"ext.bridge.askUser.name" = "Ask User";
+"ext.bridge.askUser.summary" = "Lets the agent ask you questions through Pi Deck's native prompt cards.";
+"ext.bridge.webSearch.name" = "Web search (Exa / Brave / Tavily)";
+"ext.bridge.webSearch.summary" = "Gives the agent web_search / fetch_content / get_search_content. Reads ~/.pi/web-search.json like pi-web-access (Exa, Brave, Tavily).";
+"ext.bridge.webSearch.condition" = "Requires a key in ~/.pi/web-search.json or EXA_/BRAVE_/TAVILY_API_KEY";
+"ext.bridge.webFetch.name" = "Web fetch";
+"ext.bridge.webFetch.summary" = "Lets the agent fetch the contents of a known URL when no web-search provider is configured.";
+"ext.bridge.webFetch.condition" = "When no Exa/Brave/Tavily key is set and web fetch is available";
+"ext.bridge.memory.name" = "Memory";
+"ext.bridge.memory.summary" = "Lets the agent save and recall long-term memories across your sessions.";
+"ext.bridge.memory.condition" = "When memory is enabled";
+"ext.bridge.deckAgents.name" = "Deck agents";
+"ext.bridge.deckAgents.summary" = "Lets the agent delegate work to your Deck agents and coordinate plans and supervision.";
+"ext.bridge.deckAgents.condition" = "When Deck agents are enabled";
+"ext.bridge.mcp.name" = "MCP";
+"ext.bridge.mcp.summary" = "Lets the agent call tools from your assigned MCP servers through a single proxy tool.";
+"ext.bridge.mcp.condition" = "When MCP is enabled and at least one server is assigned";

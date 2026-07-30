@@ -575,7 +575,7 @@
 "ext.pageSubtitle" = "哪些 Pi 扩展会加载到代理会话";
 "ext.loadingMode" = "加载模式";
 "ext.loadingModePicker" = "扩展加载模式";
-"ext.bridgesTitle" = "Agent Deck 桥接";
+"ext.bridgesTitle" = "Pi Deck 桥接";
 "ext.bridgesBody" = "%@ 自带的扩展。工具名冲突时优先于你的扩展。下方状态反映当前设置。";
 "ext.yourExtensions" = "你的 Pi 扩展";
 "ext.all" = "全部";
@@ -1080,4 +1080,34 @@
 "doctor.dep.projectsGone" = "已配置的文件夹均不存在。请选择包含项目的父文件夹。";
 "doctor.dep.projectsRecovery" = "请选择一个仍存在的项目父文件夹。";
 "doctor.dep.foldersConfigured" = "已配置 %d 个文件夹：%@";
-
+/* Phase 8 — Extensions screen: modes, bridges, empty/conflict chrome */
+"ext.mode.managed" = "Pi Deck 托管";
+"ext.mode.mine" = "使用我的扩展";
+"ext.mode.managed.desc" = "仅加载 Pi Deck 内置桥接。你自己的 Pi 扩展保持关闭。";
+"ext.mode.mine.desc" = "在 Pi Deck 桥接之外加载你的 Pi 扩展。可在下方取消不需要的项。";
+"ext.mode.managed.detail" = "已禁用 Pi 扩展发现。Pi Deck 仅加载所需桥接。";
+"ext.mode.mine.detail" = "Pi Deck 先加载所需桥接，再显式加载你选中的 Pi 扩展。";
+"ext.active" = "启用中";
+"ext.off" = "关闭";
+"ext.looking" = "正在查找 Pi 扩展…";
+"ext.noneFound" = "未发现 Pi 扩展。";
+"ext.discoveryHelp" = "Pi Deck 会在 ~/.pi/agent/extensions、当前项目的 .pi/extensions、settings.json 中的扩展路径，以及已安装的 package 扩展目录中查找。";
+"ext.conflict.one" = "工具 %@ 也由 Pi Deck 桥接提供。Pi Deck 会先加载桥接，因此桥接优先，该扩展的实现可能被遮蔽。";
+"ext.conflict.many" = "工具 %@ 也由 Pi Deck 桥接提供。Pi Deck 会先加载桥接，因此桥接优先，该扩展的实现可能被遮蔽。";
+"ext.bridge.askUser.name" = "询问用户";
+"ext.bridge.askUser.summary" = "让代理通过 Pi Deck 原生提问卡片向你提问。";
+"ext.bridge.webSearch.name" = "网页搜索（Exa / Brave / Tavily）";
+"ext.bridge.webSearch.summary" = "为代理提供 web_search / fetch_content / get_search_content。与 pi-web-access 一样读取 ~/.pi/web-search.json（Exa、Brave、Tavily）。";
+"ext.bridge.webSearch.condition" = "需要 ~/.pi/web-search.json 中的密钥，或 EXA_/BRAVE_/TAVILY_API_KEY";
+"ext.bridge.webFetch.name" = "URL 抓取";
+"ext.bridge.webFetch.summary" = "在未配置网页搜索供应商时，让代理抓取已知 URL 的内容。";
+"ext.bridge.webFetch.condition" = "未设置 Exa/Brave/Tavily 密钥且 URL 抓取可用时";
+"ext.bridge.memory.name" = "记忆";
+"ext.bridge.memory.summary" = "让代理跨会话保存并召回长期记忆。";
+"ext.bridge.memory.condition" = "启用记忆时";
+"ext.bridge.deckAgents.name" = "Deck Agents";
+"ext.bridge.deckAgents.summary" = "让代理把工作委派给你的 Deck Agents，并协调计划与监督。";
+"ext.bridge.deckAgents.condition" = "启用 Deck Agents 时";
+"ext.bridge.mcp.name" = "MCP";
+"ext.bridge.mcp.summary" = "让代理通过单一代理工具调用已分配的 MCP 服务器工具。";
+"ext.bridge.mcp.condition" = "启用 MCP 且至少分配一个服务器时";

@@ -45,17 +45,17 @@ struct ExtensionsScreen: View {
     // MARK: - Mode
 
     private var modeCard: some View {
-        AppCard(title: LanguageStore.shared.t("ext.loadingMode")) {
+        AppCard(title: languageStore.t("ext.loadingMode")) {
             VStack(alignment: .leading, spacing: 12) {
-                Picker(LanguageStore.shared.t("ext.loadingModePicker"), selection: modeBinding) {
+                Picker(languageStore.t("ext.loadingModePicker"), selection: modeBinding) {
                     ForEach(PiAgentExtensionLoadingMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
+                        Text(languageStore.t(mode.l10nTitleKey)).tag(mode)
                     }
                 }
                 .appSegmentedPicker()
                 .labelsHidden()
 
-                Text(mode.settingsDescription)
+                Text(languageStore.t(mode.l10nDescriptionKey))
                     .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -115,10 +115,10 @@ struct ExtensionsScreen: View {
     private func bridgeRow(_ bridge: PiNativeSubagentBridgeExtensions.BridgeDescriptor, isActive: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(bridge.displayName)
+                Text(languageStore.t(bridge.nameKey))
                     .font(AppTheme.Font.primary.weight(.semibold))
                     .fontWidth(.expanded)
-                Text(bridge.summary)
+                Text(languageStore.t(bridge.summaryKey))
                     .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -127,8 +127,8 @@ struct ExtensionsScreen: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                if let condition = bridge.condition {
-                    Text(condition)
+                if let conditionKey = bridge.conditionKey {
+                    Text(languageStore.t(conditionKey))
                         .font(AppTheme.Font.micro)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -136,7 +136,7 @@ struct ExtensionsScreen: View {
             }
 
             Spacer(minLength: 8)
-            AppLabelTag(text: isActive ? "Active" : "Off", color: isActive ? .green : .secondary)
+            AppLabelTag(text: isActive ? languageStore.t("ext.active") : languageStore.t("ext.off"), color: isActive ? .green : .secondary)
         }
         .padding(.vertical, 12)
         .opacity(isActive ? 1 : 0.55)
@@ -170,10 +170,10 @@ struct ExtensionsScreen: View {
 
     private var selectionToolbar: some View {
         HStack(spacing: 8) {
-            Button("All") { viewModel.setAllPiExtensions(candidates, enabled: true) }
+            Button(languageStore.t("ext.all")) { viewModel.setAllPiExtensions(candidates, enabled: true) }
                 .controlSize(.small)
                 .disabled(candidates.isEmpty || enabledCount == candidates.count)
-            Button("None") { viewModel.setAllPiExtensions(candidates, enabled: false) }
+            Button(languageStore.t("ext.none")) { viewModel.setAllPiExtensions(candidates, enabled: false) }
                 .controlSize(.small)
                 .disabled(candidates.isEmpty || enabledCount == 0)
         }
@@ -185,9 +185,9 @@ struct ExtensionsScreen: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(isDiscovering ? "Looking for Pi extensions…" : "No Pi extensions were discovered.")
+            Text(isDiscovering ? languageStore.t("ext.looking") : languageStore.t("ext.noneFound"))
                 .font(.subheadline.weight(.semibold))
-            Text("Agent Deck looks in ~/.pi/agent/extensions, the selected project's .pi/extensions folder, settings.json extension paths, and installed package extension directories.")
+            Text(languageStore.t("ext.discoveryHelp"))
                 .font(.footnote)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -233,6 +233,7 @@ private struct PiExtensionSelectionRow: View {
     /// Bridge tool names detected in this extension's source that overlap with
     /// Agent Deck's built-in bridges. Empty means no detected conflict.
     var conflictingToolNames: [String] = []
+    @ObservedObject private var languageStore = LanguageStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -272,8 +273,9 @@ private struct PiExtensionSelectionRow: View {
 
     private var conflictWarningText: String {
         let names = conflictingToolNames.joined(separator: ", ")
-        let plural = conflictingToolNames.count == 1 ? "Tool" : "Tools"
-        let verb = conflictingToolNames.count == 1 ? "is" : "are"
-        return "\(plural) \(names) \(verb) also provided by an Agent Deck bridge. Agent Deck loads its bridge first, so the bridge takes precedence and this extension's version may be shadowed."
+        if conflictingToolNames.count == 1 {
+            return languageStore.t("ext.conflict.one", names)
+        }
+        return languageStore.t("ext.conflict.many", names)
     }
 }

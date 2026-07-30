@@ -125,6 +125,22 @@ enum PiAgentExtensionLoadingMode: String, Codable, CaseIterable, Hashable, Ident
         }
     }
 
+    /// Localizable.strings key for the segmented control label.
+    var l10nTitleKey: String {
+        switch self {
+        case .agentDeckManaged: return "ext.mode.managed"
+        case .useMyExtensions: return "ext.mode.mine"
+        }
+    }
+
+    /// Localizable.strings key for the caption under the mode picker.
+    var l10nDescriptionKey: String {
+        switch self {
+        case .agentDeckManaged: return "ext.mode.managed.desc"
+        case .useMyExtensions: return "ext.mode.mine.desc"
+        }
+    }
+
     var settingsDescription: String {
         switch self {
         case .agentDeckManaged:
