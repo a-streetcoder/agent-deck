@@ -90,6 +90,22 @@ struct ExtensionsScreen: View {
         ).map(\.id))
     }
 
+    /// Whether discovery found a pi-web-access (or *web-access*) package/extension candidate.
+    private var candidatesContainPiWebAccess: Bool {
+        candidates.contains { candidate in
+            let package = (candidate.packageName ?? "").lowercased()
+            let name = candidate.name.lowercased()
+            let launch = candidate.launchSource.lowercased()
+            let id = candidate.id.lowercased()
+            return package.contains("web-access")
+                || name.contains("web-access")
+                || launch.contains("web-access")
+                || id.contains("web-access")
+                || package.contains("pi-web-access")
+        }
+    }
+
+
     private var bridgesCard: some View {
         AppCard(title: LanguageStore.shared.t("ext.bridgesTitle")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -97,6 +113,30 @@ struct ExtensionsScreen: View {
                     .font(AppTheme.Font.supporting)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // pi-web-access config dependency: keys only; package is not required.
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "link.circle.fill")
+                        .foregroundStyle(Color.accentColor.opacity(0.85))
+                        .font(.caption)
+                    Text(languageStore.t("ext.bridge.webSearch.piWebAccessHint"))
+                        .font(AppTheme.Font.micro)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 2)
+
+                if candidatesContainPiWebAccess {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Text(languageStore.t("ext.piWebAccessSkippedBanner"))
+                            .font(AppTheme.Font.micro)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 let active = activeBridgeIDs
                 VStack(alignment: .leading, spacing: 0) {

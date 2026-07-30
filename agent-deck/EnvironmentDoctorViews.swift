@@ -785,6 +785,28 @@ struct DoctorScreen: View {
                     tagColor: hasWebSearchCredential ? .green : .secondary
                 )
 
+                // Shared config / pi-web-access dependency notice (always visible).
+                Text(languageStore.t("doctor.webSearchPiWebAccessHint"))
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 38)
+                    .padding(.bottom, 10)
+
+                if listsPiWebAccessPackage {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Text(languageStore.t("doctor.webSearchPackageSkipped"))
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.leading, 38)
+                    .padding(.bottom, 10)
+                }
+
                 Divider()
 
                 webFetchFallbackRow
@@ -926,6 +948,20 @@ struct DoctorScreen: View {
             return (item.key, value)
         })
         return PiNativeSubagentBridgeExtensions.isWebSearchConfigured(environment: envMap)
+    }
+
+    /// True when Doctor snapshot lists a pi-web-access / *web-access* package.
+    private var listsPiWebAccessPackage: Bool {
+        if skipLiveChecksForPreview { return false }
+        for settings in snapshot.settings {
+            for pkg in settings.packages {
+                let s = pkg.lowercased()
+                if s.contains("pi-web-access") || s.contains("web-access") {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     // MARK: - Settings

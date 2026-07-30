@@ -2339,3 +2339,9 @@
 "doctor.piPathSave" = "使用此路径";
 "doctor.piPathSaved" = "已保存为应用默认";
 "doctor.piPathRescan" = "重新扫描并保存";
+
+/* pi-web-access dependency / shared config hints */
+"doctor.webSearchPiWebAccessHint" = "配置与 pi-web-access 包共用：~/.pi/web-search.json 以及相同的 API Key 环境变量。在 Pi Deck 中无需安装或启用 npm:pi-web-access — Deck 会注入自带的 Web search 桥接，并读取这份配置。";
+"doctor.webSearchPackageSkipped" = "你的 Pi packages/extensions 中仍列有 npm:pi-web-access（或其它 *web-access* 包）。为避免 web_search / fetch_content / get_search_content 工具名冲突，Pi Deck 会话启动时会跳过加载该包。只需配置密钥即可，Deck 内可保持关闭该包。";
+"ext.bridge.webSearch.piWebAccessHint" = "依赖与 pi-web-access 相同的凭据：~/.pi/web-search.json（exaApiKey / braveApiKey / tavilyApiKey）或 EXA_/BRAVE_/TAVILY_API_KEY。密钥配置一次即可；请勿在 Deck 中再加载 npm:pi-web-access（会自动跳过）。";
+"ext.piWebAccessSkippedBanner" = "pi-web-access 已由 Pi Deck 的 Web search 桥接接管。若出现在「你的扩展」列表中，可取消勾选；即使仍列出，启动时也不会再注入该包。";
