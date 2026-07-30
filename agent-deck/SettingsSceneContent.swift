@@ -417,6 +417,7 @@ private struct GeneralSettingsTab: View {
     @ObservedObject private var languageStore = LanguageStore.shared
 
     @State private var isAvatarImporterPresented = false
+    @State private var avatarCropItem: AvatarCropItem?
 
     var body: some View {
         SettingsForm {
@@ -512,7 +513,18 @@ private struct GeneralSettingsTab: View {
             guard case .success(let urls) = result, let url = urls.first else { return }
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            viewModel.setUserAvatar(from: url)
+            guard let image = NSImage(contentsOf: url) else { return }
+            avatarCropItem = AvatarCropItem(image: image)
+        }
+        .sheet(item: $avatarCropItem) { item in
+            UserAvatarCropSheet(
+                sourceImage: item.image,
+                onCancel: { avatarCropItem = nil },
+                onConfirm: { cropped in
+                    viewModel.setUserAvatar(image: cropped)
+                    avatarCropItem = nil
+                }
+            )
         }
     }
 
@@ -537,6 +549,13 @@ private struct GeneralSettingsTab: View {
         .clipShape(Circle())
         .overlay(Circle().stroke(AppTheme.contentStroke, lineWidth: 1))
     }
+}
+
+
+/// Sheet identity wrapper so `NSImage` can drive `.sheet(item:)`.
+private struct AvatarCropItem: Identifiable {
+    let id = UUID()
+    let image: NSImage
 }
 
 /// Settings row that lists every configured projects-root folder. Each row

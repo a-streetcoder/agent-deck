@@ -5917,6 +5917,18 @@ final class AppViewModel: NSObject {
         }
     }
 
+    /// Save a cropped square avatar from the crop sheet.
+    ///
+    /// - Parameter image: Cropped image from `UserAvatarCropSheet`. Required.
+    func setUserAvatar(image: NSImage) {
+        do {
+            try appSettingsController.setUserAvatar(image: image)
+            syncAppSettings()
+        } catch {
+            NSLog("[profile] setUserAvatar(image:) failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Remove the custom user avatar.
     func clearUserAvatar() {
         appSettingsController.clearUserAvatar()

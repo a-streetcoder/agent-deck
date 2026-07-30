@@ -2299,3 +2299,8 @@
 "settings.profile.avatarHelp" = "Optional photo used next to your display name.";
 "settings.profile.chooseAvatar" = "Choose…";
 "settings.profile.clearAvatar" = "Remove";
+
+"settings.profile.cropTitle" = "Adjust avatar";
+"settings.profile.cropHelp" = "Drag to reposition. Use the slider to zoom. The circle is what appears in chat.";
+"settings.profile.cropPreview" = "Preview";
+"settings.profile.cropApply" = "Use Photo";

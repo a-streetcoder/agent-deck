@@ -2298,3 +2298,8 @@
 "settings.profile.avatarHelp" = "可选，显示在用户气泡标题旁。";
 "settings.profile.chooseAvatar" = "选择…";
 "settings.profile.clearAvatar" = "移除";
+
+"settings.profile.cropTitle" = "调整头像";
+"settings.profile.cropHelp" = "拖动移动位置，滑块缩放。圆圈内为对话中显示的区域。";
+"settings.profile.cropPreview" = "预览";
+"settings.profile.cropApply" = "使用照片";

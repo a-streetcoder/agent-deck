@@ -1183,6 +1183,20 @@ final class AppSettingsController {
         }
     }
 
+    /// Persist a cropped square avatar image.
+    ///
+    /// - Parameter image: Cropped square `NSImage`. Required.
+    /// - Throws: PNG encode/write failures.
+    func setUserAvatar(image: NSImage) throws {
+        let old = settings.userAvatarFileName
+        let fileName = try UserAvatarStore.saveCroppedImage(image)
+        settings.userAvatarFileName = fileName
+        persist()
+        if old != fileName {
+            UserAvatarStore.removeImage(fileName: old)
+        }
+    }
+
     /// Clear the custom user avatar and delete the stored file.
     func clearUserAvatar() {
         let old = settings.userAvatarFileName
