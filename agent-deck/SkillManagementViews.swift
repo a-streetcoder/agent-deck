@@ -729,7 +729,7 @@ struct SkillsScreen: View {
             Button {
                 selectMissingSkillWarning(warning)
             } label: {
-                Text("Resolve")
+                Text(LanguageStore.shared.t("skills.resolve"))
                     .font(.caption.weight(.semibold))
             }
             .appSmallSecondaryButton()
@@ -742,7 +742,7 @@ struct SkillsScreen: View {
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .simultaneousGesture(TapGesture().onEnded { selectMissingSkillWarning(warning) })
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Resolve missing skill \(warning.missingSkill)")
+        .accessibilityLabel(LanguageStore.shared.t("skills.resolveMissing", warning.missingSkill))
         .accessibilityAction { selectMissingSkillWarning(warning) }
         .focusable()
         .onKeyPress(.space) {
@@ -959,7 +959,7 @@ struct SkillsScreen: View {
                         Text(collection.name)
                             .font(.title3.weight(.semibold))
                             .fontWidth(.expanded)
-                        Text(collection.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? collection.description! : "User-organized collection")
+                        Text(collection.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? collection.description! : LanguageStore.shared.t("skills.userOrganizedCollection"))
                             .font(.callout)
                             .foregroundStyle(AppTheme.mutedText)
                     }
@@ -967,7 +967,7 @@ struct SkillsScreen: View {
                     Button {
                         isCollectionSheetPresented = true
                     } label: {
-                        Label("Edit", systemImage: "square.and.pencil")
+                        Label(LanguageStore.shared.t("common.edit"), systemImage: "square.and.pencil")
                     }
                     .appSecondaryButton()
                 }
@@ -990,7 +990,7 @@ struct SkillsScreen: View {
 
         AppCard(title: LanguageStore.shared.t("skills.deleteCollection")) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Delete this collection, or delete the collection and move its member skills to the Trash. Deleting only the collection keeps member skills in the catalog as standalone skills.")
+                Text(LanguageStore.shared.t("skills.deleteCollectionLong"))
                     .font(.callout)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1007,7 +1007,7 @@ struct SkillsScreen: View {
     @ViewBuilder
     private func collectionMembershipList(for collection: SkillCollectionRecord, members: [SkillRecord]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Deactivate skills to keep them in this collection while excluding them from runtime loading. Use the row context menu to remove a skill from the collection without deleting its files.")
+            Text(LanguageStore.shared.t("skills.deactivateKeepCollection"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1055,7 +1055,7 @@ struct SkillsScreen: View {
             Button {
                 readOnlySkillPreview = skill
             } label: {
-                Label("Open", systemImage: "doc.text.magnifyingglass")
+                Label(LanguageStore.shared.t("skills.open"), systemImage: "doc.text.magnifyingglass")
             }
             Button {
                 selectedCollectionID = nil
@@ -1107,7 +1107,7 @@ struct SkillsScreen: View {
         if !collections.isEmpty {
             AppCard(title: LanguageStore.shared.t("skills.collections")) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Collections expand to their skills at launch; Pi still receives one --skill argument per skill.")
+                    Text(LanguageStore.shared.t("skills.collectionsExpandHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1195,7 +1195,7 @@ struct SkillsScreen: View {
         if let repository = viewModel.importedRepository(for: collection) {
             syncedRepositoryCard(
                 repository,
-                description: "This collection is synced from a GitHub repository. Updates refresh its repository-backed skills and ask before overwriting your edits.",
+                description: LanguageStore.shared.t("skills.githubCollectionSynced"),
                 updateButtonTitle: "Update Collection"
             )
         }
@@ -1340,11 +1340,11 @@ struct SkillsScreen: View {
                     Text(LanguageStore.shared.t("skills.resolveHint"))
                         .font(.body.weight(.semibold))
                     if candidate != nil {
-                        Text("Move the existing skill into the global skill catalog so every project can resolve the global/library agent reference.")
+                        Text(LanguageStore.shared.t("skills.moveToGlobalCatalog"))
                     } else {
-                        Text("Create, install, or import a skill named `\(warning.missingSkill)` somewhere `\(warning.project.repositoryDisplayName)` can see it.")
+                        Text(LanguageStore.shared.t("skills.createInstallNamed", warning.missingSkill, warning.project.repositoryDisplayName))
                     }
-                    Text("Or remove `\(warning.missingSkill)` from `\(warning.agentName)` if the reference is obsolete.")
+                    Text(LanguageStore.shared.t("skills.orRemoveRef", warning.missingSkill, warning.agentName))
                 }
                 .foregroundStyle(AppTheme.mutedText)
                 .textSelection(.enabled)
@@ -1414,7 +1414,7 @@ struct SkillsScreen: View {
                         ("Issue", "Duplicate skill name")
                     ])
 
-                    Text("Choose one canonical copy to keep. The other copies will be removed; project assignments, global defaults, and agent skills will stay with the kept copy.")
+                    Text(LanguageStore.shared.t("skills.chooseCanonicalCopy"))
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -1425,7 +1425,7 @@ struct SkillsScreen: View {
                             searchText = duplicate.name
                         }
                         ForEach(Array(duplicate.paths.enumerated()), id: \.offset) { index, path in
-                            Button("Reveal Copy \(index + 1)") {
+                            Button(LanguageStore.shared.t("skills.revealCopyN", index + 1)) {
                                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                             }
                         }
@@ -1436,7 +1436,7 @@ struct SkillsScreen: View {
                         }
                     }
                 } else {
-                    Text("Review the referenced file or setting, then fix the malformed or conflicting skill definition.")
+                    Text(LanguageStore.shared.t("skills.reviewMalformed"))
                         .foregroundStyle(AppTheme.mutedText)
                 }
             }
@@ -1484,7 +1484,7 @@ struct SkillsScreen: View {
                             Text(LanguageStore.shared.t("skills.protected"))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.orange)
-                                .help("This copy cannot be chosen because one or more other copies are bundled or package-managed and cannot be removed.")
+                                .help(LanguageStore.shared.t("skills.cannotChooseCopy"))
                         }
                     }
                     .padding(10)
@@ -1935,7 +1935,7 @@ struct SkillsScreen: View {
             .buttonStyle(.plain)
             .onHover { isSkillNameHovered = $0 }
             .help(viewModel.canRenameSkill(skill) ? "Rename skill" : "")
-            .accessibilityLabel("Rename skill \(skill.name)")
+            .accessibilityLabel(LanguageStore.shared.t("skills.renameSkill", skill.name))
             .disabled(!viewModel.canRenameSkill(skill))
         }
     }
@@ -2089,7 +2089,7 @@ struct SkillsScreen: View {
         let importable = skills.filter { viewModel.isImportedSkill($0) }
         AppCard(title: LanguageStore.shared.t("skills.selectedCountCard", skills.count)) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Cmd- or Shift-click rows to adjust the selection. Right-click the list — or use the button below — to act on every selected skill at once.")
+                Text(LanguageStore.shared.t("skills.multiSelectHint"))
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -2116,13 +2116,13 @@ struct SkillsScreen: View {
 
                 HStack(spacing: 10) {
                     if !importable.isEmpty {
-                        Button("Remove \(importable.count) from Catalog…") {
+                        Button(LanguageStore.shared.t("skills.removeFromCatalog", importable.count)) {
                             skillsPendingBatchRemoval = importable
                         }
                         .appSecondaryButton()
                     }
 
-                    Button("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")…") {
+                    Button(deletable.count == 1 ? LanguageStore.shared.t("skills.deleteOneSkillEllipsis") : LanguageStore.shared.t("skills.deleteNSkillsEllipsis", deletable.count)) {
                         skillsPendingBatchDeletion = deletable
                     }
                     .appDestructiveButton()
@@ -2130,7 +2130,7 @@ struct SkillsScreen: View {
                 }
 
                 if !importable.isEmpty {
-                    Text("Remove un-imports a skill (its files and any Git clone are kept). Delete moves the skill folder to the Trash.")
+                    Text(LanguageStore.shared.t("skills.removeUnimportHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2212,7 +2212,7 @@ private struct AgentAssignmentToggleRow: View {
 
         return AppCheckboxRow(
             isOn: toggleBinding,
-            accessibilityLabel: "Toggle agent \(agent.name)"
+            accessibilityLabel: LanguageStore.shared.t("skills.toggleAgent", agent.name)
         ) {
             HStack(alignment: .center, spacing: 12) {
                 ZStack {
@@ -2331,7 +2331,7 @@ private struct SkillCollectionAgentAssignmentList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Assign this collection only to the selected Deck agents when they run. Parent Pi Agent sessions do not receive it from this setting.")
+            Text(LanguageStore.shared.t("skills.assignCollectionAgents"))
                 .foregroundStyle(AppTheme.mutedText)
 
             AgentAssignmentSection(
@@ -2421,7 +2421,7 @@ private struct CollectionListRowView: View {
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(collection.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? collection.description! : "User-organized collection")
+                Text(collection.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? collection.description! : LanguageStore.shared.t("skills.userOrganizedCollection"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
@@ -2442,7 +2442,7 @@ private struct CollectionListRowView: View {
                 }
                 .font(AppTheme.Font.micro)
                 .foregroundStyle(AppTheme.mutedText)
-                .help(collection.sourceLabel.map { "Synced from GitHub · \($0)" } ?? "Skill collection")
+                .help(collection.sourceLabel.map { LanguageStore.shared.t("skills.syncedGithub", $0) } ?? LanguageStore.shared.t("skills.skillCollection"))
             }
             .layoutPriority(1)
 
@@ -2454,7 +2454,7 @@ private struct CollectionListRowView: View {
                         .labelStyle(.iconOnly)
                 }
                 .appSmallSecondaryButton()
-                .help("Edit collection")
+                .help(LanguageStore.shared.t("skills.editCollection"))
                 .transition(.opacity)
             }
         }
@@ -2560,7 +2560,7 @@ private struct SkillListRowView: View {
                 if collectionCount > 0 || repositoryDisplayName != nil {
                     HStack(spacing: 6) {
                         if collectionCount > 0 {
-                            Label("\(collectionCount) collection\(collectionCount == 1 ? "" : "s")", systemImage: "folder.badge.gearshape")
+                            Label(collectionCount == 1 ? LanguageStore.shared.t("skills.oneCollection") : LanguageStore.shared.t("skills.nCollections", collectionCount), systemImage: "folder.badge.gearshape")
                                 .labelStyle(.titleAndIcon)
                                 .lineLimit(1)
                         }
@@ -2577,7 +2577,7 @@ private struct SkillListRowView: View {
                     }
                     .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
-                    .help(repositoryDisplayName.map { "Synced from GitHub · \($0)" } ?? "Member of a skill collection")
+                    .help(repositoryDisplayName.map { LanguageStore.shared.t("skills.syncedGithub", $0) } ?? LanguageStore.shared.t("skills.memberOfCollection"))
                 }
             }
             .layoutPriority(1)
@@ -2602,7 +2602,7 @@ private struct SkillListRowView: View {
 
                     if let onOpen {
                         Button(action: onOpen) {
-                            Label("Open", systemImage: "doc.text.magnifyingglass")
+                            Label(LanguageStore.shared.t("skills.open"), systemImage: "doc.text.magnifyingglass")
                                 .labelStyle(.titleAndIcon)
                         }
                         .appSmallSecondaryButton()
@@ -2744,7 +2744,7 @@ private struct SkillCollectionEditorSheet: View {
             Button(LanguageStore.shared.t("common.delete"), role: .destructive) { delete(collection) }
             Button(LanguageStore.shared.t("common.cancel"), role: .cancel) { pendingDelete = nil }
         } message: { collection in
-            Text("Delete \"\(collection.name)\" and clear its All Projects and project assignments? Skills remain in the catalog.")
+            Text(LanguageStore.shared.t("skills.deleteCollectionConfirm", collection.name))
         }
     }
 
@@ -2903,7 +2903,7 @@ private struct SkillCollectionEditorSheet: View {
                                                 else { selectedSkillIDs.remove(skill.id) }
                                             }
                                         ),
-                                        accessibilityLabel: "Toggle skill \(skill.name)"
+                                        accessibilityLabel: LanguageStore.shared.t("skills.toggleSkill", skill.name)
                                     ) {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(skill.name)

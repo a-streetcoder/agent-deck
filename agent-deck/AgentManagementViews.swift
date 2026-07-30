@@ -285,7 +285,7 @@ private struct AgentAvatarHoverActionButton: View {
 
     private var helpText: String {
         if isGenerating { return "Generating avatar…" }
-        return hasCustomImage ? "Remove avatar image" : "Edit avatar image"
+        return hasCustomImage ? LanguageStore.shared.t("agents.removeAvatar") : LanguageStore.shared.t("agents.editAvatar")
     }
 }
 
@@ -1166,7 +1166,7 @@ private struct AgentDetailView: View {
             .buttonStyle(.plain)
             .onHover { isAgentNameHovered = $0 }
             .help(canRenameAgent(agent) ? "Rename agent" : "")
-            .accessibilityLabel("Rename agent \(agent.name)")
+            .accessibilityLabel(LanguageStore.shared.t("agents.renameAgent", agent.name))
             .disabled(!canRenameAgent(agent))
         }
     }
@@ -1295,12 +1295,12 @@ private struct AgentDetailView: View {
         Button {
             onEditAgent(tab)
         } label: {
-            Label("Edit", systemImage: "square.and.pencil")
+            Label(LanguageStore.shared.t("common.edit"), systemImage: "square.and.pencil")
                 .font(.caption.weight(.semibold))
                 .labelStyle(.titleAndIcon)
         }
         .appSmallSecondaryButton()
-        .help("Edit \(tab.rawValue.lowercased())")
+        .help(LanguageStore.shared.t("agents.editNamed", tab.rawValue.lowercased()))
     }
 
     private var summaryTab: some View {
@@ -1330,13 +1330,13 @@ private struct AgentDetailView: View {
 
     private var configuredFieldRows: [(String, String)] {
         var rows: [(String, String)] = []
-        if let model = agent.resolved.model { rows.append(("Model", model)) }
-        if !agent.resolved.fallbackModels.isEmpty { rows.append(("Fallback Models", agent.resolved.fallbackModels.joined(separator: ", "))) }
-        if let thinking = agent.resolved.thinking, thinking != "off" { rows.append(("Thinking", thinking)) }
-        if let mode = agent.resolved.systemPromptMode { rows.append(("Prompt Mode", mode)) }
-        if let whenToUse = agent.resolved.whenToUse, !whenToUse.isEmpty { rows.append(("When to Use", whenToUse)) }
-        if agent.resolved.disabled == true { rows.append(("Disabled", "Yes")) }
-        if let output = agent.resolved.output { rows.append(("Output", output)) }
+        if let model = agent.resolved.model { rows.append((LanguageStore.shared.t("editor.model"), model)) }
+        if !agent.resolved.fallbackModels.isEmpty { rows.append((LanguageStore.shared.t("agents.fallbackModels"), agent.resolved.fallbackModels.joined(separator: ", "))) }
+        if let thinking = agent.resolved.thinking, thinking != "off" { rows.append((LanguageStore.shared.t("editor.thinking"), thinking)) }
+        if let mode = agent.resolved.systemPromptMode { rows.append((LanguageStore.shared.t("editor.promptMode"), mode)) }
+        if let whenToUse = agent.resolved.whenToUse, !whenToUse.isEmpty { rows.append((LanguageStore.shared.t("agents.whenToUse"), whenToUse)) }
+        if agent.resolved.disabled == true { rows.append((LanguageStore.shared.t("editor.disabled"), "Yes")) }
+        if let output = agent.resolved.output { rows.append((LanguageStore.shared.t("agents.output"), output)) }
         if let outcome = agent.resolved.defaultExpectedOutcome { rows.append((LanguageStore.shared.t("agents.defaultOutcome"), outcome.displayName)) }
         if let reads = agent.resolved.defaultReads, !reads.isEmpty { rows.append((LanguageStore.shared.t("agents.defaultReads"), reads.joined(separator: ", "))) }
         if let progress = agent.resolved.defaultProgress { rows.append((LanguageStore.shared.t("agents.defaultProgress"), display(progress))) }
@@ -1633,7 +1633,7 @@ private struct AgentDetailView: View {
                                     HStack(alignment: .top, spacing: 8) {
                                         Image(systemName: "exclamationmark.triangle.fill")
                                             .foregroundStyle(.orange)
-                                        Text("Missing skills here: \(projectIssue.missingSkills.joined(separator: ", "))")
+                                        Text(LanguageStore.shared.t("agents.missingSkillsHere", projectIssue.missingSkills.joined(separator: ", ")))
                                             .font(.caption)
                                             .foregroundStyle(AppTheme.mutedText)
                                             .fixedSize(horizontal: false, vertical: true)
@@ -1660,7 +1660,7 @@ private struct AgentDetailView: View {
                 }
             } else if canRenameAgent(agent) {
                 AppCard(title: LanguageStore.shared.t("agents.custom")) {
-                    Text("This custom agent currently replaces a builtin. Rename it (hover the name in the header above) to turn it into a separate custom agent.")
+                    Text(LanguageStore.shared.t("agents.replacesBuiltin"))
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1677,7 +1677,7 @@ private struct AgentDetailView: View {
     private var configurationFootnote: String {
         if isPlainBuiltin {
             if agent.projectOverride != nil {
-                return "Editing here updates the global builtin override. A project override still takes precedence inside this project until you remove it."
+                return LanguageStore.shared.t("agents.editingGlobalOverride")
             }
             return hasOverride
                 ? "These changes update the global builtin override for this agent."
@@ -1874,7 +1874,7 @@ private struct AgentEditSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                .help("Close")
+                .help(LanguageStore.shared.t("common.close"))
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
@@ -1964,9 +1964,9 @@ private struct AgentEditSheet: View {
 
     private var editConfigTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Identity") {
+            AppCard(title: LanguageStore.shared.t("agents.identity")) {
                 editSection {
-                    configRow("Description") {
+                    configRow(LanguageStore.shared.t("agents.description")) {
                         TextEditor(text: descriptionBinding)
                             .frame(minHeight: 64, maxHeight: 120)
                             .font(.body)
@@ -1975,9 +1975,9 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "Routing") {
+            AppCard(title: LanguageStore.shared.t("agents.routing")) {
                 editSection {
-                    configRow("When to Use") {
+                    configRow(LanguageStore.shared.t("agents.whenToUseRow")) {
                         TextEditor(text: optionalStringBinding(for: \.whenToUse))
                             .frame(minHeight: 64, maxHeight: 120)
                             .font(.body)
@@ -1986,13 +1986,13 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "Fallback Models") {
+            AppCard(title: LanguageStore.shared.t("agents.fallbackModels")) {
                 editSection {
-                    configRow("Fallback Models") {
+                    configRow(LanguageStore.shared.t("agents.fallbackModels")) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Menu("Add Fallback Model") {
+                            Menu(LanguageStore.shared.t("agents.addFallbackModel")) {
                                 if !availableModels.isEmpty {
-                                    Button("Use None") {
+                                    Button(LanguageStore.shared.t("agents.useNone")) {
                                         draft?.config.fallbackModels = []
                                     }
                                     Divider()
@@ -2009,12 +2009,12 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "Prompt") {
+            AppCard(title: LanguageStore.shared.t("agents.prompt")) {
                 editSection {
-                    configRow("Prompt Mode") {
-                        Picker("Prompt Mode", selection: promptModeBinding) {
-                            Text("Replace").tag("replace")
-                            Text("Append").tag("append")
+                    configRow(LanguageStore.shared.t("editor.promptMode")) {
+                        Picker(LanguageStore.shared.t("agents.promptModePicker"), selection: promptModeBinding) {
+                            Text(LanguageStore.shared.t("agents.replace")).tag("replace")
+                            Text(LanguageStore.shared.t("agents.append")).tag("append")
                         }
                         .appSegmentedPicker()
                         .frame(maxWidth: 260, alignment: .leading)
@@ -2025,9 +2025,9 @@ private struct AgentEditSheet: View {
                 }
             }
 
-            AppCard(title: "Behavior") {
+            AppCard(title: LanguageStore.shared.t("agents.behavior")) {
                 editSection {
-                    configRow("Availability") {
+                    configRow(LanguageStore.shared.t("agents.availability")) {
                         Toggle("Disabled", isOn: optionalBoolBinding(for: \.disabled))
                             .appSwitch()
                         Text(agentFieldHelpText(for: "Disabled") ?? "")
@@ -2036,9 +2036,9 @@ private struct AgentEditSheet: View {
                     }
 
                     if case .custom = draft?.target {
-                        configRow("Default Outcome") {
-                            Picker("Default Outcome", selection: defaultExpectedOutcomeBinding()) {
-                                Text("Unspecified").tag(PiSubagentExpectedOutcome?.none)
+                        configRow(LanguageStore.shared.t("agents.defaultOutcome")) {
+                            Picker(LanguageStore.shared.t("agents.defaultOutcomePicker"), selection: defaultExpectedOutcomeBinding()) {
+                                Text(LanguageStore.shared.t("agents.unspecified")).tag(PiSubagentExpectedOutcome?.none)
                                 ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
                                     Text(outcome.displayName).tag(Optional(outcome))
                                 }
@@ -2047,7 +2047,7 @@ private struct AgentEditSheet: View {
                             .frame(maxWidth: 220, alignment: .leading)
                         }
 
-                        configRow("Progress") {
+                        configRow(LanguageStore.shared.t("agents.progress")) {
                             Toggle("Default progress", isOn: optionalBoolBinding(for: \.defaultProgress))
                                 .appSwitch()
                             Text(agentFieldHelpText(for: "Default Progress") ?? "")
@@ -2055,7 +2055,7 @@ private struct AgentEditSheet: View {
                                 .foregroundStyle(AppTheme.mutedText)
                         }
 
-                        configRow("Interaction") {
+                        configRow(LanguageStore.shared.t("agents.interaction")) {
                             Toggle("Interactive", isOn: optionalBoolBinding(for: \.interactive))
                                 .appSwitch()
                             Text(agentFieldHelpText(for: "Interactive") ?? "")
@@ -2067,17 +2067,17 @@ private struct AgentEditSheet: View {
             }
 
             if case .custom = draft?.target {
-                AppCard(title: "Files") {
+                AppCard(title: LanguageStore.shared.t("agents.files")) {
                     editSection {
-                        configRow("Output") {
-                            AppTextField(text: optionalStringBinding(for: \.output), placeholder: "Output path")
+                        configRow(LanguageStore.shared.t("agents.output")) {
+                            AppTextField(text: optionalStringBinding(for: \.output), placeholder: LanguageStore.shared.t("agents.outputPath"))
                                 .frame(maxWidth: 360, alignment: .leading)
                             Text(agentFieldHelpText(for: "Output") ?? "")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                         }
 
-                        configRow("Default Reads") {
+                        configRow(LanguageStore.shared.t("agents.defaultReads")) {
                             AppTextField(text: stringListBinding(for: \.defaultReads), placeholder: "fileA, fileB")
                                 .frame(maxWidth: 360, alignment: .leading)
                             Text(agentFieldHelpText(for: "Default Reads") ?? "")
@@ -2085,7 +2085,7 @@ private struct AgentEditSheet: View {
                                 .foregroundStyle(AppTheme.mutedText)
                         }
 
-                        configRow("Max Depth") {
+                        configRow(LanguageStore.shared.t("agents.maxDepth")) {
                             Stepper(value: optionalIntBinding(for: \.maxSubagentDepth), in: 0...10) {
                                 Text(draft?.config.maxSubagentDepth.map(String.init) ?? "0")
                             }
@@ -2104,7 +2104,7 @@ private struct AgentEditSheet: View {
     private var editPromptTab: some View {
         AppCard(title: LanguageStore.shared.t("agents.systemPrompt")) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("The system prompt is the main instruction body for this agent. Replace mode uses this as the agent's primary prompt, while append mode adds it on top of Pi's normal base behavior.")
+                Text(LanguageStore.shared.t("agents.promptBodyHint"))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2125,20 +2125,20 @@ private struct AgentEditSheet: View {
             AppCard(title: LanguageStore.shared.t("agents.toolAccess")) {
                 VStack(alignment: .leading, spacing: 18) {
                     editSection {
-                        configRow("Reset") {
+                        configRow(LanguageStore.shared.t("agents.reset")) {
                             HStack(spacing: 10) {
-                                Button("Reset Tool Access") {
+                                Button(LanguageStore.shared.t("agents.resetToolAccess")) {
                                     resetToolAccess()
                                 }
                                 .controlSize(.small)
-                                Text(selectedToolValues.isEmpty ? "Currently using Pi default tool access." : "Using an explicit tool allowlist.")
+                                Text(selectedToolValues.isEmpty ? LanguageStore.shared.t("agents.usingDefaultTools") : LanguageStore.shared.t("agents.usingExplicitTools"))
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             }
                         }
 
-                        configRow("Add Tool") {
-                            Menu("Choose Tool") {
+                        configRow(LanguageStore.shared.t("agents.addTool")) {
+                            Menu(LanguageStore.shared.t("agents.chooseTool")) {
                                 ForEach(availableTools, id: \.self) { tool in
                                     Button(tool) {
                                         addTool(tool)
@@ -2149,7 +2149,7 @@ private struct AgentEditSheet: View {
                             .fontWidth(.condensed)
                         }
 
-                        configRow("Selected") {
+                        configRow(LanguageStore.shared.t("agents.selected")) {
                             tokenList(selectedToolValues, remove: removeTool)
                         }
                     }
@@ -2160,14 +2160,14 @@ private struct AgentEditSheet: View {
                 AppCard(title: LanguageStore.shared.t("common.extensions")) {
                     VStack(alignment: .leading, spacing: 18) {
                         editSection {
-                            configRow("Extension Mode") {
+                            configRow(LanguageStore.shared.t("agents.extensionMode")) {
                                 HStack(spacing: 10) {
-                                    Button("Use Default Extensions") {
+                                    Button(LanguageStore.shared.t("agents.useDefaultExtensions")) {
                                         draft?.config.extensions = nil
                                     }
                                     .controlSize(.small)
                                     .lineLimit(1)
-                                    Text((draft?.config.extensions == nil) ? "Inherits Pi's default extension behavior." : "Using an explicit extension list.")
+                                    Text((draft?.config.extensions == nil) ? LanguageStore.shared.t("agents.inheritsExtensions") : LanguageStore.shared.t("agents.explicitExtensions"))
                                         .font(.caption)
                                         .fontWidth(.condensed)
                                         .lineLimit(1)
@@ -2176,8 +2176,8 @@ private struct AgentEditSheet: View {
                                 }
                             }
 
-                            configRow("Add Extension") {
-                                Menu("Choose Extension") {
+                            configRow(LanguageStore.shared.t("agents.addExtension")) {
+                                Menu(LanguageStore.shared.t("agents.chooseExtension")) {
                                     ForEach(availableExtensions, id: \.self) { name in
                                         Button(name) {
                                             addExtension(name)
@@ -2188,7 +2188,7 @@ private struct AgentEditSheet: View {
                                 .fontWidth(.condensed)
                             }
 
-                            configRow("Selected") {
+                            configRow(LanguageStore.shared.t("agents.selected")) {
                                 tokenList(draft?.config.extensions ?? [], remove: removeExtension)
                             }
                         }
@@ -2212,29 +2212,29 @@ private struct AgentEditSheet: View {
             AppCard(title: LanguageStore.shared.t("common.skills")) {
                 VStack(alignment: .leading, spacing: 18) {
                     editSection {
-                        configRow("Skill Catalog") {
-                            Text("Only skills and skill collections visible in this agent's scope are selectable here.")
+                        configRow(LanguageStore.shared.t("agents.skillCatalog")) {
+                            Text(LanguageStore.shared.t("agents.skillsScopeHint"))
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                         }
 
-                        configRow("Add Skill") {
-                            Menu("Choose Skill") {
+                        configRow(LanguageStore.shared.t("agents.addSkill")) {
+                            Menu(LanguageStore.shared.t("agents.chooseSkill")) {
                                 ForEach(selectableSkills, id: \.self) { skill in
                                     Button(skill) { addSkill(skill) }
                                 }
                             }
                         }
 
-                        configRow("Add Collection") {
-                            Menu("Choose Collection") {
+                        configRow(LanguageStore.shared.t("agents.addCollection")) {
+                            Menu(LanguageStore.shared.t("agents.chooseCollection")) {
                                 ForEach(selectableSkillCollections, id: \.self) { collection in
                                     Button(collection) { addSkill(collection) }
                                 }
                             }
                         }
 
-                        configRow("Selected") {
+                        configRow(LanguageStore.shared.t("agents.selected")) {
                             tokenList(draft?.config.skills ?? [], remove: removeSkill)
                         }
                     }
@@ -2244,13 +2244,13 @@ private struct AgentEditSheet: View {
             AppCard(title: LanguageStore.shared.t("agents.mcpServers")) {
                 VStack(alignment: .leading, spacing: 18) {
                     editSection {
-                        configRow("Available") {
+                        configRow(LanguageStore.shared.t("agents.available")) {
                             if availableMcpServers.isEmpty {
                                 Text(LanguageStore.shared.t("agents.noMCP"))
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             } else {
-                                Menu("Choose MCP server") {
+                                Menu(LanguageStore.shared.t("agents.chooseMcp")) {
                                     ForEach(selectableMcpServers, id: \.self) { server in
                                         Button(server) { addMcpServer(server) }
                                     }
@@ -2258,11 +2258,11 @@ private struct AgentEditSheet: View {
                             }
                         }
 
-                        configRow("Assigned") {
+                        configRow(LanguageStore.shared.t("agents.assigned")) {
                             tokenList(draft?.config.mcpServers ?? [], remove: removeMcpServer)
                         }
                     }
-                    Text("When this agent runs as a Deck agent, it can call tools from the MCP servers assigned here through the `mcp` proxy tool. Requires MCP enabled in Runtime → MCP.")
+                    Text(LanguageStore.shared.t("agents.mcpProxyHint"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2333,7 +2333,7 @@ private struct AgentEditSheet: View {
     @ViewBuilder
     private func tokenList(_ values: [String], remove: @escaping (String) -> Void) -> some View {
         if values.isEmpty {
-            Text("None")
+            Text(LanguageStore.shared.t("agents.none"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         } else {
@@ -2351,8 +2351,8 @@ private struct AgentEditSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(value)")
-                        .help("Remove \(value)")
+                        .accessibilityLabel(LanguageStore.shared.t("agents.removeNamed", value))
+                        .help(LanguageStore.shared.t("agents.removeNamed", value))
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)

@@ -350,13 +350,13 @@ class PiAgentNativeCardRowView: NSView, PiAgentNativeRowContent {
         copyIcon.image = Self.symbolImage("doc.on.doc")
         copyIcon.contentTintColor = .labelColor
         copyIcon.imageScaling = .scaleNone
-        copyIcon.toolTip = "Copy message"
+        copyIcon.toolTip = LanguageStore.shared.t("transcript.copyMessage")
         copyGlass.contentView = copyIcon
         let copyPress = NSButton(title: "", target: self, action: #selector(copyTapped))
         copyPress.translatesAutoresizingMaskIntoConstraints = false
         copyPress.isBordered = false
-        copyPress.toolTip = "Copy message"
-        copyPress.setAccessibilityLabel("Copy message")
+        copyPress.toolTip = LanguageStore.shared.t("transcript.copyMessage")
+        copyPress.setAccessibilityLabel(LanguageStore.shared.t("transcript.copyMessage"))
         copyGlass.addSubview(copyPress)
         copyGlass.isHidden = true
         addSubview(copyGlass)
@@ -1252,7 +1252,7 @@ extension NativeStatusPayload {
     private static func promptAuditActions(for entry: PiAgentTranscriptEntry) -> [AuditAction] {
         if entry.title == "System Prompt Captured", let prompt = capturedSystemPrompt(entry) {
             return [AuditAction(symbol: "doc.text.magnifyingglass", help: "Show final system prompt captured from Pi runtime",
-                                title: "Final System Prompt", text: { prompt })]
+                                title: LanguageStore.shared.t("transcript.finalSystemPrompt"), text: { prompt })]
         }
         if entry.title == "Subagent Started", let meta = subagentPromptMetadata(entry) {
             let authored = meta.authored, final = meta.final
@@ -1260,7 +1260,7 @@ extension NativeStatusPayload {
                 AuditAction(symbol: "doc.text", help: "Show system prompt \(AppBrand.displayName) passed to the child",
                             title: "\(AppBrand.displayName) Authored System Prompt", text: { promptFileText(path: authored) }),
                 AuditAction(symbol: "doc.text.magnifyingglass", help: "Show system prompt captured from the child Pi runtime",
-                            title: "Final Runtime System Prompt", text: { promptFileText(path: final) })
+                            title: LanguageStore.shared.t("transcript.finalRuntimeSystemPrompt"), text: { promptFileText(path: final) })
             ]
         }
         return []
@@ -1742,16 +1742,16 @@ final class PiAgentNativeLoopRunCardView: NSView, PiAgentNativeRowContent {
     private let statusField = NSTextField(labelWithString: "")
     private let detailField = NSTextField(labelWithString: "")
     private var cardWidthC: NSLayoutConstraint!
-    private let detailsButton = NSButton(title: "Open Details", target: nil, action: nil)
-    private let stopButton = NSButton(title: "Stop", target: nil, action: nil)
-    private let retryButton = NSButton(title: "Start New Attempt", target: nil, action: nil)
-    private let saveButton = NSButton(title: "Save Loop", target: nil, action: nil)
-    private let revealButton = NSButton(title: "Reveal Artifacts", target: nil, action: nil)
-    private let revealWorktreeButton = NSButton(title: "Reveal Worktree", target: nil, action: nil)
-    private let applyWorktreeButton = NSButton(title: "Apply Worktree", target: nil, action: nil)
-    private let discardWorktreeButton = NSButton(title: "Discard Worktree", target: nil, action: nil)
-    private let approveHumanApprovalButton = NSButton(title: "Record Approval", target: nil, action: nil)
-    private let rejectHumanApprovalButton = NSButton(title: "Reject", target: nil, action: nil)
+    private let detailsButton = NSButton(title: LanguageStore.shared.t("transcript.openDetails"), target: nil, action: nil)
+    private let stopButton = NSButton(title: LanguageStore.shared.t("common.stop"), target: nil, action: nil)
+    private let retryButton = NSButton(title: LanguageStore.shared.t("loop.startNewAttempt"), target: nil, action: nil)
+    private let saveButton = NSButton(title: LanguageStore.shared.t("loop.saveLoop"), target: nil, action: nil)
+    private let revealButton = NSButton(title: LanguageStore.shared.t("loop.revealArtifacts"), target: nil, action: nil)
+    private let revealWorktreeButton = NSButton(title: LanguageStore.shared.t("loop.revealWorktree"), target: nil, action: nil)
+    private let applyWorktreeButton = NSButton(title: LanguageStore.shared.t("loop.applyWorktree"), target: nil, action: nil)
+    private let discardWorktreeButton = NSButton(title: LanguageStore.shared.t("loop.discardWorktree"), target: nil, action: nil)
+    private let approveHumanApprovalButton = NSButton(title: LanguageStore.shared.t("loop.recordApproval"), target: nil, action: nil)
+    private let rejectHumanApprovalButton = NSButton(title: LanguageStore.shared.t("loop.reject"), target: nil, action: nil)
     private let actionRows = NSStackView()
     private var payload: NativeLoopRunPayload?
     var onIntrinsicHeightChange: (() -> Void)?

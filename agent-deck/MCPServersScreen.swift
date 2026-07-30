@@ -256,7 +256,7 @@ struct MCPServersScreen: View {
     private var computerUsePolicyCard: some View {
         AppCard(title: LanguageStore.shared.t("mcp.computerUse")) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("ChatGPT must be running, signed in, and have Computer Use available for the account.")
+                Text(LanguageStore.shared.t("mcp.chatgptRequired"))
                     .fontWeight(.semibold)
                 HStack(spacing: 8) {
                     Label(
@@ -456,7 +456,7 @@ struct MCPServersScreen: View {
         if viewModel.mcpServerIsEditable(entry) {
             AppCard(title: LanguageStore.shared.t("mcp.removeServer")) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Remove “\(entry.name)” from ~/.pi/agent/mcp.json and clear it from every project and agent assignment.")
+                    Text(LanguageStore.shared.t("mcp.removeEntryConfirm", entry.name))
                         .font(.callout)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -768,7 +768,7 @@ private struct MCPServerEditorSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     if !isEditing {
-                        Picker("Input", selection: $inputMode) {
+                        Picker(LanguageStore.shared.t("mcp.input"), selection: $inputMode) {
                             ForEach(InputMode.allCases) { mode in
                                 Text(mode.label).tag(mode)
                             }
@@ -853,7 +853,7 @@ private struct MCPServerEditorSheet: View {
         field("Paste a server's config, or a `claude mcp add` / `codex mcp add` command") {
             editorBox($pasteText, field: .paste, placeholder: "{ \"mcpServers\": { \"Amplitude\": { \"url\": \"https://mcp.amplitude.com/mcp\" } } }")
         }
-        Text("We parse the config and add the server(s). Switch to Manual to fill the fields yourself.")
+        Text(LanguageStore.shared.t("mcp.importParseHint"))
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)
             .fixedSize(horizontal: false, vertical: true)
@@ -867,9 +867,9 @@ private struct MCPServerEditorSheet: View {
                 .disabled(isEditing)
         }
         field("Type") {
-            Picker("Type", selection: $isRemote) {
+            Picker(LanguageStore.shared.t("mcp.type"), selection: $isRemote) {
                 Text(LanguageStore.shared.t("mcp.localStdio")).tag(false)
-                Text("Remote (HTTP)").tag(true)
+                Text(LanguageStore.shared.t("mcp.remoteHttp")).tag(true)
             }
             .appSegmentedPicker()
             .labelsHidden()
@@ -893,11 +893,11 @@ private struct MCPServerEditorSheet: View {
                             .focused($focusedField, equals: .oauthClientID)
                     }
                     field("Client secret") {
-                        AppTextField(text: $oauthClientSecret, placeholder: "Optional")
+                        AppTextField(text: $oauthClientSecret, placeholder: LanguageStore.shared.t("mcp.optional"))
                             .focused($focusedField, equals: .oauthClientSecret)
                     }
                     field("Scopes") {
-                        AppTextField(text: $oauthScopes, placeholder: "Optional, space-separated")
+                        AppTextField(text: $oauthScopes, placeholder: LanguageStore.shared.t("mcp.optionalSpaceSeparated"))
                             .focused($focusedField, equals: .oauthScopes)
                     }
                 }
@@ -954,7 +954,7 @@ private struct MCPServerEditorSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
                 } else if importCandidates.isEmpty {
-                    ContentUnavailableView("No importable servers", systemImage: "tray", description: Text("No Claude or Codex MCP servers were found that are not already in Agent Deck."))
+                    ContentUnavailableView(LanguageStore.shared.t("mcp.noImportableTitle"), systemImage: "tray", description: Text(LanguageStore.shared.t("mcp.noImportableBody")))
                         .frame(maxWidth: .infinity, minHeight: 160)
                 } else {
                     VStack(spacing: 0) {
@@ -1002,7 +1002,7 @@ private struct MCPServerEditorSheet: View {
 
         return AppCheckboxRow(
             isOn: isSelected,
-            accessibilityLabel: "Toggle MCP server \(candidate.name)"
+            accessibilityLabel: LanguageStore.shared.t("mcp.toggleServer", candidate.name)
         ) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {

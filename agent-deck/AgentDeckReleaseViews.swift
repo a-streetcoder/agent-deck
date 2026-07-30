@@ -12,13 +12,13 @@ struct PiAgentReleaseToolbarButton: View {
         Button {
             isPresented = true
         } label: {
-            Label("Release", systemImage: "shippingbox")
+            Label(LanguageStore.shared.t("release.title"), systemImage: "shippingbox")
         }
-        .accessibilityLabel("Release")
+        .accessibilityLabel(LanguageStore.shared.t("release.title"))
         .symbolRenderingMode(.monochrome)
         .foregroundStyle(.primary)
         .tint(.primary)
-        .help("Tag and push a new \(AppBrand.displayName) release")
+        .help(LanguageStore.shared.t("release.tagAndPushHelp", AppBrand.displayName))
         .sheet(isPresented: $isPresented) {
             AgentDeckReleaseSheet(viewModel: viewModel)
         }
@@ -77,7 +77,7 @@ struct AgentDeckReleaseSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Release \(AppBrand.displayName)")
+            Text(LanguageStore.shared.t("release.releaseApp", AppBrand.displayName))
                 .font(.headline)
                 .fontWidth(.expanded)
             Text(ReleaseService.repository)
@@ -96,7 +96,7 @@ struct AgentDeckReleaseSheet: View {
         case .loading:
             HStack(spacing: 10) {
                 AppSpinner().controlSize(.small)
-                Text("Checking \(ReleaseService.mainBranch)…")
+                Text(LanguageStore.shared.t("release.checkingMain", ReleaseService.mainBranch))
                     .foregroundStyle(AppTheme.mutedText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -111,7 +111,7 @@ struct AgentDeckReleaseSheet: View {
         case .releasing:
             HStack(spacing: 10) {
                 AppSpinner().controlSize(.small)
-                Text("Tagging and pushing \(preflight?.tag(for: bump) ?? "")…")
+                Text(LanguageStore.shared.t("release.taggingPushingFmt", preflight?.tag(for: bump) ?? ""))
                     .foregroundStyle(AppTheme.mutedText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -154,17 +154,17 @@ struct AgentDeckReleaseSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("New version")
+                    Text(LanguageStore.shared.t("release.newVersion"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(AppTheme.mutedText)
-                    Picker("Bump", selection: $bump) {
-                        Text("Patch — \(preflight.nextPatch)").tag(ReleaseService.Bump.patch)
-                        Text("Minor — \(preflight.nextMinor)").tag(ReleaseService.Bump.minor)
-                        Text("Major — \(preflight.nextMajor)").tag(ReleaseService.Bump.major)
+                    Picker(LanguageStore.shared.t("release.bump"), selection: $bump) {
+                        Text(LanguageStore.shared.t("release.patch", preflight.nextPatch)).tag(ReleaseService.Bump.patch)
+                        Text(LanguageStore.shared.t("release.minor", preflight.nextMinor)).tag(ReleaseService.Bump.minor)
+                        Text(LanguageStore.shared.t("release.major", preflight.nextMajor)).tag(ReleaseService.Bump.major)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    Text("Tags \(preflight.tag(for: bump)) and pushes it to \(ReleaseService.remote). CI then builds, signs, and publishes the release.")
+                    Text(LanguageStore.shared.t("release.tagsAndPushes", preflight.tag(for: bump), ReleaseService.remote))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -186,14 +186,14 @@ struct AgentDeckReleaseSheet: View {
     private var releaseNotesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Release notes")
+                Text(LanguageStore.shared.t("release.notes"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                 Spacer()
                 Button {
                     Task { await generateNotes() }
                 } label: {
-                    Label("Regenerate", systemImage: "sparkles")
+                    Label(LanguageStore.shared.t("release.regenerate"), systemImage: "sparkles")
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.plain)
@@ -214,7 +214,7 @@ struct AgentDeckReleaseSheet: View {
                 if notesState == .generating {
                     HStack(spacing: 8) {
                         AppSpinner().controlSize(.small)
-                        Text("Writing release notes…")
+                        Text(LanguageStore.shared.t("release.writingNotes"))
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     .font(.caption)
@@ -243,21 +243,21 @@ struct AgentDeckReleaseSheet: View {
     @ViewBuilder
     private var doneContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Tagged and pushed \(pushedTag ?? "")", systemImage: "checkmark.circle.fill")
+            Label(LanguageStore.shared.t("release.taggedPushedFmt", pushedTag ?? ""), systemImage: "checkmark.circle.fill")
                 .font(.headline)
                 .foregroundStyle(.green)
-            Text("The release build is now running in CI.")
+            Text(LanguageStore.shared.t("release.ciRunning"))
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
             VStack(alignment: .leading, spacing: 6) {
                 if let actions = ReleaseService.actionsURL() {
                     Link(destination: actions) {
-                        Label("Watch the build", systemImage: "arrow.up.forward.app")
+                        Label(LanguageStore.shared.t("release.watchBuild"), systemImage: "arrow.up.forward.app")
                     }
                 }
                 if let tag = pushedTag, let release = ReleaseService.releaseURL(tag: tag) {
                     Link(destination: release) {
-                        Label("Release page", systemImage: "shippingbox")
+                        Label(LanguageStore.shared.t("release.releasePage"), systemImage: "shippingbox")
                     }
                 }
             }
@@ -294,11 +294,11 @@ struct AgentDeckReleaseSheet: View {
             Spacer()
             switch phase {
             case .done:
-                Button("Done") { dismiss() }
+                Button(LanguageStore.shared.t("common.done")) { dismiss() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
             default:
-                Button("Cancel") { dismiss() }
+                Button(LanguageStore.shared.t("common.cancel")) { dismiss() }
                     .appSecondaryButton()
                     .disabled(phase == .releasing)
                 Button(confirmTitle) { Task { await confirm() } }

@@ -383,7 +383,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         // which drives per-token reconcile + row re-tile + the follow glide.
         if streamSimPulses % 22 == 21, let sid = entries[idx].sessionID as UUID? {
             let chunk = Self.streamSimRichChunks[streamSimPulses % Self.streamSimRichChunks.count]
-            entries.append(PiAgentTranscriptEntry(sessionID: sid, role: .assistant, title: "Assistant", text: chunk))
+            entries.append(PiAgentTranscriptEntry(sessionID: sid, role: .assistant, title: LanguageStore.shared.t("agent.assistant"), text: chunk))
             streamSimTargetIndex = entries.count - 1
         } else {
             entries[idx].text += (streamSimPulses % 9 == 8) ? "\n\nNext, a fresh paragraph that adds another line or two of streamed prose. " : "token "
@@ -1008,8 +1008,8 @@ private struct JumpToLatestPill: View {
         .scaleEffect(isHovering ? 1.07 : 1)
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovering)
-        .help("Jump to latest")
-        .accessibilityLabel("Jump to latest message")
+        .help(LanguageStore.shared.t("agent.jumpLatestShort"))
+        .accessibilityLabel(LanguageStore.shared.t("agent.jumpLatestHelp"))
     }
 }
 
@@ -4008,7 +4008,7 @@ private struct SessionListContent: View, Equatable {
                 .equatable()
                 .simultaneousGesture(TapGesture().onEnded { onSelect(session) })
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Open session \(session.displayTitle)")
+                .accessibilityLabel(LanguageStore.shared.t("agent.openSession", session.displayTitle))
                 .accessibilityAction { onSelect(session) }
                 .focusable()
                 .onKeyPress(.space) {
@@ -5103,14 +5103,14 @@ struct PiAgentScreen: View {
                     },
                     onLaunch: { request in
                         if store.activeLoopRun(for: session.id) != nil && !request.stopExistingActive {
-                            store.append(.init(sessionID: session.id, role: .error, title: "Loop Launch Failed", text: "This transcript already has an active loop."))
+                            store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("agent.loopLaunchFailed"), text: "This transcript already has an active loop."))
                             return
                         }
                         if let saveRequest = request.saveRequest {
                             do {
                                 try viewModel.saveLoopDefinitionFromDraft(request.draft, request: saveRequest)
                             } catch {
-                                store.append(.init(sessionID: session.id, role: .error, title: "Loop Save Failed", text: error.localizedDescription))
+                                store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("agent.loopSaveFailed"), text: error.localizedDescription))
                                 return
                             }
                         }
@@ -5122,7 +5122,7 @@ struct PiAgentScreen: View {
                                 stopExistingActive: request.stopExistingActive
                             )
                             guard launched != nil else {
-                                store.append(.init(sessionID: session.id, role: .error, title: "Loop Launch Failed", text: "The loop could not be started."))
+                                store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("agent.loopLaunchFailed"), text: "The loop could not be started."))
                                 return
                             }
                         }
@@ -5873,7 +5873,7 @@ struct PiAgentScreen: View {
                         HStack(spacing: 4) {
                             Image(systemName: "sparkles.rectangle.stack")
                                 .font(AppTheme.Font.caption2.weight(.semibold))
-                            Text("Chat with \(agentName)")
+                            Text(LanguageStore.shared.t("agent.chatWith", agentName))
                                 .font(AppTheme.Font.footnote.weight(.semibold))
                         }
                         .foregroundStyle(AppTheme.brandAccent)
@@ -5902,8 +5902,8 @@ struct PiAgentScreen: View {
                 }
             }
         } else {
-            AppCard(title: "No Session Selected") {
-                Text("Select a session from the left, or create a new draft for the selected project.")
+            AppCard(title: LanguageStore.shared.t("agent.noSessionTitle")) {
+                Text(LanguageStore.shared.t("agent.noSessionBody"))
                     .foregroundStyle(AppTheme.mutedText)
             }
         }
@@ -6785,9 +6785,9 @@ struct PiAgentScreen: View {
                 AppSpinner()
                     .controlSize(.small)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Loading transcript")
+                    Text(LanguageStore.shared.t("agent.loadingTranscript"))
                         .font(AppTheme.Font.headline)
-                    Text("Restoring the selected chat from disk.")
+                    Text(LanguageStore.shared.t("agent.loadingTranscriptBody"))
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
@@ -6802,9 +6802,9 @@ struct PiAgentScreen: View {
                     .font(.title2)
                     .foregroundStyle(AppTheme.mutedText)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("No transcript yet")
+                    Text(LanguageStore.shared.t("agent.noTranscriptTitle"))
                         .font(AppTheme.Font.headline)
-                    Text("Send a message below to launch Pi Agent for this session.")
+                    Text(LanguageStore.shared.t("agent.noTranscriptBody"))
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
@@ -6896,7 +6896,7 @@ struct PiAgentScreen: View {
                 .font(AppTheme.Font.caption)
                 .foregroundStyle(AppTheme.mutedText)
             Spacer(minLength: 0)
-            Button(showArchivedPreCompactionTranscript ? "Hide" : "Load Earlier") {
+            Button(showArchivedPreCompactionTranscript ? LanguageStore.shared.t("agent.hide") : LanguageStore.shared.t("agent.loadEarlier")) {
                 withAnimation(.snappy(duration: 0.18)) {
                     showArchivedPreCompactionTranscript.toggle()
                 }
@@ -6916,14 +6916,14 @@ struct PiAgentScreen: View {
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Earlier transcript hidden")
+                Text(LanguageStore.shared.t("agent.earlierHidden"))
                     .font(AppTheme.Font.caption.weight(.semibold))
-                Text("Showing the latest \(archive.limit) items to keep this chat responsive. \(archive.hiddenCount) earlier item\(archive.hiddenCount == 1 ? "" : "s") are available.")
+                Text(LanguageStore.shared.t("agent.showingLatestFmt2", archive.limit, archive.hiddenCount))
                     .font(AppTheme.Font.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
             Spacer(minLength: 0)
-            Button("Open Earlier Transcript") {
+            Button(LanguageStore.shared.t("agent.openEarlier")) {
                 isEarlierTranscriptSheetPresented = true
             }
             .buttonStyle(.borderless)
@@ -6939,14 +6939,14 @@ struct PiAgentScreen: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Earlier Transcript")
+                    Text(LanguageStore.shared.t("agent.earlierTitle"))
                         .font(.title2.bold())
                         .fontWidth(.expanded)
-                    Text("Messages before the latest \(recentTranscriptTimelineItemLimit) visible items.")
+                    Text(LanguageStore.shared.t("agent.earlierBody", recentTranscriptTimelineItemLimit))
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Button("Done") {
+                Button(LanguageStore.shared.t("common.done")) {
                     isEarlierTranscriptSheetPresented = false
                 }
                 .keyboardShortcut(.cancelAction)
@@ -7488,7 +7488,7 @@ struct PiAgentScreen: View {
         case .loopCreateNew:
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("agent.loopUnavailable"), text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelections = []
                 slashState = SlashSuggestionState()
@@ -7507,7 +7507,7 @@ struct PiAgentScreen: View {
         case .loopDefinition(let definition):
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("agent.loopUnavailable"), text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelections = []
                 slashState = SlashSuggestionState()
@@ -8209,15 +8209,15 @@ private struct ComputerUseChatGPTStartSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             AppSheetHeader(
                 systemImage: "desktopcomputer",
-                title: "Start ChatGPT for Computer Use"
+                title: LanguageStore.shared.t("agent.chatgptStartTitle")
             ) {
                 EmptyView()
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("This session has trusted Computer Use enabled. ChatGPT must be running and signed in to an eligible account before Computer Use can be used.")
+                Text(LanguageStore.shared.t("agent.chatgptMustRunning"))
                     .font(.callout)
-                Text("You can open ChatGPT now, or continue without opening it.")
+                Text(LanguageStore.shared.t("agent.chatgptStartBody"))
                     .font(.callout)
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -8228,12 +8228,12 @@ private struct ComputerUseChatGPTStartSheet: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button(LanguageStore.shared.t("common.cancel"), action: onCancel)
                     .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
-                Button("Continue Without Opening", action: onContinueWithoutOpening)
+                Button(LanguageStore.shared.t("agent.continueWithoutOpening"), action: onContinueWithoutOpening)
                     .appSecondaryButton()
-                Button("Open ChatGPT", action: onOpenChatGPT)
+                Button(LanguageStore.shared.t("agent.openChatgpt"), action: onOpenChatGPT)
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
             }
@@ -8418,14 +8418,14 @@ private struct PiAgentComposerPanel: View {
                     },
                     onLaunch: { request in
                         if store.activeLoopRun(for: session.id) != nil && !request.stopExistingActive {
-                            store.append(.init(sessionID: session.id, role: .error, title: "Loop Launch Failed", text: "This transcript already has an active loop."))
+                            store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("agent.loopLaunchFailed"), text: "This transcript already has an active loop."))
                             return
                         }
                         if let saveRequest = request.saveRequest {
                             do {
                                 try viewModel.saveLoopDefinitionFromDraft(request.draft, request: saveRequest)
                             } catch {
-                                store.append(.init(sessionID: session.id, role: .error, title: "Loop Save Failed", text: error.localizedDescription))
+                                store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("agent.loopSaveFailed"), text: error.localizedDescription))
                                 return
                             }
                         }
@@ -8437,7 +8437,7 @@ private struct PiAgentComposerPanel: View {
                                 stopExistingActive: request.stopExistingActive
                             )
                             guard launched != nil else {
-                                store.append(.init(sessionID: session.id, role: .error, title: "Loop Launch Failed", text: "The loop could not be started."))
+                                store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("agent.loopLaunchFailed"), text: "The loop could not be started."))
                                 return
                             }
                         }
@@ -8537,9 +8537,9 @@ private struct PiAgentComposerPanel: View {
         { [viewModel, store] in
             do {
                 _ = try viewModel.saveLoopDefinitionFromRun(run)
-                store.append(.init(sessionID: run.sessionID, role: .status, title: "Loop Saved", text: "Saved loop to Loop Bank."))
+                store.append(.init(sessionID: run.sessionID, role: .status, title: LanguageStore.shared.t("agent.loopSaved"), text: LanguageStore.shared.t("agent.loopSavedBody")))
             } catch {
-                store.append(.init(sessionID: run.sessionID, role: .error, title: "Loop Save Failed", text: error.localizedDescription))
+                store.append(.init(sessionID: run.sessionID, role: .error, title: LanguageStore.shared.t("agent.loopSaveFailed"), text: error.localizedDescription))
             }
         }
     }
@@ -8721,7 +8721,7 @@ private struct PiAgentComposerPanel: View {
         case .loopCreateNew:
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("agent.loopUnavailable"), text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelections = []
                 slashState = SlashSuggestionState()
@@ -8740,7 +8740,7 @@ private struct PiAgentComposerPanel: View {
         case .loopDefinition(let definition):
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("agent.loopUnavailable"), text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelections = []
                 slashState = SlashSuggestionState()
@@ -9083,7 +9083,7 @@ private struct PiAgentComposerPanel: View {
 
     private func sendComposerMessage() {
         if let session = store.selectedSession, store.activeLoopRun(for: session.id) != nil {
-            store.append(.init(sessionID: session.id, role: .status, title: "Composer Locked", text: "Loop running — use loop controls."))
+            store.append(.init(sessionID: session.id, role: .status, title: LanguageStore.shared.t("agent.composerLocked"), text: LanguageStore.shared.t("agent.composerLockedBody")))
             return
         }
         let activePasteAttachments = PiAgentPasteMarkerCodec.activeAttachments(in: composerText, attachments: composerPasteAttachments)

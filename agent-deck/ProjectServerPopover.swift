@@ -41,7 +41,7 @@ struct ProjectServerPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AppPopoverHeader(title: "Dev Server", subtitle: session.projectNameForDisplay) {
+            AppPopoverHeader(title: LanguageStore.shared.t("devserver.title"), subtitle: session.projectNameForDisplay) {
                 if let status = currentServer?.status {
                     headerStatusPill(status)
                 }
@@ -91,7 +91,7 @@ struct ProjectServerPopover: View {
     }
 
     private var emptyState: some View {
-        Text("No dev server detected. Add a dev, start, or serve script to package.json, or open a Cargo or Django project.")
+        Text(LanguageStore.shared.t("devserver.noDetected"))
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)
             .fixedSize(horizontal: false, vertical: true)
@@ -101,7 +101,7 @@ struct ProjectServerPopover: View {
     private var idleServerView: some View {
         VStack(alignment: .leading, spacing: 10) {
             if commands.count > 1 {
-                Picker("Command", selection: commandSelection) {
+                Picker(LanguageStore.shared.t("devserver.command"), selection: commandSelection) {
                     ForEach(commands) { command in
                         Text(command.label).tag(command.id)
                     }
@@ -127,7 +127,7 @@ struct ProjectServerPopover: View {
                 if let url = server.detectedURL {
                     urlLink(url)
                 } else {
-                    Text("Waiting for the server to report its URL…")
+                    Text(LanguageStore.shared.t("devserver.waitingUrl"))
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -149,13 +149,13 @@ struct ProjectServerPopover: View {
         if server.status.isActive {
             HStack(spacing: 8) {
                 Button { viewModel.stopProjectServer(for: session, server: server) } label: {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label(LanguageStore.shared.t("devserver.stop"), systemImage: "stop.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .appSecondaryButton()
 
                 Button { viewModel.restartProjectServer(for: session, server: server) } label: {
-                    Label("Restart", systemImage: "arrow.clockwise")
+                    Label(LanguageStore.shared.t("devserver.restart"), systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
                 .appSecondaryButton()
@@ -163,7 +163,7 @@ struct ProjectServerPopover: View {
         } else {
             HStack(spacing: 8) {
                 Button { service.remove(server) } label: {
-                    Label("Dismiss", systemImage: "xmark")
+                    Label(LanguageStore.shared.t("devserver.dismiss"), systemImage: "xmark")
                         .frame(maxWidth: .infinity)
                 }
                 .appSecondaryButton()
@@ -173,7 +173,7 @@ struct ProjectServerPopover: View {
                     service.remove(server)
                     viewModel.startProjectServer(for: session, command: command)
                 } label: {
-                    Label("Start Again", systemImage: "play.fill")
+                    Label(LanguageStore.shared.t("devserver.startAgain"), systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .appPrimaryButton()
@@ -188,7 +188,7 @@ struct ProjectServerPopover: View {
                 viewModel.startProjectServer(for: session, command: command)
             }
         } label: {
-            Label("Start Server", systemImage: "play.fill")
+            Label(LanguageStore.shared.t("devserver.startServer"), systemImage: "play.fill")
                 .frame(maxWidth: .infinity)
         }
         .appPrimaryButton()
@@ -197,11 +197,11 @@ struct ProjectServerPopover: View {
 
     private var conflictsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Port conflicts", systemImage: "exclamationmark.triangle.fill")
+            Label(LanguageStore.shared.t("devserver.portConflicts"), systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.orange)
             if let port = predictedPort {
-                Text("Other running servers are using port \(port):")
+                Text(LanguageStore.shared.t("devserver.otherUsingPort", port))
                     .font(AppTheme.Font.micro)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -222,7 +222,7 @@ struct ProjectServerPopover: View {
                                 .truncationMode(.middle)
                         }
                         Spacer(minLength: 0)
-                        Button("Stop") { viewModel.stopProjectServer(for: session, server: server) }
+                        Button(LanguageStore.shared.t("devserver.stop")) { viewModel.stopProjectServer(for: session, server: server) }
                             .appSmallSecondaryButton()
                     }
                 }
@@ -289,7 +289,7 @@ struct ProjectServerPopover: View {
         }
         .buttonStyle(.plain)
         .onHover { isURLHovering = $0 }
-        .help("Open \(url.absoluteString) in the browser")
+        .help(LanguageStore.shared.t("devserver.openInBrowser", url.absoluteString))
     }
 
     private func statusMessage(_ message: String) -> some View {

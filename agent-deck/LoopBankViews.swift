@@ -196,7 +196,7 @@ struct LoopBankScreen: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
-            Button("OK") { errorMessage = nil }
+            Button(LanguageStore.shared.t("common.ok")) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }
@@ -392,11 +392,11 @@ struct LoopBankScreen: View {
             detailEditor(LanguageStore.shared.t("loops.field.goalTemplate"), text: $editorDraft.goalTemplate, minHeight: 120, info: LanguageStore.shared.t("loops.help.goalTemplate"))
             detailEditor(LanguageStore.shared.t("loops.field.successCondition"), text: $editorDraft.successCondition, minHeight: 84, info: LanguageStore.shared.t("loops.help.successCondition"))
             detailRow(LanguageStore.shared.t("loops.field.evaluatorModel"), info: LanguageStore.shared.t("loops.help.evaluatorModel")) {
-                AppTextField(text: $editorDraft.evaluatorModel, placeholder: "Default")
+                AppTextField(text: $editorDraft.evaluatorModel, placeholder: LanguageStore.shared.t("projects.scope.default"))
                     .frame(maxWidth: 360)
             }
             detailRow(LanguageStore.shared.t("loops.field.evaluatorThinking"), info: LanguageStore.shared.t("loops.help.evaluatorThinking")) {
-                AppTextField(text: $editorDraft.evaluatorThinkingLevel, placeholder: "Default")
+                AppTextField(text: $editorDraft.evaluatorThinkingLevel, placeholder: LanguageStore.shared.t("projects.scope.default"))
                     .frame(maxWidth: 360)
             }
             detailEditor(LanguageStore.shared.t("loops.field.launchContextOptional"), text: $editorDraft.launchContext, minHeight: 84, infoRows: loopLaunchContextInfoRows)
@@ -587,8 +587,8 @@ struct LoopBankScreen: View {
         case .makerChecker:
             AppCard(title: LanguageStore.shared.t("loops.makerChecker")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    readOnlyFieldRow("Maker agent", value: definition.makerChecker.makerName, placeholder: "Not selected")
-                    readOnlyFieldRow("Checker agent", value: definition.makerChecker.checkerName, placeholder: "Not selected")
+                    readOnlyFieldRow(LanguageStore.shared.t("loops.makerAgent"), value: definition.makerChecker.makerName, placeholder: LanguageStore.shared.t("loops.notSelected"))
+                    readOnlyFieldRow(LanguageStore.shared.t("loops.checkerAgent"), value: definition.makerChecker.checkerName, placeholder: LanguageStore.shared.t("loops.notSelected"))
                     readOnlyMarkdownFieldRow("Checker rubric", value: definition.makerChecker.checkerRubric, isLast: true)
                 }
             }
@@ -598,12 +598,12 @@ struct LoopBankScreen: View {
             }
         case .parallelAgents:
             AppCard(title: LanguageStore.shared.t("loops.parallel")) {
-                readOnlyFieldRow("Branches", value: definition.parallel.branchNames.joined(separator: " | "), placeholder: "No branches", isLast: true)
+                readOnlyFieldRow(LanguageStore.shared.t("loops.branches"), value: definition.parallel.branchNames.joined(separator: " | "), placeholder: LanguageStore.shared.t("loops.noBranches"), isLast: true)
             }
         case .discoveryTriage:
             AppCard(title: LanguageStore.shared.t("loops.discovery")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    readOnlyFieldRow("Triage agent", value: definition.discoveryTriage.agentName, placeholder: "Not selected")
+                    readOnlyFieldRow(LanguageStore.shared.t("loops.triageAgent"), value: definition.discoveryTriage.agentName, placeholder: LanguageStore.shared.t("loops.notSelected"))
                     readOnlyMarkdownFieldRow("Classification prompt", value: definition.discoveryTriage.classificationPrompt, isLast: true)
                 }
             }
@@ -613,7 +613,7 @@ struct LoopBankScreen: View {
             }
         case .singleAgent:
             AppCard(title: LanguageStore.shared.t("loops.singleAgent")) {
-                readOnlyFieldRow("Agent", value: definition.makerChecker.makerName, placeholder: "Not selected", isLast: true)
+                readOnlyFieldRow(LanguageStore.shared.t("loops.agent"), value: definition.makerChecker.makerName, placeholder: LanguageStore.shared.t("loops.notSelected"), isLast: true)
             }
         }
     }
@@ -623,7 +623,7 @@ struct LoopBankScreen: View {
         AppCard(title: LanguageStore.shared.t("loops.projectAssignment")) {
             if definition.source == .builtin {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Built-in loops are bundled with \(AppBrand.displayName). Duplicate this loop to create an editable user copy and assign it to projects.")
+                    Text(LanguageStore.shared.t("loops.builtinHint", AppBrand.displayName))
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                     readOnlyFieldRow("Availability", value: availabilityLabel(for: definition))
@@ -685,20 +685,20 @@ struct LoopBankScreen: View {
         case .makerChecker:
             AppCard(title: LanguageStore.shared.t("loops.makerChecker")) {
                 VStack(alignment: .leading, spacing: 0) {
-                    detailRow("Maker agent", info: "The agent that produces the work for each iteration.") {
+                    detailRow(LanguageStore.shared.t("loops.makerAgent"), info: LanguageStore.shared.t("loops.makerInfo")) {
                         LoopAgentNameMenu(selection: $editorDraft.makerName, availableAgents: availableLoopAgents, fallbackLabel: "Maker")
                     }
-                    detailRow("Checker agent", info: "The agent that reviews the maker output and decides whether another round is needed.") {
+                    detailRow(LanguageStore.shared.t("loops.checkerAgent"), info: LanguageStore.shared.t("loops.checkerInfo")) {
                         LoopAgentNameMenu(selection: $editorDraft.checkerName, availableAgents: availableLoopAgents, fallbackLabel: "Checker")
                     }
-                    detailEditor("Checker rubric", text: $editorDraft.checkerRubric, minHeight: 84, info: "Instructions for the checker. Keep the approval criteria concrete so the loop knows when to stop retrying.")
+                    detailEditor(LanguageStore.shared.t("loops.checkerRubric"), text: $editorDraft.checkerRubric, minHeight: 84, info: "Instructions for the checker. Keep the approval criteria concrete so the loop knows when to stop retrying.")
                 }
             }
         case .agentPipeline:
             AppCard(title: LanguageStore.shared.t("loops.pipeline")) {
                 VStack(alignment: .leading, spacing: 10) {
                     LoopPipelineStagePicker(stages: $editorDraft.pipelineStageNames, availableAgents: availableLoopAgents)
-                    Text("Stages are saved as an ordered agent list. The current runner records this order; child agent execution is the next runner slice.")
+                    Text(LanguageStore.shared.t("loops.stagesOrderHint"))
                         .font(AppTheme.Font.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -707,25 +707,25 @@ struct LoopBankScreen: View {
             AppCard(title: LanguageStore.shared.t("loops.parallel")) {
                 VStack(alignment: .leading, spacing: 8) {
                     LoopPipelineStagePicker(stages: $editorDraft.parallelAgentNames, availableAgents: availableLoopAgents)
-                    Text("Select enabled agents for independent report-only investigations. Parallel loops never share a writable target.")
+                    Text(LanguageStore.shared.t("loops.parallelSelectHint"))
                         .font(AppTheme.Font.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
             }
         case .discoveryTriage:
             AppCard(title: LanguageStore.shared.t("loops.discovery")) {
-                detailRow("Triage agent", info: "The agent that gathers findings and applies the classification prompt.") {
+                detailRow(LanguageStore.shared.t("loops.triageAgent"), info: LanguageStore.shared.t("loops.triageInfo")) {
                     LoopAgentNameMenu(selection: $editorDraft.triageAgentName, availableAgents: availableLoopAgents, fallbackLabel: "Explorer")
                 }
-                detailEditor("Classification prompt", text: $editorDraft.classificationPrompt, minHeight: 84, info: "Tell the triage agent how to sort findings, for example by severity, confidence, owner, or next action.")
+                detailEditor(LanguageStore.shared.t("loops.classificationPrompt"), text: $editorDraft.classificationPrompt, minHeight: 84, info: "Tell the triage agent how to sort findings, for example by severity, confidence, owner, or next action.")
             }
         case .humanApproval:
             AppCard(title: LanguageStore.shared.t("loops.humanApproval")) {
-                detailEditor("Checkpoint prompt", text: $editorDraft.checkpointPrompt, minHeight: 84, info: "The question or review instruction shown for a terminal approval checkpoint. Approval is recorded; it does not resume this same run.")
+                detailEditor(LanguageStore.shared.t("loops.checkpointPrompt"), text: $editorDraft.checkpointPrompt, minHeight: 84, info: "The question or review instruction shown for a terminal approval checkpoint. Approval is recorded; it does not resume this same run.")
             }
         case .singleAgent:
             AppCard(title: LanguageStore.shared.t("loops.singleAgent")) {
-                detailRow("Agent", info: "The agent that will run each iteration. Choose the role best matched to the goal, such as explorer, coder, or reviewer.", showsDivider: false) {
+                detailRow(LanguageStore.shared.t("loops.agent"), info: LanguageStore.shared.t("loops.agentInfo"), showsDivider: false) {
                     LoopAgentNameMenu(selection: $editorDraft.makerName, availableAgents: availableLoopAgents, fallbackLabel: "Agent")
                 }
             }

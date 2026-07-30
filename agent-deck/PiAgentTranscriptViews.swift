@@ -1409,7 +1409,7 @@ struct PiAgentThreadDiffSummaryView: View {
                         .imageScale(.small)
                         .fontWeight(.semibold)
                         .foregroundStyle(AppTheme.mutedText)
-                    Text("Changes")
+                    Text(LanguageStore.shared.t("transcript.changes"))
                         .font(AppTheme.Font.caption.weight(.semibold))
                     Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
                         .font(AppTheme.Font.caption)
@@ -1417,7 +1417,7 @@ struct PiAgentThreadDiffSummaryView: View {
                     Spacer(minLength: 0)
                 }
                 if isLoading && rows.isEmpty {
-                    Text("Preparing file changes…")
+                    Text(LanguageStore.shared.t("transcript.preparingChanges"))
                         .font(AppTheme.Font.caption2)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -1643,7 +1643,7 @@ private struct PiAgentInlineDiffCard: View {
                             .contentTransition(.symbolEffect(.replace))
                             .symbolEffect(.bounce, value: openTapCount)
                             .frame(width: 15, height: 15)
-                        Text("Open")
+                        Text(LanguageStore.shared.t("transcript.open"))
                     }
                 }
                 .font(AppTheme.Font.caption2.weight(.semibold))
@@ -1673,7 +1673,7 @@ private struct PiAgentDiffCopyButton: View {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 15, height: 15)
-                Text("Copy")
+                Text(LanguageStore.shared.t("transcript.copy"))
             }
         }
         .font(AppTheme.Font.caption2.weight(.semibold))
@@ -1775,7 +1775,7 @@ struct PiAgentNativeMCPResultSheet: View {
                         .font(AppTheme.Font.headline.weight(.semibold))
                         .lineLimit(2)
                         .truncationMode(.middle)
-                    Text("MCP response")
+                    Text(LanguageStore.shared.t("transcript.mcpResponse"))
                         .font(AppTheme.Font.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -1822,7 +1822,7 @@ private struct PiAgentMCPResultImageView: View {
         if let path = reference.localPath, let image = NSImage(contentsOfFile: path) {
             Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 360, alignment: .leading)
         } else {
-            Text("MCP image is unavailable.").font(AppTheme.Font.caption).foregroundStyle(AppTheme.mutedText)
+            Text(LanguageStore.shared.t("transcript.mcpImageUnavailable")).font(AppTheme.Font.caption).foregroundStyle(AppTheme.mutedText)
         }
     }
 }
@@ -2688,7 +2688,7 @@ struct PiAgentForkOriginCard: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 4) {
-                        Text("Forked from")
+                        Text(LanguageStore.shared.t("transcript.forkedFrom"))
                         Text("\u{201C}\(parentTitle)\u{201D}")
                             .fontWeight(.semibold)
                     }
@@ -2700,7 +2700,7 @@ struct PiAgentForkOriginCard: View {
                             .font(AppTheme.Font.caption)
                             .foregroundStyle(AppTheme.mutedText)
                     } else {
-                        Text("Parent transcript not captured")
+                        Text(LanguageStore.shared.t("transcript.parentNotCaptured"))
                             .font(AppTheme.Font.caption)
                             .foregroundStyle(AppTheme.mutedText)
                     }
@@ -3418,7 +3418,7 @@ struct PiAgentUserMessageContent: View {
             .font(AppTheme.Font.caption2)
         }
         .appSmallSecondaryButton()
-        .help("Preview \(name)")
+        .help(LanguageStore.shared.t("transcript.previewNamed", name))
         .popover(isPresented: Binding(
             get: { preview == attachment },
             set: { isPresented in
@@ -3574,7 +3574,7 @@ private struct AttachmentPreviewPopover: View {
 
     private func commandPreviewBody(use: CommandUseAttachment) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Command invocation sent to Pi.")
+            Text(LanguageStore.shared.t("transcript.commandInvocation"))
                 .font(AppTheme.Font.subheadline)
                 .foregroundStyle(.secondary)
             Text("/\(use.name)")
@@ -3670,7 +3670,7 @@ private struct AttachmentPreviewPopover: View {
                 Image(systemName: "doc")
                     .font(.title2)
                     .foregroundStyle(AppTheme.mutedText)
-                Text("Preview is not available for this file type.")
+                Text(LanguageStore.shared.t("transcript.previewUnavailable"))
                 Text(path)
                     .font(AppTheme.Font.code)
                     .foregroundStyle(AppTheme.mutedText)

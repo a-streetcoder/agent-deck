@@ -1024,10 +1024,10 @@ struct ContentView: View {
         Button {
             isAgentsFilterPopoverPresented.toggle()
         } label: {
-            Label("Filter", systemImage: viewModel.selectedAgentFilter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+            Label(LanguageStore.shared.t("toolbar.filter"), systemImage: viewModel.selectedAgentFilter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
         }
         .toolbarNeutralChrome()
-        .help("Filter agents")
+        .help(LanguageStore.shared.t("toolbar.filterAgents"))
         .popover(isPresented: $isAgentsFilterPopoverPresented, arrowEdge: .bottom) {
             AgentsFilterPopover(viewModel: viewModel)
         }
@@ -1042,7 +1042,7 @@ struct ContentView: View {
             get: { viewModel.appSettings.nativeSubagentsEnabledForNewSessions },
             set: { _ in viewModel.toggleSubagentsForNewSessions() }
         )) {
-            Label("Deck Agents", systemImage: "paperplane")
+            Label(LanguageStore.shared.t("toolbar.deckAgents"), systemImage: "paperplane")
         }
         .toggleStyle(.button)
         .symbolRenderingMode(.monochrome)
@@ -1115,7 +1115,7 @@ struct ContentView: View {
                     set: { viewModel.setMCPEnabled($0) }
                 )) {
                     Label {
-                        Text("Enable MCP")
+                        Text(LanguageStore.shared.t("toolbar.enableMcp"))
                     } icon: {
                         Image(AppSymbols.mcp)
                     }
@@ -1129,18 +1129,18 @@ struct ContentView: View {
                 Button {
                     viewModel.requestRefreshMCPServers()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label(LanguageStore.shared.t("toolbar.refresh"), systemImage: "arrow.clockwise")
                 }
                 .toolbarNeutralChrome()
-                .help("Reload MCP servers")
+                .help(LanguageStore.shared.t("toolbar.reloadMcp"))
 
                 Button {
                     viewModel.requestAddMCPServer()
                 } label: {
-                    Label("Add server", systemImage: "plus")
+                    Label(LanguageStore.shared.t("toolbar.addServer"), systemImage: "plus")
                 }
                 .toolbarPrimaryActionChrome()
-                .help("Add an MCP server")
+                .help(LanguageStore.shared.t("toolbar.addMcpServer"))
             }
         }
     }
@@ -1152,10 +1152,10 @@ struct ContentView: View {
             Button {
                 viewModel.refreshDiscoveredPiExtensions()
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label(LanguageStore.shared.t("toolbar.refresh"), systemImage: "arrow.clockwise")
             }
             .toolbarNeutralChrome()
-            .help("Re-scan for Pi extensions")
+            .help(LanguageStore.shared.t("toolbar.rescanExtensions"))
         }
     }
 
@@ -1166,20 +1166,20 @@ struct ContentView: View {
                 Button {
                     viewModel.refresh(includeModels: false, scanAllProjects: true)
                 } label: {
-                    Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                    Label(viewModel.isRefreshingProjects ? LanguageStore.shared.t("common.refreshing") : LanguageStore.shared.t("toolbar.refresh"), systemImage: "arrow.clockwise")
                 }
                 .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
                 .toolbarNeutralChrome()
-                .help("Refresh project discovery")
+                .help(LanguageStore.shared.t("toolbar.refreshProjects"))
                 .disabled(viewModel.isRefreshingProjects)
 
                 Button {
                     viewModel.chooseProjectRoot()
                 } label: {
-                    Label("Add Project", systemImage: "plus")
+                    Label(LanguageStore.shared.t("toolbar.addProject"), systemImage: "plus")
                 }
                 .toolbarPrimaryActionChrome()
-                .help("Add project manually")
+                .help(LanguageStore.shared.t("toolbar.addProjectManually"))
             }
         }
     }
@@ -1217,16 +1217,16 @@ struct ContentView: View {
 
     private var newAgentMenu: some View {
         Menu {
-            Button("New Library Agent") {
+            Button(LanguageStore.shared.t("toolbar.newLibraryAgent")) {
                 editingAgent = nil
                 agentDraft = viewModel.makeNewAgentDraft(scope: .library)
             }
         } label: {
-            Label("New", systemImage: "plus")
+            Label(LanguageStore.shared.t("toolbar.new"), systemImage: "plus")
         }
         .menuIndicator(.hidden)
         .toolbarPrimaryActionChrome()
-        .help("Create a library agent, then choose global or project visibility")
+        .help(LanguageStore.shared.t("toolbar.newLibraryAgentHelp"))
     }
 
     private func replacementAgentButton(for agent: EffectiveAgentRecord) -> some View {
@@ -1234,10 +1234,10 @@ struct ContentView: View {
             editingAgent = nil
             agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
         } label: {
-            Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
+            Label(LanguageStore.shared.t("toolbar.replacement"), systemImage: "arrow.triangle.2.circlepath")
         }
         .toolbarNeutralChrome()
-        .help("Create a global replacement for this builtin agent")
+        .help(LanguageStore.shared.t("toolbar.replacementHelp"))
         .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
     }
 
@@ -1245,9 +1245,9 @@ struct ContentView: View {
         Button {
             isSubagentsInfoPresented.toggle()
         } label: {
-            Label("Info", systemImage: "info.circle")
+            Label(LanguageStore.shared.t("toolbar.info"), systemImage: "info.circle")
         }
-        .help("Explain Deck agent library visibility")
+        .help(LanguageStore.shared.t("toolbar.agentsInfo"))
         .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
             SubagentsInfoPopover()
         }
@@ -1261,9 +1261,9 @@ struct ContentView: View {
                 Button {
                     isEnvironmentInfoPresented.toggle()
                 } label: {
-                    Label("Info", systemImage: "info.circle")
+                    Label(LanguageStore.shared.t("toolbar.info"), systemImage: "info.circle")
                 }
-                .help("Explain environment resolution order")
+                .help(LanguageStore.shared.t("toolbar.envInfo"))
                 .popover(isPresented: $isEnvironmentInfoPresented, arrowEdge: .bottom) {
                     EnvironmentInfoPopover()
                 }
@@ -1272,10 +1272,10 @@ struct ContentView: View {
                 Button {
                     envDraft = viewModel.makeNewEnvDraft()
                 } label: {
-                    Label("New Key", systemImage: "plus")
+                    Label(LanguageStore.shared.t("toolbar.newKey"), systemImage: "plus")
                 }
                 .toolbarPrimaryActionChrome()
-                .help("Add one or more environment keys")
+                .help(LanguageStore.shared.t("toolbar.newKeyHelp"))
             }
         }
     }
@@ -1287,9 +1287,9 @@ struct ContentView: View {
                 Button {
                     isModelsInfoPresented.toggle()
                 } label: {
-                    Label("Info", systemImage: "info.circle")
+                    Label(LanguageStore.shared.t("toolbar.info"), systemImage: "info.circle")
                 }
-                .help("Explain the models catalog and Pi Agent defaults")
+                .help(LanguageStore.shared.t("toolbar.modelsInfo"))
                 .popover(isPresented: $isModelsInfoPresented, arrowEdge: .bottom) {
                     ModelsInfoPopover()
                 }
@@ -1298,27 +1298,27 @@ struct ContentView: View {
                 Button {
                     viewModel.refreshModels()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label(LanguageStore.shared.t("toolbar.refresh"), systemImage: "arrow.clockwise")
                 }
                 .toolbarNeutralChrome()
-                .help("Refresh models")
+                .help(LanguageStore.shared.t("toolbar.refreshModels"))
 
                 Button {
                     agentModelQuickEditor = currentAgentModelQuickEditorContext
                 } label: {
-                    Label("Quick Edit", systemImage: "cpu")
+                    Label(LanguageStore.shared.t("toolbar.quickEdit"), systemImage: "cpu")
                 }
                 .toolbarNeutralChrome()
-                .help("Quick edit every agent's model and thinking at once")
+                .help(LanguageStore.shared.t("toolbar.quickEditHelp"))
                 .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
 
                 Button {
                     viewModel.isAddProviderPresented = true
                 } label: {
-                    Label("Add Provider", systemImage: "plus")
+                    Label(LanguageStore.shared.t("toolbar.addProvider"), systemImage: "plus")
                 }
                 .toolbarPrimaryActionChrome()
-                .help("Connect a model provider")
+                .help(LanguageStore.shared.t("toolbar.addProviderHelp"))
             }
         }
     }
@@ -1327,18 +1327,18 @@ struct ContentView: View {
     private var promptsPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Button("New Prompt") {
+                Button(LanguageStore.shared.t("toolbar.newPrompt")) {
                     NotificationCenter.default.post(name: .agentDeckNewPromptRequested, object: nil)
                 }
-                Button("Import Prompt") {
+                Button(LanguageStore.shared.t("toolbar.importPrompt")) {
                     NotificationCenter.default.post(name: .agentDeckImportPromptRequested, object: nil)
                 }
             } label: {
-                Label("New", systemImage: "plus")
+                Label(LanguageStore.shared.t("toolbar.new"), systemImage: "plus")
             }
             .menuIndicator(.hidden)
             .toolbarPrimaryActionChrome()
-            .help("Create a new prompt template or import an existing markdown file")
+            .help(LanguageStore.shared.t("toolbar.promptNewImportHelp"))
         }
     }
 
@@ -1348,10 +1348,10 @@ struct ContentView: View {
             Button {
                 viewModel.requestNewLoopDefinition()
             } label: {
-                Label("New Loop", systemImage: "plus")
+                Label(LanguageStore.shared.t("toolbar.newLoop"), systemImage: "plus")
             }
             .toolbarPrimaryActionChrome()
-            .help("Create a user loop")
+            .help(LanguageStore.shared.t("toolbar.newLoopHelp"))
         }
     }
 
@@ -1378,7 +1378,7 @@ struct ContentView: View {
                     }
                     .symbolEffect(.rotate.byLayer, isActive: viewModel.isCheckingAllSkillUpdates)
                     .toolbarNeutralChrome()
-                    .help("Check every synced skill repository for updates")
+                    .help(LanguageStore.shared.t("toolbar.checkSkillUpdates"))
                     .disabled(viewModel.isCheckingAllSkillUpdates || viewModel.isUpdatingAllSkillRepositories)
 
                     Button {
@@ -1387,7 +1387,7 @@ struct ContentView: View {
                         Label(skillsUpdateAllTitle, systemImage: "arrow.down.circle")
                     }
                     .toolbarNeutralChrome()
-                    .help("Update every synced skill that has a new version available")
+                    .help(LanguageStore.shared.t("toolbar.updateSyncedSkills"))
                     .disabled(
                         viewModel.skillRepositoriesWithKnownUpdates.isEmpty
                             || viewModel.isCheckingAllSkillUpdates
@@ -1405,19 +1405,19 @@ struct ContentView: View {
                 Button {
                     viewModel.refresh(includeModels: false, scanAllProjects: true)
                 } label: {
-                    Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                    Label(viewModel.isRefreshingProjects ? LanguageStore.shared.t("common.refreshing") : LanguageStore.shared.t("toolbar.refresh"), systemImage: "arrow.clockwise")
                 }
                 .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
                 .toolbarNeutralChrome()
-                .help("Rescan skills")
+                .help(LanguageStore.shared.t("toolbar.rescanSkills"))
                 .disabled(viewModel.isRefreshingProjects)
 
                 Button {
                     isSkillsInfoPresented.toggle()
                 } label: {
-                    Label("Info", systemImage: "info.circle")
+                    Label(LanguageStore.shared.t("toolbar.info"), systemImage: "info.circle")
                 }
-                .help("Explain Pi skill visibility")
+                .help(LanguageStore.shared.t("toolbar.skillsInfo"))
                 .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
                     SkillsInfoPopover()
                 }
@@ -1426,23 +1426,23 @@ struct ContentView: View {
                 Button {
                     NotificationCenter.default.post(name: .agentDeckManageSkillCollectionsRequested, object: nil)
                 } label: {
-                    Label("Collections", systemImage: "folder.badge.gearshape")
+                    Label(LanguageStore.shared.t("toolbar.collections"), systemImage: "folder.badge.gearshape")
                 }
-                .help("Create and manage skill collections")
+                .help(LanguageStore.shared.t("toolbar.collectionsHelp"))
                 .toolbarNeutralChrome()
 
                 Menu {
-                    Button("New Skill") {
+                    Button(LanguageStore.shared.t("toolbar.newSkill")) {
                         NotificationCenter.default.post(name: .agentDeckNewSkillRequested, object: nil)
                     }
-                    Button("Import Skills") {
+                    Button(LanguageStore.shared.t("toolbar.importSkills")) {
                         NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
                     }
                 } label: {
-                    Label("New", systemImage: "plus")
+                    Label(LanguageStore.shared.t("toolbar.new"), systemImage: "plus")
                 }
                 .menuIndicator(.hidden)
-                .help("Create a new skill or import skill folders from an external source")
+                .help(LanguageStore.shared.t("toolbar.skillNewImportHelp"))
                 .toolbarPrimaryActionChrome()
             }
         }
@@ -1469,10 +1469,10 @@ struct ContentView: View {
                 Button {
                     isPiAgentStartupResourcesPresented.toggle()
                 } label: {
-                    Label("Session Resources", systemImage: "info.circle")
+                    Label(LanguageStore.shared.t("toolbar.sessionResources"), systemImage: "info.circle")
                 }
                 .toolbarNeutralChrome()
-                .help("Agents, skills, prompts, and environment available to this session")
+                .help(LanguageStore.shared.t("toolbar.sessionResourcesHelp"))
                 .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
                     if let session = viewModel.piAgentSessionStore.selectedSession {

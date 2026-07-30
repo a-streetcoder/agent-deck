@@ -63,7 +63,7 @@ enum AppCredits {
     ]
 
     static let sections: [Section] = [
-        Section(title: "Assets & Fonts", entries: [
+        Section(title: LanguageStore.shared.t("credits.assetsFonts"), entries: [
             Entry(
                 title: "GitLab SVGs",
                 detail: "Toolbar icons sourced from the GitLab SVGs icon collection by GitLab B.V. MIT License. Copyright © 2011–2017 GitLab B.V.",
@@ -75,7 +75,7 @@ enum AppCredits {
                 url: "https://www.dafont.com/kemco-pixel.font"
             )
         ]),
-        Section(title: "Open Source", entries: [
+        Section(title: LanguageStore.shared.t("credits.openSource"), entries: [
             Entry(
                 title: "pi coding agent",
                 detail: "Agent Deck is powered by pi, the terminal coding agent by Earendil Works.",
@@ -97,9 +97,9 @@ enum AppCredits {
                 url: "https://www.npmjs.com/package/htmlparser2"
             )
         ]),
-        Section(title: "Services", entries: [
+        Section(title: LanguageStore.shared.t("credits.services"), entries: [
             Entry(
-                title: "Git",
+                title: LanguageStore.shared.t("credits.git"),
                 detail: "Local git powers optional commit and push workflows in the agent toolbar.",
                 url: "https://git-scm.com"
             )
@@ -132,7 +132,7 @@ struct AboutView: View {
                 Text(AppBrand.displayName)
                     .font(.title2.weight(.semibold))
                     .fontWidth(.expanded)
-                Text("Version \(AppBrand.marketingVersion)")
+                Text(LanguageStore.shared.t("credits.version", AppBrand.marketingVersion))
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -160,7 +160,7 @@ struct AboutView: View {
 
     private var authorsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("CREATED BY")
+            Text(LanguageStore.shared.t("credits.createdBy"))
                 .font(.caption.weight(.semibold))
                 .fontWidth(.expanded)
                 .kerning(0.7)

@@ -533,7 +533,7 @@ struct PiNativeSubagentRunCard: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .appGlassCapsule()
-                                .help("Expected outcome: \(outcome.displayName)")
+                                .help(LanguageStore.shared.t("sub.expectedOutcome", outcome.displayName))
                         }
                     }
                     PiSubagentStatusText(status: child.status, color: color(for: child.status))
@@ -595,7 +595,7 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private func parallelChildTaskPreview(_ child: PiSubagentChildRecord) -> some View {
-        let task = nonEmpty(child.task) ?? nonEmpty(child.summary ?? child.error) ?? "No task captured."
+        let task = nonEmpty(child.task) ?? nonEmpty(child.summary ?? child.error) ?? LanguageStore.shared.t("sub.noTaskCaptured")
         // fillsHeight: stretch the box to the equal-height grid tile so both siblings match.
         return PiSubagentTaskPreview(task: task, fillsHeight: true)
     }
@@ -754,7 +754,7 @@ private struct PiSubagentInjectedMemoryPopover: View {
                         )
                     } label: {
                         HStack(spacing: 6) {
-                            Text(memory.title.isEmpty ? "Untitled Memory" : memory.title)
+                            Text(memory.title.isEmpty ? LanguageStore.shared.t("sub.untitledMemory") : memory.title)
                                 .font(AppTheme.Font.caption.weight(.medium))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
@@ -787,7 +787,7 @@ private struct PiSubagentTaskPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Task", systemImage: "list.clipboard")
+            Label(LanguageStore.shared.t("sub.task"), systemImage: "list.clipboard")
                 .font(AppTheme.Font.caption.weight(.semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(AppTheme.mutedText)
@@ -914,7 +914,7 @@ struct PiNativeSubagentGraphSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Deck agent graph · \(run.agentName)")
+                    Text(LanguageStore.shared.t("sub.deckAgentGraph", run.agentName))
                         .font(.title3.bold())
                     Text("\(run.mode.rawValue.capitalized) · \(run.status.rawValue.capitalized) · \(run.children?.count ?? 0) child runs")
                         .font(AppTheme.Font.caption)
@@ -922,7 +922,7 @@ struct PiNativeSubagentGraphSheet: View {
                 }
                 Spacer()
                 if run.status.isActive {
-                    Button("Stop Graph", role: .destructive, action: onStopGraph)
+                    Button(LanguageStore.shared.t("sub.stopGraph"), role: .destructive, action: onStopGraph)
                         .appSecondaryButton()
                 }
             }
@@ -961,11 +961,11 @@ struct PiNativeSubagentGraphSheet: View {
                             .controlSize(.small)
                     }
                     if [.failed, .stopped, .disconnected].contains(child.status) {
-                        Button("Retry") { onRetryChild(child) }
+                        Button(LanguageStore.shared.t("sub.retry")) { onRetryChild(child) }
                             .controlSize(.small)
                             .appPrimaryButton()
                     }
-                    Button("Artifacts") { onOpenChildArtifacts(child) }
+                    Button(LanguageStore.shared.t("sub.artifacts")) { onOpenChildArtifacts(child) }
                         .controlSize(.small)
                         .disabled(child.artifactDirectory == nil)
                 }
@@ -1029,21 +1029,21 @@ struct PiNativeSubagentTranscriptSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Deck agent transcript")
+                    Text(LanguageStore.shared.t("sub.deckAgentTranscript"))
                         .font(.title3.bold())
                     Text("\(run.agentName) · \(run.status.rawValue.capitalized)")
                         .font(AppTheme.Font.caption.weight(.semibold))
                         .foregroundStyle(statusColor)
                 }
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(LanguageStore.shared.t("common.close")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.mutedText)
-                AppTextField(text: $query, placeholder: "Search transcript")
+                AppTextField(text: $query, placeholder: LanguageStore.shared.t("sub.searchTranscript"))
             }
 
             Divider()
@@ -1106,7 +1106,7 @@ struct PiNativeSubagentTranscriptSheet: View {
             id: run.id,
             sessionID: run.parentSessionID,
             role: .user,
-            title: "Task",
+            title: LanguageStore.shared.t("sub.task"),
             text: run.task,
             timestamp: run.createdAt
         )
@@ -1197,16 +1197,16 @@ struct PiNativeSubagentRunSheet: View {
                 Image(systemName: "paperplane")
                     .foregroundStyle(AppTheme.brandAccent)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Run Deck Agent")
+                    Text(LanguageStore.shared.t("sub.runDeckAgent"))
                         .font(.title3.bold())
-                    Text("Launches a separate Pi RPC child session managed by \(AppBrand.displayName). This does not insert or send a raw /run command.")
+                    Text(LanguageStore.shared.t("sub.launchSeparateChild", AppBrand.displayName))
                         .font(AppTheme.Font.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
             }
 
-            Picker("Agent", selection: $selectedAgentName) {
+            Picker(LanguageStore.shared.t("sub.agentPicker"), selection: $selectedAgentName) {
                 ForEach(agentNames, id: \.self) { name in
                     Text(name).tag(name)
                 }
@@ -1227,7 +1227,7 @@ struct PiNativeSubagentRunSheet: View {
                         subagentInfoLine("Default Outcome", selectedInfo.defaultExpectedOutcome?.displayName ?? "Report only")
                     }
                     if selectedInfo.output != nil {
-                        Label("Deck agent runs save the final response to app artifacts by default. Project-file output should be explicit in the task.", systemImage: "exclamationmark.triangle")
+                        Label(LanguageStore.shared.t("sub.artifactsDefaultHint"), systemImage: "exclamationmark.triangle")
                             .font(AppTheme.Font.caption)
                             .foregroundStyle(.orange)
                     }
@@ -1237,7 +1237,7 @@ struct PiNativeSubagentRunSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Task")
+                Text(LanguageStore.shared.t("sub.task"))
                     .font(AppTheme.Font.headline)
                 TextEditor(text: $task)
                     .font(AppTheme.Font.body)
@@ -1248,16 +1248,16 @@ struct PiNativeSubagentRunSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("Files to read first", systemImage: "doc.text.magnifyingglass")
+                Label(LanguageStore.shared.t("sub.filesReadFirst"), systemImage: "doc.text.magnifyingglass")
                     .font(AppTheme.Font.subheadline.weight(.semibold))
                 HStack(alignment: .top, spacing: 8) {
-                    AppTextField(text: $readFirstPathsText, placeholder: "Optional project-relative paths, comma or newline separated", axis: .vertical)
+                    AppTextField(text: $readFirstPathsText, placeholder: LanguageStore.shared.t("sub.filesReadFirstPlaceholder"), axis: .vertical)
                         .lineLimit(1...4)
                     Button(action: addReadFirstPathsFromOpenPanel) {
                         Image(systemName: "paperclip")
                     }
-                    .help("Add project files to read first")
-                    .accessibilityLabel("Add project files to read first")
+                    .help(LanguageStore.shared.t("sub.addProjectFiles"))
+                    .accessibilityLabel(LanguageStore.shared.t("sub.addProjectFiles"))
                     .disabled(projectRootPath == nil)
                 }
                 if !readFirstFileSuggestions.isEmpty {
@@ -1277,14 +1277,14 @@ struct PiNativeSubagentRunSheet: View {
                     }
                     .padding(.horizontal, 6)
                     if readFirstFileSuggestions.count > 8 {
-                        Text("Showing top 8 — keep typing to refine")
+                        Text(LanguageStore.shared.t("sub.showingTop8"))
                             .font(AppTheme.Font.caption2)
                             .italic()
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
                     }
                 }
-                Text("Use this for files the caller knows are relevant now. Type @ to search project files, use the paperclip, or drag files here. Defaults from the agent are treated as hints only; \(AppBrand.displayName) does not inject stale file contents.")
+                Text(LanguageStore.shared.t("sub.useReadFirstHint"))
                     .font(AppTheme.Font.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -1307,12 +1307,12 @@ struct PiNativeSubagentRunSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("Deck agent run", systemImage: "checkmark.seal")
+                Label(LanguageStore.shared.t("sub.deckAgentRun"), systemImage: "checkmark.seal")
                     .font(AppTheme.Font.subheadline.weight(.semibold))
                 Text("\(AppBrand.displayName) starts and tracks the child session directly, records artifacts under Application Support, and posts a status/result entry back to the parent transcript.")
                     .font(AppTheme.Font.caption)
                     .foregroundStyle(.secondary)
-                Picker("Expected outcome", selection: $expectedOutcome) {
+                Picker(LanguageStore.shared.t("sub.expectedOutcomePicker"), selection: $expectedOutcome) {
                     ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
                         Text(outcome.displayName).tag(outcome)
                     }
@@ -1320,11 +1320,11 @@ struct PiNativeSubagentRunSheet: View {
                 .appMenuPicker()
                 Toggle("Use git worktree isolation", isOn: $useWorktreeIsolation)
                     .font(AppTheme.Font.caption)
-                Text("Creates a detached git worktree inside the run artifacts so child file edits are isolated from the main checkout.")
+                Text(LanguageStore.shared.t("sub.worktreeIsolationHint"))
                     .font(AppTheme.Font.caption2)
                     .foregroundStyle(.secondary)
                 if expectedOutcome == .writeProjectFile {
-                    AppTextField(text: $requestedOutputPath, placeholder: "Project-relative output path, e.g. docs/plan.md")
+                    AppTextField(text: $requestedOutputPath, placeholder: LanguageStore.shared.t("sub.outputPathHint"))
                     Toggle("Allow overwrite if the file exists", isOn: $allowOverwrite)
                         .font(AppTheme.Font.caption)
                 }
@@ -1342,10 +1342,10 @@ struct PiNativeSubagentRunSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button(LanguageStore.shared.t("common.cancel"), action: onCancel)
                     .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
-                Button("Run") {
+                Button(LanguageStore.shared.t("sub.run")) {
                     let trimmedOutputPath = requestedOutputPath.trimmingCharacters(in: .whitespacesAndNewlines)
                     onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, trimmedOutputPath.isEmpty ? nil : trimmedOutputPath, allowOverwrite, parsedReadFirstPaths)
                 }
