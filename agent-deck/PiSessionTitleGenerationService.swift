@@ -47,7 +47,7 @@ final class PiSessionTitleGenerationService {
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         startHelper(
-            systemPrompt: Self.titleSystemPrompt,
+            systemPrompt: Self.titleSystemPrompt(language: LanguageStore.shared.language),
             userPrompt: prompt(for: firstMessage),
             model: model,
             projectURL: projectURL,
@@ -66,7 +66,7 @@ final class PiSessionTitleGenerationService {
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         startHelper(
-            systemPrompt: Self.titleUpdateSystemPrompt,
+            systemPrompt: Self.titleUpdateSystemPrompt(language: LanguageStore.shared.language),
             userPrompt: updatePrompt(currentTitle: currentTitle, latestUserMessage: latestUserMessage, planItems: planItems),
             model: model,
             projectURL: projectURL,
@@ -237,37 +237,122 @@ final class PiSessionTitleGenerationService {
         run.completion(result)
     }
 
-    private static let titleSystemPrompt = """
-    You are Agent Deck's session title generator. Your only job is to name a coding-agent chat from the user's first message.
+    /**
+     Build the title-generation system prompt for the active app language.
 
-    The title must be concise and explanatory: capture the concrete goal or change the user is trying to achieve, not merely the immediate step the assistant may take. Prefer the intended product/code outcome over process wording.
+     - Parameter language: App UI language (drives title language).
+     - Returns: System prompt instructing the helper model.
+     */
+    private static func titleSystemPrompt(language: AppLanguage) -> String {
+        let languageRule = titleLanguageRule(language: language)
+        let examples: String
+        switch language {
+        case .chinese:
+            examples = """
+            Examples:
+            - 若用户想改 Liquid Glass 开关按钮以匹配主加号按钮，返回类似「优化 Liquid Glass 选项按钮」的标题，而不是「阅读文档」。
+            - 若用户要修标题生成相关测试失败，返回类似「修复标题生成测试」的标题，而不是「排查测试失败」。
+            """
+        case .english:
+            examples = """
+            Examples:
+            - If the user asks to read Liquid Glass documentation so a switch icon button can match the primary plus button, return a title like "Improve Liquid Glass Options Button", not "Reading Documentation".
+            - If the user asks to debug failing title generation tests, return a title like "Fix Title Generation Tests", not "Inspecting Test Failures".
+            """
+        }
+        let wordRule: String
+        switch language {
+        case .chinese:
+            wordRule = """
+            - 中文标题约 6–16 个汉字，或与用户目标同长度的简短短语
+            - 不要英文 Title Case；用自然中文短语
+            """
+        case .english:
+            wordRule = """
+            - 3 to 7 words
+            - Title Case
+            """
+        }
+        return """
+        You are \(AppBrand.displayName)'s session title generator. Your only job is to name a coding-agent chat from the user's first message.
 
-    Examples:
-    - If the user asks to read Liquid Glass documentation so a switch icon button can match the primary plus button, return a title like "Improve Liquid Glass Options Button", not "Reading Documentation".
-    - If the user asks to debug failing title generation tests, return a title like "Fix Title Generation Tests", not "Inspecting Test Failures".
+        \(languageRule)
 
-    Requirements:
-    - 3 to 7 words
-    - Title Case
-    - Preserve GitHub prefixes like "Issue #123" or "PR #123" when the message starts with one
-    - Ignore slash commands, skill boilerplate, prompt boilerplate, and implementation text; title the user's goal
-    - No quotes
-    - Plain text only
-    - No markdown formatting, bullets, code fences, heading markers, or emphasis
-    - No trailing punctuation
-    - Return only the title text
-    """
+        The title must be concise and explanatory: capture the concrete goal or change the user is trying to achieve, not merely the immediate step the assistant may take. Prefer the intended product/code outcome over process wording.
 
-    private static let titleUpdateSystemPrompt = """
-    You update Agent Deck coding-agent session titles. Decide whether the latest user message and current plan meaningfully change the session's main goal.
+        \(examples)
 
-    Requirements:
-    - If the current title still fits, return exactly: KEEP
-    - If the title should change, return only the new title
-    - New titles must be 3 to 7 words, Title Case, no quotes, plain text only, no markdown formatting, bullets, code fences, heading markers, or emphasis, no trailing punctuation
-    - Prefer the concrete product/code outcome over process wording
-    - Do not change titles for minor follow-ups, progress updates, or implementation details
-    """
+        Requirements:
+        \(wordRule)
+        - Preserve GitHub prefixes like "Issue #123" or "PR #123" when the message starts with one
+        - Ignore slash commands, skill boilerplate, prompt boilerplate, and implementation text; title the user's goal
+        - No quotes
+        - Plain text only
+        - No markdown formatting, bullets, code fences, heading markers, or emphasis
+        - No trailing punctuation
+        - Return only the title text
+        """
+    }
+
+    /**
+     Build the title-update system prompt for the active app language.
+
+     - Parameter language: App UI language (drives title language).
+     - Returns: System prompt for KEEP / rewrite decisions.
+     */
+    private static func titleUpdateSystemPrompt(language: AppLanguage) -> String {
+        let languageRule = titleLanguageRule(language: language)
+        let wordRule: String
+        switch language {
+        case .chinese:
+            wordRule = """
+            - 新标题使用中文，约 6–16 个汉字的自然短语（不要英文 Title Case）
+            """
+        case .english:
+            wordRule = """
+            - New titles must be 3 to 7 words, Title Case, no quotes, plain text only, no markdown formatting, bullets, code fences, heading markers, or emphasis, no trailing punctuation
+            """
+        }
+        return """
+        You update \(AppBrand.displayName) coding-agent session titles. Decide whether the latest user message and current plan meaningfully change the session's main goal.
+
+        \(languageRule)
+
+        Requirements:
+        - If the current title still fits, return exactly: KEEP
+        - If the title should change, return only the new title
+        \(wordRule)
+        - Prefer the concrete product/code outcome over process wording
+        - Do not change titles for minor follow-ups, progress updates, or implementation details
+        - KEEP is always the ASCII token KEEP regardless of title language
+        """
+    }
+
+    /**
+     Language policy injected into title helper prompts.
+
+     - Parameter language: Active app language.
+     - Returns: Explicit instruction so the model matches the session/UI language.
+     */
+    private static func titleLanguageRule(language: AppLanguage) -> String {
+        switch language {
+        case .chinese:
+            return """
+            Language policy (mandatory):
+            - Write the session title in Simplified Chinese (简体中文).
+            - Match the user's Chinese phrasing when the first message is Chinese.
+            - Keep technical terms, product names, file names, and code identifiers in their original form when that is clearer (e.g. Liquid Glass, RPC, MCP).
+            - Do not return an English Title-Case title when the app language is Chinese.
+            """
+        case .english:
+            return """
+            Language policy (mandatory):
+            - Write the session title in English.
+            - Use Title Case for normal English titles.
+            - If the first message is clearly in another language and English would misrepresent the goal, you may keep essential foreign proper nouns, but the title structure must still be English unless the entire user goal is non-English and an English title would be inaccurate — prefer English for app language English.
+            """
+        }
+    }
 
     private func prompt(for firstMessage: String) -> String {
         let trimmedMessage = firstMessage
@@ -321,7 +406,10 @@ final class PiSessionTitleGenerationService {
         guard !title.isEmpty else { return nil }
         guard title.count <= 80 else { return nil }
         let lower = title.lowercased()
-        let rejected = ["new chat", "chat title", "session title", "untitled", "draft"]
+        let rejected = [
+            "new chat", "chat title", "session title", "untitled", "draft",
+            "新会话", "新聊天", "会话标题", "聊天标题", "未命名", "草稿"
+        ]
         guard !rejected.contains(lower) else { return nil }
         return String(title.prefix(60))
     }
