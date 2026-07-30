@@ -1656,12 +1656,11 @@ final class PiAgentRunnerService {
         }
 
         if event.command == "compact" {
+            // Do not wipe context usage here: clearing meters made the composer
+            // context size disappear after compact until a later stats payload
+            // re-populated it (and some get_session_stats replies omit contextUsage).
             store.updateSession(sessionID) {
                 $0.isCompacting = false
-                $0.contextTokens = nil
-                $0.contextWindow = nil
-                $0.contextPercent = nil
-                $0.contextBreakdown = []
             }
             clientsBySessionID[sessionID]?.getState()
             clientsBySessionID[sessionID]?.getSessionStats()
@@ -1703,12 +1702,9 @@ final class PiAgentRunnerService {
                     record.contextWindow = contextUsage["contextWindow"]?.numberValue.map(Int.init)
                     record.contextPercent = contextUsage["percent"]?.numberValue
                     record.contextBreakdown = Self.parseContextBreakdown(from: contextUsage)
-                } else {
-                    record.contextTokens = nil
-                    record.contextWindow = nil
-                    record.contextPercent = nil
-                    record.contextBreakdown = []
                 }
+                // When contextUsage is omitted, retain previous meters. Clearing here
+                // left the UI blank after compact if Pi stats lag or omit the field.
             }
         }
     }
@@ -2542,12 +2538,9 @@ final class PiAgentRunnerService {
             store.updateSession(sessionID) { $0.isCompacting = true }
             text = "Compacting conversation context (\(reason))…"
         } else if event.result != nil {
+            // Keep last known context meters until get_session_stats refreshes them.
             store.updateSession(sessionID) {
                 $0.isCompacting = false
-                $0.contextTokens = nil
-                $0.contextWindow = nil
-                $0.contextPercent = nil
-                $0.contextBreakdown = []
             }
             compactionEntryIDsBySessionID[sessionID] = nil
             let retry = event.willRetry == true ? " · retrying turn" : ""
