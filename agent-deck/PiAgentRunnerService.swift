@@ -231,7 +231,7 @@ final class PiAgentRunnerService {
         let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n").first.map(String.init) ?? "Project agent · \(project.name)"
         let session = store.createSession(
             kind: .project,
-            title: title.isEmpty ? "New Agent Session" : String(title.prefix(80)),
+            title: title.isEmpty ? LanguageStore.shared.t("vm.newAgentSession") : String(title.prefix(80)),
             project: project,
             repository: project.gitHubRemote?.nameWithOwner
         )
@@ -359,7 +359,7 @@ final class PiAgentRunnerService {
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID] else {
             guard store.sessions.first(where: { $0.id == sessionID })?.status == .starting else {
-                store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
+                store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.notRunning"), text: "Resume the session before sending a message."))
                 return
             }
             // A launch may await asynchronous resource discovery before it can
@@ -416,7 +416,7 @@ final class PiAgentRunnerService {
     func respondToExtensionUI(sessionID: UUID, requestID: String, value: String) {
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID], client.isRunning else {
-            store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.inputNotSent"), text: "Pi Agent is not running, so the response could not be delivered."))
             return
         }
         let request = store.uiRequestsBySessionID[sessionID].flatMap { $0.id == requestID ? $0 : nil }
@@ -442,7 +442,7 @@ final class PiAgentRunnerService {
     func confirmExtensionUI(sessionID: UUID, requestID: String, confirmed: Bool) {
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID], client.isRunning else {
-            store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.inputNotSent"), text: "Pi Agent is not running, so the response could not be delivered."))
             return
         }
         client.confirmExtensionUI(id: requestID, confirmed: confirmed)
@@ -452,7 +452,7 @@ final class PiAgentRunnerService {
     func cancelExtensionUI(sessionID: UUID, requestID: String) {
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID], client.isRunning else {
-            store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the cancellation could not be delivered."))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.inputNotSent"), text: "Pi Agent is not running, so the cancellation could not be delivered."))
             return
         }
         client.cancelExtensionUI(id: requestID)
@@ -464,7 +464,7 @@ final class PiAgentRunnerService {
         cancelLaunchWatchdog(sessionID: sessionID)
         RPCDebugLog.log("DEBUG-STOP stop() called session=\(sessionID.uuidString) hasClient=\(clientsBySessionID[sessionID] != nil)")
         if shouldDiscardPendingStartupInputs {
-            discardPendingStartupInputs(sessionID: sessionID, title: "Queued Input Discarded", text: "The session stopped before queued input could be sent")
+            discardPendingStartupInputs(sessionID: sessionID, title: LanguageStore.shared.t("run.queuedInputDiscarded"), text: "The session stopped before queued input could be sent")
         }
         cancelIdleParking(for: sessionID)
         clearStreamingState(sessionID: sessionID)
@@ -477,7 +477,7 @@ final class PiAgentRunnerService {
             if store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true {
                 mark(sessionID, status: .stopped, error: nil)
                 if recordTranscript {
-                    store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. No active Pi Agent process was attached."))
+                    store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.stopped"), text: "Stop requested. No active Pi Agent process was attached."))
                 }
             }
             return
@@ -488,7 +488,7 @@ final class PiAgentRunnerService {
         client.stop()
         mark(sessionID, status: .stopped, error: nil)
         if recordTranscript {
-            store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. Pi Agent received abort and the process is terminating."))
+            store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.stopped"), text: "Stop requested. Pi Agent received abort and the process is terminating."))
         }
     }
 
@@ -548,7 +548,7 @@ final class PiAgentRunnerService {
     func compact(session: PiAgentSessionRecord, customInstructions: String? = nil) {
         let messageCount = store.transcript(for: session.id).count(where: { $0.isProviderBackedUserMessage || $0.role == .assistant })
         guard messageCount >= 2 else {
-            store.append(.init(sessionID: session.id, role: .status, title: "Compaction", text: "Nothing to compact"))
+            store.append(.init(sessionID: session.id, role: .status, title: LanguageStore.shared.t("run.compaction"), text: "Nothing to compact"))
             return
         }
         let instructions = customInstructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -615,7 +615,7 @@ final class PiAgentRunnerService {
         let target = matchForkEntry(in: candidates, text: progress.userMessageText, index: progress.userMessageIndex)
         guard let target else {
             forkProgressBySessionID[sessionID] = nil
-            store.append(.init(sessionID: sessionID, role: .error, title: "Fork Failed", text: "Could not find a matching user message in the Pi session to fork from."))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.forkFailed"), text: "Could not find a matching user message in the Pi session to fork from."))
             return
         }
         progress.phase = .forking
@@ -628,8 +628,8 @@ final class PiAgentRunnerService {
               case .forking = progress.phase else { return }
         if event.success == false {
             forkProgressBySessionID[sessionID] = nil
-            let message = event.error?.compactDescription ?? "Fork failed."
-            store.append(.init(sessionID: sessionID, role: .error, title: "Fork Failed", text: message))
+            let message = event.error?.compactDescription ?? LanguageStore.shared.t("run.forkFailedBody")
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.forkFailed"), text: message))
             return
         }
         let cancelled = event.data?["cancelled"]?.boolValue ?? false
@@ -779,7 +779,7 @@ final class PiAgentRunnerService {
                 )
             if shouldRecordUser {
                 let transcriptMessage = initialTranscriptText.map { userMessage($0, images: initialImages) } ?? message
-                store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: initialImages, pasteAttachments: initialPasteAttachments)))
+                store.append(.init(sessionID: session.id, role: .user, title: LanguageStore.shared.t("run.initialPrompt"), text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(messageText: transcriptMessage, images: initialImages, pasteAttachments: initialPasteAttachments)))
             }
         }
 
@@ -788,26 +788,26 @@ final class PiAgentRunnerService {
         let boundAgent: EffectiveAgentRecord? = session.isAgentBound ? boundAgentProvider?(session) : nil
         if session.isAgentBound, boundAgent == nil {
             launchGenerationsBySessionID[session.id] = nil
-            discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent could not start before queued input could be sent")
+            discardPendingStartupInputs(sessionID: session.id, title: LanguageStore.shared.t("run.queuedInputNotSent"), text: LanguageStore.shared.t("run.launchPrepTimedOutBody"))
             let missingName = session.agentName ?? "?"
-            mark(session.id, status: .failed, error: "Agent '\(missingName)' is no longer available.")
+            mark(session.id, status: .failed, error: LanguageStore.shared.t("run.agentNoLongerAvailable", missingName))
             store.append(.init(
                 sessionID: session.id,
                 role: .error,
-                title: "Agent Unavailable",
-                text: "The agent '\(missingName)' bound to this chat could not be resolved. Re-enable, restore, or switch the agent before resuming."
+                title: LanguageStore.shared.t("run.agentUnavailable"),
+                text: LanguageStore.shared.t("run.agentUnavailableBody", missingName)
             ))
             return
         }
         if let boundAgent, boundAgent.resolved.disabled == true {
             launchGenerationsBySessionID[session.id] = nil
-            discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent could not start before queued input could be sent")
-            mark(session.id, status: .failed, error: "Agent '\(boundAgent.name)' is disabled.")
+            discardPendingStartupInputs(sessionID: session.id, title: LanguageStore.shared.t("run.queuedInputNotSent"), text: LanguageStore.shared.t("run.launchPrepTimedOutBody"))
+            mark(session.id, status: .failed, error: LanguageStore.shared.t("run.agentDisabledText", boundAgent.name))
             store.append(.init(
                 sessionID: session.id,
                 role: .error,
-                title: "Agent Disabled",
-                text: "The agent '\(boundAgent.name)' is currently disabled. Enable it from the Agents view or switch to a different agent."
+                title: LanguageStore.shared.t("run.agentDisabled"),
+                text: LanguageStore.shared.t("run.agentDisabledBody", boundAgent.name)
             ))
             return
         }
@@ -1050,9 +1050,9 @@ final class PiAgentRunnerService {
             guard isCurrentLaunch(sessionID: session.id, generation: launchGeneration) else { return }
             cancelLaunchWatchdog(sessionID: session.id)
             launchGenerationsBySessionID[session.id] = nil
-            discardPendingStartupInputs(sessionID: session.id, title: "Queued Input Not Sent", text: "Pi Agent failed to launch before queued input could be sent")
+            discardPendingStartupInputs(sessionID: session.id, title: LanguageStore.shared.t("run.queuedInputNotSent"), text: "Pi Agent failed to launch before queued input could be sent")
             mark(session.id, status: .failed, error: error.localizedDescription)
-            store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
+            store.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("run.launchFailed"), text: error.localizedDescription))
         }
     }
 
@@ -1075,14 +1075,14 @@ final class PiAgentRunnerService {
             self.launchGenerationsBySessionID[sessionID] = nil
             self.discardPendingStartupInputs(
                 sessionID: sessionID,
-                title: "Queued Input Not Sent",
-                text: "Pi Agent launch preparation timed out before queued input could be sent"
+                title: LanguageStore.shared.t("run.queuedInputNotSent"),
+                text: LanguageStore.shared.t("run.launchPrepTimedOutBody")
             )
-            self.mark(sessionID, status: .failed, error: "Launch preparation timed out.")
+            self.mark(sessionID, status: .failed, error: LanguageStore.shared.t("run.launchPrepTimedOut"))
             self.store.append(.init(
                 sessionID: sessionID,
                 role: .error,
-                title: "Launch Timed Out",
+                title: LanguageStore.shared.t("run.launchTimedOut"),
                 text: "Agent Deck could not finish launch preparation within 45 seconds. Pi was not started and the session file was not changed. Retry the session; if this repeats, test or temporarily unassign its MCP servers."
             ))
         }
@@ -1358,10 +1358,10 @@ final class PiAgentRunnerService {
     }
 
     private func transcriptTitle(for mode: PiAgentInputMode, isStreaming: Bool) -> String {
-        guard isStreaming else { return "Prompt" }
+        guard isStreaming else { return LanguageStore.shared.t("run.prompt") }
         switch mode {
-        case .prompt, .steer: return "Steering"
-        case .followUp: return "Queued follow-up"
+        case .prompt, .steer: return LanguageStore.shared.t("run.steering")
+        case .followUp: return LanguageStore.shared.t("run.queuedFollowUp")
         }
     }
 
@@ -1441,7 +1441,7 @@ final class PiAgentRunnerService {
         guard !trimmed.isEmpty, !isIgnorableStderr(trimmed) else { return }
         if isConnectionError(trimmed) {
             let message = normalizedConnectionError(trimmed)
-            store.append(.init(sessionID: sessionID, role: .error, title: "Connection Error", text: message))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.connectionError"), text: message))
             // The RPC websocket died mid-turn, so no turn_end/message_end will arrive to
             // schedule idle confirmation, and the local Pi process may keep running so
             // handleTermination never fires either. Without this the session is stranded
@@ -1495,7 +1495,7 @@ final class PiAgentRunnerService {
         }
 #endif
         guard let event else {
-            store.append(.init(sessionID: sessionID, role: .raw, title: "Raw Output", text: rawLine))
+            store.append(.init(sessionID: sessionID, role: .raw, title: LanguageStore.shared.t("run.rawOutput"), text: rawLine))
             return
         }
 
@@ -1513,7 +1513,7 @@ final class PiAgentRunnerService {
                 assistantTextBySessionID[sessionID] = ""
                 thinkingEntryIDsBySessionID[sessionID] = nil
                 thinkingTextBySessionID[sessionID] = nil
-                store.upsert(.init(id: entryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: "", rawJSON: nil))
+                store.upsert(.init(id: entryID, sessionID: sessionID, role: .assistant, title: LanguageStore.shared.t("run.assistant"), text: "", rawJSON: nil))
                 store.setProcessingActivity(.preparing, for: sessionID)
             }
         case "agent_end", "turn_end":
@@ -1567,7 +1567,7 @@ final class PiAgentRunnerService {
         if event.success == false, event.command == "get_fork_messages", forkProgressBySessionID[sessionID] != nil {
             forkProgressBySessionID[sessionID] = nil
             let message = event.error?.compactDescription ?? "Could not fetch fork candidates from Pi."
-            store.append(.init(sessionID: sessionID, role: .error, title: "Fork Failed", text: message))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.forkFailed"), text: message))
             return
         }
         if event.success == false {
@@ -1837,7 +1837,7 @@ final class PiAgentRunnerService {
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
             .replacingOccurrences(of: #"([a-z0-9])([A-Z])"#, with: "$1 $2", options: .regularExpression)
-        guard let first = spaced.first else { return "Context" }
+        guard let first = spaced.first else { return LanguageStore.shared.t("run.context") }
         return String(first).uppercased() + String(spaced.dropFirst())
     }
 
@@ -1970,7 +1970,7 @@ final class PiAgentRunnerService {
         case "toolcall_start":
             break
         case "error":
-            store.append(.init(sessionID: sessionID, role: .error, title: "Assistant Error", text: assistantEvent.compactDescription, rawJSON: rawLine))
+            store.append(.init(sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.assistantError"), text: assistantEvent.compactDescription, rawJSON: rawLine))
         default:
             break
         }
@@ -2023,7 +2023,7 @@ final class PiAgentRunnerService {
                     id: thinkingEntryID,
                     sessionID: sessionID,
                     role: .thinking,
-                    title: "Thinking",
+                    title: LanguageStore.shared.t("run.thinking"),
                     text: display,
                     rawJSON: nil
                 ), before: assistantEntryIDsBySessionID[sessionID], persist: false, revisionPolicy: .immediateForSelectedSession)
@@ -2036,7 +2036,7 @@ final class PiAgentRunnerService {
                 id: assistantEntryID,
                 sessionID: sessionID,
                 role: .assistant,
-                title: "Assistant",
+                title: LanguageStore.shared.t("run.assistant"),
                 text: TextSanitizer.sanitizeAnswer(assistantText),
                 rawJSON: nil
             ), persist: false, revisionPolicy: .immediateForSelectedSession)
@@ -2101,7 +2101,7 @@ final class PiAgentRunnerService {
                         id: thinkingEntryID,
                         sessionID: sessionID,
                         role: .thinking,
-                        title: "Thinking",
+                        title: LanguageStore.shared.t("run.thinking"),
                         text: thinkingText,
                         rawJSON: nil
                     ),
@@ -2125,7 +2125,7 @@ final class PiAgentRunnerService {
                     }
                     return
                 }
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: visibleText, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: LanguageStore.shared.t("run.assistant"), text: visibleText, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
             } else if !streamedText.isEmpty {
                 // The end event carried no assistant body. Some model backends
                 // stream the response only through deltas and omit the text from the
@@ -2136,7 +2136,7 @@ final class PiAgentRunnerService {
                 // entry id (updates the in-memory streamed entry in place, so no
                 // duplicate).
                 let answer = TextSanitizer.sanitizeAnswer(streamedText)
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: answer, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: LanguageStore.shared.t("run.assistant"), text: answer, rawJSON: nil), revisionPolicy: .immediateForSelectedSession)
             } else if let errorText = assistantErrorMessage(from: message) {
                 // Pi aborted the turn (provider/auth failure, etc.). The final
                 // assistant message carries stopReason:"error" + errorMessage with
@@ -2154,7 +2154,7 @@ final class PiAgentRunnerService {
                     }
                     return
                 }
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .error, title: "Model Error", text: errorText, rawJSON: rawLine), revisionPolicy: .immediateForSelectedSession)
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .error, title: LanguageStore.shared.t("run.modelError"), text: errorText, rawJSON: rawLine), revisionPolicy: .immediateForSelectedSession)
             }
             // `message_end` only completes one message. Pi may still continue the same
             // run with tools, compaction, retries, follow-ups, or another turn. Wait for
@@ -2324,16 +2324,16 @@ final class PiAgentRunnerService {
             if text.isEmpty || Self.isEphemeralSlashCommandMessage(text: text, images: [], pasteAttachments: []) {
                 return []
             }
-            return [.init(sessionID: sessionID, role: .user, title: "You", text: text)]
+            return [.init(sessionID: sessionID, role: .user, title: LanguageStore.shared.t("run.you"), text: text)]
         case "assistant":
             var entries: [PiAgentTranscriptEntry] = []
             let thinking = extractAssistantThinking(from: message)
             if !thinking.isEmpty {
-                entries.append(.init(sessionID: sessionID, role: .thinking, title: "Thinking", text: thinking))
+                entries.append(.init(sessionID: sessionID, role: .thinking, title: LanguageStore.shared.t("run.thinking"), text: thinking))
             }
             let text = extractAssistantText(from: message)
             if !text.isEmpty {
-                entries.append(.init(sessionID: sessionID, role: .assistant, title: "Assistant", text: text))
+                entries.append(.init(sessionID: sessionID, role: .assistant, title: LanguageStore.shared.t("run.assistant"), text: text))
             }
             return entries
         case "toolResult", "bashExecution":
@@ -2488,7 +2488,7 @@ final class PiAgentRunnerService {
                 id: thinkingEntryID,
                 sessionID: sessionID,
                 role: .thinking,
-                title: "Thinking",
+                title: LanguageStore.shared.t("run.thinking"),
                 text: display,
                 rawJSON: nil
             ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
@@ -2561,7 +2561,7 @@ final class PiAgentRunnerService {
             compactionEntryIDsBySessionID[sessionID] = nil
             text = event.errorMessage ?? "Compaction complete."
         }
-        store.upsert(.init(id: entryID, sessionID: sessionID, role: .status, title: "Compaction", text: text, rawJSON: rawLine))
+        store.upsert(.init(id: entryID, sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.compaction"), text: text, rawJSON: rawLine))
         if event.type == "compaction_end" {
 #if DEBUG
             let willRetry = event.willRetry == true
@@ -2576,7 +2576,7 @@ final class PiAgentRunnerService {
 
     private func handleRetry(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
         let text = event.errorMessage ?? event.data?.compactDescription ?? rawLine
-        store.append(.init(sessionID: sessionID, role: .status, title: "Retry", text: text, rawJSON: rawLine))
+        store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.retry"), text: text, rawJSON: rawLine))
     }
 
     private func handleQueueUpdate(_ event: PiAgentRPCEvent, sessionID: UUID) {
@@ -2632,7 +2632,7 @@ final class PiAgentRunnerService {
         if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
             if requestMethod == .input, let pendingFreeform = pendingFreeformResponsesBySessionID.removeValue(forKey: sessionID) {
                 clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: pendingFreeform)
-                store.append(.init(sessionID: sessionID, role: .status, title: "Input Sent", text: "Custom response sent.", rawJSON: rawLine))
+                store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.inputSent"), text: "Custom response sent.", rawJSON: rawLine))
                 return
             }
 
@@ -2647,7 +2647,7 @@ final class PiAgentRunnerService {
                 prefill: event.prefill
             )
             store.setUIRequest(parsedRequest)
-            store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: title, rawJSON: rawLine))
+            store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.inputNeeded"), text: title, rawJSON: rawLine))
             return
         }
 
@@ -2865,7 +2865,7 @@ final class PiAgentRunnerService {
         }
         // Surface the request in the parent transcript (the UI maps this title to a
         // "Starting Deck agent" status), mirroring the supervisor/ask_user bridges.
-        store.append(.init(sessionID: sessionID, role: .status, title: "Deck Agent Requested", text: "\(request.agent): \(request.task)", rawJSON: rawLine))
+        store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.deckAgentRequested"), text: "\(request.agent): \(request.task)", rawJSON: rawLine))
         onManagedSubagentRequest(sessionID, request) { [weak self] result in
             Task { @MainActor in
                 self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
@@ -2885,7 +2885,7 @@ final class PiAgentRunnerService {
         }
         // Surface the parallel request in the parent transcript (UI maps this title to
         // a "Starting parallel run" status).
-        store.append(.init(sessionID: sessionID, role: .status, title: "Parallel Deck Agents Requested", text: request.tasks.map(\.agent).joined(separator: ", "), rawJSON: rawLine))
+        store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.parallelDeckAgentsRequested"), text: request.tasks.map(\.agent).joined(separator: ", "), rawJSON: rawLine))
         onManagedParallelRequest(sessionID, request) { [weak self] result in
             Task { @MainActor in
                 self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
@@ -2900,7 +2900,7 @@ final class PiAgentRunnerService {
             return
         }
         let result = onSupervisorRequestAnswer?(sessionID, request.requestID, request.response) ?? "\(AppBrand.displayName) supervisor routing is not available."
-        store.append(.init(sessionID: sessionID, role: .status, title: "Supervisor Response Routed", text: request.requestID, rawJSON: rawLine))
+        store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.supervisorResponseRouted"), text: request.requestID, rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
@@ -2935,7 +2935,7 @@ final class PiAgentRunnerService {
             record.finalSystemPrompt = request.systemPrompt
             record.finalSystemPromptCapturedAt = now
         }
-        store.append(.init(sessionID: sessionID, role: .status, title: "System Prompt Captured", text: "Captured \(request.systemPrompt.count) characters from Pi runtime.", rawJSON: rawLine))
+        store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.systemPromptCaptured"), text: "Captured \(request.systemPrompt.count) characters from Pi runtime.", rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "System prompt captured.")
     }
 
@@ -2970,7 +2970,7 @@ final class PiAgentRunnerService {
             allowsComment: !options.isEmpty,
             responseFormat: .nativeAsk
         ))
-        store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: request.question, rawJSON: rawLine))
+        store.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("run.inputNeeded"), text: request.question, rawJSON: rawLine))
     }
 
     private func bridgePayload(from event: PiAgentRPCEvent) -> String? {
@@ -3116,7 +3116,7 @@ final class PiAgentRunnerService {
             if text.isEmpty && type != "message_start" { return nil }
             switch role {
             case "assistant":
-                return .init(sessionID: sessionID, role: .assistant, title: "Assistant", text: text.isEmpty ? type : text, rawJSON: nil)
+                return .init(sessionID: sessionID, role: .assistant, title: LanguageStore.shared.t("run.assistant"), text: text.isEmpty ? type : text, rawJSON: nil)
             case "user":
                 return nil
             case "toolResult", "bashExecution":

@@ -448,7 +448,7 @@ final class AppViewModel: NSObject {
             _ = appSettingsController.removeCodexPluginSkillReferences(staleComputerUseReferences)
             appSettings = appSettingsController.settings
             legacyComputerUseSkillNames = appSettings.legacyComputerUseSkillNames
-            skillBatchActionMessage = "Removed the obsolete Codex Computer Use skill reference. Enable Computer Use from MCP Servers instead."
+            skillBatchActionMessage = LanguageStore.shared.t("vm.skillsRemovedCodexComputerUse")
         }
         reloadLoopDefinitions()
         ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
@@ -1378,8 +1378,8 @@ final class AppViewModel: NSObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Add Project"
-        panel.message = "Choose a repo or project root to add to \(AppBrand.displayName)."
+        panel.prompt = LanguageStore.shared.t("vm.addProject")
+        panel.message = LanguageStore.shared.t("vm.addProjectMessage", AppBrand.displayName)
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         addProject(url, selectingAfterAdd: true)
@@ -1405,8 +1405,8 @@ final class AppViewModel: NSObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Skills Folder"
-        panel.message = "Choose a skill root or a folder to search recursively for SKILL.md files you want to add to the \(AppBrand.displayName) skill catalog."
+        panel.prompt = LanguageStore.shared.t("vm.chooseSkillsFolder")
+        panel.message = LanguageStore.shared.t("vm.chooseSkillsFolderMessage", AppBrand.displayName)
         panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
         let handler: (NSApplication.ModalResponse) -> Void = { response in
@@ -1462,7 +1462,7 @@ final class AppViewModel: NSObject {
             let commonRoot = commonAncestorPath(for: Array(sourceRoots))
             upsertSkillCollection(
                 name: collectionName,
-                description: "Local skill collection",
+                description: LanguageStore.shared.t("vm.localSkillCollection"),
                 skillRootPaths: importedPaths,
                 skillNames: Set(importedNames),
                 importedRepositoryID: nil,
@@ -1664,7 +1664,7 @@ final class AppViewModel: NSObject {
         if let collectionName = requestedCollectionName, !collectionName.isEmpty {
             upsertSkillCollection(
                 name: collectionName,
-                description: "Synced Git skill collection",
+                description: LanguageStore.shared.t("vm.syncedGitSkillCollection"),
                 skillRootPaths: rootPaths,
                 skillNames: Set(selectedCandidates.map(\.name)),
                 importedRepositoryID: repositoryID,
@@ -1798,7 +1798,7 @@ final class AppViewModel: NSObject {
         if failures > 0 {
             skillBatchActionMessage = "Checked \(repositories.count) skill repositor\(repositories.count == 1 ? "y" : "ies"). \(updateCount) ha\(updateCount == 1 ? "s" : "ve") an update available. \(failures) could not be checked."
         } else if updateCount == 0 {
-            skillBatchActionMessage = "All synced skills are up to date."
+            skillBatchActionMessage = LanguageStore.shared.t("vm.skillsAllUpToDate")
         }
         // When updates were found and nothing failed, the per-row badges show
         // the result — no alert needed.
@@ -1842,7 +1842,7 @@ final class AppViewModel: NSObject {
         if failed > 0 {
             parts.append("\(failed) skill\(failed == 1 ? "" : "s") could not be updated.")
         }
-        skillBatchActionMessage = parts.isEmpty ? "No skills needed updating." : parts.joined(separator: "\n\n")
+        skillBatchActionMessage = parts.isEmpty ? LanguageStore.shared.t("vm.skillsNoUpdateNeeded") : parts.joined(separator: "\n\n")
     }
 
     func addProject(_ url: URL, selectingAfterAdd: Bool = false) {
@@ -1962,8 +1962,8 @@ final class AppViewModel: NSObject {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
-        panel.prompt = "Choose Icon"
-        panel.message = "Choose an image to use as this project's custom icon."
+        panel.prompt = LanguageStore.shared.t("vm.chooseIcon")
+        panel.message = LanguageStore.shared.t("vm.chooseIconMessage")
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
@@ -2080,7 +2080,7 @@ final class AppViewModel: NSObject {
                           self.selectedDiscoveredProject?.path == project.path,
                           self.githubSelectedDiffFilePath == filePath,
                           self.githubSelectedDiffKind == kind else { return }
-                    let displayText = diff.isEmpty ? "No \(kind.rawValue.lowercased()) diff for this file." : diff
+                    let displayText = diff.isEmpty ? LanguageStore.shared.t("vm.noDiffForFile", kind.rawValue.lowercased()) : diff
                     self.storeGithubDiff(displayText, for: cacheKey)
                     self.githubSelectedDiffText = displayText
                 }
@@ -2268,7 +2268,7 @@ final class AppViewModel: NSObject {
         let message = githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = githubCommitDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else {
-            githubLastError = "Enter a commit title first."
+            githubLastError = LanguageStore.shared.t("vm.enterCommitTitle")
             return
         }
 
@@ -2335,7 +2335,7 @@ final class AppViewModel: NSObject {
             } else {
                 let session = piAgentSessionStore.createSession(
                     kind: .project,
-                    title: "Project agent · \(project.name)",
+                    title: LanguageStore.shared.t("vm.projectAgent", project.name),
                     project: project,
                     repository: project.gitHubRemote?.nameWithOwner
                 )
@@ -2405,7 +2405,7 @@ final class AppViewModel: NSObject {
             let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
                 .split(separator: "\n").first.map(String.init) ?? "General Chat"
             let session = piAgentSessionStore.createNoProjectCodingAgentSession(
-                title: title.isEmpty ? "General Chat" : String(title.prefix(80))
+                title: title.isEmpty ? LanguageStore.shared.t("vm.generalChat") : String(title.prefix(80))
             )
             revealSessionGroup(session)
             selectPiAgentSession(session.id)
@@ -2422,7 +2422,7 @@ final class AppViewModel: NSObject {
                 .split(separator: "\n").first.map(String.init) ?? "Project agent · \(project.name)"
             let session = piAgentSessionStore.createSession(
                 kind: .project,
-                title: title.isEmpty ? "New Agent Session" : String(title.prefix(80)),
+                title: title.isEmpty ? LanguageStore.shared.t("vm.newAgentSession") : String(title.prefix(80)),
                 project: project,
                 repository: project.gitHubRemote?.nameWithOwner
             )
@@ -2709,7 +2709,7 @@ final class AppViewModel: NSObject {
                 let shouldReload = self.connectableProviderLoadState.completeLoad()
                 self.isLoadingConnectableProviders = self.connectableProviderLoadState.isLoading
                 if providers.isEmpty {
-                    self.connectableProvidersError = "Couldn’t load providers from Pi. Update or reinstall Pi, then try again."
+                    self.connectableProvidersError = LanguageStore.shared.t("vm.providersLoadFailed")
                 }
                 if shouldReload {
                     self.loadConnectableProviders()
@@ -2853,7 +2853,7 @@ final class AppViewModel: NSObject {
                 guard granted else { return }
 
                 let content = UNMutableNotificationContent()
-                content.title = "Pi Agent needs review"
+                content.title = LanguageStore.shared.t("vm.piAgentNeedsReview")
                 content.body = session.displayTitle
                 content.userInfo = [
                     "sessionID": session.id.uuidString,
@@ -3031,7 +3031,7 @@ final class AppViewModel: NSObject {
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
             openTerminalScript(scriptURL, for: session.id)
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: "Opened in Terminal", text: "Opened in Terminal."))
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: LanguageStore.shared.t("vm.openedInTerminal"), text: LanguageStore.shared.t("vm.openedInTerminal")))
         } catch {
             piAgentSessionStore.updateSession(session.id) { record in
                 record.lastError = error.localizedDescription
@@ -3050,7 +3050,7 @@ final class AppViewModel: NSObject {
         }
         if let sessionFile = session.piSessionFile?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionFile.isEmpty {
             piAgentSessionStore.updateSession(session.id) { record in
-                record.lastError = "Pi session file no longer exists; trying session id if available."
+                record.lastError = LanguageStore.shared.t("vm.sessionFileMissing")
             }
         }
         return nil
@@ -3080,7 +3080,7 @@ final class AppViewModel: NSObject {
             let terminalURL = URL(fileURLWithPath: selectedTerminalPath)
             guard FileManager.default.fileExists(atPath: terminalURL.path) else {
                 piAgentSessionStore.updateSession(sessionID) { record in
-                    record.lastError = "Selected terminal app no longer exists. Choose another app in Settings."
+                    record.lastError = LanguageStore.shared.t("vm.terminalAppMissing")
                 }
                 return
             }
@@ -3121,7 +3121,7 @@ final class AppViewModel: NSObject {
         } catch {
             let name = URL(fileURLWithPath: appPath).deletingPathExtension().lastPathComponent
             piAgentSessionStore.updateSession(sessionID) { record in
-                record.lastError = "Could not launch \(name): \(error.localizedDescription)"
+                record.lastError = LanguageStore.shared.t("vm.couldNotLaunchApp", name, error.localizedDescription)
             }
             return false
         }
@@ -3131,7 +3131,7 @@ final class AppViewModel: NSObject {
         guard let terminalURL else {
             guard NSWorkspace.shared.open(scriptURL) else {
                 piAgentSessionStore.updateSession(sessionID) { record in
-                    record.lastError = "Could not open the default terminal app."
+                    record.lastError = LanguageStore.shared.t("vm.couldNotOpenDefaultTerminal")
                 }
                 return
             }
@@ -3263,7 +3263,7 @@ final class AppViewModel: NSObject {
             return
         }
         guard !session.isNoProject, session.projectPathForProjectFeatures != nil else {
-            completion("Deck agents are unavailable for General Chat sessions. Select a project-backed session before delegating.")
+            completion(LanguageStore.shared.t("vm.deckAgentsUnavailableGeneralChat"))
             return
         }
         guard session.subagentsEnabled else {
@@ -3285,7 +3285,7 @@ final class AppViewModel: NSObject {
             timeoutTask?.cancel()
             gate.complete {
                 let status = run.status == .completed ? "completed" : run.status.rawValue
-                let summary = run.summary ?? run.error ?? "No summary returned."
+                let summary = run.summary ?? run.error ?? LanguageStore.shared.t("vm.noSummaryReturned")
                 let isPersistedRun = self.piAgentSessionStore.subagentRuns(for: parentSessionID).contains { $0.id == run.id }
                 let idLine = isPersistedRun ? "\nDeck agent ID: \(run.id.uuidString)" : ""
                 completion("Deck agent \(run.agentName) \(status).\(idLine)\n\n\(summary)")
@@ -3311,7 +3311,7 @@ final class AppViewModel: NSObject {
             return
         }
         guard !session.isNoProject, session.projectPathForProjectFeatures != nil else {
-            completion("Deck agents are unavailable for General Chat sessions. Select a project-backed session before delegating.")
+            completion(LanguageStore.shared.t("vm.deckAgentsUnavailableGeneralChat"))
             return
         }
         guard session.subagentsEnabled else {
@@ -3322,17 +3322,17 @@ final class AppViewModel: NSObject {
         let useWorktreeIsolation = request.worktree == true
         await runNativeParallel(parentSession: session, agentTasks: tasks, concurrency: request.concurrency ?? 4, useWorktreeIsolation: useWorktreeIsolation) { run in
             let status = run.status == .completed ? "completed" : run.status.rawValue
-            completion("Deck agent parallel run \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
+            completion("Deck agent parallel run \(status).\n\n\(run.summary ?? run.error ?? LanguageStore.shared.t("vm.noSummaryReturned"))")
         }
     }
 
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
         guard piAgentSessionStore.sessions.contains(where: { $0.id == parentSession.id }) else {
-            return PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: "The parent session was deleted.")
+            return PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: LanguageStore.shared.t("vm.parentSessionDeleted"))
         }
         guard !parentSession.isNoProject, let projectPath = parentSession.projectPathForProjectFeatures else {
-            let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
+            let message = LanguageStore.shared.t("vm.deckAgentsUnavailableLaunch")
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
             completion?(placeholder)
@@ -3347,7 +3347,7 @@ final class AppViewModel: NSObject {
         }
         let snapshot = startupSnapshot(forProjectPath: projectPath)
         guard let agent = catalogAgents(for: parentSession).first(where: { $0.name == agentName }) else {
-            let message = "No enabled agent named \(agentName) was found for this session."
+            let message = LanguageStore.shared.t("vm.noEnabledAgentNamed", agentName)
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agent Not Found", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
             completion?(placeholder)
@@ -3384,7 +3384,7 @@ final class AppViewModel: NSObject {
     @discardableResult
     func launchLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
         guard session.projectPathForProjectFeatures != nil else {
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: LanguageStore.shared.t("vm.loopUnavailable"), text: LanguageStore.shared.t("vm.loopsUnavailableGeneralChat")))
             return nil
         }
         prepareSessionForLoopLaunch(session: session, draft: draft)
@@ -3630,7 +3630,7 @@ final class AppViewModel: NSObject {
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
         guard !parentSession.isNoProject, parentSession.projectPathForProjectFeatures != nil else {
-            let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
+            let message = LanguageStore.shared.t("vm.deckAgentsUnavailableLaunch")
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: message)
             completion?(placeholder)
@@ -3648,7 +3648,7 @@ final class AppViewModel: NSObject {
 
     private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, forcedExpectedOutcome: PiSubagentExpectedOutcome? = nil, loopID: UUID? = nil, completion: ((PiSubagentRunRecord) -> Void)?) async {
         guard !parentSession.isNoProject, parentSession.projectPathForProjectFeatures != nil else {
-            let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching Deck agents."
+            let message = LanguageStore.shared.t("vm.deckAgentsUnavailableLaunch")
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
             completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: "Parallel", task: "Parallel Deck agent task(s)", error: message))
             return
@@ -4055,7 +4055,7 @@ final class AppViewModel: NSObject {
         refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
     }
 
-    /// Drops a removed server from the "All Projects" default, every project
+    /// Drops a removed server from the All Projects default, every project
     /// assignment, and any agent's `mcpServers` frontmatter — mirroring
     /// `removeSkillReferences` so a deleted server leaves no orphaned assignments.
     private func removeMCPServerReferences(named name: String) {
@@ -4294,7 +4294,7 @@ final class AppViewModel: NSObject {
     private static func encodeMCPBridgeCallResult(_ result: PiMCPBridgeCallResultEnvelope) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return String(decoding: (try? encoder.encode(result)) ?? Data("MCP bridge result encoding failed.".utf8), as: UTF8.self)
+        return String(decoding: (try? encoder.encode(result)) ?? Data(LanguageStore.shared.t("vm.mcpBridgeEncodeFailed").utf8), as: UTF8.self)
     }
 
     private func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>, sessionID: UUID, projectID: String? = nil, requestingAgent: String? = nil, subagentRunID: UUID? = nil) async -> String {
@@ -4329,12 +4329,12 @@ final class AppViewModel: NSObject {
                 let result = try await mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context: MCPCallContext(sessionID: sessionID, projectID: projectID, server: address.server, tool: address.tool, requestingAgent: requestingAgent, subagentRunID: subagentRunID))
                 return Self.encodeMCPBridgeCallResult(.callResult(result, server: address.server, tool: address.tool))
             } catch {
-                return Self.encodeMCPBridgeCallResult(.failure(server: address.server, tool: address.tool, message: "MCP call failed: \(error.localizedDescription)"))
+                return Self.encodeMCPBridgeCallResult(.failure(server: address.server, tool: address.tool, message: LanguageStore.shared.t("vm.mcpCallFailed", error.localizedDescription)))
             }
 
         default: // "list"
             let entries = mcpCatalogSnapshot.filter { scope.contains($0.server) }
-            guard !entries.isEmpty else { return "No MCP servers are assigned to this session." }
+            guard !entries.isEmpty else { return LanguageStore.shared.t("vm.noMcpServersAssigned") }
             let counts = Dictionary(grouping: entries, by: \.server).mapValues(\.count)
             return counts.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value) tools" }.joined(separator: "\n")
         }
@@ -4519,7 +4519,7 @@ final class AppViewModel: NSObject {
                     piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                         run.worktreeStatus = .discarded
                     }
-                    piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Deck Agent Worktree Discarded", text: "Removed isolated worktree for run \(runID.uuidString). Artifacts were kept."))
+                    piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: LanguageStore.shared.t("vm.deckAgentWorktreeDiscarded"), text: LanguageStore.shared.t("vm.removedIsolatedWorktree", runID.uuidString)))
                 }
             } catch {
                 await MainActor.run { recordSubagentWorktreeError(error, runID: runID, parentSessionID: parentSessionID) }
@@ -4553,7 +4553,7 @@ final class AppViewModel: NSObject {
                 try? "Discarded at \(Date().formatted(date: .numeric, time: .standard))\n".write(to: URL(fileURLWithPath: syntheticRun.artifactDirectory).appendingPathComponent("worktree.discarded"), atomically: true, encoding: .utf8)
                 await MainActor.run {
                     piAgentSessionStore.markLoopWorktreeState(runID: loopRun.id, sessionID: loopRun.sessionID, state: .discarded)
-                    piAgentSessionStore.append(.init(sessionID: loopRun.sessionID, role: .status, title: "Loop Worktree Discarded", text: "Removed loop worktree for run \(loopRun.id.uuidString). Artifacts were kept."))
+                    piAgentSessionStore.append(.init(sessionID: loopRun.sessionID, role: .status, title: LanguageStore.shared.t("vm.loopWorktreeDiscarded"), text: LanguageStore.shared.t("vm.removedLoopWorktree", loopRun.id.uuidString)))
                 }
             } catch {
                 await MainActor.run { piAgentSessionStore.append(.init(sessionID: loopRun.sessionID, role: .error, title: "Loop Worktree Discard Failed", text: error.localizedDescription)) }
@@ -4662,10 +4662,10 @@ final class AppViewModel: NSObject {
     /// available; the sheet treats that as "fall back to CI commit listing".
     func generateAgentDeckReleaseNotes(version: String, sinceTag: String?) async throws -> String {
         guard let model = defaultPiAgentModel() else {
-            throw ReleaseNotesGenerationService.GenerationError.rpc("No default model is configured.")
+            throw ReleaseNotesGenerationService.GenerationError.rpc(LanguageStore.shared.t("vm.noDefaultModel"))
         }
         guard let projectURL = agentDeckReleaseProjectURL else {
-            throw ReleaseNotesGenerationService.GenerationError.rpc("No project is selected.")
+            throw ReleaseNotesGenerationService.GenerationError.rpc(LanguageStore.shared.t("vm.noProjectSelectedShort"))
         }
         let commits = try await gitRepositoryService.commitSubjects(sinceTag: sinceTag, in: projectURL)
         let environment = EnvRuntimeEnvironment().environment()
@@ -4968,9 +4968,9 @@ final class AppViewModel: NSObject {
                             }
                             switch cleanupOutcome {
                             case .deleted:
-                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Removed", text: "Removed worktree and deleted \(branchName)."))
+                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("vm.worktreeRemoved"), text: LanguageStore.shared.t("vm.removedWorktreeBranch", branchName)))
                             case .skippedNoBranchName, .skippedNotRequested:
-                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Removed", text: "Removed worktree."))
+                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("vm.worktreeRemoved"), text: LanguageStore.shared.t("vm.removedWorktree")))
                             case let .retainedUnmerged(reason):
                                 self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Branch Retained", text: "Merged into `\(sourceBranch)` and removed the worktree, but branch `\(branchName)` was not deleted: \(reason). Delete it manually with `git branch -D \(branchName)` once you've checked."))
                             }
@@ -5264,7 +5264,7 @@ final class AppViewModel: NSObject {
                     self.piAgentSessionStore.updateSession(sessionID) { record in
                         // Only stamp when empty so we don't clobber a live agent error.
                         if record.lastError == nil || record.lastError?.isEmpty == true {
-                            record.lastError = "Session title generation failed (\(modelLabel)): \(message)"
+                            record.lastError = LanguageStore.shared.t("vm.sessionTitleGenFailed", modelLabel, message)
                         }
                     }
                 }
@@ -5412,7 +5412,7 @@ final class AppViewModel: NSObject {
         let levels = supportedPiAgentThinkingLevels(session: session, provider: session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider, modelID: session.modelOverrideID ?? session.model ?? fallback?.model)
         guard levels.contains(normalized) else {
             piAgentSessionStore.updateSession(session.id) { record in
-                record.lastError = "Thinking level '\(level)' is not available for the selected model."
+                record.lastError = LanguageStore.shared.t("vm.thinkingLevelUnavailable", level)
             }
             return
         }
@@ -6202,7 +6202,7 @@ final class AppViewModel: NSObject {
 
     func setPiAgentGitAutomationEnabled(_ isEnabled: Bool) {
         guard appSettingsController.setPiAgentGitAutomationEnabled(isEnabled) else { return }
-        // No model auto-pick on enable: a nil identifier means "Default model"
+        // No model auto-pick on enable: a nil identifier means Default model
         // (the user's Pi default), same as every other automation.
         syncAppSettings()
     }
@@ -6234,7 +6234,7 @@ final class AppViewModel: NSObject {
 
     func setAutoGenerateAgentAvatarPrompts(_ isEnabled: Bool) {
         guard appSettingsController.setAutoGenerateAgentAvatarPrompts(isEnabled) else { return }
-        // No model auto-pick on enable: nil identifier = "Default model".
+        // No model auto-pick on enable: nil identifier = Default model.
         syncAppSettings()
     }
 
@@ -6263,7 +6263,7 @@ final class AppViewModel: NSObject {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.sourceCode, .javaScript]
-        panel.message = "Choose a Pi extension file containing pi.registerCommand(...)."
+        panel.message = LanguageStore.shared.t("vm.choosePiExtension")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? PiInjectedCommandCatalog.importCommandFile(url)
         syncAppSettings()
@@ -6284,7 +6284,7 @@ final class AppViewModel: NSObject {
             return selected
         }
         // No explicit pick = follow the user's Pi default model, like every
-        // other automation (the picker's "Default model" option).
+        // other automation (the picker's Default model option).
         return defaultPiAgentModel() ?? foundationAutomationModel ?? enabledAvailableModels.first
     }
 
@@ -6293,7 +6293,7 @@ final class AppViewModel: NSObject {
            let selected = automationAvailableModels.first(where: { $0.identifier == identifier }) {
             return selected
         }
-        // The picker labels the nil choice "Default model" — resolve it as the
+        // The picker labels the nil choice Default model — resolve it as the
         // user's Pi default first (it used to silently prefer Apple Foundation
         // Models, contradicting the label).
         return defaultPiAgentModel() ?? foundationAutomationModel ?? enabledAvailableModels.first
@@ -6330,7 +6330,7 @@ final class AppViewModel: NSObject {
     /// writes the result back into the on-disk cache.
     func generateSkillDescription(skillContent: String) async throws -> String {
         guard let model = skillDescriptionGenerationModel() else {
-            throw SkillDescriptionGenerationService.GenerationError.rpc("No model is configured for skill summaries.")
+            throw SkillDescriptionGenerationService.GenerationError.rpc(LanguageStore.shared.t("vm.noModelForSkillSummaries"))
         }
         let hash = SkillDescriptionCache.sha256(of: Data(skillContent.utf8))
         if let cached = SkillDescriptionCache.get(hash: hash) {
@@ -7378,7 +7378,7 @@ final class AppViewModel: NSObject {
     }
 
     var selectedProjectName: String {
-        projectRootURL?.lastPathComponent ?? "No Project Selected"
+        projectRootURL?.lastPathComponent ?? LanguageStore.shared.t("vm.noProjectSelected")
     }
 
     var configuredProjectsRootURLs: [URL] {
@@ -8133,7 +8133,7 @@ final class AppViewModel: NSObject {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Import Prompt"
-        panel.message = "Choose a markdown file to reference in the \(AppBrand.displayName) prompt library. The file stays where it is and is edited in place."
+        panel.message = LanguageStore.shared.t("vm.chooseMarkdownPrompt", AppBrand.displayName)
         let markdownTypes = ["md", "markdown", "mdown", "txt"].compactMap { UTType(filenameExtension: $0) }
         panel.allowedContentTypes = markdownTypes.isEmpty ? [.plainText] : markdownTypes + [.plainText]
 

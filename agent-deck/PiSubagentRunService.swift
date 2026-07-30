@@ -414,7 +414,7 @@ final class PiSubagentRunService {
         supervisorTimeoutTasksByRequestID.removeValue(forKey: requestID)?.cancel()
         store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
             request.status = .cancelled
-            request.response = "Cancelled by supervisor."
+            request.response = LanguageStore.shared.t("sub.cancelledBySupervisor")
         }
         store.updateSubagentRun(request.runID, parentSessionID: parentSessionID) { run in
             let now = Date()
@@ -449,7 +449,7 @@ final class PiSubagentRunService {
         runAfterFinishHookIfNeeded(runID: runID, parentSessionID: parentSessionID, status: .stopped, exitCode: nil)
         notifyCompletion(runID: runID, parentSessionID: parentSessionID)
         if recordTranscript {
-            store.append(.init(sessionID: parentSessionID, role: .status, title: "Deck Agent Stopped", text: "Deck agent run stopped."))
+            store.append(.init(sessionID: parentSessionID, role: .status, title: LanguageStore.shared.t("sub.deckAgentStopped"), text: "Deck agent run stopped."))
         }
     }
 
@@ -729,7 +729,7 @@ final class PiSubagentRunService {
                 let completedAt = Date()
                 run.status = .failed
                 run.child?.status = .failed
-                run.error = "Child Pi process exited with code \(exitCode)."
+                run.error = LanguageStore.shared.t("sub.childExited", exitCode)
                 run.child?.error = run.error
                 run.updatedAt = completedAt
                 run.completedAt = completedAt
@@ -743,7 +743,7 @@ final class PiSubagentRunService {
             guard didFailActiveRun else { return }
             runAfterFinishHookIfNeeded(runID: runID, parentSessionID: parentSessionID, status: .failed, exitCode: exitCode)
             notifyCompletion(runID: runID, parentSessionID: parentSessionID)
-            updateSubagentStatusCard(runID: runID, parentSessionID: parentSessionID, statusText: "Child Pi process exited with code \(exitCode).")
+            updateSubagentStatusCard(runID: runID, parentSessionID: parentSessionID, statusText: LanguageStore.shared.t("sub.childExited", exitCode))
         }
     }
 
@@ -885,7 +885,7 @@ final class PiSubagentRunService {
 
     private func completeIfNeeded(runID: UUID, parentSessionID: UUID) {
         var shouldAppend = false
-        var finalSummary = finalTextByRunID[runID] ?? "Completed without a text summary."
+        var finalSummary = finalTextByRunID[runID] ?? LanguageStore.shared.t("sub.completedNoSummary")
         var outputPath: String?
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             guard run.status.isActive else { return }
@@ -950,7 +950,7 @@ final class PiSubagentRunService {
         clientsByRunID[runID]?.cancelExtensionUI(id: request.bridgeRequestID ?? requestID)
         store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
             request.status = .cancelled
-            request.response = "Timed out waiting for supervisor response."
+            request.response = LanguageStore.shared.t("sub.timedOutSupervisor")
         }
         failRun(runID: runID, parentSessionID: parentSessionID, message: "Timed out waiting for supervisor response to: \(request.title)")
     }
