@@ -1603,7 +1603,8 @@ private final class MarkdownTableView: NSView {
     private var tableBounds: NSRect = .zero
 
     private static let cornerRadius: CGFloat = 8
-    private static let outerPadding: CGFloat = 10
+    /// Text inset inside each grid slot only — row/header fills go edge-to-edge
+    /// under the outer border so the left/right of the card never look "hollow".
     private static let cellPaddingX: CGFloat = 10
     private static let cellPaddingY: CGFloat = 7
     private static let minColumnWidth: CGFloat = 36
@@ -1681,14 +1682,16 @@ private final class MarkdownTableView: NSView {
             return
         }
 
-        let pad = Self.outerPadding
         let cellPadX = Self.cellPaddingX
         let cellPadY = Self.cellPaddingY
         let minCol = Self.minColumnWidth
-        // Interior width available for column bodies (outside outer padding).
-        let innerWidth = max(width - pad * 2, CGFloat(columnCount) * minCol)
-        // Each column's *text* box is narrower than the grid slot by horizontal padding.
-        let textUsable = max(innerWidth - CGFloat(columnCount) * cellPadX * 2, CGFloat(columnCount) * (minCol - cellPadX * 2))
+        // Full card width for the grid (fills flush to the outer border).
+        let gridWidth = max(width, CGFloat(columnCount) * minCol)
+        // Text area inside each slot (slot includes cell padding).
+        let textUsable = max(
+            gridWidth - CGFloat(columnCount) * cellPadX * 2,
+            CGFloat(columnCount) * max(16, minCol - cellPadX * 2)
+        )
         let textWidths = Self.contentWeightedColumnWidths(
             cellViews: cellViews,
             columnCount: columnCount,
@@ -1698,7 +1701,12 @@ private final class MarkdownTableView: NSView {
             fillRemaining: true
         )
         // Grid slot = text width + left/right cell padding.
-        let columnWidths = textWidths.map { $0 + cellPadX * 2 }
+        var columnWidths = textWidths.map { $0 + cellPadX * 2 }
+        // Absorb 1pt rounding so the last column ends exactly at the right edge.
+        let allocated = columnWidths.reduce(0, +)
+        if allocated != floor(gridWidth), !columnWidths.isEmpty {
+            columnWidths[columnWidths.count - 1] += floor(gridWidth) - allocated
+        }
 
         // Row heights: text height + vertical cell padding.
         var rowHeights: [CGFloat] = []
@@ -1715,20 +1723,21 @@ private final class MarkdownTableView: NSView {
             rowHeights.append(max(maxH + cellPadY * 2, 28))
         }
 
-        var y: CGFloat = pad
+        // y starts at 0 — header/body fills go edge-to-edge under the border.
+        var y: CGFloat = 0
         var stripes: [NSRect] = []
         var dividers: [CGFloat] = []
         var bodyOrdinal = 0
         var headerBand = NSRect.zero
 
         for (rowIdx, row) in cellViews.enumerated() {
-            var x: CGFloat = pad
+            var x: CGFloat = 0
             let rowH = rowHeights[rowIdx]
             let rowTop = y
             for (colIdx, cell) in row.enumerated() {
                 let colW = columnWidths[min(colIdx, columnWidths.count - 1)]
                 let textW = textWidths[min(colIdx, textWidths.count - 1)]
-                // Text sits inset inside the grid slot.
+                // Text sits inset inside the grid slot; fills still paint full width.
                 cell.frame = NSRect(
                     x: x + cellPadX,
                     y: y + cellPadY,
@@ -1738,10 +1747,10 @@ private final class MarkdownTableView: NSView {
                 x += colW
             }
             if rowIdx == 0 {
-                headerBand = NSRect(x: pad, y: rowTop, width: innerWidth, height: rowH)
+                headerBand = NSRect(x: 0, y: rowTop, width: gridWidth, height: rowH)
             } else {
                 if bodyOrdinal % 2 == 1 {
-                    stripes.append(NSRect(x: pad, y: rowTop, width: innerWidth, height: rowH))
+                    stripes.append(NSRect(x: 0, y: rowTop, width: gridWidth, height: rowH))
                 }
                 bodyOrdinal += 1
             }
@@ -1753,7 +1762,7 @@ private final class MarkdownTableView: NSView {
 
         // Vertical column guides (between slots).
         var colXs: [CGFloat] = []
-        var cx = pad
+        var cx: CGFloat = 0
         for col in 0..<columnCount {
             cx += columnWidths[col]
             if col < columnCount - 1 {
@@ -1761,8 +1770,7 @@ private final class MarkdownTableView: NSView {
             }
         }
 
-        let contentBottom = y
-        let newHeight = max(ceil(contentBottom + pad), 1)
+        let newHeight = max(ceil(y), 1)
         tableBounds = NSRect(x: 0.5, y: 0.5, width: max(width - 1, 1), height: max(newHeight - 1, 1))
         headerRect = headerBand
         stripeRects = stripes
