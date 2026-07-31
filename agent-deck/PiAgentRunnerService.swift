@@ -1183,11 +1183,22 @@ final class PiAgentRunnerService {
         guard !activeAgentRunSessionIDs.contains(sessionID),
               let session = store.sessions.first(where: { $0.id == sessionID }),
               session.status.isActive,
-              store.uiRequestsBySessionID[sessionID] == nil,
-              assistantEntryIDsBySessionID[sessionID] == nil,
-              assistantTextBySessionID[sessionID] == nil,
-              thinkingEntryIDsBySessionID[sessionID] == nil,
-              thinkingTextBySessionID[sessionID] == nil else { return }
+              store.uiRequestsBySessionID[sessionID] == nil else { return }
+        // turn_start seeds assistantText="" (empty placeholder). Only non-empty
+        // buffers mean an open stream. Treating "" as blocking left sessions
+        // stuck in .running after thinking-only / missing final payload turns.
+        let openAssistant = !(assistantTextBySessionID[sessionID] ?? "").isEmpty
+        let openThinking = !(thinkingTextBySessionID[sessionID] ?? "").isEmpty
+        guard !openAssistant, !openThinking else { return }
+        // Drop empty turn_start / thinking placeholders so parking eligibility matches.
+        if (assistantTextBySessionID[sessionID] ?? "").isEmpty {
+            assistantTextBySessionID[sessionID] = nil
+            assistantEntryIDsBySessionID[sessionID] = nil
+        }
+        if (thinkingTextBySessionID[sessionID] ?? "").isEmpty {
+            thinkingTextBySessionID[sessionID] = nil
+            thinkingEntryIDsBySessionID[sessionID] = nil
+        }
         mark(sessionID, status: .idle, error: nil)
         // Launch-affecting config changes (model/thinking) requested mid-turn are
         // queued in pendingConfigurationRestartSessionIDs. Drain that here so the
@@ -1239,10 +1250,10 @@ final class PiAgentRunnerService {
               session.status == .idle,
               session.piSessionFile?.isEmpty == false,
               store.uiRequestsBySessionID[sessionID] == nil else { return false }
-        return assistantEntryIDsBySessionID[sessionID] == nil
-            && assistantTextBySessionID[sessionID] == nil
-            && thinkingEntryIDsBySessionID[sessionID] == nil
-            && thinkingTextBySessionID[sessionID] == nil
+        // Empty "" placeholders from turn_start must not block idle parking.
+        let openAssistant = !(assistantTextBySessionID[sessionID] ?? "").isEmpty
+        let openThinking = !(thinkingTextBySessionID[sessionID] ?? "").isEmpty
+        return !openAssistant && !openThinking
     }
 
     private func appendSessionInfo(name: String, to sessionFile: String) {
@@ -1525,6 +1536,11 @@ final class PiAgentRunnerService {
             // do not keep the session card stuck in the active/running state.
             if let message = finalAssistantMessage(from: event) {
                 finalizeCompletedMessage(message, rawLine: rawLine, sessionID: sessionID)
+            } else if event.type == "agent_end" {
+                // No final message payload (thinking-only turn, or provider omitted body).
+                // Persist any streamed thinking/text, then drop the empty turn_start
+                // placeholder so confirmIdle is not blocked by assistantText == "".
+                finalizeOrphanStreamingBuffers(sessionID: sessionID)
             }
             if event.type == "agent_end" {
                 scheduleIdleConfirmation(sessionID: sessionID)
@@ -2470,6 +2486,57 @@ final class PiAgentRunnerService {
     /// entry id/buffer so subsequent thinking_delta events open a new entry. Called at
     /// tool boundaries inside a single assistant message so each reasoning pass is its
     /// own transcript entry with its own timestamp.
+    /// When `agent_end` arrives without a final assistant message, still close
+    /// any open thinking/text stream and clear the empty turn_start placeholder.
+    /// Without this, `assistantTextBySessionID == ""` permanently fails
+    /// `confirmIdleIfStillEligible` and the session stays "running" forever.
+    private func finalizeOrphanStreamingBuffers(sessionID: UUID) {
+        streamFlushTasksBySessionID[sessionID]?.cancel()
+        streamFlushTasksBySessionID[sessionID] = nil
+
+        if let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID],
+           let thinkingText = thinkingTextBySessionID[sessionID],
+           !thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let display = TextSanitizer.sanitizeThinking(thinkingText)
+            if !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.upsert(
+                    .init(
+                        id: thinkingEntryID,
+                        sessionID: sessionID,
+                        role: .thinking,
+                        title: LanguageStore.shared.t("run.thinking"),
+                        text: display,
+                        rawJSON: nil
+                    ),
+                    before: assistantEntryIDsBySessionID[sessionID],
+                    revisionPolicy: .immediateForSelectedSession
+                )
+            }
+        }
+
+        if let assistantEntryID = assistantEntryIDsBySessionID[sessionID],
+           let assistantText = assistantTextBySessionID[sessionID],
+           !assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.upsert(
+                .init(
+                    id: assistantEntryID,
+                    sessionID: sessionID,
+                    role: .assistant,
+                    title: LanguageStore.shared.t("run.assistant"),
+                    text: TextSanitizer.sanitizeAnswer(assistantText),
+                    rawJSON: nil
+                ),
+                revisionPolicy: .immediateForSelectedSession
+            )
+        }
+
+        thinkingEntryIDsBySessionID[sessionID] = nil
+        thinkingTextBySessionID[sessionID] = nil
+        assistantEntryIDsBySessionID[sessionID] = nil
+        assistantTextBySessionID[sessionID] = nil
+        store.setProcessingActivity(nil, for: sessionID)
+    }
+
     private func finalizeStreamingThinking(sessionID: UUID) {
         guard let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID],
               let thinkingText = thinkingTextBySessionID[sessionID],
