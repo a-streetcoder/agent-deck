@@ -417,7 +417,8 @@ struct ContentView: View {
     @State private var isPiAgentStartupResourcesPresented = false
     @State private var isPiAgentSystemPromptPresented = false
     @State private var isPiAgentSubagentsPopoverPresented = false
-    /// Remembered Review column width across open/close within the session.
+    /// Remembered Review column width, persisted to UserDefaults.
+    /// Loaded in `mainContent` onAppear; saved whenever the panel is toggled off.
     @State private var reviewPanelWidth: CGFloat = 480
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
@@ -632,6 +633,18 @@ struct ContentView: View {
             .perfScene("Detail+Review")
         }
         .frame(minWidth: 1080, minHeight: 640)
+        .onAppear {
+            let saved = UserDefaults.standard.double(forKey: "piDeck.reviewPanelWidth")
+            if saved > 0 {
+                reviewPanelWidth = CGFloat(saved)
+            }
+        }
+        .onChange(of: viewModel.isTrailingInspectorExpanded) { _, expanded in
+            // Persist the settled width when the panel closes; clamping happens on open.
+            if !expanded {
+                UserDefaults.standard.set(Double(reviewPanelWidth), forKey: "piDeck.reviewPanelWidth")
+            }
+        }
         .navigationTitle(toolbarTitle)
         .toolbar { mainToolbarContent }
         .toolbarRole(.editor)
