@@ -2788,9 +2788,9 @@ final class AppViewModel: NSObject {
     private func handlePiAgentTurnFinished(_ sessionID: UUID) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
         // Deliver the next queued follow-up before attention/notification bookkeeping.
-        // Only dequeue when the session is no longer actively streaming.
-        if !piAgentRunner.isRunning(sessionID: sessionID),
-           !(piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status.isActive ?? false) {
+        // Gate on *turn* status only — `piAgentRunner.isRunning` means the warm RPC
+        // process is alive between turns, not that a model turn is in flight.
+        if !(piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status.isActive ?? false) {
             drainComposerMessageQueueIfNeeded(sessionID: sessionID)
         }
         if isPiAgentSessionActuallyVisible(sessionID) {
@@ -2815,15 +2815,17 @@ final class AppViewModel: NSObject {
 
     /// Sends at most one queued composer message after a turn becomes idle.
     /// Further items wait for the next `onTurnFinished`.
+    ///
+    /// Note: do **not** use `piAgentRunner.isRunning` as a turn gate. That flag is true
+    /// whenever the warm Pi RPC child process is alive (including between turns).
     private func drainComposerMessageQueueIfNeeded(sessionID: UUID) {
-        guard !piAgentRunner.isRunning(sessionID: sessionID) else { return }
         guard let item = piAgentSessionStore.dequeueComposerMessage(for: sessionID) else { return }
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else {
-            // Session gone — put the item back? drop it.
+            // Session gone — drop the dequeued item.
             return
         }
-        // Re-queue if session somehow became active again between dequeue and send.
-        if session.status.isActive || piAgentRunner.isRunning(sessionID: sessionID) {
+        // Re-queue if a new turn started between dequeue and send.
+        if session.status.isActive {
             piAgentSessionStore.requeueComposerMessageAtFront(item, for: sessionID)
             return
         }
