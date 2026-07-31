@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.7 — 2026-07-31
+
+### Highlights
+- **Composer IME**：模型流式输出重绘时不再覆盖输入框 `string`，避免中文/日文等输入法预编辑与候选被吞。
+
+### Fixed
+- `PiAgentDropSafeTextEditor.updateNSView`：`hasMarkedText()` 期间跳过强制赋值；减少每帧重设 font。
+
+### Packaging
+- `MARKETING_VERSION` **0.0.7**，`CURRENT_PROJECT_VERSION` **7**
+- Tag: `v0.0.7`
+- Artifacts: `build/Pi-Deck-0.0.7.zip`, `build/Pi-Deck-0.0.7.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.6 — 2026-07-31
 
 ### Highlights
