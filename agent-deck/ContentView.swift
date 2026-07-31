@@ -81,29 +81,34 @@ extension View {
 }
 
 extension View {
-    func transcriptEdgeFade(height: CGFloat = 28) -> some View {
-        mask {
-            VStack(spacing: 0) {
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0), location: 0),
-                        .init(color: .black, location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: height)
-                Rectangle()
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black.opacity(0), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: height)
+    @ViewBuilder
+    func transcriptEdgeFade(height: CGFloat = 28, enabled: Bool = true) -> some View {
+        if enabled {
+            mask {
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0), location: 0),
+                            .init(color: .black, location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: height)
+                    Rectangle()
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black.opacity(0), location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: height)
+                }
             }
+        } else {
+            self
         }
     }
 

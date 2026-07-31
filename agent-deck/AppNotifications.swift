@@ -17,6 +17,9 @@ extension Notification.Name {
     /// Live Review splitter drag: main column width is changing every frame.
     /// `userInfo`: `width` (CGFloat) — target transcript/content column width.
     static let transcriptColumnLiveResizeWidth = Notification.Name("transcriptColumnLiveResizeWidth")
+    /// Splitter drag (Review/sidebar) active state, for gating translucent/eased
+    /// chrome that would smear into a blur mask mid-drag. `userInfo`: `["active": Bool]`.
+    static let transcriptColumnResizeActive = Notification.Name("transcriptColumnResizeActive")
 #if DEBUG
     static let sidebarExpandBenchAgentsScrollRequested = Notification.Name("AgentDeckSidebarExpandBenchAgentsScrollRequested")
     static let sidebarExpandBenchModelsScrollRequested = Notification.Name("AgentDeckSidebarExpandBenchModelsScrollRequested")

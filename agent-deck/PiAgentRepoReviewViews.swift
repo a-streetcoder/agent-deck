@@ -268,6 +268,17 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         )
     }
 
+    /// Publish whether a splitter drag is actively resizing columns, so the
+    /// transcript can suppress translucent/eased chrome (edge fade) that would
+    /// otherwise smear into a blur mask while re-laying out.
+    private func postColumnResizeActive(_ active: Bool) {
+        NotificationCenter.default.post(
+            name: .transcriptColumnResizeActive,
+            object: nil,
+            userInfo: ["active": active]
+        )
+    }
+
     // MARK: Handles
 
     private func columnHandle(
@@ -301,6 +312,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         if sidebarDragOrigin == nil {
             isSidebarDragging = true
             sidebarDragOrigin = clampedSidebarWidth
+            postColumnResizeActive(true)
         }
         let origin = sidebarDragOrigin ?? clampedSidebarWidth
         // Handle right of sidebar: drag right → wider sidebar.
@@ -323,6 +335,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         isSidebarDragging = false
         NSCursor.arrow.set()
         postTranscriptLiveResize(final: true)
+        postColumnResizeActive(false)
         UserDefaults.standard.set(Double(sidebarWidth), forKey: "piDeck.sidebarWidth")
     }
 
@@ -330,6 +343,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         if reviewDragOrigin == nil {
             isReviewDragging = true
             reviewDragOrigin = clampedReviewWidth
+            postColumnResizeActive(true)
         }
         let origin = reviewDragOrigin ?? clampedReviewWidth
         // Handle left of review: drag left → wider review.
@@ -346,6 +360,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         isReviewDragging = false
         NSCursor.arrow.set()
         postTranscriptLiveResize(final: true)
+        postColumnResizeActive(false)
         UserDefaults.standard.set(Double(reviewPanelWidth), forKey: "piDeck.reviewPanelWidth")
     }
 }

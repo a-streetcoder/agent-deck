@@ -5155,9 +5155,10 @@ struct PiAgentScreen: View {
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
     @State private var stabilizedProcessingMessage: String?
     @State private var processingMessageUpdateTask: Task<Void, Never>?
-    // True briefly after a session switch while the transcript table applies its
-    // new rows and snaps to the bottom; drives the opaque settle cover so the
-    // top-to-bottom render is never visible. See `activeSessionColumn`.
+    // True while a Review/sidebar splitter drag is active. Suppresses the
+    // transcript edge-fade `.mask` (which smears into a blur mask over the
+    // middle column mid-drag) until the drag ends and the table re-lays out.
+    @State private var isColumnResizing = false
 
     // Keep long sessions cheap to relayout when side panels open; older visible items remain accessible separately.
     private let recentTranscriptTimelineItemLimit = 50
@@ -5211,6 +5212,14 @@ struct PiAgentScreen: View {
         .onDisappear {
             processingMessageUpdateTask?.cancel()
             processingMessageUpdateTask = nil
+        }
+        // Suppress the transcript edge-fade blur mask while a splitter drag is
+        // active; re-enable once the drag ends and the column re-settles.
+        .onReceive(NotificationCenter.default.publisher(for: .transcriptColumnResizeActive)) { note in
+            let active = (note.userInfo?["active"] as? Bool) ?? false
+            if isColumnResizing != active {
+                isColumnResizing = active
+            }
         }
         .sheet(isPresented: uiRequestSheetBinding) {
             if let request = store.selectedUIRequest {
@@ -5928,7 +5937,10 @@ struct PiAgentScreen: View {
                 transcript
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, TranscriptFloatingControlGeometry.transcriptHorizontalPadding)
-                    .transcriptEdgeFade()
+                    // Suppress the edge-fade `.mask` while a splitter drag is
+                    // active: its gradient smears into a full-column blur mask
+                    // until the table re-lays out to the settled width.
+                    .transcriptEdgeFade(enabled: !isColumnResizing)
 
                 // NOTE: the old opaque "settle cover" (spinner shown over the
                 // transcript on every session switch) is gone. The switch is now
