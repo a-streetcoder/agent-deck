@@ -28,12 +28,23 @@ struct GitRepositoryService {
         return parseStatus(statusResult.stdout)
     }
 
-    func loadDiff(for filePath: String, kind: GitDiffKind, in repositoryURL: URL) async throws -> String {
+    /// - Parameter contextLines: unified-diff context (`-U`). Pass a large value
+    ///   (e.g. 1_000_000) for full-file review UIs that collapse unmodified spans.
+    func loadDiff(for filePath: String, kind: GitDiffKind, in repositoryURL: URL, contextLines: Int = 3) async throws -> String {
+        let contextArgs = contextLines == 3 ? [String]() : ["-U\(max(0, contextLines))"]
         switch kind {
         case .staged:
-            return try await runDiff(arguments: ["diff", "--cached", "--", filePath], commandDescription: "git diff --cached -- \(filePath)", in: repositoryURL)
+            return try await runDiff(
+                arguments: ["diff", "--cached"] + contextArgs + ["--", filePath],
+                commandDescription: "git diff --cached -- \(filePath)",
+                in: repositoryURL
+            )
         case .unstaged, .conflicted:
-            return try await runDiff(arguments: ["diff", "--", filePath], commandDescription: "git diff -- \(filePath)", in: repositoryURL)
+            return try await runDiff(
+                arguments: ["diff"] + contextArgs + ["--", filePath],
+                commandDescription: "git diff -- \(filePath)",
+                in: repositoryURL
+            )
         case .untracked:
             return try await loadUntrackedDiff(for: filePath, in: repositoryURL)
         }

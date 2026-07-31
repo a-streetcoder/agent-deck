@@ -353,6 +353,17 @@ final class PiAgentNativeExpandableMarkdown: NSView {
         if isExpanded { buildMarkdownIfNeeded() }
     }
 
+    /// Sidebar column resize: re-wrap collapsed label + expanded markdown at new width.
+    func prepareForEnclosingWidthChange(innerWidth: CGFloat) {
+        collapsedLabel.preferredMaxLayoutWidth = max(1, innerWidth)
+        collapsedLabel.invalidateIntrinsicContentSize()
+        if didBuildMarkdown {
+            container.prepareForEnclosingWidthChange()
+            _ = container.measureHeight(forWidth: max(1, innerWidth))
+        }
+        needsLayout = true
+    }
+
     private func buildMarkdownIfNeeded() {
         applier.apply(source: source, to: container)
         didBuildMarkdown = true

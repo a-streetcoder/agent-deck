@@ -368,7 +368,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         streamSimHangMsAtStart = HangWatchdog.hangMsTotal
         Self.streamSimLog.error("STREAMSIM round \(self.streamSimRoundNo) START (\(seconds, format: .fixed(precision: 0))s @30Hz) ──────────")
         TranscriptScrollProfiler.fileLog("STREAMSIM round \(streamSimRoundNo) START")
-        let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.streamSimTick() }
         }
         RunLoop.main.add(t, forMode: .common)
@@ -1384,9 +1384,22 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var pendingRemeasureIDs = Set<String>()
         private var pendingScrollSettle = false
         private var pendingWidthWork: DispatchWorkItem?
+        /// Cleanup after proactive bubble-width animation (must not share cancel
+        /// with `pendingWidthWork` or the flag/settle can be stranded).
+        private var pendingWidthAnimationCleanup: DispatchWorkItem?
         private var widthReconfigureGeneration = 0
         private var lastWidthChangeTime: CFTimeInterval = 0
+        /// Quiet period before applying a width reconfig. Large jumps (sidebar
+        /// open/close) settle briefly then ease bubble widths once — smoother than
+        /// per-frame live tracking (which felt choppy).
         private let widthChangeSettleWindow: CFTimeInterval = 0.30
+        /// Live width tracking while the Review column animates open/close.
+        /// 60fps minimum so bubbles stay in lockstep with the panel spring.
+        private let widthTrackInterval: CFTimeInterval = 1.0 / 60.0
+        private var lastWidthDelta: CGFloat = 0
+        private var lastWidthReconfigTime: CFTimeInterval = 0
+        private var lastWidthTrackApplyTime: CFTimeInterval = 0
+        // (legacy name kept out — large-delta uses trackLive instead of settle)
         // Smooth auto-follow. The streaming follow doesn't snap to the bottom each
         // batch (that reads as a step every ~130ms); instead a 60fps timer eases
         // the clip origin toward the *current* bottom each frame, continuously
@@ -1402,6 +1415,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var frameObserver: NSObjectProtocol?
         private var liveScrollStartObserver: NSObjectProtocol?
         private var liveScrollEndObserver: NSObjectProtocol?
+        private var columnWidthAnimateObserver: NSObjectProtocol?
         private var lastPinnedState = true
         // Auto-follow *intent*, distinct from the position-based `isPinnedToBottom`.
         // True = stick to the bottom as content streams. Only a user scroll changes
@@ -2096,6 +2110,27 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 }
             }
 
+            // Review panel open/close posts the *target* transcript width up front
+            // so bubbles ease in lockstep — AppKit often only sees the final frame
+            // after SwiftUI's layout animation finishes (felt like "lag half a beat").
+            columnWidthAnimateObserver = NotificationCenter.default.addObserver(
+                forName: .transcriptColumnWillAnimateWidth,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                // Copy values out of the notification before crossing isolation.
+                let info = note.userInfo
+                let widthValue = (info?["width"] as? CGFloat)
+                    ?? (info?["width"] as? Double).map { CGFloat($0) }
+                let durationValue = (info?["duration"] as? TimeInterval)
+                    ?? (info?["duration"] as? Double)
+                    ?? TranscriptLayoutAnimation.duration
+                MainActor.assumeIsolated {
+                    guard let self, let widthValue, widthValue > 1 else { return }
+                    self.animateVisibleBubbleWidths(to: widthValue, duration: durationValue)
+                }
+            }
+
             // Live-scroll notifications bracket trackpad gestures / scroller
             // drags. They miss discrete mouse wheels entirely — the timestamp
             // stamped in the bounds observer covers those, and the grace window
@@ -2147,10 +2182,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
             if let liveScrollStartObserver { NotificationCenter.default.removeObserver(liveScrollStartObserver) }
             if let liveScrollEndObserver { NotificationCenter.default.removeObserver(liveScrollEndObserver) }
+            if let columnWidthAnimateObserver { NotificationCenter.default.removeObserver(columnWidthAnimateObserver) }
             boundsObserver = nil
             frameObserver = nil
             liveScrollStartObserver = nil
             liveScrollEndObserver = nil
+            columnWidthAnimateObserver = nil
             pendingHeightWork?.cancel()
             pendingScrollWork?.cancel()
             pendingSettleScrollWork?.cancel()
@@ -2159,6 +2196,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingRemeasureWork?.cancel()
             pendingRemeasureIDs.removeAll()
             pendingWidthWork?.cancel()
+            pendingWidthAnimationCleanup?.cancel()
+            pendingWidthAnimationCleanup = nil
+            TranscriptLayoutAnimation.animateWidth = false
             stopFollowGlide()
         }
 
@@ -2749,7 +2789,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         func updateColumnWidthIfNeeded() {
             guard let tableView else { return }
             let width = currentViewportWidth()
-            guard abs(width - contentWidth) > 0.5 else { return }
+            let delta = abs(width - contentWidth)
+            guard delta > 0.5 else { return }
+            lastWidthDelta = delta
             contentWidth = width
             lastWidthChangeTime = CACurrentMediaTime()
             prewarmQueue.removeAll()
@@ -2783,16 +2825,42 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let generation = widthReconfigureGeneration
             let scheduledWidth = contentWidth
             let scheduledChangeTime = lastWidthChangeTime
-            let delay = max(0, widthChangeSettleWindow - (CACurrentMediaTime() - scheduledChangeTime))
+            // Large continuous motion (Review sidebar): live-track with width-only
+            // constraint updates (cheap). Small jitter: quiet settle + full reconfig.
+            let trackLive = lastWidthDelta > 24
+            let delay: CFTimeInterval
+            if trackLive {
+                delay = max(0, widthTrackInterval - (CACurrentMediaTime() - lastWidthTrackApplyTime))
+            } else {
+                delay = max(0, widthChangeSettleWindow - (CACurrentMediaTime() - scheduledChangeTime))
+            }
 #if DEBUG
             if TranscriptScrollProfiler.verboseTrace {
-                TranscriptScrollProfiler.fileLog("WIDTH reconfig scheduled width=\(String(format: "%.0f", scheduledWidth)) delay=\(String(format: "%.0f", delay * 1000))ms")
+                TranscriptScrollProfiler.fileLog("WIDTH reconfig scheduled width=\(String(format: "%.0f", scheduledWidth)) delay=\(String(format: "%.0f", delay * 1000))ms track=\(trackLive)")
             }
 #endif
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 guard generation == self.widthReconfigureGeneration else { return }
                 self.pendingWidthWork = nil
+
+                if trackLive {
+                    self.lastWidthTrackApplyTime = CACurrentMediaTime()
+                    // Only card width constraints — no markdown rebuild.
+                    self.applyWidthOnlyToVisibleCells()
+                    let quietFor = CACurrentMediaTime() - self.lastWidthChangeTime
+                    let widthMoved = abs(self.contentWidth - scheduledWidth) > 0.5
+                        || self.lastWidthChangeTime != scheduledChangeTime
+                    if widthMoved || quietFor < self.widthTrackInterval * 2 {
+                        self.scheduleVisibleWidthReconfigure()
+                    } else {
+                        // Final settle: full reconfigure for correct row heights.
+                        TranscriptLayoutAnimation.animateWidth = false
+                        self.reconfigureAllVisibleCells()
+                    }
+                    return
+                }
+
                 let widthChangedAgain = abs(self.contentWidth - scheduledWidth) > 0.5 || self.lastWidthChangeTime != scheduledChangeTime
                 let quietFor = CACurrentMediaTime() - self.lastWidthChangeTime
                 guard !widthChangedAgain, quietFor >= self.widthChangeSettleWindow else {
@@ -2809,10 +2877,76 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     TranscriptScrollProfiler.fileLog("WIDTH reconfig visible width=\(String(format: "%.0f", self.contentWidth))")
                 }
 #endif
+                // Prefer immediate width apply + short ease only when not streaming.
+                let allowEase = !self.profiler.isStreamingRecently
+                TranscriptLayoutAnimation.animateWidth = allowEase
                 self.reconfigureAllVisibleCells()
+                if allowEase {
+                    let clearAfter = TranscriptLayoutAnimation.duration + 0.05
+                    DispatchQueue.main.asyncAfter(deadline: .now() + clearAfter) {
+                        if CACurrentMediaTime() - self.lastWidthReconfigTime >= clearAfter - 0.02 {
+                            TranscriptLayoutAnimation.animateWidth = false
+                        }
+                    }
+                } else {
+                    TranscriptLayoutAnimation.animateWidth = false
+                }
             }
             pendingWidthWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+
+        /// Live sidebar tracking: only nudge bubble/question card widths.
+        private func applyWidthOnlyToVisibleCells() {
+            applyWidthOnlyToVisibleCells(width: contentWidth, animated: false, duration: 0)
+        }
+
+        /// Proactive animation to a known target width (Review open/close).
+        private func animateVisibleBubbleWidths(to width: CGFloat, duration: TimeInterval) {
+            let target = max(200, width)
+            contentWidth = target
+            lastWidthChangeTime = CACurrentMediaTime()
+            lastWidthDelta = 999
+            lastWidthReconfigTime = CACurrentMediaTime()
+            if let tableView {
+                tableView.tableColumns.first?.width = target
+                tableView.sizeLastColumnToFit()
+            }
+            estimateByID.removeAll()
+            // Do not leave animateWidth=true across streaming — height retiles must
+            // stay duration=0. Only the constraint animator uses `duration` here.
+            TranscriptLayoutAnimation.animateWidth = false
+            // Immediate width apply + markdown re-wrap at laid-out bounds (avoids
+            // the “text stuck on the right” paint from stale TextKit wrap widths).
+            applyWidthOnlyToVisibleCells(width: target, animated: false, duration: 0)
+            // Full reconfigure right away so non-bubble rows (tools, etc.) and
+            // measured heights match the new column; delayed settle is a safety net.
+            reconfigureAllVisibleCells()
+            pendingWidthAnimationCleanup?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingWidthAnimationCleanup = nil
+                TranscriptLayoutAnimation.animateWidth = false
+                self.reconfigureAllVisibleCells()
+            }
+            pendingWidthAnimationCleanup = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.02, execute: work)
+        }
+
+        private func applyWidthOnlyToVisibleCells(width: CGFloat, animated: Bool, duration: TimeInterval) {
+            guard let tableView else { return }
+            let visible = tableView.rows(in: tableView.visibleRect)
+            guard visible.length > 0 else { return }
+            for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
+                guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView,
+                      let native = cell.nativeRow else { continue }
+                if let bubble = native as? PiAgentNativeBubbleView {
+                    bubble.applyRowWidth(width, animated: animated, duration: duration)
+                } else if let question = native as? PiAgentNativeQuestionView {
+                    question.applyRowWidth(width, animated: animated, duration: duration)
+                }
+            }
+            tableView.needsLayout = true
         }
 
         /// Walk visible rows and reconfigure cells whose content has changed since
@@ -2836,6 +2970,8 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard let tableView, !ids.isEmpty else { return }
             let visible = tableView.rows(in: tableView.visibleRect)
             guard visible.length > 0 else { return }
+            // Streaming must never inherit a leftover width-ease flag.
+            TranscriptLayoutAnimation.animateWidth = false
             for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
                 let id = orderedIDs[row]
                 guard ids.contains(id),
@@ -2951,6 +3087,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard let tableView else { return }
             let visible = tableView.rows(in: tableView.visibleRect)
             guard visible.length > 0 else { return }
+            lastWidthReconfigTime = CACurrentMediaTime()
+            // `TranscriptLayoutAnimation.animateWidth` is set by the caller:
+            // live sidebar tracking → false (pixel-follow); quiet settle → true.
             for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
                 let id = orderedIDs[row]
                 guard let item = itemByID[id],
@@ -3095,11 +3234,17 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let anchor = preserveAnchor ? captureScrollAnchor() : nil
             profiler.measureRetile(rows: rows.count) {
             NSAnimationContext.beginGrouping()
-            NSAnimationContext.current.duration = 0
+            // Width reflow (sidebar open/close) may ease heights — but NEVER during
+            // streaming. Animating noteHeightOfRows per token kills the stream feel
+            // (looks buffered / non-streaming). Also never use a time-window after
+            // lastWidthReconfigTime: that kept poisoning stream retiles for ~0.4s.
+            let easeWidthReflow = TranscriptLayoutAnimation.animateWidth
+                && !profiler.isStreamingRecently
+            NSAnimationContext.current.duration = easeWidthReflow ? TranscriptLayoutAnimation.duration : 0
             // Suppress implicit Core Animation actions so a streaming row's
             // height change re-tiles instantly with no per-token animation.
             CATransaction.begin()
-            CATransaction.setDisableActions(true)
+            CATransaction.setDisableActions(!easeWidthReflow)
             // Flag the whole re-tile as programmatic. `noteHeightOfRows` /
             // `layoutSubtreeIfNeeded` can nudge the clip origin by a sub-pixel as
             // AppKit re-lays the rows; that nudge posts a boundsDidChange, and if

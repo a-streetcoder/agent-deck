@@ -518,6 +518,32 @@ final class NativeMarkdownTextContainer: NSView {
     private static let settleMeasurementBudget = 4
     var onHeightChange: ((CGFloat) -> Void)?
 
+    /// Drop width-keyed height caches so the next layout re-wraps at the new
+    /// enclosing bubble width (sidebar open/close). Does not rebuild the document.
+    func prepareForEnclosingWidthChange() {
+        heightCache = nil
+        lastFullLayoutWidth = nil
+        lastMeasuredWidth = 0
+        lastMeasuredHeight = 0
+        settleMeasurementsRemaining = Self.settleMeasurementBudget
+        // Stale textContainer widths cause short line-fragments to paint on the
+        // trailing edge of a newly expanded bubble (looks “all text on the right”).
+        resetTextContainerWidths(in: stackView)
+        invalidateBlockIntrinsics(in: stackView)
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
+
+    private func resetTextContainerWidths(in view: NSView) {
+        for sub in view.subviews {
+            if let tv = sub as? AutoSizingMarkdownTextView {
+                tv.resetWrapWidthForEnclosingChange()
+            } else {
+                resetTextContainerWidths(in: sub)
+            }
+        }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
@@ -1972,11 +1998,26 @@ private final class AutoSizingMarkdownTextView: NSTextView {
         invalidateIntrinsicContentSize()
     }
 
+    /// Sidebar column resize: drop memoized wrap width so the next layout uses
+    /// the new bounds instead of a stale `containerSize` (which previously kept
+    /// short fragments and looked like text glued to the right of a wide card).
+    func resetWrapWidthForEnclosingChange() {
+        cachedIntrinsic = nil
+        lastIntrinsicInvalidationWidth = -1
+        if let textContainer {
+            // 0 forces the next measure/layout to take bounds.width.
+            textContainer.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        }
+        invalidateIntrinsicContentSize()
+    }
+
     override var intrinsicContentSize: NSSize {
         guard let layoutManager, let textContainer else {
             return NSSize(width: NSView.noIntrinsicMetric, height: 1)
         }
-        let width = max(bounds.width, textContainer.containerSize.width, 1)
+        // Prefer the laid-out frame. Never `max` with a stale containerSize — that
+        // freezes an old wrap width across sidebar open/close and mis-paints text.
+        let width = max(bounds.width, 1)
         // Same width + same content as the last computed pass → reuse the height.
         // Height depends only on (text, width, font); font is fixed per view and a
         // dark/light flip doesn't change metrics, so this is exact, not approximate.
@@ -2007,6 +2048,10 @@ private final class AutoSizingMarkdownTextView: NSTextView {
         let width = max(bounds.width, 1)
         guard abs(width - lastIntrinsicInvalidationWidth) >= 0.5 else { return }
         lastIntrinsicInvalidationWidth = width
+        // Keep TextKit's wrap width in lockstep with the view frame on resize.
+        if let textContainer, abs(textContainer.containerSize.width - width) > 0.5 {
+            textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        }
         invalidateIntrinsicContentSize()
     }
 

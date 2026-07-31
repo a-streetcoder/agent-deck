@@ -11,6 +11,15 @@ import os
 // fixed-width "card" (rounded role-tinted chrome + header + markdown) on one
 // side, with the hover-revealed copy/fork glass buttons floating in the gutter
 // on the other side (never overlapping the card, never affecting its height):
+// Width animation flag for panel open/close: when true, bubble width/leading
+// constraints ease instead of snapping (see `reconfigureAllVisibleCells`).
+@MainActor
+enum TranscriptLayoutAnimation {
+    static var animateWidth = false
+    /// Match trailing Review panel spring (~0.42) so bubbles ease with the column.
+    static let duration: TimeInterval = 0.38
+}
+
 //   • replies   → card left-aligned at replyCap; copy floats to the RIGHT
 //   • questions → card hugged width, right-aligned; fork+copy float to the LEFT
 
@@ -659,6 +668,45 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         return max(1, min(rowWidth, PiAgentBubbleWidth.replyCap(for: rowWidth)))
     }
 
+    /// Width-only update (no document rebuild). Used for live sidebar tracking
+    /// and for proactive open/close animation in lockstep with the Review panel.
+    func applyRowWidth(_ rowWidth: CGFloat, animated: Bool = false, duration: TimeInterval = TranscriptLayoutAnimation.duration) {
+        guard payload != nil else { return }
+        let cardW = cardWidth(forRowWidth: rowWidth)
+        let cardLeading = payload!.isUserHugged ? max(0, rowWidth - cardW) : 0
+        guard abs(cardWidthC.constant - cardW) > 0.5 || abs(cardLeadingC.constant - cardLeading) > 0.5 else { return }
+        // Always commit the model constants first so Auto Layout resolves the
+        // real card frame before we re-wrap markdown. Animating only via the
+        // animator proxy with allowsImplicitAnimation=true was sliding subviews
+        // and leaving text painted on the trailing half of the expanded card.
+        cardView.layer?.removeAllAnimations()
+        cardWidthC.constant = cardW
+        cardLeadingC.constant = cardLeading
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = duration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.allowsImplicitAnimation = false
+                cardWidthC.animator().constant = cardW
+                cardLeadingC.animator().constant = cardLeading
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layoutSubtreeIfNeeded()
+        // Re-wrap against the *actual* laid-out content width — never a predicted
+        // target that can disagree with the still-animating host column.
+        for container in markdownContainers {
+            container.prepareForEnclosingWidthChange()
+            let laidOut = max(1, container.bounds.width)
+            if laidOut > 1 {
+                _ = container.measureHeight(forWidth: laidOut)
+            }
+        }
+        CATransaction.commit()
+        needsLayout = true
+    }
+
     // MARK: Configure
 
     func configure(payload: NativeBubblePayload, width rowWidth: CGFloat) {
@@ -680,8 +728,13 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         // always-active constraint anchored to the stable cell-leading edge — no
         // second pin to over-constrain, no bounds.width timing, no 0↔309 flip.
         let cardW = cardWidth(forRowWidth: rowWidth)
+        let cardLeading = payload.isUserHugged ? max(0, rowWidth - cardW) : 0
+        // Panel open/close reflow: ease width so bubbles don't snap when the
+        // transcript column resizes. Streaming/config paths leave the flag off.
+        // Always commit final geometry; never allowsImplicitAnimation — that was
+        // sliding body text toward the trailing edge on sidebar close.
         cardWidthC.constant = cardW
-        cardLeadingC.constant = payload.isUserHugged ? max(0, rowWidth - cardW) : 0
+        cardLeadingC.constant = cardLeading
         // Ensure the new constant is applied before the (possibly recycled) cell
         // next draws — viewWillDraw lays out only if the subtree is dirty.
         needsLayout = true

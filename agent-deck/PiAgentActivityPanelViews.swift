@@ -1065,18 +1065,24 @@ private nonisolated struct PiAgentRenderedDiff: Sendable, Hashable {
     let omittedLineCount: Int
 }
 
-private struct PiAgentDiffView: View {
+/// Shared read-only unified-diff renderer (Activity panel + Repo Review).
+struct PiAgentDiffView: View {
     let diffText: String
+    /// Cap for compact embeds (Activity). Pass `nil` to fill the parent (Review).
+    var maxHeight: CGFloat? = 320
+    var showsTitle: Bool = true
     @State private var lines: [PiAgentDiffLine] = []
     @State private var omittedLineCount = 0
     @State private var isLoading = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(LanguageStore.shared.t("activity.diff"))
-                .font(AppTheme.Font.caption2.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
+            if showsTitle {
+                Text(LanguageStore.shared.t("activity.diff"))
+                    .font(AppTheme.Font.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            ScrollView([.horizontal, .vertical], showsIndicators: true) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if isLoading && lines.isEmpty {
                         HStack(spacing: 8) {
@@ -1117,7 +1123,8 @@ private struct PiAgentDiffView: View {
                 }
                 .padding(.vertical, 6)
             }
-            .frame(maxHeight: 320)
+            .frame(maxHeight: maxHeight)
+            .frame(maxWidth: .infinity, maxHeight: maxHeight == nil ? .infinity : nil)
             .background(RoundedRectangle(cornerRadius: AppTheme.Chat.subCardCornerRadius, style: .continuous).fill(AppTheme.textContentFill))
         }
         .task(id: diffText) {

@@ -11,6 +11,9 @@ extension Notification.Name {
     /// Posted from a transcript memory-recall card when the user taps an injected
     /// memory title. `userInfo["id"]` carries the memory record id to open.
     static let agentDeckOpenMemoryRequested = Notification.Name("agentDeckOpenMemoryRequested")
+    /// Trailing Review column is about to animate; transcript should ease bubble
+    /// widths immediately. `userInfo`: `width` (CGFloat), `duration` (TimeInterval).
+    static let transcriptColumnWillAnimateWidth = Notification.Name("transcriptColumnWillAnimateWidth")
 #if DEBUG
     static let sidebarExpandBenchAgentsScrollRequested = Notification.Name("AgentDeckSidebarExpandBenchAgentsScrollRequested")
     static let sidebarExpandBenchModelsScrollRequested = Notification.Name("AgentDeckSidebarExpandBenchModelsScrollRequested")

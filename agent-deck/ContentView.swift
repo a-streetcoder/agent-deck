@@ -417,6 +417,8 @@ struct ContentView: View {
     @State private var isPiAgentStartupResourcesPresented = false
     @State private var isPiAgentSystemPromptPresented = false
     @State private var isPiAgentSubagentsPopoverPresented = false
+    /// Remembered Review column width across open/close within the session.
+    @State private var reviewPanelWidth: CGFloat = 760
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
@@ -593,36 +595,44 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContent: some View {
         let warnings = sidebarWarningSnapshot
-        NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
-            // The expansion flag is read ONLY inside CodingAgentPanelLayers:
-            // reading it here made every expand/collapse invalidate the whole
-            // window body — NavigationSplitView, `.toolbar` (AppKit re-tiles
-            // every item and rebuilds its menus, a 100ms+ main-thread hang) and
-            // the detail tree (transcript updateNSView mid-animation).
-            CodingAgentPanelLayers(
-                viewModel: viewModel,
-                nav: { navigationSidebarLayer(warnings: warnings) },
-                panel: { isExpanded in
-                    CodingAgentExpandedPanel(
+        // Animated trailing Review host: permanently mounts the panel and
+        // animates width/opacity (no HSplitView insert pop). Toolbar stays on
+        // the outer host so primary-action islands never collapse into >>.
+        TrailingReviewSplitHost(
+            isExpanded: viewModel.isTrailingInspectorExpanded,
+            panelWidth: $reviewPanelWidth,
+            main: {
+                NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
+                    CodingAgentPanelLayers(
                         viewModel: viewModel,
-                        store: viewModel.piAgentSessionStore,
-                        sessionSearchText: $piAgentSessionSearchText,
-                        isActive: isExpanded,
-                        onCollapse: { viewModel.isCodingAgentPanelExpanded = false }
+                        nav: { navigationSidebarLayer(warnings: warnings) },
+                        panel: { isExpanded in
+                            CodingAgentExpandedPanel(
+                                viewModel: viewModel,
+                                store: viewModel.piAgentSessionStore,
+                                sessionSearchText: $piAgentSessionSearchText,
+                                isActive: isExpanded,
+                                onCollapse: { viewModel.isCodingAgentPanelExpanded = false }
+                            )
+                        }
                     )
+                    .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.clear, ignoresSafeAreaEdges: .all)
+                    .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 320)
+                    .perfScene("Sidebar")
+                } detail: {
+                    detailSplitView
+                        .perfScene("Detail")
                 }
-            )
-            // Min width fits the pixel title + refresh/gear without wrapping.
-            .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.clear, ignoresSafeAreaEdges: .all)
-            .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 320)
-            .perfScene("Sidebar")
-        } detail: {
-            detailSplitView
-                .perfScene("Detail")
-        }
-        .frame(minWidth: 900, minHeight: 640)
+            },
+            panel: {
+                PiAgentRepoReviewPanel(viewModel: viewModel)
+            }
+        )
+        .frame(minWidth: 1080, minHeight: 640)
         .navigationTitle(toolbarTitle)
+        .toolbar { mainToolbarContent }
+        .toolbarRole(.editor)
         // Theme the window canvas itself — the transcript and detail scroll views are
         // transparent, so without this they'd show the system (gray) window background
         // instead of the active theme's. Re-applies on theme switch via the root .id.
@@ -664,7 +674,6 @@ struct ContentView: View {
         } message: {
             Text(LanguageStore.shared.t("session.deleteBody"))
         }
-        .toolbar { mainToolbarContent }
         // Detect the selected project's dev-server commands off the render path
         // so the toolbar control can hide for projects that have none.
         .task(id: viewModel.piAgentSessionStore.selectedSession?.projectPathForProjectFeatures) {
@@ -773,7 +782,11 @@ struct ContentView: View {
 
     private var detailSplitContent: some View {
         detailView
-            .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(
+                minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500,
+                maxWidth: .infinity,
+                maxHeight: .infinity
+            )
     }
 
     private var toolbarSearchIsVisible: Bool {
@@ -1504,6 +1517,14 @@ struct ContentView: View {
                 viewModel: viewModel,
                 store: viewModel.piAgentSessionStore
             )
+        }
+
+        // Trailing-inspector toggle: sits on the right side of the toolbar search
+        // (searchable is center/leading; primaryAction islands trail it).
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(placement: .primaryAction) {
+            PiAgentRepoReviewToolbarButton(viewModel: viewModel)
+                .toolbarNeutralChrome()
         }
     }
 

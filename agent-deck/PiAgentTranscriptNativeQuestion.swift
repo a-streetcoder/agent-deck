@@ -877,8 +877,9 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
         }
 
         let cardW = cardWidth(forRowWidth: rowWidth)
+        let cardLeading = max(0, rowWidth - cardW)
         cardWidthC.constant = cardW
-        cardLeadingC.constant = max(0, rowWidth - cardW)
+        cardLeadingC.constant = cardLeading
 
         rebuildChips(payload.chips)
 
@@ -978,6 +979,32 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
             paneWidth: rowWidth
         )
         return max(1, min(rowWidth, w))
+    }
+
+    /// Width-only update for live sidebar tracking / proactive panel animation.
+    func applyRowWidth(_ rowWidth: CGFloat, animated: Bool = false, duration: TimeInterval = TranscriptLayoutAnimation.duration) {
+        let cardW = cardWidth(forRowWidth: rowWidth)
+        let cardLeading = max(0, rowWidth - cardW)
+        guard abs(cardWidthC.constant - cardW) > 0.5 || abs(cardLeadingC.constant - cardLeading) > 0.5 else { return }
+        cardView.layer?.removeAllAnimations()
+        cardWidthC.constant = cardW
+        cardLeadingC.constant = cardLeading
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = duration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.allowsImplicitAnimation = false
+                cardWidthC.animator().constant = cardW
+                cardLeadingC.animator().constant = cardLeading
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layoutSubtreeIfNeeded()
+        let laidOut = max(1, markdown.bounds.width)
+        markdown.prepareForEnclosingWidthChange(innerWidth: laidOut > 1 ? laidOut : max(1, cardW - AppTheme.Chat.bubbleHPadding * 2))
+        CATransaction.commit()
+        needsLayout = true
     }
 
     // MARK: Chip row layout (manual flow wrap)
