@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.5 — 2026-07-31
+
+### Highlights
+- **Transcript 气泡宽度（ChatGPT 风格）**：助手/工具卡铺满会话栏（减去操作栏 gutter）；用户气泡仍右对齐，最大宽度比例更低，去掉中间大块留白。
+
+### Fixed
+- `PiAgentTranscriptViews` / `NativeBubblePreviewDebug` 气泡布局。
+
+### Packaging
+- `MARKETING_VERSION` **0.0.5**，`CURRENT_PROJECT_VERSION` **5**
+- Tag: `v0.0.5`
+- Artifacts: `build/Pi-Deck-0.0.5.zip`, `build/Pi-Deck-0.0.5.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.4 — 2026-07-31
 
 ### Highlights
