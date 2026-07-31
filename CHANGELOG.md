@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.0.4 — 2026-07-31
+
+### Highlights
+- **pi CLI 路径持久化**：设置 / Doctor 可「使用此路径 / 检测并保存」；有可执行 preferred path 时跳过 PATH 扫描。
+- **pi-web-access 依赖提示**：Extensions bridges 与 Doctor 网络访问说明共用 `~/.pi/web-search.json`；列出 web-access 包时橙色跳过警告。
+- **Composer IME**：输入法组字过程中 Return 不发送。
+
+### Fixed
+- PiScanner web-search 凭据警告与 Deck 多 provider（Exa/Brave/Tavily）对齐。
+- `isDeckSuperseded*` 等启动参数 helper `nonisolated`，避免 MainActor 隔离编译问题。
+
+### Packaging
+- `MARKETING_VERSION` **0.0.4**，`CURRENT_PROJECT_VERSION` **4**
+- Tag: `v0.0.4`
+- Artifacts: `build/Pi-Deck-0.0.4.zip`, `build/Pi-Deck-0.0.4.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.3 — 2026-07-30
 
 ### Highlights
