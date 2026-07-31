@@ -1365,6 +1365,10 @@
 "composer.branchSwitchFailed" = "Could not switch branch: %@";
 "composer.branchCurrent" = "Current branch";
 "composer.branchRevealRepo" = "Reveal Repository in Finder";
+"composer.branchSectionLocal" = "Local";
+"composer.branchSectionRemote" = "Remote";
+"composer.branchRefreshRemotes" = "Fetch Remote Branches";
+"composer.branchFetching" = "Fetching remotes…";
 "composer.deckAgents" = "Deck agents";
 "composer.removeImage" = "Remove image attachment";
 "composer.newSession" = "New Session";

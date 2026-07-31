@@ -87,6 +87,8 @@ struct PiAgentComposerBox: View {
     // current branch off the body hot path via `.task(id:)`.
     @State private var resolvedBranch: String?
     @State private var localBranches: [String] = []
+    /// Remote-tracking refs (`origin/feature`), excluding ones already covered by a local branch of the same short name.
+    @State private var remoteBranches: [String] = []
     @State private var isLoadingBranches = false
     @State private var isSwitchingBranch = false
     @State private var branchActionError: String?
@@ -252,28 +254,41 @@ struct PiAgentComposerBox: View {
                 HStack(alignment: .center, spacing: 10) {
                     if let branch = displayedBranch, let repoURL = branchRepositoryURL {
                         Menu {
-                            if isLoadingBranches && localBranches.isEmpty {
-                                Text(LanguageStore.shared.t("composer.branchLoading"))
-                            } else if localBranches.isEmpty {
+                            if isLoadingBranches && localBranches.isEmpty && remoteBranches.isEmpty {
+                                Text(LanguageStore.shared.t("composer.branchFetching"))
+                            } else if localBranches.isEmpty && remoteBranches.isEmpty {
                                 Text(LanguageStore.shared.t("composer.branchEmpty"))
                             } else {
-                                ForEach(localBranches, id: \.self) { name in
-                                    Button {
-                                        Task { await switchComposerBranch(to: name, repositoryURL: repoURL) }
-                                    } label: {
-                                        if name == branch {
-                                            Label(
-                                                piAgentSessionDisplayBranchName(name),
-                                                systemImage: "checkmark"
+                                if !localBranches.isEmpty {
+                                    Section(LanguageStore.shared.t("composer.branchSectionLocal")) {
+                                        ForEach(localBranches, id: \.self) { name in
+                                            composerBranchMenuButton(
+                                                title: piAgentSessionDisplayBranchName(name),
+                                                isCurrent: name == branch,
+                                                repositoryURL: repoURL,
+                                                target: name
                                             )
-                                        } else {
-                                            Text(piAgentSessionDisplayBranchName(name))
                                         }
                                     }
-                                    .disabled(name == branch || isSwitchingBranch)
+                                }
+                                if !remoteBranches.isEmpty {
+                                    Section(LanguageStore.shared.t("composer.branchSectionRemote")) {
+                                        ForEach(remoteBranches, id: \.self) { name in
+                                            composerBranchMenuButton(
+                                                title: name,
+                                                isCurrent: false,
+                                                repositoryURL: repoURL,
+                                                target: name
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             Divider()
+                            Button(LanguageStore.shared.t("composer.branchRefreshRemotes")) {
+                                Task { await refreshComposerBranches(repositoryURL: repoURL, fetchRemotes: true) }
+                            }
+                            .disabled(isLoadingBranches || isSwitchingBranch)
                             Button(LanguageStore.shared.t("composer.branchRevealRepo")) {
                                 NSWorkspace.shared.activateFileViewerSelecting([repoURL])
                             }
@@ -304,7 +319,8 @@ struct PiAgentComposerBox: View {
                         .accessibilityLabel(LanguageStore.shared.t("composer.branchMenu"))
                         .accessibilityValue(branch)
                         .task(id: metricsSession?.id) {
-                            await refreshComposerBranches(repositoryURL: repoURL)
+                            // Initial load fetches remotes so the menu includes full remote refs.
+                            await refreshComposerBranches(repositoryURL: repoURL, fetchRemotes: true)
                         }
                     }
 
@@ -402,6 +418,7 @@ struct PiAgentComposerBox: View {
             // Runs off the body path; refreshed on session-id change.
             branchActionError = nil
             localBranches = []
+            remoteBranches = []
             guard let session = metricsSession else {
                 resolvedBranch = nil
                 return
@@ -422,35 +439,81 @@ struct PiAgentComposerBox: View {
         .contentShape(RoundedRectangle(cornerRadius: AppTheme.Chat.composerCornerRadius, style: .continuous))
     }
 
-    private func refreshComposerBranches(repositoryURL: URL) async {
+    @ViewBuilder
+    private func composerBranchMenuButton(
+        title: String,
+        isCurrent: Bool,
+        repositoryURL: URL,
+        target: String
+    ) -> some View {
+        Button {
+            Task { await switchComposerBranch(to: target, repositoryURL: repositoryURL) }
+        } label: {
+            if isCurrent {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+        .disabled(isCurrent || isSwitchingBranch)
+    }
+
+    private func refreshComposerBranches(repositoryURL: URL, fetchRemotes: Bool) async {
         isLoadingBranches = true
         defer { isLoadingBranches = false }
-        let branches = (try? await GitRepositoryService().listLocalBranches(in: repositoryURL)) ?? []
-        guard !Task.isCancelled else { return }
-        // Keep the current branch visible even if listing failed partially.
-        if let current = displayedBranch, !current.isEmpty, !branches.contains(current) {
-            localBranches = [current] + branches
-        } else {
-            localBranches = branches
+        let git = GitRepositoryService()
+        if fetchRemotes {
+            // Network/auth failures should not block showing cached local/remote-tracking refs.
+            try? await git.fetchAllRemotes(in: repositoryURL)
         }
+        guard !Task.isCancelled else { return }
+
+        var locals = (try? await git.listLocalBranches(in: repositoryURL)) ?? []
+        if let current = displayedBranch, !current.isEmpty, !locals.contains(current) {
+            locals = [current] + locals
+        }
+        let remotes = (try? await git.listRemoteBranches(in: repositoryURL)) ?? []
+        let localSet = Set(locals)
+        // Hide remote-tracking entries whose short name already has a local branch
+        // (e.g. skip origin/main when local main exists).
+        let remoteOnly = remotes.filter { remote in
+            let short = Self.localName(fromRemoteTrackingRef: remote)
+            return !short.isEmpty && !localSet.contains(short)
+        }
+        guard !Task.isCancelled else { return }
+        localBranches = locals
+        remoteBranches = remoteOnly
+    }
+
+    /// `origin/feature/x` → `feature/x`
+    private static func localName(fromRemoteTrackingRef remote: String) -> String {
+        guard let slash = remote.firstIndex(of: "/") else { return remote }
+        return String(remote[remote.index(after: slash)...])
     }
 
     private func switchComposerBranch(to name: String, repositoryURL: URL) async {
-        guard name != displayedBranch, !isSwitchingBranch else { return }
+        let current = displayedBranch
+        // Remote menu items are never equal to the local current name, so always allow.
+        if name == current { return }
+        guard !isSwitchingBranch else { return }
         isSwitchingBranch = true
         branchActionError = nil
         defer { isSwitchingBranch = false }
         do {
-            try await GitRepositoryService().checkoutBranch(name, in: repositoryURL)
+            let git = GitRepositoryService()
+            try await git.checkoutLocalOrRemoteBranch(name, in: repositoryURL)
+            let checkedOut = (try? await git.currentBranch(in: repositoryURL)) ?? Self.localName(fromRemoteTrackingRef: name)
+            let resolved = (checkedOut.isEmpty || checkedOut == "HEAD") ? name : checkedOut
             if let session = metricsSession, session.branchName != nil {
                 // Worktree / explicit session branch: keep the stored name in sync.
                 viewModel.piAgentSessionStore.updateSession(session.id) { record in
-                    record.branchName = name
+                    record.branchName = resolved
                 }
             } else {
-                resolvedBranch = name
+                resolvedBranch = resolved
             }
-            await refreshComposerBranches(repositoryURL: repositoryURL)
+            // Refresh list without another network fetch (we just switched).
+            await refreshComposerBranches(repositoryURL: repositoryURL, fetchRemotes: false)
         } catch {
             let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             branchActionError = LanguageStore.shared.t("composer.branchSwitchFailed", detail)

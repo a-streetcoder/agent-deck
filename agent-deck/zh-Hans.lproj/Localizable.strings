@@ -1364,6 +1364,10 @@
 "composer.branchSwitchFailed" = "无法切换分支：%@";
 "composer.branchCurrent" = "当前分支";
 "composer.branchRevealRepo" = "在访达中显示仓库";
+"composer.branchSectionLocal" = "本地";
+"composer.branchSectionRemote" = "远端";
+"composer.branchRefreshRemotes" = "拉取远端分支";
+"composer.branchFetching" = "正在拉取远端…";
 "composer.deckAgents" = "Deck Agents";
 "composer.removeImage" = "移除图片附件";
 "composer.newSession" = "新建会话";

@@ -97,9 +97,70 @@ struct GitRepositoryService {
 
     /// Local branch names (`refs/heads/*`), newest commit first.
     func listLocalBranches(in repositoryURL: URL) async throws -> [String] {
+        try await listRefNames(pattern: "refs/heads/", in: repositoryURL)
+    }
+
+    /// Remote-tracking branch names (`refs/remotes/*`), newest commit first.
+    /// Drops symbolic `*/HEAD` entries (e.g. `origin/HEAD`).
+    func listRemoteBranches(in repositoryURL: URL) async throws -> [String] {
+        try await listRefNames(pattern: "refs/remotes/", in: repositoryURL)
+            .filter { !$0.hasSuffix("/HEAD") && $0 != "HEAD" }
+    }
+
+    /// `git fetch --all --prune` so remote branch menus stay complete.
+    /// Soft failures are left to the caller (network / auth).
+    func fetchAllRemotes(in repositoryURL: URL) async throws {
+        try await runGitMutation(
+            arguments: ["fetch", "--all", "--prune", "--quiet"],
+            commandDescription: "git fetch --all --prune",
+            in: repositoryURL,
+            timeout: 120
+        )
+    }
+
+    /// Checkout a local branch, or create a local tracking branch from a remote ref
+    /// (`origin/feature` → local `feature` tracking `origin/feature`).
+    func checkoutLocalOrRemoteBranch(_ name: String, in repositoryURL: URL) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if try await hasBranch(trimmed, in: repositoryURL) {
+            try await checkoutBranch(trimmed, in: repositoryURL)
+            return
+        }
+
+        // Remote-tracking ref: origin/foo/bar → local foo/bar tracking origin/foo/bar
+        if trimmed.contains("/"),
+           let slash = trimmed.firstIndex(of: "/") {
+            let localName = String(trimmed[trimmed.index(after: slash)...])
+            guard !localName.isEmpty, !localName.hasSuffix("/HEAD") else {
+                try await checkoutBranch(trimmed, in: repositoryURL)
+                return
+            }
+            if try await hasBranch(localName, in: repositoryURL) {
+                try await checkoutBranch(localName, in: repositoryURL)
+                return
+            }
+            // Verify remote-tracking ref exists before switch --track.
+            let remoteRefs = try await listRemoteBranches(in: repositoryURL)
+            if remoteRefs.contains(trimmed) {
+                try await runGitMutation(
+                    arguments: ["switch", "-c", localName, "--track", trimmed],
+                    commandDescription: "git switch -c \(localName) --track \(trimmed)",
+                    in: repositoryURL,
+                    timeout: 30
+                )
+                return
+            }
+        }
+
+        try await checkoutBranch(trimmed, in: repositoryURL)
+    }
+
+    private func listRefNames(pattern: String, in repositoryURL: URL) async throws -> [String] {
         let text = try await runText(
-            arguments: ["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads/"],
-            commandDescription: "git for-each-ref refs/heads",
+            arguments: ["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", pattern],
+            commandDescription: "git for-each-ref \(pattern)",
             in: repositoryURL
         )
         return text
