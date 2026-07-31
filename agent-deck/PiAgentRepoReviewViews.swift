@@ -79,18 +79,22 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
     @ViewBuilder var main: () -> Main
     @ViewBuilder var panel: () -> Panel
 
-    private let minWidth: CGFloat = 520
+    /// Review panel width bounds (still wide for diffs).
+    private let minWidth: CGFloat = 360
     private let maxWidth: CGFloat = 1100
     private let handleWidth: CGFloat = 6
+    /// Never let the chat/detail column collapse under this while Review is open.
+    private let reservedMainMinWidth: CGFloat = 520
 
     @State private var dragOriginWidth: CGFloat?
     @State private var isDragging = false
     @State private var mainColumnWidth: CGFloat = 0
+    @State private var hostWidth: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 0) {
             main()
-                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: reservedMainMinWidth, maxWidth: .infinity, maxHeight: .infinity)
                 .layoutPriority(1)
                 .background(
                     GeometryReader { geo in
@@ -132,11 +136,27 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
         }
         // Never animate the binding itself when the user is dragging.
         .animation(isDragging ? nil : PanelTransition.move, value: isExpanded)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { hostWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in hostWidth = w }
+            }
+        )
         .onPreferenceChange(TrailingReviewMainWidthKey.self) { mainColumnWidth = $0 }
         .onChange(of: isExpanded) { _, expanded in
             // Fire *before* layout settles so transcript bubbles ease with the panel,
             // not half a beat after AppKit sees the final frame.
             postTranscriptWidthAnimation(expanding: expanded)
+        }
+        .onChange(of: hostWidth) { _, _ in
+            guard isExpanded else { return }
+            let maxAllowed = effectiveMaxPanelWidth
+            if panelWidth > maxAllowed {
+                var txn = Transaction()
+                txn.disablesAnimations = true
+                withTransaction(txn) { panelWidth = maxAllowed }
+            }
         }
     }
 
@@ -165,13 +185,47 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
         )
     }
 
+    /// Push the expected main/transcript width for the current panel size.
+    private func postTranscriptLiveResizeWidth(panelWidth: CGFloat) {
+        let host = hostWidth > 1
+            ? hostWidth
+            : (NSApp.keyWindow?.contentView?.bounds.width ?? 0)
+        let target: CGFloat
+        if host > 1 {
+            target = max(reservedMainMinWidth, host - panelWidth - handleWidth)
+        } else if mainColumnWidth > 1 {
+            // Preference lag: approximate from last measured main + previous panel.
+            target = max(reservedMainMinWidth, mainColumnWidth)
+        } else {
+            return
+        }
+        NotificationCenter.default.post(
+            name: .transcriptColumnLiveResizeWidth,
+            object: nil,
+            userInfo: [
+                "width": target,
+                "final": false
+            ]
+        )
+    }
+
     /// Collapsed → 0; expanded → clamped live width (no animation while dragging).
     private var displayedWidth: CGFloat {
         isExpanded ? clampedWidth : 0
     }
 
     private var clampedWidth: CGFloat {
-        min(maxWidth, max(minWidth, panelWidth))
+        min(effectiveMaxPanelWidth, max(minWidth, panelWidth))
+    }
+
+    /// Cap panel so the main (session) column always keeps `reservedMainMinWidth`.
+    private var effectiveMaxPanelWidth: CGFloat {
+        let host = hostWidth > 1
+            ? hostWidth
+            : (NSApp.keyWindow?.contentView?.bounds.width ?? 1400)
+        let reserved = reservedMainMinWidth + handleWidth
+        let fromHost = max(minWidth, host - reserved)
+        return min(maxWidth, fromHost)
     }
 
     private var resizeHandle: some View {
@@ -200,17 +254,35 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
                     let origin = dragOriginWidth ?? clampedWidth
                     // Handle left of panel: drag left → wider; right → narrower.
                     let next = origin - value.translation.width
-                    let clamped = min(maxWidth, max(minWidth, next))
+                    let clamped = min(effectiveMaxPanelWidth, max(minWidth, next))
                     var txn = Transaction()
                     txn.disablesAnimations = true
                     withTransaction(txn) {
                         panelWidth = clamped
                     }
+                    // Live-track transcript column so bubbles reflow *during* the drag,
+                    // not only after mouse-up / settle.
+                    postTranscriptLiveResizeWidth(panelWidth: clamped)
                 }
                 .onEnded { _ in
                     dragOriginWidth = nil
                     isDragging = false
                     NSCursor.arrow.set()
+                    // Final settle: prefer host math (same as live frames), then measured main.
+                    let host = hostWidth > 1 ? hostWidth : 0
+                    let mainW: CGFloat
+                    if host > 1 {
+                        mainW = max(reservedMainMinWidth, host - clampedWidth - handleWidth)
+                    } else if mainColumnWidth > 1 {
+                        mainW = mainColumnWidth
+                    } else {
+                        mainW = reservedMainMinWidth
+                    }
+                    NotificationCenter.default.post(
+                        name: .transcriptColumnLiveResizeWidth,
+                        object: nil,
+                        userInfo: ["width": mainW, "final": true]
+                    )
                 }
         )
     }

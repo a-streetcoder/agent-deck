@@ -14,6 +14,9 @@ extension Notification.Name {
     /// Trailing Review column is about to animate; transcript should ease bubble
     /// widths immediately. `userInfo`: `width` (CGFloat), `duration` (TimeInterval).
     static let transcriptColumnWillAnimateWidth = Notification.Name("transcriptColumnWillAnimateWidth")
+    /// Live Review splitter drag: main column width is changing every frame.
+    /// `userInfo`: `width` (CGFloat) — target transcript/content column width.
+    static let transcriptColumnLiveResizeWidth = Notification.Name("transcriptColumnLiveResizeWidth")
 #if DEBUG
     static let sidebarExpandBenchAgentsScrollRequested = Notification.Name("AgentDeckSidebarExpandBenchAgentsScrollRequested")
     static let sidebarExpandBenchModelsScrollRequested = Notification.Name("AgentDeckSidebarExpandBenchModelsScrollRequested")

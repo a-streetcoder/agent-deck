@@ -1392,7 +1392,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// Quiet period before applying a width reconfig. Large jumps (sidebar
         /// open/close) settle briefly then ease bubble widths once — smoother than
         /// per-frame live tracking (which felt choppy).
-        private let widthChangeSettleWindow: CFTimeInterval = 0.30
+        private let widthChangeSettleWindow: CFTimeInterval = 0.12
         /// Live width tracking while the Review column animates open/close.
         /// 60fps minimum so bubbles stay in lockstep with the panel spring.
         private let widthTrackInterval: CFTimeInterval = 1.0 / 60.0
@@ -1416,6 +1416,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var liveScrollStartObserver: NSObjectProtocol?
         private var liveScrollEndObserver: NSObjectProtocol?
         private var columnWidthAnimateObserver: NSObjectProtocol?
+        private var columnWidthLiveResizeObserver: NSObjectProtocol?
         private var lastPinnedState = true
         // Auto-follow *intent*, distinct from the position-based `isPinnedToBottom`.
         // True = stick to the bottom as content streams. Only a user scroll changes
@@ -2131,6 +2132,22 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 }
             }
 
+            // Review splitter drag: reflow bubbles every frame (no 300ms settle).
+            columnWidthLiveResizeObserver = NotificationCenter.default.addObserver(
+                forName: .transcriptColumnLiveResizeWidth,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                let info = note.userInfo
+                let widthValue = (info?["width"] as? CGFloat)
+                    ?? (info?["width"] as? Double).map { CGFloat($0) }
+                let isFinal = (info?["final"] as? Bool) ?? false
+                MainActor.assumeIsolated {
+                    guard let self, let widthValue, widthValue > 1 else { return }
+                    self.applyLiveTranscriptColumnWidth(widthValue, isFinal: isFinal)
+                }
+            }
+
             // Live-scroll notifications bracket trackpad gestures / scroller
             // drags. They miss discrete mouse wheels entirely — the timestamp
             // stamped in the bounds observer covers those, and the grace window
@@ -2183,11 +2200,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if let liveScrollStartObserver { NotificationCenter.default.removeObserver(liveScrollStartObserver) }
             if let liveScrollEndObserver { NotificationCenter.default.removeObserver(liveScrollEndObserver) }
             if let columnWidthAnimateObserver { NotificationCenter.default.removeObserver(columnWidthAnimateObserver) }
+            if let columnWidthLiveResizeObserver { NotificationCenter.default.removeObserver(columnWidthLiveResizeObserver) }
             boundsObserver = nil
             frameObserver = nil
             liveScrollStartObserver = nil
             liveScrollEndObserver = nil
             columnWidthAnimateObserver = nil
+            columnWidthLiveResizeObserver = nil
             pendingHeightWork?.cancel()
             pendingScrollWork?.cancel()
             pendingSettleScrollWork?.cancel()
@@ -2825,9 +2844,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let generation = widthReconfigureGeneration
             let scheduledWidth = contentWidth
             let scheduledChangeTime = lastWidthChangeTime
-            // Large continuous motion (Review sidebar): live-track with width-only
-            // constraint updates (cheap). Small jitter: quiet settle + full reconfig.
-            let trackLive = lastWidthDelta > 24
+            // Continuous motion (Review sidebar / window resize): live-track with
+            // width-only constraint updates (cheap). Tiny jitter still settles.
+            let trackLive = lastWidthDelta > 2
             let delay: CFTimeInterval
             if trackLive {
                 delay = max(0, widthTrackInterval - (CACurrentMediaTime() - lastWidthTrackApplyTime))
@@ -2899,6 +2918,32 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// Live sidebar tracking: only nudge bubble/question card widths.
         private func applyWidthOnlyToVisibleCells() {
             applyWidthOnlyToVisibleCells(width: contentWidth, animated: false, duration: 0)
+        }
+
+        /// Review splitter drag: apply width immediately (no settle debounce).
+        private func applyLiveTranscriptColumnWidth(_ width: CGFloat, isFinal: Bool) {
+            let target = max(200, width)
+            let delta = abs(target - contentWidth)
+            guard delta > 0.5 || isFinal else { return }
+            contentWidth = target
+            lastWidthChangeTime = CACurrentMediaTime()
+            lastWidthDelta = max(lastWidthDelta, delta)
+            lastWidthTrackApplyTime = CACurrentMediaTime()
+            // Cancel settle-based reconfig so drag does not wait 300ms.
+            pendingWidthWork?.cancel()
+            pendingWidthWork = nil
+            widthReconfigureGeneration += 1
+            if let tableView {
+                tableView.tableColumns.first?.width = target
+                tableView.sizeLastColumnToFit()
+            }
+            estimateByID.removeAll()
+            TranscriptLayoutAnimation.animateWidth = false
+            applyWidthOnlyToVisibleCells(width: target, animated: false, duration: 0)
+            if isFinal {
+                // Full reconfigure once the drag ends for correct row heights.
+                reconfigureAllVisibleCells()
+            }
         }
 
         /// Proactive animation to a known target width (Review open/close).
