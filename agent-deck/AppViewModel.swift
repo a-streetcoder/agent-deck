@@ -2824,7 +2824,7 @@ final class AppViewModel: NSObject {
         }
         // Re-queue if session somehow became active again between dequeue and send.
         if session.status.isActive || piAgentRunner.isRunning(sessionID: sessionID) {
-            _ = piAgentSessionStore.enqueueComposerMessage(item, for: sessionID)
+            piAgentSessionStore.requeueComposerMessageAtFront(item, for: sessionID)
             return
         }
         deliverPiAgentMessage(

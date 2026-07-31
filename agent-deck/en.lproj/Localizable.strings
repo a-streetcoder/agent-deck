@@ -2362,3 +2362,5 @@
 "composer.queue.hint" = "Sends when this turn finishes";
 "composer.queue.withdraw" = "Withdraw";
 "composer.queue.withdrawHelp" = "Remove from queue and put the text back in the composer";
+"composer.queue.full" = "Queue is full (max %d). Withdraw one, or wait until a turn finishes.";
+"composer.queue.fullHint" = "Full · max %d — withdraw to add more";

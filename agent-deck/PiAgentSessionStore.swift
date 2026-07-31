@@ -509,13 +509,32 @@ final class PiAgentSessionStore {
         return composerMessageQueue(for: id)
     }
 
-    /// Enqueues a follow-up. Does not write to the transcript.
+    /// Max follow-ups waiting for the next idle drain (FIFO).
+    static let maxComposerMessageQueueCount = 5
+
+    /// Whether another follow-up can be queued for this session.
+    func canEnqueueComposerMessage(for sessionID: UUID) -> Bool {
+        composerMessageQueue(for: sessionID).count < Self.maxComposerMessageQueueCount
+    }
+
+    /// Enqueues a follow-up when under capacity. Does not write to the transcript.
+    /// - Returns: the item when accepted, or `nil` when the queue is full.
     @discardableResult
-    func enqueueComposerMessage(_ item: PiAgentQueuedComposerMessage, for sessionID: UUID) -> PiAgentQueuedComposerMessage {
+    func enqueueComposerMessage(_ item: PiAgentQueuedComposerMessage, for sessionID: UUID) -> PiAgentQueuedComposerMessage? {
         var queue = composerMessageQueueBySessionID[sessionID] ?? []
+        guard queue.count < Self.maxComposerMessageQueueCount else { return nil }
         queue.append(item)
         composerMessageQueueBySessionID[sessionID] = queue
         return item
+    }
+
+    /// Puts an item back at the front of the queue (used when a drain race re-activates the session).
+    /// Bypasses the capacity cap so a dequeued item is never dropped.
+    func requeueComposerMessageAtFront(_ item: PiAgentQueuedComposerMessage, for sessionID: UUID) {
+        var queue = composerMessageQueueBySessionID[sessionID] ?? []
+        queue.removeAll { $0.id == item.id }
+        queue.insert(item, at: 0)
+        composerMessageQueueBySessionID[sessionID] = queue
     }
 
     /// Removes one queued item and returns it so the UI can restore the composer.

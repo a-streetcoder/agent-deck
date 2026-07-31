@@ -2361,3 +2361,5 @@
 "composer.queue.hint" = "本轮结束后自动发送";
 "composer.queue.withdraw" = "撤回";
 "composer.queue.withdrawHelp" = "从队列移除并填回输入框";
+"composer.queue.full" = "队列已满（最多 %d 条）。请撤回一条，或等本轮结束后再发送。";
+"composer.queue.fullHint" = "已满 · 最多 %d 条 — 撤回后可继续排队";

@@ -7257,7 +7257,7 @@ struct PiAgentScreen: View {
                 isRunning: isRunning,
                 isDisabled: isCompacting,
                 placeholder: languageStore.composerPlaceholder(hasSelectedSession: hasSelectedSession, isCompacting: isCompacting, isRunning: isRunning, isNoProject: store.selectedSession?.isNoProject == true),
-                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || !slashSelections.isEmpty),
+                canSend: !isCompacting && store.selectedSession != nil && (!(store.selectedSession?.status.isActive == true) || store.selectedSession.map { store.canEnqueueComposerMessage(for: $0.id) } == true) && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || !slashSelections.isEmpty),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: piAgentNewSessionProjects,
                 onFiles: addFileAttachments,
@@ -7928,6 +7928,13 @@ struct PiAgentScreen: View {
         let sentSessionID = store.selectedSession?.id
         // While a turn is active, queue follow-ups (no immediate steer / no transcript yet).
         if isRunning, let sessionID = sentSessionID {
+            guard store.canEnqueueComposerMessage(for: sessionID) else {
+                composerAttachmentError = LanguageStore.shared.t(
+                    "composer.queue.full",
+                    PiAgentSessionStore.maxComposerMessageQueueCount
+                )
+                return
+            }
             let item = PiAgentQueuedComposerMessage(
                 message: combined,
                 transcriptText: transcriptCombined,
@@ -7939,7 +7946,14 @@ struct PiAgentScreen: View {
                 folders: composerFolders,
                 slashSelectionIDs: currentSlashSelections.map(\.id)
             )
-            store.enqueueComposerMessage(item, for: sessionID)
+            guard store.enqueueComposerMessage(item, for: sessionID) != nil else {
+                composerAttachmentError = LanguageStore.shared.t(
+                    "composer.queue.full",
+                    PiAgentSessionStore.maxComposerMessageQueueCount
+                )
+                return
+            }
+            composerAttachmentError = nil
             clearComposerInput()
             store.clearComposerDraft(for: sessionID)
             return
@@ -8367,7 +8381,7 @@ private struct PiAgentComposerPanel: View {
                     isRunning: isRunning,
                     isDisabled: isCompacting,
                     placeholder: languageStore.composerPlaceholder(hasSelectedSession: hasSelectedSession, isCompacting: isCompacting, isRunning: isRunning, isNoProject: store.selectedSession?.isNoProject == true),
-                    canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || !slashSelections.isEmpty),
+                    canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!(store.selectedSession?.status.isActive == true) || store.selectedSession.map { store.canEnqueueComposerMessage(for: $0.id) } == true) && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || !slashSelections.isEmpty),
                     canCreateSession: !isCompacting && store.selectedSession == nil,
                     createSessionProjects: piAgentNewSessionProjects,
                     onFiles: addFileAttachments,
@@ -9104,6 +9118,13 @@ private struct PiAgentComposerPanel: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         if isRunning, let sessionID = sentSessionID {
+            guard store.canEnqueueComposerMessage(for: sessionID) else {
+                composerAttachmentError = LanguageStore.shared.t(
+                    "composer.queue.full",
+                    PiAgentSessionStore.maxComposerMessageQueueCount
+                )
+                return
+            }
             let item = PiAgentQueuedComposerMessage(
                 message: combined,
                 transcriptText: transcriptCombined,
@@ -9115,7 +9136,14 @@ private struct PiAgentComposerPanel: View {
                 folders: composerFolders,
                 slashSelectionIDs: currentSlashSelections.map(\.id)
             )
-            store.enqueueComposerMessage(item, for: sessionID)
+            guard store.enqueueComposerMessage(item, for: sessionID) != nil else {
+                composerAttachmentError = LanguageStore.shared.t(
+                    "composer.queue.full",
+                    PiAgentSessionStore.maxComposerMessageQueueCount
+                )
+                return
+            }
+            composerAttachmentError = nil
             clearComposerInput()
             store.clearComposerDraft(for: sessionID)
             return

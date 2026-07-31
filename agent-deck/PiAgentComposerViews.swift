@@ -164,9 +164,17 @@ struct PiAgentComposerBox: View {
                     .font(AppTheme.Font.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                 Spacer(minLength: 0)
-                Text(LanguageStore.shared.t("composer.queue.hint"))
+                Text(
+                    queuedMessages.count >= PiAgentSessionStore.maxComposerMessageQueueCount
+                        ? LanguageStore.shared.t("composer.queue.fullHint", PiAgentSessionStore.maxComposerMessageQueueCount)
+                        : LanguageStore.shared.t("composer.queue.hint")
+                )
                     .font(AppTheme.Font.caption2)
-                    .foregroundStyle(AppTheme.mutedText.opacity(0.9))
+                    .foregroundStyle(
+                        queuedMessages.count >= PiAgentSessionStore.maxComposerMessageQueueCount
+                            ? Color.orange
+                            : AppTheme.mutedText.opacity(0.9)
+                    )
                     .lineLimit(1)
             }
             ForEach(queuedMessages) { item in
