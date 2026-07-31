@@ -1399,6 +1399,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var lastWidthDelta: CGFloat = 0
         private var lastWidthReconfigTime: CFTimeInterval = 0
         private var lastWidthTrackApplyTime: CFTimeInterval = 0
+        /// True while a splitter drag (Review/sidebar live-resize) is active.
+        /// While set, the frame/bounds observers are suppressed so ONLY the
+        /// live-resize notification drives width updates — avoids two paths
+        /// double-applying card widths and triggering height/scroll compensations
+        /// mid-drag (jitter, overlap, vertical scroll jumps).
+        private var isLiveResizing = false
         // (legacy name kept out — large-delta uses trackLive instead of settle)
         // Smooth auto-follow. The streaming follow doesn't snap to the bottom each
         // batch (that reads as a step every ~130ms); instead a 60fps timer eases
@@ -2111,26 +2117,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 }
             }
 
-            // Review panel open/close posts the *target* transcript width up front
-            // so bubbles ease in lockstep — AppKit often only sees the final frame
-            // after SwiftUI's layout animation finishes (felt like "lag half a beat").
-            columnWidthAnimateObserver = NotificationCenter.default.addObserver(
-                forName: .transcriptColumnWillAnimateWidth,
-                object: nil,
-                queue: .main
-            ) { [weak self] note in
-                // Copy values out of the notification before crossing isolation.
-                let info = note.userInfo
-                let widthValue = (info?["width"] as? CGFloat)
-                    ?? (info?["width"] as? Double).map { CGFloat($0) }
-                let durationValue = (info?["duration"] as? TimeInterval)
-                    ?? (info?["duration"] as? Double)
-                    ?? TranscriptLayoutAnimation.duration
-                MainActor.assumeIsolated {
-                    guard let self, let widthValue, widthValue > 1 else { return }
-                    self.animateVisibleBubbleWidths(to: widthValue, duration: durationValue)
-                }
-            }
+            // Disabled for the top-level three-column host: predicting a target
+            // width before the real viewport settles made bubble chrome and text
+            // content appear to scale/move twice. Real viewport updates come from
+            // frame-change + live-resize notifications only.
+            columnWidthAnimateObserver = nil
 
             // Review splitter drag: reflow bubbles every frame (no 300ms settle).
             columnWidthLiveResizeObserver = NotificationCenter.default.addObserver(
@@ -2806,6 +2797,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         func updateColumnWidthIfNeeded() {
+            guard !isLiveResizing else { return }
             guard let tableView else { return }
             let width = currentViewportWidth()
             let delta = abs(width - contentWidth)
@@ -2920,8 +2912,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             applyWidthOnlyToVisibleCells(width: contentWidth, animated: false, duration: 0)
         }
 
-        /// Review splitter drag: apply width immediately (no settle debounce).
+        /// Review/sidebar splitter drag: apply width immediately (no settle debounce).
+        /// While dragging (`isFinal == false`) ONLY card-width constraints are
+        /// updated — no height recompute, no full reconfigure, no estimate clear —
+        /// so the transcript follows horizontally without jitter/overlap. The flag
+        /// suppresses the frame/bounds observers so no second path fights this one.
         private func applyLiveTranscriptColumnWidth(_ width: CGFloat, isFinal: Bool) {
+            isLiveResizing = !isFinal
             // Prefer the live viewport when present — guards against stale
             // host-wide widths if a notification still carries the wrong value.
             let viewport = currentViewportWidth()
@@ -2948,45 +2945,16 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 tableView.tableColumns.first?.width = target
                 tableView.sizeLastColumnToFit()
             }
-            estimateByID.removeAll()
+            // Cards wrap at the OLD measured height; only the bubble/question
+            // width constraints move. Heights stay put until the drag ends.
             TranscriptLayoutAnimation.animateWidth = false
             applyWidthOnlyToVisibleCells(width: target, animated: false, duration: 0)
             if isFinal {
-                // Full reconfigure once the drag ends for correct row heights.
+                // Once the drag ends: clear estimates and do ONE full reconfigure
+                // for correct row heights at the settled width.
+                estimateByID.removeAll()
                 reconfigureAllVisibleCells()
             }
-        }
-
-        /// Proactive animation to a known target width (Review open/close).
-        private func animateVisibleBubbleWidths(to width: CGFloat, duration: TimeInterval) {
-            let target = max(200, width)
-            contentWidth = target
-            lastWidthChangeTime = CACurrentMediaTime()
-            lastWidthDelta = 999
-            lastWidthReconfigTime = CACurrentMediaTime()
-            if let tableView {
-                tableView.tableColumns.first?.width = target
-                tableView.sizeLastColumnToFit()
-            }
-            estimateByID.removeAll()
-            // Do not leave animateWidth=true across streaming — height retiles must
-            // stay duration=0. Only the constraint animator uses `duration` here.
-            TranscriptLayoutAnimation.animateWidth = false
-            // Immediate width apply + markdown re-wrap at laid-out bounds (avoids
-            // the “text stuck on the right” paint from stale TextKit wrap widths).
-            applyWidthOnlyToVisibleCells(width: target, animated: false, duration: 0)
-            // Full reconfigure right away so non-bubble rows (tools, etc.) and
-            // measured heights match the new column; delayed settle is a safety net.
-            reconfigureAllVisibleCells()
-            pendingWidthAnimationCleanup?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pendingWidthAnimationCleanup = nil
-                TranscriptLayoutAnimation.animateWidth = false
-                self.reconfigureAllVisibleCells()
-            }
-            pendingWidthAnimationCleanup = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.02, execute: work)
         }
 
         private func applyWidthOnlyToVisibleCells(width: CGFloat, animated: Bool, duration: TimeInterval) {

@@ -91,7 +91,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
     private let reviewMax: CGFloat = 900
     // Chat floor while Review is open
     private let chatMin: CGFloat = 420
-    private let handleWidth: CGFloat = 6
+    private let handleWidth: CGFloat = 10
 
     @State private var hostWidth: CGFloat = 0
     @State private var chatColumnWidth: CGFloat = 0
@@ -111,6 +111,13 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
             sidebar()
                 .frame(width: clampedSidebarWidth, alignment: .leading)
                 .frame(maxHeight: .infinity)
+                .background(AppTheme.windowBackground)
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(AppTheme.hairlineStroke.opacity(0.7))
+                        .frame(width: 1)
+                        .allowsHitTesting(false)
+                }
                 .clipped()
                 .layoutPriority(0)
 
@@ -124,6 +131,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
             // ② Chat / detail (flex)
             main()
                 .frame(minWidth: chatMin, maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppTheme.windowBackground)
                 .layoutPriority(1)
                 .background(
                     GeometryReader { geo in
@@ -141,20 +149,23 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
                 onDragEnded: handleReviewDragEnded
             )
             .frame(width: isReviewExpanded ? handleWidth : 0)
+            .padding(.horizontal, isReviewExpanded ? 6 : 0)
+            .contentShape(Rectangle())
+            .zIndex(30)
             .allowsHitTesting(isReviewExpanded)
-            .animation(isAnyDragging ? nil : PanelTransition.move, value: isReviewExpanded)
 
             panel()
                 .frame(width: displayedReviewWidth, alignment: .trailing)
                 .frame(maxHeight: .infinity)
+                .background(AppTheme.windowBackground)
                 .clipped()
                 .opacity(isReviewExpanded ? 1 : 0)
                 .animation(isAnyDragging ? nil : PanelTransition.fade, value: isReviewExpanded)
-                .animation(isAnyDragging ? nil : PanelTransition.move, value: isReviewExpanded)
-                .transaction { txn in
+                                .transaction { txn in
                     if isAnyDragging { txn.disablesAnimations = true }
                 }
                 .allowsHitTesting(isReviewExpanded)
+                .zIndex(5)
                 .overlay(alignment: .leading) {
                     if isReviewExpanded {
                         Rectangle()
@@ -164,8 +175,7 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
                     }
                 }
         }
-        .animation(isAnyDragging ? nil : PanelTransition.move, value: isReviewExpanded)
-        .background(
+                .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear { hostWidth = geo.size.width }
@@ -173,9 +183,10 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
             }
         )
         .onPreferenceChange(ThreeColumnChatWidthKey.self) { chatColumnWidth = $0 }
-        .onChange(of: isReviewExpanded) { _, expanded in
+        .onChange(of: isReviewExpanded) { _, _ in
             clampWidthsToHost()
-            postTranscriptWidthAnimation(expanding: expanded)
+            // Let the transcript follow the real viewport via frame updates/live resize.
+            // The proactive target-width path caused bubble/content double-motion.
         }
         .onChange(of: hostWidth) { _, _ in
             clampWidthsToHost()
@@ -238,32 +249,6 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
 
     // MARK: Transcript notifications
 
-    private func postTranscriptWidthAnimation(expanding: Bool) {
-        let measured = chatColumnWidth
-        let side = clampedSidebarWidth
-        let review = clampedReviewWidth
-        let host = hostWidth > 1 ? hostWidth : 900
-        let currentChat = measured > 1 ? measured : expectedChatWidth(reviewW: expanding ? 0 : review, sidebarW: side)
-        let target: CGFloat
-        if expanding {
-            // Before layout: chat is still full middle; subtract upcoming review.
-            target = max(chatMin, currentChat - review - handleWidth)
-        } else {
-            let restored = measured > 1
-                ? (measured + review + handleWidth)
-                : expectedChatWidth(reviewW: 0, sidebarW: side)
-            target = max(chatMin, restored)
-        }
-        NotificationCenter.default.post(
-            name: .transcriptColumnWillAnimateWidth,
-            object: nil,
-            userInfo: [
-                "width": target,
-                "duration": TranscriptLayoutAnimation.duration
-            ]
-        )
-    }
-
     private func postTranscriptLiveResize(final: Bool) {
         let chatW = expectedChatWidth(reviewW: displayedReviewWidth, sidebarW: clampedSidebarWidth)
         // Prefer live measured chat when available and close to expectation.
@@ -291,9 +276,10 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         onDragEnded: @escaping () -> Void
     ) -> some View {
         ZStack {
-            Color.clear
+            Rectangle()
+                .fill(Color.clear)
             RoundedRectangle(cornerRadius: 1, style: .continuous)
-                .fill(AppTheme.hairlineStroke.opacity(isDragging ? 0.85 : 0.4))
+                .fill(AppTheme.hairlineStroke.opacity(isDragging ? 0.95 : 0.55))
                 .frame(width: 1)
         }
         .contentShape(Rectangle())
