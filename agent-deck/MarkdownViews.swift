@@ -1165,11 +1165,10 @@ final class NativeMarkdownTextContainer: NSView {
     }
 
     /// Native GFM table: builds each cell's attributed string (header cells bold,
-    /// inline markdown parsed) and hands them to `MarkdownTableView`, which lays the
-    /// grid with **content-weighted** column widths and self-measured row heights.
-    /// `NSGridView` of auto-sizing text views does not constrain column widths
-    /// against the host width, so cells collapse into one tall column — manual
-    /// layout is what actually wraps cells into proper columns.
+    /// inline markdown parsed) and hands them to `MarkdownTableView`, which lays a
+    /// bordered card with content-weighted columns, header fill, and row/column
+    /// hairlines. Manual layout is required — `NSGridView` collapses auto-sized
+    /// cells into one tall column against the host width.
     private static func tableBlock(_ table: MarkdownTable) -> NSView {
         let bodyFont = NativeMarkdownFont.body
         let headerFont = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
@@ -1585,16 +1584,30 @@ final class NativeMarkdownTextContainer: NSView {
 }
 
 /// Native GFM table laid out by hand: **content-weighted** columns (not equal
-/// split), each cell a text view measured at its column width, a hairline under
-/// the header, and a self height-constraint so the host stack's `fittingSize`
-/// includes it. `NSGridView` was tried first but doesn't constrain column widths
-/// against the auto-sizing cells, collapsing every cell into one tall column.
+/// split), padded cells inside a bordered card, header fill + row hairlines, and
+/// a self height-constraint so the host stack's `fittingSize` includes it.
+/// `NSGridView` was tried first but doesn't constrain column widths against the
+/// auto-sizing cells, collapsing every cell into one tall column.
 private final class MarkdownTableView: NSView {
     private var cellViews: [[NSTextView]] = []   // [row][col]; row 0 is the header
-    private let separator = NSBox()
     private var heightConstraint: NSLayoutConstraint!
-    /// Bands (full-width row rects) for the zebra-striped body rows, filled in `draw`.
+    /// Full-width body-row bands for zebra striping (drawn under the grid).
     private var stripeRects: [NSRect] = []
+    /// Header background rect (row 0, inside the outer border).
+    private var headerRect: NSRect = .zero
+    /// Horizontal rules between body rows (y positions in view coords).
+    private var rowDividerYs: [CGFloat] = []
+    /// Vertical rules between columns (x positions, full table height).
+    private var columnDividerXs: [CGFloat] = []
+    /// Outer rounded table frame used for border stroke.
+    private var tableBounds: NSRect = .zero
+
+    private static let cornerRadius: CGFloat = 8
+    private static let outerPadding: CGFloat = 10
+    private static let cellPaddingX: CGFloat = 10
+    private static let cellPaddingY: CGFloat = 7
+    private static let minColumnWidth: CGFloat = 36
+    private static let maxColumnShare: CGFloat = 0.72
 
     override var isFlipped: Bool { true }
 
@@ -1602,10 +1615,6 @@ private final class MarkdownTableView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = true
-        separator.isHidden = true
-        addSubview(separator)
         heightConstraint = heightAnchor.constraint(equalToConstant: 24)
         heightConstraint.priority = .required - 1
         heightConstraint.isActive = true
@@ -1615,6 +1624,11 @@ private final class MarkdownTableView: NSView {
     func configure(headerCells: [NSAttributedString], bodyRows: [[NSAttributedString]]) {
         cellViews.forEach { $0.forEach { $0.removeFromSuperview() } }
         cellViews.removeAll()
+        stripeRects = []
+        headerRect = .zero
+        rowDividerYs = []
+        columnDividerXs = []
+        tableBounds = .zero
         let columnCount = max(headerCells.count, bodyRows.map(\.count).max() ?? 0)
         guard columnCount > 0 else { heightConstraint.constant = 1; return }
 
@@ -1627,6 +1641,7 @@ private final class MarkdownTableView: NSView {
             cells.forEach { addSubview($0) }
         }
         needsLayout = true
+        needsDisplay = true
     }
 
     private static func makeCell(_ attr: NSAttributedString) -> NSTextView {
@@ -1660,78 +1675,101 @@ private final class MarkdownTableView: NSView {
 
     private func relayout(width: CGFloat) {
         let columnCount = cellViews.first?.count ?? 0
-        guard columnCount > 0, width > 1 else { heightConstraint.constant = 1; return }
+        guard columnCount > 0, width > 1 else {
+            heightConstraint.constant = 1
+            tableBounds = .zero
+            return
+        }
 
-        let columnGap: CGFloat = 16
-        let rowGap: CGFloat = 8
-        let separatorGap: CGFloat = 6
-        let headerPaddingBottom: CGFloat = 6
-        let totalGaps = CGFloat(columnCount - 1) * columnGap
-        let minColumnWidth: CGFloat = 40
-        // Keep at least a little room for every column; cap one long column from
-        // eating the whole pane before proportional shrink.
-        let maxColumnShare: CGFloat = 0.72
-        let usable = max(width - totalGaps, CGFloat(columnCount) * minColumnWidth)
-        let columnWidths = Self.contentWeightedColumnWidths(
+        let pad = Self.outerPadding
+        let cellPadX = Self.cellPaddingX
+        let cellPadY = Self.cellPaddingY
+        let minCol = Self.minColumnWidth
+        // Interior width available for column bodies (outside outer padding).
+        let innerWidth = max(width - pad * 2, CGFloat(columnCount) * minCol)
+        // Each column's *text* box is narrower than the grid slot by horizontal padding.
+        let textUsable = max(innerWidth - CGFloat(columnCount) * cellPadX * 2, CGFloat(columnCount) * (minCol - cellPadX * 2))
+        let textWidths = Self.contentWeightedColumnWidths(
             cellViews: cellViews,
             columnCount: columnCount,
-            usableWidth: usable,
-            minWidth: minColumnWidth,
-            maxWidth: max(minColumnWidth, floor(usable * maxColumnShare))
+            usableWidth: textUsable,
+            minWidth: max(16, minCol - cellPadX * 2),
+            maxWidth: max(minCol, floor(textUsable * Self.maxColumnShare)),
+            fillRemaining: true
         )
+        // Grid slot = text width + left/right cell padding.
+        let columnWidths = textWidths.map { $0 + cellPadX * 2 }
 
-        // Row heights from each cell's own TextKit layout at its column width.
+        // Row heights: text height + vertical cell padding.
         var rowHeights: [CGFloat] = []
         for row in cellViews {
             var maxH: CGFloat = 0
             for (colIdx, cell) in row.enumerated() {
-                let columnWidth = columnWidths[min(colIdx, columnWidths.count - 1)]
-                cell.textContainer?.containerSize = NSSize(width: columnWidth, height: .greatestFiniteMagnitude)
+                let textW = textWidths[min(colIdx, textWidths.count - 1)]
+                cell.textContainer?.containerSize = NSSize(width: textW, height: .greatestFiniteMagnitude)
                 if let lm = cell.layoutManager, let tc = cell.textContainer {
                     lm.ensureLayout(for: tc)
                     maxH = max(maxH, ceil(lm.usedRect(for: tc).height) + 2)
                 }
             }
-            rowHeights.append(max(maxH, 18))
+            rowHeights.append(max(maxH + cellPadY * 2, 28))
         }
 
-        var y: CGFloat = 0
+        var y: CGFloat = pad
         var stripes: [NSRect] = []
+        var dividers: [CGFloat] = []
         var bodyOrdinal = 0
+        var headerBand = NSRect.zero
+
         for (rowIdx, row) in cellViews.enumerated() {
-            var x: CGFloat = 0
+            var x: CGFloat = pad
             let rowH = rowHeights[rowIdx]
+            let rowTop = y
             for (colIdx, cell) in row.enumerated() {
-                let columnWidth = columnWidths[min(colIdx, columnWidths.count - 1)]
-                cell.frame = NSRect(x: x, y: y, width: columnWidth, height: rowH)
-                x += columnWidth
-                if colIdx < row.count - 1 { x += columnGap }
+                let colW = columnWidths[min(colIdx, columnWidths.count - 1)]
+                let textW = textWidths[min(colIdx, textWidths.count - 1)]
+                // Text sits inset inside the grid slot.
+                cell.frame = NSRect(
+                    x: x + cellPadX,
+                    y: y + cellPadY,
+                    width: textW,
+                    height: max(rowH - cellPadY * 2, 1)
+                )
+                x += colW
             }
-            // Zebra-stripe every other body row (header excluded): a faint full-width
-            // band behind the cells, padded into the row gaps so the stripes touch.
-            if rowIdx > 0 {
+            if rowIdx == 0 {
+                headerBand = NSRect(x: pad, y: rowTop, width: innerWidth, height: rowH)
+            } else {
                 if bodyOrdinal % 2 == 1 {
-                    stripes.append(NSRect(x: 0, y: y - rowGap / 2, width: width, height: rowH + rowGap))
+                    stripes.append(NSRect(x: pad, y: rowTop, width: innerWidth, height: rowH))
                 }
                 bodyOrdinal += 1
             }
             y += rowH
-            if rowIdx == 0 {
-                y += headerPaddingBottom
-                separator.frame = NSRect(x: 0, y: y, width: width, height: 1)
-                separator.isHidden = false
-                y += separatorGap
-            } else if rowIdx < cellViews.count - 1 {
-                y += rowGap
+            if rowIdx < cellViews.count - 1 {
+                dividers.append(y)
             }
         }
 
-        if stripes != stripeRects {
-            stripeRects = stripes
-            needsDisplay = true
+        // Vertical column guides (between slots).
+        var colXs: [CGFloat] = []
+        var cx = pad
+        for col in 0..<columnCount {
+            cx += columnWidths[col]
+            if col < columnCount - 1 {
+                colXs.append(cx)
+            }
         }
 
-        let newHeight = max(ceil(y), 1)
+        let contentBottom = y
+        let newHeight = max(ceil(contentBottom + pad), 1)
+        tableBounds = NSRect(x: 0.5, y: 0.5, width: max(width - 1, 1), height: max(newHeight - 1, 1))
+        headerRect = headerBand
+        stripeRects = stripes
+        rowDividerYs = dividers
+        columnDividerXs = colXs
+        needsDisplay = true
+
         if abs(heightConstraint.constant - newHeight) > 0.5 {
             heightConstraint.constant = newHeight
             invalidateIntrinsicContentSize()
@@ -1750,14 +1788,17 @@ private final class MarkdownTableView: NSView {
     }
 
     /// Distribute `usableWidth` across columns by content weight instead of equal
-    /// split. Short columns stay narrow; long prose gets more room and wraps only
-    /// after preferred widths exceed the pane.
+    /// split. Short columns stay narrower; long prose gets more room. When
+    /// `fillRemaining` is true and content is narrower than the pane, leftover
+    /// width is poured into the widest columns so the table still reads as a
+    /// full-width card (not a left-aligned island of text).
     private static func contentWeightedColumnWidths(
         cellViews: [[NSTextView]],
         columnCount: Int,
         usableWidth: CGFloat,
         minWidth: CGFloat,
-        maxWidth: CGFloat
+        maxWidth: CGFloat,
+        fillRemaining: Bool
     ) -> [CGFloat] {
         guard columnCount > 0 else { return [] }
 
@@ -1769,28 +1810,55 @@ private final class MarkdownTableView: NSView {
             }
         }
 
-        // Clamp raw preference into [min, max] before scaling.
         preferred = preferred.map { min(max($0, minWidth), maxWidth) }
 
         let sumPreferred = preferred.reduce(0, +)
-        if sumPreferred <= usableWidth + 0.5 {
-            // Content fits: keep natural widths (left-aligned table; empty on the right).
-            return preferred.map { floor($0) }
+        let target = floor(usableWidth)
+
+        if sumPreferred <= target + 0.5 {
+            var widths = preferred.map { floor($0) }
+            if fillRemaining {
+                var leftover = target - widths.reduce(0, +)
+                // Pour leftover into longest columns first (keeps short columns short).
+                while leftover > 0.5 {
+                    guard let idx = preferred.enumerated()
+                        .max(by: { lhs, rhs in
+                            if lhs.element != rhs.element { return lhs.element < rhs.element }
+                            return widths[lhs.offset] < widths[rhs.offset]
+                        })?.offset
+                    else { break }
+                    // Soft cap: don't let one column grow beyond max share after fill.
+                    let room = max(0, maxWidth - widths[idx])
+                    if room < 0.5 {
+                        // All columns hit max — distribute round-robin.
+                        var progressed = false
+                        for i in 0..<columnCount where leftover > 0.5 {
+                            widths[i] += 1
+                            leftover -= 1
+                            progressed = true
+                        }
+                        if !progressed { break }
+                        continue
+                    }
+                    let add = min(leftover, max(1, room))
+                    widths[idx] += add
+                    leftover -= add
+                }
+            }
+            return widths
         }
 
         // Overflow: scale down proportionally, then repair any column below min.
         var widths = preferred.map { floor(max(minWidth, $0 * usableWidth / sumPreferred)) }
         var allocated = widths.reduce(0, +)
-        // If rounding left leftover space, give it to the widest preferred column.
-        if allocated < floor(usableWidth) {
-            let deficit = floor(usableWidth) - allocated
+        if allocated < target {
+            let deficit = target - allocated
             if let widest = preferred.enumerated().max(by: { $0.element < $1.element })?.offset {
                 widths[widest] += deficit
                 allocated += deficit
             }
         }
-        // If still over (minWidth floor), shave the longest columns.
-        var overflow = allocated - floor(usableWidth)
+        var overflow = allocated - target
         while overflow > 0.5 {
             guard let idx = widths.enumerated()
                 .filter({ $0.element > minWidth + 0.5 })
@@ -1806,11 +1874,66 @@ private final class MarkdownTableView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard !stripeRects.isEmpty else { return }
-        AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.2)).setFill()
-        for rect in stripeRects where rect.intersects(dirtyRect) {
-            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+        guard tableBounds.width > 1, tableBounds.height > 1 else { return }
+
+        let borderColor = AppTheme.ns(AppTheme.hairlineStroke)
+        let headerFill = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.55))
+        let stripeFill = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.28))
+        let cardFill = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.12))
+
+        // Card fill
+        let outer = NSBezierPath(roundedRect: tableBounds, xRadius: Self.cornerRadius, yRadius: Self.cornerRadius)
+        cardFill.setFill()
+        outer.fill()
+
+        // Header band (clip to rounded rect so top corners stay soft).
+        if headerRect.height > 0.5 {
+            NSGraphicsContext.saveGraphicsState()
+            outer.addClip()
+            headerFill.setFill()
+            headerRect.fill()
+            NSGraphicsContext.restoreGraphicsState()
         }
+
+        // Zebra body rows
+        if !stripeRects.isEmpty {
+            NSGraphicsContext.saveGraphicsState()
+            outer.addClip()
+            stripeFill.setFill()
+            for rect in stripeRects where rect.intersects(dirtyRect) {
+                rect.fill()
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        // Row hairlines (below header + between body rows)
+        borderColor.setStroke()
+        for y in rowDividerYs {
+            let path = NSBezierPath()
+            path.lineWidth = 1
+            path.move(to: NSPoint(x: tableBounds.minX + 1, y: y + 0.5))
+            path.line(to: NSPoint(x: tableBounds.maxX - 1, y: y + 0.5))
+            path.stroke()
+        }
+
+        // Column hairlines (subtle vertical guides)
+        let columnStroke = AppTheme.ns(AppTheme.hairlineStroke.opacity(0.55))
+        columnStroke.setStroke()
+        let topY = tableBounds.minY + 1
+        let bottomY = tableBounds.maxY - 1
+        for x in columnDividerXs {
+            let path = NSBezierPath()
+            path.lineWidth = 1
+            path.move(to: NSPoint(x: x + 0.5, y: topY))
+            path.line(to: NSPoint(x: x + 0.5, y: bottomY))
+            path.stroke()
+        }
+
+        // Outer border last so it sits on top of internal rules.
+        borderColor.setStroke()
+        let border = NSBezierPath(roundedRect: tableBounds, xRadius: Self.cornerRadius, yRadius: Self.cornerRadius)
+        border.lineWidth = 1
+        border.stroke()
     }
 
     override var intrinsicContentSize: NSSize {
