@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.8 — 2026-07-31
+
+### Highlights
+- **自动会话标题恢复可用**：标题 helper 不再强制 `model:off`（`grok-4.5` 等推理模型会 400）；改为优先 `minimal` 等可接受 thinking。`Draft ·` 与 `Chat ·` 临时标题均可生成；失败时带上模型错误信息。
+
+### Fixed
+- `PiSessionTitleGenerationService.helperRuntimeModelArgument`：隔离 helper 的 thinking 选择
+- `AppViewModel` / `PiAgentSessionModels.isProvisionalAutoTitle`：Agent `Chat ·` 会话也参与自动标题
+- 同类 helper（avatar / skill 描述 / ship / release notes）同步修正
+
+### Packaging
+- `MARKETING_VERSION` **0.0.8**，`CURRENT_PROJECT_VERSION` **8**
+- Tag: `v0.0.8`
+- Artifacts: `build/Pi-Deck-0.0.8.zip`, `build/Pi-Deck-0.0.8.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.7 — 2026-07-31
 
 ### Highlights
