@@ -62,72 +62,101 @@ struct ExternalCodeEditor: Identifiable, Hashable {
     }
 }
 
-// MARK: - Animated trailing host (open/close + drag resize)
-// Nesting: place inside NavigationSplitView.detail so main == chat viewport only.
+// MARK: - Top-level three-column workspace (Sidebar | Chat | Review)
 
-private struct TrailingReviewMainWidthKey: PreferenceKey {
+private struct ThreeColumnChatWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
 }
 
-/// Permanently mounts the Review column and animates open/close.
-/// Resize is un-animated (live pixel updates) so dragging does not spring/jitter.
-struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
-    var isExpanded: Bool
-    @Binding var panelWidth: CGFloat
+/// True top-level three columns:
+/// `[ Sidebar | Chat | Review ]` with independent drag handles.
+/// Review collapses to width 0; chat is always the flex middle column so
+/// transcript live-reflow uses chat viewport only (never sidebar).
+struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
+    var isReviewExpanded: Bool
+    @Binding var sidebarWidth: CGFloat
+    @Binding var reviewPanelWidth: CGFloat
+    @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var main: () -> Main
     @ViewBuilder var panel: () -> Panel
 
-    /// Review panel width bounds (diffs need room; chat keeps a hard floor).
-    private let minWidth: CGFloat = 320
-    private let maxWidth: CGFloat = 900
+    // Sidebar
+    private let sidebarMin: CGFloat = 240
+    private let sidebarMax: CGFloat = 360
+    // Review
+    private let reviewMin: CGFloat = 320
+    private let reviewMax: CGFloat = 900
+    // Chat floor while Review is open
+    private let chatMin: CGFloat = 420
     private let handleWidth: CGFloat = 6
-    /// Chat/transcript column floor while Review is open (this host is detail-only).
-    private let reservedMainMinWidth: CGFloat = 420
 
-    @State private var dragOriginWidth: CGFloat?
-    @State private var isDragging = false
-    @State private var mainColumnWidth: CGFloat = 0
     @State private var hostWidth: CGFloat = 0
+    @State private var chatColumnWidth: CGFloat = 0
+
+    @State private var sidebarDragOrigin: CGFloat?
+    @State private var isSidebarDragging = false
+    @State private var reviewDragOrigin: CGFloat?
+    @State private var isReviewDragging = false
+
+    private var isAnyDragging: Bool {
+        isSidebarDragging || isReviewDragging
+    }
 
     var body: some View {
         HStack(spacing: 0) {
+            // ① Sidebar
+            sidebar()
+                .frame(width: clampedSidebarWidth, alignment: .leading)
+                .frame(maxHeight: .infinity)
+                .clipped()
+                .layoutPriority(0)
+
+            columnHandle(
+                isDragging: isSidebarDragging,
+                onDragChanged: handleSidebarDragChanged,
+                onDragEnded: handleSidebarDragEnded
+            )
+            .frame(width: handleWidth)
+
+            // ② Chat / detail (flex)
             main()
-                .frame(minWidth: reservedMainMinWidth, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: chatMin, maxWidth: .infinity, maxHeight: .infinity)
                 .layoutPriority(1)
                 .background(
                     GeometryReader { geo in
                         Color.clear.preference(
-                            key: TrailingReviewMainWidthKey.self,
+                            key: ThreeColumnChatWidthKey.self,
                             value: geo.size.width
                         )
                     }
                 )
 
-            // Resize handle sits between main and panel (only when open).
-            resizeHandle
-                .frame(width: isExpanded ? handleWidth : 0)
-                .allowsHitTesting(isExpanded)
-                // Handle width toggles with expand; never spring while dragging.
-                .animation(isDragging ? nil : PanelTransition.move, value: isExpanded)
+            // ③ Review handle + panel
+            columnHandle(
+                isDragging: isReviewDragging,
+                onDragChanged: handleReviewDragChanged,
+                onDragEnded: handleReviewDragEnded
+            )
+            .frame(width: isReviewExpanded ? handleWidth : 0)
+            .allowsHitTesting(isReviewExpanded)
+            .animation(isAnyDragging ? nil : PanelTransition.move, value: isReviewExpanded)
 
             panel()
-                .frame(width: displayedWidth, alignment: .trailing)
+                .frame(width: displayedReviewWidth, alignment: .trailing)
                 .frame(maxHeight: .infinity)
                 .clipped()
-                .opacity(isExpanded ? 1 : 0)
-                // Open/close only — do NOT attach an animation to `panelWidth`.
-                .animation(isDragging ? nil : PanelTransition.fade, value: isExpanded)
-                .animation(isDragging ? nil : PanelTransition.move, value: isExpanded)
-                // Explicitly freeze width-driven layout during drag (no spring chase).
+                .opacity(isReviewExpanded ? 1 : 0)
+                .animation(isAnyDragging ? nil : PanelTransition.fade, value: isReviewExpanded)
+                .animation(isAnyDragging ? nil : PanelTransition.move, value: isReviewExpanded)
                 .transaction { txn in
-                    if isDragging { txn.disablesAnimations = true }
+                    if isAnyDragging { txn.disablesAnimations = true }
                 }
-                .allowsHitTesting(isExpanded)
+                .allowsHitTesting(isReviewExpanded)
                 .overlay(alignment: .leading) {
-                    if isExpanded {
+                    if isReviewExpanded {
                         Rectangle()
                             .fill(AppTheme.hairlineStroke.opacity(0.7))
                             .frame(width: 1)
@@ -135,8 +164,7 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
                     }
                 }
         }
-        // Never animate the binding itself when the user is dragging.
-        .animation(isDragging ? nil : PanelTransition.move, value: isExpanded)
+        .animation(isAnyDragging ? nil : PanelTransition.move, value: isReviewExpanded)
         .background(
             GeometryReader { geo in
                 Color.clear
@@ -144,39 +172,87 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
                     .onChange(of: geo.size.width) { _, w in hostWidth = w }
             }
         )
-        .onPreferenceChange(TrailingReviewMainWidthKey.self) { mainColumnWidth = $0 }
-        .onChange(of: isExpanded) { _, expanded in
-            // Fire *before* layout settles so transcript bubbles ease with the panel,
-            // not half a beat after AppKit sees the final frame.
+        .onPreferenceChange(ThreeColumnChatWidthKey.self) { chatColumnWidth = $0 }
+        .onChange(of: isReviewExpanded) { _, expanded in
+            clampWidthsToHost()
             postTranscriptWidthAnimation(expanding: expanded)
         }
         .onChange(of: hostWidth) { _, _ in
-            guard isExpanded else { return }
-            let maxAllowed = effectiveMaxPanelWidth
-            if panelWidth > maxAllowed {
-                var txn = Transaction()
-                txn.disablesAnimations = true
-                withTransaction(txn) { panelWidth = maxAllowed }
-            }
+            clampWidthsToHost()
         }
     }
 
+    // MARK: Widths
+
+    private var clampedSidebarWidth: CGFloat {
+        min(sidebarMax, max(sidebarMin, sidebarWidth))
+    }
+
+    private var displayedReviewWidth: CGFloat {
+        isReviewExpanded ? clampedReviewWidth : 0
+    }
+
+    private var clampedReviewWidth: CGFloat {
+        min(effectiveMaxReviewWidth, max(reviewMin, reviewPanelWidth))
+    }
+
+    /// Max review so chat keeps `chatMin` and sidebar keeps its current width.
+    private var effectiveMaxReviewWidth: CGFloat {
+        let host = hostWidth > 1 ? hostWidth : 1400
+        // Reserve: sidebar + sidebar|chat handle + chatMin + chat|review handle
+        let reserved = clampedSidebarWidth + handleWidth + chatMin + handleWidth
+        let fromHost = max(reviewMin, host - reserved)
+        return min(reviewMax, fromHost)
+    }
+
+    private func clampWidthsToHost() {
+        guard hostWidth > 1 else { return }
+        let maxReview = effectiveMaxReviewWidth
+        if isReviewExpanded, reviewPanelWidth > maxReview {
+            var txn = Transaction()
+            txn.disablesAnimations = true
+            withTransaction(txn) { reviewPanelWidth = maxReview }
+        }
+        // Sidebar stays in its own min/max; no host-based shrink of sidebar for now.
+        let side = clampedSidebarWidth
+        if abs(side - sidebarWidth) > 0.5 {
+            var txn = Transaction()
+            txn.disablesAnimations = true
+            withTransaction(txn) { sidebarWidth = side }
+        }
+    }
+
+    /// Chat width implied by current column sizes (for live bubble reflow).
+    private func expectedChatWidth(reviewW: CGFloat, sidebarW: CGFloat) -> CGFloat {
+        let host = hostWidth > 1 ? hostWidth : 0
+        if host > 1 {
+            // Always: sidebar|chat handle. Plus chat|review handle when review visible.
+            let handleTotal = handleWidth + (reviewW > 0.5 ? handleWidth : 0)
+            return max(chatMin, host - sidebarW - reviewW - handleTotal)
+        }
+        if chatColumnWidth > 1 {
+            return max(chatMin, chatColumnWidth)
+        }
+        return chatMin
+    }
+
+    // MARK: Transcript notifications
+
     private func postTranscriptWidthAnimation(expanding: Bool) {
-        let measured = mainColumnWidth
-        // Preference can lag one frame on first open — fall back to host width
-        // (detail column only; never the full window / sidebar).
+        let measured = chatColumnWidth
+        let side = clampedSidebarWidth
+        let review = clampedReviewWidth
         let host = hostWidth > 1 ? hostWidth : 900
-        let currentMain = measured > 1 ? measured : host
-        let panel = clampedWidth
-        // When expanding: main is still wide → target = current − panel − handle.
-        // When collapsing: main is already narrow → target = current + panel + handle.
+        let currentChat = measured > 1 ? measured : expectedChatWidth(reviewW: expanding ? 0 : review, sidebarW: side)
         let target: CGFloat
         if expanding {
-            target = max(reservedMainMinWidth, currentMain - panel - handleWidth)
+            // Before layout: chat is still full middle; subtract upcoming review.
+            target = max(chatMin, currentChat - review - handleWidth)
         } else {
-            // Collapsing restores the full detail width.
-            let restored = measured > 1 ? (measured + panel + handleWidth) : host
-            target = max(reservedMainMinWidth, restored)
+            let restored = measured > 1
+                ? (measured + review + handleWidth)
+                : expectedChatWidth(reviewW: 0, sidebarW: side)
+            target = max(chatMin, restored)
         }
         NotificationCenter.default.post(
             name: .transcriptColumnWillAnimateWidth,
@@ -188,52 +264,32 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
         )
     }
 
-    /// Push the expected *chat* (main) column width for the current panel size.
-    /// Host is the detail-column split only (sidebar is outside), so
-    /// `host − panel − handle` matches the transcript viewport.
-    private func postTranscriptLiveResizeWidth(panelWidth: CGFloat) {
-        let host = hostWidth > 1
-            ? hostWidth
-            : 0
+    private func postTranscriptLiveResize(final: Bool) {
+        let chatW = expectedChatWidth(reviewW: displayedReviewWidth, sidebarW: clampedSidebarWidth)
+        // Prefer live measured chat when available and close to expectation.
         let target: CGFloat
-        if host > 1 {
-            target = max(reservedMainMinWidth, host - panelWidth - handleWidth)
-        } else if mainColumnWidth > 1 {
-            // Preference lag: use last measured chat column width.
-            target = max(reservedMainMinWidth, mainColumnWidth)
+        if chatColumnWidth > 40, abs(chatColumnWidth - chatW) < 48 {
+            target = max(chatMin, chatColumnWidth)
         } else {
-            return
+            target = chatW
         }
         NotificationCenter.default.post(
             name: .transcriptColumnLiveResizeWidth,
             object: nil,
             userInfo: [
                 "width": target,
-                "final": false
+                "final": final
             ]
         )
     }
 
-    /// Collapsed → 0; expanded → clamped live width (no animation while dragging).
-    private var displayedWidth: CGFloat {
-        isExpanded ? clampedWidth : 0
-    }
+    // MARK: Handles
 
-    private var clampedWidth: CGFloat {
-        min(effectiveMaxPanelWidth, max(minWidth, panelWidth))
-    }
-
-    /// Cap panel so the main (session) column always keeps `reservedMainMinWidth`.
-    private var effectiveMaxPanelWidth: CGFloat {
-        let host = hostWidth > 1
-            ? hostWidth
-            : (NSApp.keyWindow?.contentView?.bounds.width ?? 1400)
-        let reserved = reservedMainMinWidth + handleWidth
-        let fromHost = max(minWidth, host - reserved)
-        return min(maxWidth, fromHost)
-    }
-
-    private var resizeHandle: some View {
+    private func columnHandle(
+        isDragging: Bool,
+        onDragChanged: @escaping (DragGesture.Value) -> Void,
+        onDragEnded: @escaping () -> Void
+    ) -> some View {
         ZStack {
             Color.clear
             RoundedRectangle(cornerRadius: 1, style: .continuous)
@@ -242,7 +298,6 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering in
-            // set/arrow avoids push/pop stack thrash that can feel like cursor jitter.
             if hovering || isDragging {
                 NSCursor.resizeLeftRight.set()
             } else {
@@ -251,45 +306,61 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
         }
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onChanged { value in
-                    if dragOriginWidth == nil {
-                        isDragging = true
-                        dragOriginWidth = clampedWidth
-                    }
-                    let origin = dragOriginWidth ?? clampedWidth
-                    // Handle left of panel: drag left → wider; right → narrower.
-                    let next = origin - value.translation.width
-                    let clamped = min(effectiveMaxPanelWidth, max(minWidth, next))
-                    var txn = Transaction()
-                    txn.disablesAnimations = true
-                    withTransaction(txn) {
-                        panelWidth = clamped
-                    }
-                    // Live-track transcript column so bubbles reflow *during* the drag,
-                    // not only after mouse-up / settle.
-                    postTranscriptLiveResizeWidth(panelWidth: clamped)
-                }
-                .onEnded { _ in
-                    dragOriginWidth = nil
-                    isDragging = false
-                    NSCursor.arrow.set()
-                    // Final settle: host is detail-only → chat width is exact.
-                    let host = hostWidth > 1 ? hostWidth : 0
-                    let mainW: CGFloat
-                    if host > 1 {
-                        mainW = max(reservedMainMinWidth, host - clampedWidth - handleWidth)
-                    } else if mainColumnWidth > 1 {
-                        mainW = max(reservedMainMinWidth, mainColumnWidth)
-                    } else {
-                        mainW = reservedMainMinWidth
-                    }
-                    NotificationCenter.default.post(
-                        name: .transcriptColumnLiveResizeWidth,
-                        object: nil,
-                        userInfo: ["width": mainW, "final": true]
-                    )
-                }
+                .onChanged(onDragChanged)
+                .onEnded { _ in onDragEnded() }
         )
+    }
+
+    private func handleSidebarDragChanged(_ value: DragGesture.Value) {
+        if sidebarDragOrigin == nil {
+            isSidebarDragging = true
+            sidebarDragOrigin = clampedSidebarWidth
+        }
+        let origin = sidebarDragOrigin ?? clampedSidebarWidth
+        // Handle right of sidebar: drag right → wider sidebar.
+        let next = origin + value.translation.width
+        let clamped = min(sidebarMax, max(sidebarMin, next))
+        // Also ensure chat+review still fit.
+        let host = hostWidth > 1 ? hostWidth : 1400
+        let reviewPart = isReviewExpanded ? (clampedReviewWidth + handleWidth) : 0
+        // host − sidebarHandle − chatMin − (review+handle if open)
+        let maxSide = max(sidebarMin, host - handleWidth - chatMin - reviewPart)
+        let finalSide = min(clamped, maxSide)
+        var txn = Transaction()
+        txn.disablesAnimations = true
+        withTransaction(txn) { sidebarWidth = finalSide }
+        postTranscriptLiveResize(final: false)
+    }
+
+    private func handleSidebarDragEnded() {
+        sidebarDragOrigin = nil
+        isSidebarDragging = false
+        NSCursor.arrow.set()
+        postTranscriptLiveResize(final: true)
+        UserDefaults.standard.set(Double(sidebarWidth), forKey: "piDeck.sidebarWidth")
+    }
+
+    private func handleReviewDragChanged(_ value: DragGesture.Value) {
+        if reviewDragOrigin == nil {
+            isReviewDragging = true
+            reviewDragOrigin = clampedReviewWidth
+        }
+        let origin = reviewDragOrigin ?? clampedReviewWidth
+        // Handle left of review: drag left → wider review.
+        let next = origin - value.translation.width
+        let clamped = min(effectiveMaxReviewWidth, max(reviewMin, next))
+        var txn = Transaction()
+        txn.disablesAnimations = true
+        withTransaction(txn) { reviewPanelWidth = clamped }
+        postTranscriptLiveResize(final: false)
+    }
+
+    private func handleReviewDragEnded() {
+        reviewDragOrigin = nil
+        isReviewDragging = false
+        NSCursor.arrow.set()
+        postTranscriptLiveResize(final: true)
+        UserDefaults.standard.set(Double(reviewPanelWidth), forKey: "piDeck.reviewPanelWidth")
     }
 }
 

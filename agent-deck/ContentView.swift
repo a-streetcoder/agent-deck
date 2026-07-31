@@ -420,7 +420,8 @@ struct ContentView: View {
     /// Remembered Review column width, persisted to UserDefaults.
     /// Loaded in `mainContent` onAppear; saved whenever the panel is toggled off.
     @State private var reviewPanelWidth: CGFloat = 480
-    @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
+    /// Top-level sidebar column width (persisted).
+    @State private var sidebarColumnWidth: CGFloat = 280
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
     @State private var isMemoryProjectPopoverPresented = false
@@ -596,51 +597,52 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContent: some View {
         let warnings = sidebarWarningSnapshot
-        // Layout C: NavigationSplitView owns sidebar | detail.
-        // Review only splits the *detail/chat* column (never the sidebar), so
-        // live bubble reflow widths match the transcript viewport.
+        // Top-level three columns: Sidebar | Chat | Review.
+        // Independent drag handles; transcript live width = middle column only.
         // Toolbar stays on this outer host so primary-action islands never collapse into >>.
-        NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
-            CodingAgentPanelLayers(
-                viewModel: viewModel,
-                nav: { navigationSidebarLayer(warnings: warnings) },
-                panel: { isExpanded in
-                    CodingAgentExpandedPanel(
-                        viewModel: viewModel,
-                        store: viewModel.piAgentSessionStore,
-                        sessionSearchText: $piAgentSessionSearchText,
-                        isActive: isExpanded,
-                        onCollapse: { viewModel.isCodingAgentPanelExpanded = false }
-                    )
-                }
-            )
-            .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.clear, ignoresSafeAreaEdges: .all)
-            .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 320)
-            .perfScene("Sidebar")
-        } detail: {
-            TrailingReviewSplitHost(
-                isExpanded: viewModel.isTrailingInspectorExpanded,
-                panelWidth: $reviewPanelWidth,
-                main: {
-                    detailSplitView
-                        .perfScene("Detail")
-                },
-                panel: {
-                    PiAgentRepoReviewPanel(viewModel: viewModel)
-                }
-            )
-            .perfScene("Detail+Review")
-        }
+        ThreeColumnWorkspaceHost(
+            isReviewExpanded: viewModel.isTrailingInspectorExpanded,
+            sidebarWidth: $sidebarColumnWidth,
+            reviewPanelWidth: $reviewPanelWidth,
+            sidebar: {
+                CodingAgentPanelLayers(
+                    viewModel: viewModel,
+                    nav: { navigationSidebarLayer(warnings: warnings) },
+                    panel: { isExpanded in
+                        CodingAgentExpandedPanel(
+                            viewModel: viewModel,
+                            store: viewModel.piAgentSessionStore,
+                            sessionSearchText: $piAgentSessionSearchText,
+                            isActive: isExpanded,
+                            onCollapse: { viewModel.isCodingAgentPanelExpanded = false }
+                        )
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.clear, ignoresSafeAreaEdges: .all)
+                .perfScene("Sidebar")
+            },
+            main: {
+                detailSplitView
+                    .perfScene("Detail")
+            },
+            panel: {
+                PiAgentRepoReviewPanel(viewModel: viewModel)
+            }
+        )
         .frame(minWidth: 1080, minHeight: 640)
         .onAppear {
-            let saved = UserDefaults.standard.double(forKey: "piDeck.reviewPanelWidth")
-            if saved > 0 {
-                reviewPanelWidth = CGFloat(saved)
+            let savedReview = UserDefaults.standard.double(forKey: "piDeck.reviewPanelWidth")
+            if savedReview > 0 {
+                reviewPanelWidth = CGFloat(savedReview)
+            }
+            let savedSidebar = UserDefaults.standard.double(forKey: "piDeck.sidebarWidth")
+            if savedSidebar > 0 {
+                sidebarColumnWidth = CGFloat(savedSidebar)
             }
         }
         .onChange(of: viewModel.isTrailingInspectorExpanded) { _, expanded in
-            // Persist the settled width when the panel closes; clamping happens on open.
+            // Persist settled Review width when the panel closes (drag-end also saves).
             if !expanded {
                 UserDefaults.standard.set(Double(reviewPanelWidth), forKey: "piDeck.reviewPanelWidth")
             }
