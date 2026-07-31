@@ -410,14 +410,10 @@ struct PiAgentSessionRow: View, Equatable {
     let isSelected: Bool
     let isRunning: Bool
     let hasUIRequest: Bool
-    let isRenaming: Bool
     let isGeneratingTitle: Bool
     let hasActiveLoop: Bool
     let gitActivity: PiAgentSessionGitActivity
     let onSelect: () -> Void
-    let onBeginRename: () -> Void
-    let onEndRename: () -> Void
-    let onRename: (String) -> Void
     let onDelete: () -> Void
 
     // Equatable so `.equatable()` can short-circuit re-evaluation: the session list
@@ -432,15 +428,12 @@ struct PiAgentSessionRow: View, Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.isRunning == rhs.isRunning
             && lhs.hasUIRequest == rhs.hasUIRequest
-            && lhs.isRenaming == rhs.isRenaming
             && lhs.isGeneratingTitle == rhs.isGeneratingTitle
             && lhs.hasActiveLoop == rhs.hasActiveLoop
             && lhs.gitActivity == rhs.gitActivity
     }
 
-    @State private var draftTitle = ""
     @State private var isRowHovered = false
-    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -553,19 +546,6 @@ struct PiAgentSessionRow: View, Equatable {
         }
         .onHover { isRowHovered = $0 }
         .help(statusHelp)
-        .onAppear {
-            draftTitle = sessionTitle
-        }
-        .onChange(of: session.id) { _, _ in resetRenameState() }
-        .onChange(of: session.title) { _, _ in draftTitle = sessionTitle }
-        .onChange(of: isTitleFocused) { _, focused in
-            // Commit on blur, but skip if we're already exiting rename mode —
-            // otherwise commitRename's onEndRename callback flips isRenaming,
-            // which can race the focus state into an AttributeGraph cycle.
-            guard !focused, isRenaming else { return }
-            commitRename()
-        }
-        .onDisappear(perform: commitRename)
     }
 
     private var selectedSessionIndicator: some View {
@@ -653,68 +633,20 @@ struct PiAgentSessionRow: View, Equatable {
         )
     }
 
-    @ViewBuilder
     private var titleView: some View {
-        if isRenaming {
-            TextField(LanguageStore.shared.t("session.namePlaceholder"), text: $draftTitle)
-                .textFieldStyle(.plain)
-                .font(AppTheme.Font.footnote.weight(.medium))
-                .fontWidth(.expanded)
-                .lineLimit(1)
-                // Match the non-editing title height so entering rename never
-                // changes the row height (keeps the list height stable).
-                .frame(height: 18, alignment: .center)
-                .focused($isTitleFocused)
-                .onSubmit(commitRename)
-                .onExitCommand { resetRenameState() }
-                .onAppear {
-                    draftTitle = sessionTitle
-                    isTitleFocused = true
-                }
-        } else {
-            Button(action: onBeginRename) {
-                Text(sessionTitle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
-                    .contentTransition(.numericText())
-                    .opacity(isGeneratingTitle ? 0.62 : 1)
-                    .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
-                    .layoutPriority(1)
-                    .font(AppTheme.Font.footnote.weight(.medium))
-                    .fontWidth(.expanded)
-                    .foregroundStyle(.primary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(LanguageStore.shared.t("session.renameA11y", sessionTitle))
-            // Fixed (not min/max) so the row's height never depends on the title's
-            // text layout. Measuring a wrapping title requires a full text layout
-            // pass; with a single line in a stable box the row is cheap to measure,
-            // so the LazyVStack doesn't pay a measurement storm when the list
-            // re-evaluates (selection changes, streaming badge updates). 18pt hugs
-            // one line of the footnote title, so the row carries no dead space
-            // above or below it.
+        Text(sessionTitle)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 18, alignment: .leading)
+            .contentTransition(.numericText())
+            .opacity(isGeneratingTitle ? 0.62 : 1)
+            .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
+            .layoutPriority(1)
+            .font(AppTheme.Font.footnote.weight(.medium))
+            .fontWidth(.expanded)
+            .foregroundStyle(.primary)
+            // Fixed height so the row never depends on title text measurement.
             .frame(height: 18, alignment: .center)
-            .help(LanguageStore.shared.t("session.renameHelp"))
-        }
-    }
-
-    private func resetRenameState() {
-        draftTitle = sessionTitle
-        onEndRename()
-        // Don't write isTitleFocused = false here — the TextField will leave the
-        // view tree when isRenaming flips, releasing focus naturally. Writing it
-        // re-enters .onChange(of: isTitleFocused) which can self-trigger.
-    }
-
-    private func commitRename() {
-        let trimmedTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedTitle.isEmpty {
-            draftTitle = sessionTitle
-        } else if trimmedTitle != session.title {
-            onRename(trimmedTitle)
-        }
-        onEndRename()
     }
 
     private var sessionTitle: String {

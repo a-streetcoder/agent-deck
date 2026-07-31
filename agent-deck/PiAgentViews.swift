@@ -3834,7 +3834,7 @@ private extension PiAgentTranscriptThread {
 /// profiles). Comparing the value inputs lets SwiftUI skip the list entirely on a
 /// pulse and rebuild it only when something it actually shows changed.
 ///
-/// All per-row dynamic state (selection, running, renaming, title-generating, git
+/// All per-row dynamic state (selection, running, title-generating, git
 /// activity) is passed in as resolved values and compared in `==`, so the
 /// list can never go stale: a real change to any of them differs the inputs and
 /// forces a rebuild. Bindings and callbacks are intentionally excluded from `==`.
@@ -3845,7 +3845,6 @@ private struct SessionListContent: View, Equatable {
     /// flat layout.
     let isGrouped: Bool
     let selectedSessionIDs: Set<UUID>
-    let renamingSessionID: UUID?
     let workingSessionIDs: Set<UUID>
     let uiRequestSessionIDs: Set<UUID>
     let generatingTitleIDs: Set<UUID>
@@ -3864,9 +3863,6 @@ private struct SessionListContent: View, Equatable {
 
     @Binding var selection: Set<UUID>
     let onSelect: (PiAgentSessionRecord) -> Void
-    let onBeginRename: (PiAgentSessionRecord) -> Void
-    let onEndRename: () -> Void
-    let onRename: (UUID, String) -> Void
     let onDelete: (UUID) -> Void
     let onSetPinned: (UUID, Bool) -> Void
     let onShowMorePrevious: () -> Void
@@ -3888,7 +3884,6 @@ private struct SessionListContent: View, Equatable {
         let diff: String?
         if lhs.sections != rhs.sections { diff = "sections" }
         else if lhs.selectedSessionIDs != rhs.selectedSessionIDs { diff = "selectedSessionIDs" }
-        else if lhs.renamingSessionID != rhs.renamingSessionID { diff = "renamingSessionID" }
         else if lhs.workingSessionIDs != rhs.workingSessionIDs { diff = "workingSessionIDs" }
         else if lhs.uiRequestSessionIDs != rhs.uiRequestSessionIDs { diff = "uiRequestSessionIDs" }
         else if lhs.generatingTitleIDs != rhs.generatingTitleIDs { diff = "generatingTitleIDs" }
@@ -4021,14 +4016,10 @@ private struct SessionListContent: View, Equatable {
                     isSelected: selectedSessionIDs.contains(session.id),
                     isRunning: workingSessionIDs.contains(session.id),
                     hasUIRequest: uiRequestSessionIDs.contains(session.id),
-                    isRenaming: renamingSessionID == session.id,
                     isGeneratingTitle: generatingTitleIDs.contains(session.id),
                     hasActiveLoop: activeLoopSessionIDs.contains(session.id),
                     gitActivity: activityByID[session.id] ?? .none,
                     onSelect: { onSelect(session) },
-                    onBeginRename: { onBeginRename(session) },
-                    onEndRename: onEndRename,
-                    onRename: { onRename(session.id, $0) },
                     onDelete: { onDelete(session.id) }
                 )
                 .equatable()
@@ -4289,7 +4280,6 @@ struct CodingAgentExpandedPanel: View {
     @State private var hasAnyScopedSessions = false
     @State private var selectedSessionIDs: Set<UUID> = []
     @State private var lastSelectedSessionID: UUID?
-    @State private var renamingSessionID: UUID?
     @State private var pendingDeleteSessionIDs: Set<UUID> = []
     @State private var pendingDeleteIsPreviousSessions = false
     @State private var pendingDeletePreviousSearchQuery: String?
@@ -4343,7 +4333,6 @@ struct CodingAgentExpandedPanel: View {
                     sections: visibleSections,
                     isGrouped: isAllProjects,
                     selectedSessionIDs: selectedSessionIDs,
-                    renamingSessionID: renamingSessionID,
                     workingSessionIDs: workingVisibleSessionIDs,
                     uiRequestSessionIDs: uiRequestVisibleSessionIDs,
                     generatingTitleIDs: viewModel.piAgentTitleGeneratingSessionIDs,
@@ -4355,15 +4344,8 @@ struct CodingAgentExpandedPanel: View {
                     scrollRequest: $sessionScrollRequest,
                     selection: $selectedSessionIDs,
                     onSelect: { session in
-                        renamingSessionID = nil
                         selectSessionFromList(session)
                     },
-                    onBeginRename: { session in
-                        selectSessionFromList(session, forceSingle: true)
-                        renamingSessionID = session.id
-                    },
-                    onEndRename: { renamingSessionID = nil },
-                    onRename: { viewModel.renamePiAgentSession($0, title: $1) },
                     onDelete: { id in requestDeleteSessions(selectedSessionIDs.contains(id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [id]) },
                     onSetPinned: { id, pinned in setSessionPinned(id, pinned: pinned) },
                     onShowMorePrevious: showMorePreviousSessions,
@@ -4948,8 +4930,6 @@ struct PiAgentScreen: View {
     @State private var loopLaunchDefinition: LoopDefinition?
     @State private var lastSlashTriggerActive = false
     @State private var inputMode: PiAgentInputMode = .steer
-    @State private var selectedSessionTitleDraft = ""
-    @State private var renamingSessionID: UUID?
     @State private var selectedSessionIDs: Set<UUID> = []
     @State private var lastSelectedSessionID: UUID?
     @State private var pendingDeleteSessionIDs: Set<UUID> = []
@@ -5031,7 +5011,6 @@ struct PiAgentScreen: View {
             syncVisibleSessionSelection()
             syncMultiSelectionToSelectedSession()
             syncRuntimeFooterSnapshot()
-            syncSelectedSessionTitleDraft()
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             isSupervisorRequestSheetPresented = selectedPendingSupervisorRequest != nil && store.selectedUIRequest == nil
             rebuildVisibleSessions()
@@ -5140,8 +5119,6 @@ struct PiAgentScreen: View {
             isSupervisorRequestSheetPresented = newID != nil && store.selectedUIRequest == nil
         }
         .onChange(of: store.selectedSession?.id) { oldID, newID in
-            renamingSessionID = nil
-            syncSelectedSessionTitleDraft()
             if let newID, !selectedSessionIDs.contains(newID) {
                 syncMultiSelectionToSelectedSession()
             } else if newID == nil {
@@ -5166,7 +5143,6 @@ struct PiAgentScreen: View {
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
         }
-        .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
         .onChange(of: visibleSessionIDs) { _, _ in
             syncVisibleSessionSelection()
             pruneMultiSelectionToVisibleSessions()
@@ -5437,7 +5413,6 @@ struct PiAgentScreen: View {
                             sections: visibleSections,
                             isGrouped: isAllProjects,
                             selectedSessionIDs: selectedSessionIDs,
-                            renamingSessionID: renamingSessionID,
                             workingSessionIDs: workingVisibleSessionIDs,
                             uiRequestSessionIDs: uiRequestVisibleSessionIDs,
                             generatingTitleIDs: viewModel.piAgentTitleGeneratingSessionIDs,
@@ -5449,15 +5424,8 @@ struct PiAgentScreen: View {
                             scrollRequest: $sessionScrollRequest,
                             selection: $selectedSessionIDs,
                             onSelect: { session in
-                                renamingSessionID = nil
                                 selectSessionFromList(session)
                             },
-                            onBeginRename: { session in
-                                selectSessionFromList(session, forceSingle: true)
-                                renamingSessionID = session.id
-                            },
-                            onEndRename: { renamingSessionID = nil },
-                            onRename: { viewModel.renamePiAgentSession($0, title: $1) },
                             onDelete: { id in
                                 requestDeleteSessions(
                                     selectedSessionIDs.contains(id) && selectedSessionIDs.count > 1
@@ -5887,13 +5855,13 @@ struct PiAgentScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                     Spacer(minLength: 0)
                 }
-                TextField("Session name", text: $selectedSessionTitleDraft)
-                    .textFieldStyle(.plain)
+                Text(session.displayTitle)
                     .font(.title3.bold())
                     .fontWidth(.expanded)
                     .lineLimit(1)
-                    .onSubmit(commitSelectedSessionRename)
-                    .onDisappear(perform: commitSelectedSessionRename)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
 
                 if let error = session.lastError {
                     Text(error)
@@ -8157,21 +8125,6 @@ struct PiAgentScreen: View {
 
     private func syncRuntimeFooterSnapshot() {
         frozenRuntimeFooterSession = store.selectedSession
-    }
-
-    private func syncSelectedSessionTitleDraft() {
-        selectedSessionTitleDraft = store.selectedSession?.title ?? ""
-    }
-
-    private func commitSelectedSessionRename() {
-        guard let session = store.selectedSession else { return }
-        let trimmedTitle = selectedSessionTitleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedTitle.isEmpty {
-            selectedSessionTitleDraft = session.title
-        } else if trimmedTitle != session.title {
-            viewModel.renamePiAgentSession(session.id, title: trimmedTitle)
-            selectedSessionTitleDraft = trimmedTitle
-        }
     }
 
     private func sessionMatchesSearch(_ session: PiAgentSessionRecord, query: String) -> Bool {
