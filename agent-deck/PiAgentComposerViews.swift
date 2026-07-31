@@ -525,11 +525,37 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? DropSafeNSTextView else { return }
-        if textView.string != text {
+
+        // Streaming transcript / parent re-renders call updateNSView frequently.
+        // Replacing `string` while the IME has marked (preedit) text discards the
+        // candidate session — Chinese/Japanese composition then "eats" keystrokes.
+        let isComposing = textView.hasMarkedText()
+        if !isComposing, textView.string != text {
+            let priorSelected = textView.selectedRanges
             textView.string = text
+            // Best-effort caret restore when an external write (draft load / clear)
+            // shortens or replaces content; clamp each range to the new length.
+            let maxLoc = (text as NSString).length
+            textView.selectedRanges = priorSelected.compactMap { value in
+                guard let range = value as? NSRange else { return nil }
+                let loc = min(max(range.location, 0), maxLoc)
+                let len = min(max(range.length, 0), max(0, maxLoc - loc))
+                return NSValue(range: NSRange(location: loc, length: len))
+            }
+            if textView.selectedRanges.isEmpty {
+                textView.setSelectedRange(NSRange(location: maxLoc, length: 0))
+            }
         }
-        textView.isEditable = !isDisabled
-        textView.font = NativeTranscriptFont.body()
+
+        let editable = !isDisabled
+        if textView.isEditable != editable {
+            textView.isEditable = editable
+        }
+        // Avoid resetting font on every stream frame — it can interrupt IME typing attrs.
+        let bodyFont = NativeTranscriptFont.body()
+        if textView.font != bodyFont {
+            textView.font = bodyFont
+        }
         textView.dropHandler = context.coordinator
         textView.keyHandler = context.coordinator
     }
