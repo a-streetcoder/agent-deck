@@ -34,6 +34,62 @@ enum PiAgentInputMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// One user message waiting to send after the current Pi turn finishes.
+/// Not written to the transcript until it is actually delivered.
+struct PiAgentQueuedComposerMessage: Identifiable, Equatable, Hashable {
+    let id: UUID
+    /// Expanded text sent to Pi (slash materialization + file tags).
+    let message: String
+    /// Text shown in the transcript when delivered (may retain @refs / markers).
+    let transcriptText: String
+    /// Original composer field text restored on withdraw.
+    let composerText: String
+    let titleSource: String?
+    let images: [PiAgentImageAttachment]
+    let pasteAttachments: [PiAgentPasteAttachment]
+    let files: [PiAgentFileAttachment]
+    let folders: [PiAgentFolderAttachment]
+    /// Snapshot of slash chips restored on withdraw (best-effort; may be empty).
+    let slashSelectionIDs: [String]
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        message: String,
+        transcriptText: String,
+        composerText: String,
+        titleSource: String? = nil,
+        images: [PiAgentImageAttachment] = [],
+        pasteAttachments: [PiAgentPasteAttachment] = [],
+        files: [PiAgentFileAttachment] = [],
+        folders: [PiAgentFolderAttachment] = [],
+        slashSelectionIDs: [String] = [],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.message = message
+        self.transcriptText = transcriptText
+        self.composerText = composerText
+        self.titleSource = titleSource
+        self.images = images
+        self.pasteAttachments = pasteAttachments
+        self.files = files
+        self.folders = folders
+        self.slashSelectionIDs = slashSelectionIDs
+        self.createdAt = createdAt
+    }
+
+    /// Single-line preview for the queue chip.
+    var previewText: String {
+        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        if !images.isEmpty { return "(\(images.count) image\(images.count == 1 ? "" : "s"))" }
+        if !files.isEmpty || !folders.isEmpty { return "(attachments)" }
+        return transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+
 enum PiSubagentRunStatus: String, Codable, Hashable, CaseIterable, Identifiable {
     case queued
     case starting

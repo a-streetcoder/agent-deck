@@ -76,6 +76,10 @@ struct PiAgentComposerBox: View {
     /// included in the send payload by the caller, not by this view.
     var slashSelections: [SlashItem] = []
     var onRemoveSlashSelection: (SlashItem) -> Void = { _ in }
+    /// Follow-ups waiting for the current turn to finish (in-memory only).
+    var queuedMessages: [PiAgentQueuedComposerMessage] = []
+    /// Withdraw one queued item back into the composer (caller restores text).
+    var onWithdrawQueuedMessage: (PiAgentQueuedComposerMessage) -> Void = { _ in }
     let onSend: () -> Void
     let onStop: () -> Void
     let onCreateSession: () -> Void
@@ -148,6 +152,59 @@ struct PiAgentComposerBox: View {
         }
     }
 
+
+    @ViewBuilder
+    private var composerQueueStrip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(AppTheme.Font.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.brandAccent)
+                Text(LanguageStore.shared.t("composer.queue.title", queuedMessages.count))
+                    .font(AppTheme.Font.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                Spacer(minLength: 0)
+                Text(LanguageStore.shared.t("composer.queue.hint"))
+                    .font(AppTheme.Font.caption2)
+                    .foregroundStyle(AppTheme.mutedText.opacity(0.9))
+                    .lineLimit(1)
+            }
+            ForEach(queuedMessages) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: "text.badge.clock")
+                        .font(AppTheme.Font.caption)
+                        .foregroundStyle(AppTheme.brandAccent)
+                    Text(item.previewText)
+                        .font(AppTheme.Font.callout)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        onWithdrawQueuedMessage(item)
+                    } label: {
+                        Text(LanguageStore.shared.t("composer.queue.withdraw"))
+                            .font(AppTheme.Font.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .help(LanguageStore.shared.t("composer.queue.withdrawHelp"))
+                    .accessibilityLabel(LanguageStore.shared.t("composer.queue.withdraw"))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(AppTheme.brandAccent.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(AppTheme.brandAccent.opacity(0.22), lineWidth: 0.5)
+                )
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(LanguageStore.shared.t("composer.queue.title", queuedMessages.count))
+    }
+
     private var branchRepositoryURL: URL? {
         guard let session = metricsSession else { return nil }
         return URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
@@ -155,6 +212,12 @@ struct PiAgentComposerBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !queuedMessages.isEmpty {
+                composerQueueStrip
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+            }
             if !slashSelections.isEmpty || !images.isEmpty || !files.isEmpty || !folders.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
@@ -853,6 +916,12 @@ final class DropSafeNSTextView: NSTextView {
     weak var dropHandler: DropSafeNSTextViewDropHandler?
     weak var keyHandler: DropSafeNSTextViewKeyHandler?
     private var lastEscapeAt: TimeInterval?
+    /// Wall-clock time when marked (IME preedit) text last disappeared.
+    /// Used to swallow a spurious Return that some IMEs deliver after commit.
+    private var lastCompositionEndedAt: TimeInterval = 0
+    private var wasComposing = false
+    /// Ignore plain Return for this long after IME composition ends (seconds).
+    private static let postIMECommitSendGuard: TimeInterval = 0.28
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard acceptsDrop(sender.draggingPasteboard) else {
@@ -888,12 +957,29 @@ final class DropSafeNSTextView: NSTextView {
         return dropHandler?.handleDrop(sender.draggingPasteboard) ?? false
     }
 
+    override func unmarkText() {
+        super.unmarkText()
+        lastCompositionEndedAt = ProcessInfo.processInfo.systemUptime
+        wasComposing = false
+    }
+
     override func keyDown(with event: NSEvent) {
         // While an IME composition is active (e.g. Chinese pinyin candidates),
         // never intercept keys — Return confirms the candidate, not send.
         if hasMarkedText() {
+            wasComposing = true
             super.keyDown(with: event)
+            // Some commits clear marked text inside super.keyDown; record end time.
+            if !hasMarkedText(), wasComposing {
+                lastCompositionEndedAt = ProcessInfo.processInfo.systemUptime
+                wasComposing = false
+            }
             return
+        }
+
+        if wasComposing {
+            lastCompositionEndedAt = ProcessInfo.processInfo.systemUptime
+            wasComposing = false
         }
 
         let characters = event.charactersIgnoringModifiers ?? ""
@@ -921,6 +1007,12 @@ final class DropSafeNSTextView: NSTextView {
         }
 
         if isReturn && modifiers.isEmpty {
+            // Swallow the extra Return that often follows IME candidate confirm
+            // (hasMarkedText is already false by then).
+            let sinceIME = ProcessInfo.processInfo.systemUptime - lastCompositionEndedAt
+            if sinceIME >= 0, sinceIME < Self.postIMECommitSendGuard {
+                return
+            }
             keyHandler?.send()
             return
         }

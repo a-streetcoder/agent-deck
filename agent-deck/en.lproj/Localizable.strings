@@ -2356,3 +2356,9 @@
 "doctor.webSearchPackageSkipped" = "npm:pi-web-access (or another *web-access* package) is listed in your Pi packages/extensions. Pi Deck skips loading it in sessions to avoid tool-name conflicts (web_search / fetch_content / get_search_content). Keep configuring keys only; leave the package off for Deck.";
 "ext.bridge.webSearch.piWebAccessHint" = "Depends on the same credentials as pi-web-access: ~/.pi/web-search.json (exaApiKey / braveApiKey / tavilyApiKey) or EXA_/BRAVE_/TAVILY_API_KEY. Install those keys once; do not also load npm:pi-web-access in Deck (it is skipped automatically).";
 "ext.piWebAccessSkippedBanner" = "pi-web-access is superseded by Pi Deck's Web search bridge. If it appears in Your extensions, deselect it or leave it listed — Deck will not inject the package at launch.";
+
+/* Composer follow-up queue */
+"composer.queue.title" = "Queued · %d";
+"composer.queue.hint" = "Sends when this turn finishes";
+"composer.queue.withdraw" = "Withdraw";
+"composer.queue.withdrawHelp" = "Remove from queue and put the text back in the composer";

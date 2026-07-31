@@ -174,6 +174,9 @@ final class PiAgentSessionStore {
     private var composerPasteDraftsBySessionID: [UUID: [PiAgentPasteAttachment]] = [:]
     private var composerFileDraftsBySessionID: [UUID: [PiAgentFileAttachment]] = [:]
     private var composerFolderDraftsBySessionID: [UUID: [PiAgentFolderAttachment]] = [:]
+    /// In-memory follow-up queue: delivered after the current turn goes idle.
+    /// `@Observable` tracks this dict so the composer queue strip refreshes.
+    private(set) var composerMessageQueueBySessionID: [UUID: [PiAgentQueuedComposerMessage]] = [:]
 
     private let maxTranscriptEntriesPerSession = 500
     private let transcriptRevisionCoalesceNanoseconds: UInt64 = 66_000_000
@@ -492,6 +495,60 @@ final class PiAgentSessionStore {
         composerFileDraftsBySessionID.removeValue(forKey: sessionID)
         composerFolderDraftsBySessionID.removeValue(forKey: sessionID)
     }
+
+    // MARK: - Composer follow-up queue (in-memory)
+
+    /// Messages waiting to send after the active turn finishes.
+    func composerMessageQueue(for sessionID: UUID) -> [PiAgentQueuedComposerMessage] {
+        composerMessageQueueBySessionID[sessionID] ?? []
+    }
+
+    /// Head of the queue for the selected session (if any).
+    var selectedComposerMessageQueue: [PiAgentQueuedComposerMessage] {
+        guard let id = selectedSessionID else { return [] }
+        return composerMessageQueue(for: id)
+    }
+
+    /// Enqueues a follow-up. Does not write to the transcript.
+    @discardableResult
+    func enqueueComposerMessage(_ item: PiAgentQueuedComposerMessage, for sessionID: UUID) -> PiAgentQueuedComposerMessage {
+        var queue = composerMessageQueueBySessionID[sessionID] ?? []
+        queue.append(item)
+        composerMessageQueueBySessionID[sessionID] = queue
+        return item
+    }
+
+    /// Removes one queued item and returns it so the UI can restore the composer.
+    @discardableResult
+    func withdrawComposerMessage(id: UUID, for sessionID: UUID) -> PiAgentQueuedComposerMessage? {
+        guard var queue = composerMessageQueueBySessionID[sessionID] else { return nil }
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return nil }
+        let item = queue.remove(at: index)
+        if queue.isEmpty {
+            composerMessageQueueBySessionID.removeValue(forKey: sessionID)
+        } else {
+            composerMessageQueueBySessionID[sessionID] = queue
+        }
+        return item
+    }
+
+    /// Pops the oldest queued message (FIFO) for delivery after idle.
+    @discardableResult
+    func dequeueComposerMessage(for sessionID: UUID) -> PiAgentQueuedComposerMessage? {
+        guard var queue = composerMessageQueueBySessionID[sessionID], !queue.isEmpty else { return nil }
+        let item = queue.removeFirst()
+        if queue.isEmpty {
+            composerMessageQueueBySessionID.removeValue(forKey: sessionID)
+        } else {
+            composerMessageQueueBySessionID[sessionID] = queue
+        }
+        return item
+    }
+
+    func clearComposerMessageQueue(for sessionID: UUID) {
+        guard composerMessageQueueBySessionID.removeValue(forKey: sessionID) != nil else { return }
+    }
+
 
     @discardableResult
     func createNoProjectCodingAgentSession(title: String = "Draft · General Chat", model: String? = nil) -> PiAgentSessionRecord {
@@ -3045,6 +3102,8 @@ final class PiAgentSessionStore {
             processingActivityBySessionID[sessionID] = nil
             uiRequestsBySessionID[sessionID] = nil
             extensionNotifiesBySessionID[sessionID] = nil
+            composerMessageQueueBySessionID[sessionID] = nil
+            clearComposerDraft(for: sessionID)
             deleteGeneralChatScratchFolders(for: sessionID)
             deleteTranscriptImages(for: sessionID)
             sessionsTouchedThisRun.remove(sessionID)

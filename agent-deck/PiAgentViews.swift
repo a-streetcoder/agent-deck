@@ -7268,6 +7268,8 @@ struct PiAgentScreen: View {
                 metricsSession: runtimeFooterSession(isRunning: isRunning),
                 slashSelections: slashSelections,
                 onRemoveSlashSelection: { item in slashSelections.removeAll { $0.id == item.id } },
+                queuedMessages: store.selectedSession.flatMap { store.composerMessageQueueBySessionID[$0.id] } ?? [],
+                onWithdrawQueuedMessage: withdrawQueuedComposerMessage,
                 onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
                 onStop: { viewModel.stopSelectedPiAgentSession() },
                 onCreateSession: createSessionFromComposer,
@@ -7924,13 +7926,47 @@ struct PiAgentScreen: View {
         let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
-        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, beforeStart: beginTranscriptAutoScrollTurn)
+        // While a turn is active, queue follow-ups (no immediate steer / no transcript yet).
+        if isRunning, let sessionID = sentSessionID {
+            let item = PiAgentQueuedComposerMessage(
+                message: combined,
+                transcriptText: transcriptCombined,
+                composerText: composerText,
+                titleSource: titleSource,
+                images: composerImages,
+                pasteAttachments: activePasteAttachments,
+                files: composerFiles,
+                folders: composerFolders,
+                slashSelectionIDs: currentSlashSelections.map(\.id)
+            )
+            store.enqueueComposerMessage(item, for: sessionID)
+            clearComposerInput()
+            store.clearComposerDraft(for: sessionID)
+            return
+        }
+        let accepted = viewModel.sendPiAgentMessage(combined, mode: .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, beforeStart: beginTranscriptAutoScrollTurn)
         guard accepted else { return }
         requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
             store.clearComposerDraft(for: sentSessionID)
         }
+    }
+
+    /// Moves a queued follow-up back into the composer so the user can edit or drop it.
+    private func withdrawQueuedComposerMessage(_ item: PiAgentQueuedComposerMessage) {
+        guard let sessionID = store.selectedSession?.id else { return }
+        guard let withdrawn = store.withdrawComposerMessage(id: item.id, for: sessionID) else { return }
+        composerText = withdrawn.composerText
+        composerPasteAttachments = withdrawn.pasteAttachments
+        nextComposerPasteID = max(nextComposerPasteID, (withdrawn.pasteAttachments.map(\.id).max() ?? 0) + 1)
+        composerImages = withdrawn.images
+        composerFiles = withdrawn.files
+        composerFolders = withdrawn.folders
+        composerAttachmentError = nil
+        slashSelections = []
+        slashState = SlashSuggestionState()
+        saveComposerDraft(for: sessionID)
     }
 
     private func expandFileReferences(in message: String) -> String {
@@ -8342,6 +8378,8 @@ private struct PiAgentComposerPanel: View {
                     metricsSession: runtimeFooterSession(isRunning: isRunning),
                     slashSelections: slashSelections,
                     onRemoveSlashSelection: { item in slashSelections.removeAll { $0.id == item.id } },
+                    queuedMessages: store.selectedSession.flatMap { store.composerMessageQueueBySessionID[$0.id] } ?? [],
+                    onWithdrawQueuedMessage: withdrawQueuedComposerMessage,
                     onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
                     onStop: { viewModel.stopSelectedPiAgentSession() },
                     onCreateSession: createSessionFromComposer,
@@ -9065,13 +9103,45 @@ private struct PiAgentComposerPanel: View {
         let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
-        let accepted = viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, beforeStart: onWillSend)
+        if isRunning, let sessionID = sentSessionID {
+            let item = PiAgentQueuedComposerMessage(
+                message: combined,
+                transcriptText: transcriptCombined,
+                composerText: composerText,
+                titleSource: titleSource,
+                images: composerImages,
+                pasteAttachments: activePasteAttachments,
+                files: composerFiles,
+                folders: composerFolders,
+                slashSelectionIDs: currentSlashSelections.map(\.id)
+            )
+            store.enqueueComposerMessage(item, for: sessionID)
+            clearComposerInput()
+            store.clearComposerDraft(for: sessionID)
+            return
+        }
+        let accepted = viewModel.sendPiAgentMessage(combined, mode: .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, beforeStart: onWillSend)
         guard accepted else { return }
         onDidSend()
         clearComposerInput()
         if let sentSessionID {
             store.clearComposerDraft(for: sentSessionID)
         }
+    }
+
+    private func withdrawQueuedComposerMessage(_ item: PiAgentQueuedComposerMessage) {
+        guard let sessionID = store.selectedSession?.id else { return }
+        guard let withdrawn = store.withdrawComposerMessage(id: item.id, for: sessionID) else { return }
+        composerText = withdrawn.composerText
+        composerPasteAttachments = withdrawn.pasteAttachments
+        nextComposerPasteID = max(nextComposerPasteID, (withdrawn.pasteAttachments.map(\.id).max() ?? 0) + 1)
+        composerImages = withdrawn.images
+        composerFiles = withdrawn.files
+        composerFolders = withdrawn.folders
+        composerAttachmentError = nil
+        slashSelections = []
+        slashState = SlashSuggestionState()
+        saveComposerDraft(for: sessionID)
     }
 
     private func expandFileReferences(in message: String) -> String {

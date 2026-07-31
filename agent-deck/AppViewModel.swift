@@ -2787,6 +2787,12 @@ final class AppViewModel: NSObject {
 
     private func handlePiAgentTurnFinished(_ sessionID: UUID) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
+        // Deliver the next queued follow-up before attention/notification bookkeeping.
+        // Only dequeue when the session is no longer actively streaming.
+        if !piAgentRunner.isRunning(sessionID: sessionID),
+           !(piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status.isActive ?? false) {
+            drainComposerMessageQueueIfNeeded(sessionID: sessionID)
+        }
         if isPiAgentSessionActuallyVisible(sessionID) {
             acknowledgePiAgentSession(sessionID)
             // Pi may have changed files during the completed turn. Refresh once at
@@ -2805,6 +2811,31 @@ final class AppViewModel: NSObject {
             record.needsAttention = true
         }
         schedulePiAgentCompletionNotification(for: sessionID)
+    }
+
+    /// Sends at most one queued composer message after a turn becomes idle.
+    /// Further items wait for the next `onTurnFinished`.
+    private func drainComposerMessageQueueIfNeeded(sessionID: UUID) {
+        guard !piAgentRunner.isRunning(sessionID: sessionID) else { return }
+        guard let item = piAgentSessionStore.dequeueComposerMessage(for: sessionID) else { return }
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else {
+            // Session gone — put the item back? drop it.
+            return
+        }
+        // Re-queue if session somehow became active again between dequeue and send.
+        if session.status.isActive || piAgentRunner.isRunning(sessionID: sessionID) {
+            _ = piAgentSessionStore.enqueueComposerMessage(item, for: sessionID)
+            return
+        }
+        deliverPiAgentMessage(
+            item.message,
+            mode: .prompt,
+            transcriptText: item.transcriptText,
+            titleSource: item.titleSource,
+            images: item.images,
+            pasteAttachments: item.pasteAttachments,
+            session: session
+        )
     }
 
     private func isPiAgentSessionActuallyVisible(_ sessionID: UUID) -> Bool {
