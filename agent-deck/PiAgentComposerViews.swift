@@ -710,6 +710,13 @@ final class DropSafeNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // While an IME composition is active (e.g. Chinese pinyin candidates),
+        // never intercept keys — Return confirms the candidate, not send.
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
+
         let characters = event.charactersIgnoringModifiers ?? ""
         let isReturn = characters == "\r" || characters == "\n"
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
