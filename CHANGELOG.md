@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.10 — 2026-07-31
+
+### Highlights
+- **Review 工作台**：右侧真正 trailing 列展示 git 变更（staged/unstaged、全文件 diff、在编辑器中打开）。
+- **气泡随列宽 reflow**：开合 Review 时卡片宽度同步；流式高度更新与侧栏动画隔离，避免“假非流式”。
+- **关闭侧栏文字贴右修复**：按 laid-out bounds 重排 Markdown，清除陈旧 TextKit wrap 宽度。
+
+### Packaging
+- `MARKETING_VERSION` **0.0.10**，`CURRENT_PROJECT_VERSION` **10**
+- Tag: `v0.0.10`
+- Artifacts: `build/Pi-Deck-0.0.10.zip`, `build/Pi-Deck-0.0.10.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.9 — 2026-07-31
 
 ### Highlights
