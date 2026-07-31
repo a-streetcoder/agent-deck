@@ -63,6 +63,7 @@ struct ExternalCodeEditor: Identifiable, Hashable {
 }
 
 // MARK: - Animated trailing host (open/close + drag resize)
+// Nesting: place inside NavigationSplitView.detail so main == chat viewport only.
 
 private struct TrailingReviewMainWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -79,12 +80,12 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
     @ViewBuilder var main: () -> Main
     @ViewBuilder var panel: () -> Panel
 
-    /// Review panel width bounds (still wide for diffs).
-    private let minWidth: CGFloat = 360
-    private let maxWidth: CGFloat = 1100
+    /// Review panel width bounds (diffs need room; chat keeps a hard floor).
+    private let minWidth: CGFloat = 320
+    private let maxWidth: CGFloat = 900
     private let handleWidth: CGFloat = 6
-    /// Never let the chat/detail column collapse under this while Review is open.
-    private let reservedMainMinWidth: CGFloat = 520
+    /// Chat/transcript column floor while Review is open (this host is detail-only).
+    private let reservedMainMinWidth: CGFloat = 420
 
     @State private var dragOriginWidth: CGFloat?
     @State private var isDragging = false
@@ -162,18 +163,20 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
 
     private func postTranscriptWidthAnimation(expanding: Bool) {
         let measured = mainColumnWidth
-        // Preference can lag one frame on first open — fall back to the key window.
-        let currentMain = measured > 1
-            ? measured
-            : (NSApp.keyWindow?.contentView?.bounds.width ?? 900)
+        // Preference can lag one frame on first open — fall back to host width
+        // (detail column only; never the full window / sidebar).
+        let host = hostWidth > 1 ? hostWidth : 900
+        let currentMain = measured > 1 ? measured : host
         let panel = clampedWidth
         // When expanding: main is still wide → target = current − panel − handle.
         // When collapsing: main is already narrow → target = current + panel + handle.
         let target: CGFloat
         if expanding {
-            target = max(200, currentMain - panel - handleWidth)
+            target = max(reservedMainMinWidth, currentMain - panel - handleWidth)
         } else {
-            target = max(200, currentMain + panel + handleWidth)
+            // Collapsing restores the full detail width.
+            let restored = measured > 1 ? (measured + panel + handleWidth) : host
+            target = max(reservedMainMinWidth, restored)
         }
         NotificationCenter.default.post(
             name: .transcriptColumnWillAnimateWidth,
@@ -185,16 +188,18 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
         )
     }
 
-    /// Push the expected main/transcript width for the current panel size.
+    /// Push the expected *chat* (main) column width for the current panel size.
+    /// Host is the detail-column split only (sidebar is outside), so
+    /// `host − panel − handle` matches the transcript viewport.
     private func postTranscriptLiveResizeWidth(panelWidth: CGFloat) {
         let host = hostWidth > 1
             ? hostWidth
-            : (NSApp.keyWindow?.contentView?.bounds.width ?? 0)
+            : 0
         let target: CGFloat
         if host > 1 {
             target = max(reservedMainMinWidth, host - panelWidth - handleWidth)
         } else if mainColumnWidth > 1 {
-            // Preference lag: approximate from last measured main + previous panel.
+            // Preference lag: use last measured chat column width.
             target = max(reservedMainMinWidth, mainColumnWidth)
         } else {
             return
@@ -268,13 +273,13 @@ struct TrailingReviewSplitHost<Main: View, Panel: View>: View {
                     dragOriginWidth = nil
                     isDragging = false
                     NSCursor.arrow.set()
-                    // Final settle: prefer host math (same as live frames), then measured main.
+                    // Final settle: host is detail-only → chat width is exact.
                     let host = hostWidth > 1 ? hostWidth : 0
                     let mainW: CGFloat
                     if host > 1 {
                         mainW = max(reservedMainMinWidth, host - clampedWidth - handleWidth)
                     } else if mainColumnWidth > 1 {
-                        mainW = mainColumnWidth
+                        mainW = max(reservedMainMinWidth, mainColumnWidth)
                     } else {
                         mainW = reservedMainMinWidth
                     }

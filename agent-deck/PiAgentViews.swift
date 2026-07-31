@@ -2922,7 +2922,18 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         /// Review splitter drag: apply width immediately (no settle debounce).
         private func applyLiveTranscriptColumnWidth(_ width: CGFloat, isFinal: Bool) {
-            let target = max(200, width)
+            // Prefer the live viewport when present — guards against stale
+            // host-wide widths if a notification still carries the wrong value.
+            let viewport = currentViewportWidth()
+            let proposed = max(200, width)
+            var target = proposed
+            if viewport > 40 {
+                if proposed > viewport + 24 {
+                    target = max(200, viewport)
+                } else {
+                    target = min(proposed, viewport + 2)
+                }
+            }
             let delta = abs(target - contentWidth)
             guard delta > 0.5 || isFinal else { return }
             contentWidth = target

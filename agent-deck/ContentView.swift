@@ -418,7 +418,7 @@ struct ContentView: View {
     @State private var isPiAgentSystemPromptPresented = false
     @State private var isPiAgentSubagentsPopoverPresented = false
     /// Remembered Review column width across open/close within the session.
-    @State private var reviewPanelWidth: CGFloat = 760
+    @State private var reviewPanelWidth: CGFloat = 480
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
@@ -595,40 +595,42 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContent: some View {
         let warnings = sidebarWarningSnapshot
-        // Animated trailing Review host: permanently mounts the panel and
-        // animates width/opacity (no HSplitView insert pop). Toolbar stays on
-        // the outer host so primary-action islands never collapse into >>.
-        TrailingReviewSplitHost(
-            isExpanded: viewModel.isTrailingInspectorExpanded,
-            panelWidth: $reviewPanelWidth,
-            main: {
-                NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
-                    CodingAgentPanelLayers(
+        // Layout C: NavigationSplitView owns sidebar | detail.
+        // Review only splits the *detail/chat* column (never the sidebar), so
+        // live bubble reflow widths match the transcript viewport.
+        // Toolbar stays on this outer host so primary-action islands never collapse into >>.
+        NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
+            CodingAgentPanelLayers(
+                viewModel: viewModel,
+                nav: { navigationSidebarLayer(warnings: warnings) },
+                panel: { isExpanded in
+                    CodingAgentExpandedPanel(
                         viewModel: viewModel,
-                        nav: { navigationSidebarLayer(warnings: warnings) },
-                        panel: { isExpanded in
-                            CodingAgentExpandedPanel(
-                                viewModel: viewModel,
-                                store: viewModel.piAgentSessionStore,
-                                sessionSearchText: $piAgentSessionSearchText,
-                                isActive: isExpanded,
-                                onCollapse: { viewModel.isCodingAgentPanelExpanded = false }
-                            )
-                        }
+                        store: viewModel.piAgentSessionStore,
+                        sessionSearchText: $piAgentSessionSearchText,
+                        isActive: isExpanded,
+                        onCollapse: { viewModel.isCodingAgentPanelExpanded = false }
                     )
-                    .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.clear, ignoresSafeAreaEdges: .all)
-                    .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 320)
-                    .perfScene("Sidebar")
-                } detail: {
+                }
+            )
+            .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.clear, ignoresSafeAreaEdges: .all)
+            .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 320)
+            .perfScene("Sidebar")
+        } detail: {
+            TrailingReviewSplitHost(
+                isExpanded: viewModel.isTrailingInspectorExpanded,
+                panelWidth: $reviewPanelWidth,
+                main: {
                     detailSplitView
                         .perfScene("Detail")
+                },
+                panel: {
+                    PiAgentRepoReviewPanel(viewModel: viewModel)
                 }
-            },
-            panel: {
-                PiAgentRepoReviewPanel(viewModel: viewModel)
-            }
-        )
+            )
+            .perfScene("Detail+Review")
+        }
         .frame(minWidth: 1080, minHeight: 640)
         .navigationTitle(toolbarTitle)
         .toolbar { mainToolbarContent }
