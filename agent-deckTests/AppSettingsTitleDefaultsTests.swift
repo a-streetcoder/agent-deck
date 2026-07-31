@@ -60,4 +60,69 @@ final class AppSettingsTitleDefaultsTests: XCTestCase {
         XCTAssertEqual(payload["openAIFastEnabled"] as? Bool, true)
         XCTAssertNil(payload["openAIFastModeModelIdentifiers"])
     }
+
+    func testHelperRuntimeModelArgumentAvoidsForcedOffOnReasoningModels() {
+        let reasoning = AvailableModel(
+            provider: "grok-cli",
+            model: "grok-4.5",
+            contextWindow: "500K",
+            maxOutput: "30K",
+            supportsThinking: true,
+            supportsImages: true,
+            // Baseline catalog lists off first — helpers must not pick it.
+            supportedThinkingLevels: ["off", "minimal", "low", "medium", "high"]
+        )
+        XCTAssertEqual(
+            PiSessionTitleGenerationService.helperRuntimeModelArgument(for: reasoning),
+            "grok-4.5:minimal"
+        )
+
+        let nonThinking = AvailableModel(
+            provider: "grok-cli",
+            model: "grok-composer-2.5-fast",
+            contextWindow: "200K",
+            maxOutput: "30K",
+            supportsThinking: false,
+            supportsImages: false,
+            supportedThinkingLevels: ["off"]
+        )
+        XCTAssertEqual(
+            PiSessionTitleGenerationService.helperRuntimeModelArgument(for: nonThinking),
+            "grok-composer-2.5-fast"
+        )
+
+        let offOnly = AvailableModel(
+            provider: "example",
+            model: "r1",
+            contextWindow: "128K",
+            maxOutput: "8K",
+            supportsThinking: true,
+            supportsImages: false,
+            supportedThinkingLevels: ["off", "none"]
+        )
+        XCTAssertEqual(
+            PiSessionTitleGenerationService.helperRuntimeModelArgument(for: offOnly),
+            "r1"
+        )
+    }
+
+    func testProvisionalAutoTitleIncludesDraftAndAgentChatPrefixes() throws {
+        var draft = try PiTestSupport.makeParentSession()
+        draft.title = "Draft · pi-deck"
+        draft.isTitleUserEdited = false
+        XCTAssertTrue(draft.isProvisionalAutoTitle)
+
+        var agentChat = draft
+        agentChat.title = "Chat · Explore"
+        XCTAssertTrue(agentChat.isProvisionalAutoTitle)
+
+        var generated = draft
+        generated.title = "Fix session title generation"
+        XCTAssertFalse(generated.isProvisionalAutoTitle)
+
+        var userEdited = draft
+        userEdited.title = "Draft · pi-deck"
+        userEdited.isTitleUserEdited = true
+        XCTAssertFalse(userEdited.isProvisionalAutoTitle)
+    }
 }

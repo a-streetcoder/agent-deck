@@ -94,6 +94,46 @@ final class PiSessionTitleGenerationService {
         return "\(baseModel):\(trimmedThinking)"
     }
 
+    /// Model argument for isolated helper launches (title / commit / avatar / …).
+    ///
+    /// Historically helpers always forced `:off`. Several reasoning models reject
+    /// `off`/`none` (e.g. grok-cli/grok-4.5 → HTTP 400
+    /// "does not support reasoning_effort value none"), so auto-title looked
+    /// permanently broken even with Automations enabled. Prefer the cheapest
+    /// **accepted** thinking tier, and never invent `:off` when the catalog only
+    /// lists it as a baseline guess.
+    static func helperRuntimeModelArgument(for model: AvailableModel) -> String {
+        let stripped: String = {
+            let trimmed = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let suffix = trimmed.split(separator: ":").last.map(String.init),
+                  PiThinkingLevelCatalog.ordered.contains(suffix) else { return trimmed }
+            return trimmed.split(separator: ":").dropLast().joined(separator: ":")
+        }()
+
+        guard model.supportsThinking else { return stripped }
+
+        let levels = Set(
+            model.supportedThinkingLevels
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        // Skip off/none — often advertised in baseline catalogs but rejected by the API.
+        let preferred = ["minimal", "low", "lowest", "medium", "high", "xhigh", "max"]
+        if !levels.isEmpty {
+            for candidate in preferred where levels.contains(candidate) {
+                return runtimeModelArgument(modelID: stripped, thinkingLevel: candidate)
+            }
+            let nonOff = levels.subtracting(["off", "none"])
+            if let any = nonOff.sorted().first {
+                return runtimeModelArgument(modelID: stripped, thinkingLevel: any)
+            }
+            // Only off/none known → omit suffix; provider default is safer than 400s.
+            return stripped
+        }
+        // Thinking supported but levels unknown: minimal is widely accepted and cheap.
+        return runtimeModelArgument(modelID: stripped, thinkingLevel: "minimal")
+    }
+
     private func startHelper(
         systemPrompt: String,
         userPrompt: String,
@@ -132,7 +172,7 @@ final class PiSessionTitleGenerationService {
             let client = try PiRPCClient(
                 cwd: projectURL,
                 provider: model.provider,
-                modelArgument: Self.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
+                modelArgument: Self.helperRuntimeModelArgument(for: model),
                 extraArguments: [
                     "--no-session",
                 ] + PiAgentLaunchArgumentBuilder.isolatedLaunchBaseArguments(
@@ -212,6 +252,26 @@ final class PiSessionTitleGenerationService {
                 run.assistantText = text
             }
         case "agent_end", "turn_end":
+            // Prefer the finalized assistant payload when present (includes
+            // provider errorMessage on failed turns).
+            if let message = event.message {
+                let finalized = Self.extractAssistantText(from: message)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !finalized.isEmpty {
+                    run.assistantText = finalized
+                }
+                let stopReason = message["stopReason"]?.stringValue ?? ""
+                let errorMessage = message["errorMessage"]?.stringValue?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if run.assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   stopReason == "error" || !errorMessage.isEmpty {
+                    let detail = errorMessage.isEmpty
+                        ? "Title generation model returned an error."
+                        : errorMessage
+                    finish(runID: runID, result: .failure(GenerationError.rpc(detail)))
+                    return
+                }
+            }
             let rawTitle = run.assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !rawTitle.isEmpty else {
                 finish(runID: runID, result: .failure(GenerationError.emptyResponse))

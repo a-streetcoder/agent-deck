@@ -1081,6 +1081,16 @@ nonisolated struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         title
     }
 
+    /// Provisional sidebar titles that auto-title generation is allowed to replace.
+    ///
+    /// - `Draft · …` — project / general coding-agent drafts
+    /// - `Chat · …` — 1:1 agent sessions created from an agent card
+    ///
+    /// Manual renames set `isTitleUserEdited` and are never overwritten.
+    var isProvisionalAutoTitle: Bool {
+        !isTitleUserEdited && (title.hasPrefix("Draft ·") || title.hasPrefix("Chat ·"))
+    }
+
     /// Short project/scope label for chrome that sits next to the session title
     /// (toolbar, compact recents, accessibility). Empty for unlabeled scopes.
     var projectScopeLabel: String {

@@ -5189,17 +5189,24 @@ final class AppViewModel: NSObject {
     }
 
     private func schedulePiAgentTitleGenerationIfNeeded(for session: PiAgentSessionRecord, firstMessage: String) {
-        // Auto-title only applies while the session still has the provisional
-        // "Draft · …" name and the user has not renamed it. Older logic also
-        // required an empty transcript so generation ran exactly once on the
-        // first send; if the hidden Pi helper failed (unknown provider, empty
-        // model catalog, timeout), the session stayed Draft forever because
-        // later sends no longer matched that gate. Retry while still Draft.
+        // Auto-title only while the session still has a provisional name
+        // (`Draft · …` project drafts or `Chat · …` 1:1 agent chats) and the
+        // user has not renamed it. Older logic required an empty transcript so
+        // generation ran exactly once on the first send; if the hidden Pi
+        // helper failed, the session stayed provisional forever. Retry while
+        // still provisional. Agent sessions used to be gated on Draft-only and
+        // silently never titled despite the Automations toggle.
         guard appSettings.autoGeneratePiAgentSessionTitles,
-              session.title.hasPrefix("Draft ·"),
-              !session.isTitleUserEdited,
+              session.isProvisionalAutoTitle,
               !piAgentTitleGeneratingSessionIDs.contains(session.id),
-              let model = piAgentTitleGenerationModel() else { return }
+              let model = piAgentTitleGenerationModel() else {
+            if appSettings.autoGeneratePiAgentSessionTitles,
+               session.isProvisionalAutoTitle,
+               piAgentTitleGenerationModel() == nil {
+                NSLog("[Pi Deck] session title generation skipped session=%@ reason=no-model", session.id.uuidString)
+            }
+            return
+        }
 
         let trimmedIncoming = firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let existingUsers = piAgentSessionStore.transcript(for: session.id).filter(\.isProviderBackedUserMessage)
@@ -5231,8 +5238,7 @@ final class AppViewModel: NSObject {
             switch result {
             case let .success(title):
                 guard let current = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
-                      current.title.hasPrefix("Draft ·"),
-                      !current.isTitleUserEdited else { return }
+                      current.isProvisionalAutoTitle else { return }
                 withAnimation(.snappy(duration: 0.26)) {
                     self.piAgentSessionStore.applyGeneratedTitle(sessionID, title: title)
                 }
@@ -5243,8 +5249,7 @@ final class AppViewModel: NSObject {
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 NSLog("[Pi Deck] session title generation failed session=%@ model=%@ error=%@", sessionID.uuidString, modelLabel, message)
                 if let current = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
-                   current.title.hasPrefix("Draft ·"),
-                   !current.isTitleUserEdited {
+                   current.isProvisionalAutoTitle {
                     self.piAgentSessionStore.updateSession(sessionID) { record in
                         // Only stamp when empty so we don't clobber a live agent error.
                         if record.lastError == nil || record.lastError?.isEmpty == true {

@@ -72,7 +72,7 @@ final class SkillDescriptionGenerationService {
             let client = try PiRPCClient(
                 cwd: projectURL,
                 provider: model.provider,
-                modelArgument: PiSessionTitleGenerationService.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
+                modelArgument: PiSessionTitleGenerationService.helperRuntimeModelArgument(for: model),
                 extraArguments: [
                     "--no-session",
                 ] + PiAgentLaunchArgumentBuilder.isolatedLaunchBaseArguments(
