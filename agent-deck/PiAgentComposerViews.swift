@@ -86,6 +86,10 @@ struct PiAgentComposerBox: View {
     // Non-worktree sessions don't carry `branchName`; resolve the project's
     // current branch off the body hot path via `.task(id:)`.
     @State private var resolvedBranch: String?
+    @State private var localBranches: [String] = []
+    @State private var isLoadingBranches = false
+    @State private var isSwitchingBranch = false
+    @State private var branchActionError: String?
     // Last fully confirmed aggregate (orchestration + persisted completed
     // children) shown in the footer. Recomputed off the body hot path in
     // `.onChange`; the same aggregate can be reconstructed after view recreation.
@@ -142,7 +146,7 @@ struct PiAgentComposerBox: View {
         }
     }
 
-    private var branchRevealURL: URL? {
+    private var branchRepositoryURL: URL? {
         guard let session = metricsSession else { return nil }
         return URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
     }
@@ -246,9 +250,33 @@ struct PiAgentComposerBox: View {
                 }
 
                 HStack(alignment: .center, spacing: 10) {
-                    if let branch = displayedBranch, let revealURL = branchRevealURL {
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([revealURL])
+                    if let branch = displayedBranch, let repoURL = branchRepositoryURL {
+                        Menu {
+                            if isLoadingBranches && localBranches.isEmpty {
+                                Text(LanguageStore.shared.t("composer.branchLoading"))
+                            } else if localBranches.isEmpty {
+                                Text(LanguageStore.shared.t("composer.branchEmpty"))
+                            } else {
+                                ForEach(localBranches, id: \.self) { name in
+                                    Button {
+                                        Task { await switchComposerBranch(to: name, repositoryURL: repoURL) }
+                                    } label: {
+                                        if name == branch {
+                                            Label(
+                                                piAgentSessionDisplayBranchName(name),
+                                                systemImage: "checkmark"
+                                            )
+                                        } else {
+                                            Text(piAgentSessionDisplayBranchName(name))
+                                        }
+                                    }
+                                    .disabled(name == branch || isSwitchingBranch)
+                                }
+                            }
+                            Divider()
+                            Button(LanguageStore.shared.t("composer.branchRevealRepo")) {
+                                NSWorkspace.shared.activateFileViewerSelecting([repoURL])
+                            }
                         } label: {
                             HStack(spacing: 3) {
                                 Image("branch")
@@ -256,12 +284,37 @@ struct PiAgentComposerBox: View {
                                 Text(piAgentSessionDisplayBranchName(branch))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+                                if isSwitchingBranch {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                } else {
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 8, weight: .semibold))
+                                }
                             }
                             .font(AppTheme.Font.caption)
                             .foregroundStyle(AppTheme.mutedText)
+                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .help("\(branch)\n\(revealURL.path)")
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .disabled(isSwitchingBranch)
+                        .help(LanguageStore.shared.t("composer.branchMenu") + "\n\(branch)")
+                        .accessibilityLabel(LanguageStore.shared.t("composer.branchMenu"))
+                        .accessibilityValue(branch)
+                        .task(id: metricsSession?.id) {
+                            await refreshComposerBranches(repositoryURL: repoURL)
+                        }
+                    }
+
+                    if let branchActionError {
+                        Text(branchActionError)
+                            .font(AppTheme.Font.caption2)
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(branchActionError)
                     }
 
                     if let metricsSession {
@@ -347,6 +400,8 @@ struct PiAgentComposerBox: View {
             // For worktree-on sessions `branchName` is set at creation; for
             // worktree-off sessions resolve the project's current branch via git.
             // Runs off the body path; refreshed on session-id change.
+            branchActionError = nil
+            localBranches = []
             guard let session = metricsSession else {
                 resolvedBranch = nil
                 return
@@ -365,6 +420,41 @@ struct PiAgentComposerBox: View {
             resolvedBranch = (branch?.isEmpty == false && branch != "HEAD") ? branch : nil
         }
         .contentShape(RoundedRectangle(cornerRadius: AppTheme.Chat.composerCornerRadius, style: .continuous))
+    }
+
+    private func refreshComposerBranches(repositoryURL: URL) async {
+        isLoadingBranches = true
+        defer { isLoadingBranches = false }
+        let branches = (try? await GitRepositoryService().listLocalBranches(in: repositoryURL)) ?? []
+        guard !Task.isCancelled else { return }
+        // Keep the current branch visible even if listing failed partially.
+        if let current = displayedBranch, !current.isEmpty, !branches.contains(current) {
+            localBranches = [current] + branches
+        } else {
+            localBranches = branches
+        }
+    }
+
+    private func switchComposerBranch(to name: String, repositoryURL: URL) async {
+        guard name != displayedBranch, !isSwitchingBranch else { return }
+        isSwitchingBranch = true
+        branchActionError = nil
+        defer { isSwitchingBranch = false }
+        do {
+            try await GitRepositoryService().checkoutBranch(name, in: repositoryURL)
+            if let session = metricsSession, session.branchName != nil {
+                // Worktree / explicit session branch: keep the stored name in sync.
+                viewModel.piAgentSessionStore.updateSession(session.id) { record in
+                    record.branchName = name
+                }
+            } else {
+                resolvedBranch = name
+            }
+            await refreshComposerBranches(repositoryURL: repositoryURL)
+        } catch {
+            let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            branchActionError = LanguageStore.shared.t("composer.branchSwitchFailed", detail)
+        }
     }
 
     private var composerActionControls: some View {

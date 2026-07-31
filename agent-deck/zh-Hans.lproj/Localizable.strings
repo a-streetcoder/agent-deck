@@ -1358,6 +1358,12 @@
 "sys.global" = "全局";
 "sys.project" = "项目";
 "composer.attachFiles" = "附加文件";
+"composer.branchMenu" = "切换分支";
+"composer.branchLoading" = "正在加载分支…";
+"composer.branchEmpty" = "没有本地分支";
+"composer.branchSwitchFailed" = "无法切换分支：%@";
+"composer.branchCurrent" = "当前分支";
+"composer.branchRevealRepo" = "在访达中显示仓库";
 "composer.deckAgents" = "Deck Agents";
 "composer.removeImage" = "移除图片附件";
 "composer.newSession" = "新建会话";

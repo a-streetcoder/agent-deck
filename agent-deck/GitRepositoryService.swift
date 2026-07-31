@@ -95,6 +95,19 @@ struct GitRepositoryService {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Local branch names (`refs/heads/*`), newest commit first.
+    func listLocalBranches(in repositoryURL: URL) async throws -> [String] {
+        let text = try await runText(
+            arguments: ["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads/"],
+            commandDescription: "git for-each-ref refs/heads",
+            in: repositoryURL
+        )
+        return text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     func isClean(in repositoryURL: URL) async throws -> Bool {
         let text = try await runText(arguments: ["status", "--porcelain=v1"], commandDescription: "git status --porcelain=v1", in: repositoryURL)
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
