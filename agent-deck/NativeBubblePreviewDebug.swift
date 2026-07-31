@@ -48,7 +48,7 @@ enum NativeBubblePreviewDebug {
             HStack(spacing: 0) {
                 PiAgentTranscriptCard(entry: assistantEntry, style: .threadChild)
                     .frame(maxWidth: PiAgentBubbleWidth.replyCap(for: rowWidth), alignment: .leading)
-                Spacer(minLength: 60)
+                Spacer(minLength: PiAgentBubbleWidth.actionGutter)
             }
             .frame(width: rowWidth, alignment: .topLeading)
             .environment(\.transcriptContentWidth, rowWidth)
@@ -84,7 +84,7 @@ enum NativeBubblePreviewDebug {
                     renderMode: .child(.toolGroup(toolGroup))
                 )
                 .frame(maxWidth: PiAgentBubbleWidth.replyCap(for: rowWidth), alignment: .leading)
-                Spacer(minLength: 60)
+                Spacer(minLength: PiAgentBubbleWidth.actionGutter)
             }
             .frame(width: rowWidth, alignment: .topLeading)
             .environment(\.transcriptContentWidth, rowWidth)

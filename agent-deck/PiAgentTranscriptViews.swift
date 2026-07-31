@@ -789,15 +789,24 @@ extension EnvironmentValues {
 /// the pane, so it degrades gracefully on a narrow window). They never
 /// re-measure and never change width while a response streams in — preserving
 /// the transcript's "only the bottom child grows, and only vertically"
-/// zero-jumpiness design. Tune `replyCapMax` to taste.
+/// zero-jumpiness design.
+///
+/// ChatGPT-style: replies fill the column (minus action gutter); user bubbles
+/// hug on the right with a lower max fraction. Not two rigid half-panes.
 @MainActor
 enum PiAgentBubbleWidth {
-    // Agent reply / tool / plan card width — fixed, content-independent.
-    static let replyCapMultiplier: CGFloat = 0.72
-    static let replyCapMax: CGFloat = 720
+    /// Trailing (replies) / leading (user) space for hover copy/fork buttons.
+    /// Matches `ThreadMessageRow` spacer and the two-button overlay (~70pt).
+    static let actionGutter: CGFloat = 72
 
-    // User (question) bubble — hugs the message text, within these bounds.
-    static let userCapMultiplier: CGFloat = 0.62
+    // Agent reply / tool / plan — fill the content column (ChatGPT-style),
+    // minus the action gutter. Soft absolute ceiling for extreme ultrawide only.
+    static let replyCapMultiplier: CGFloat = 1.0
+    static let replyCapMax: CGFloat = 1_600
+
+    // User bubble — hug text; long prompts cap ~70% so they read as a right-side
+    // chip (ChatGPT-style), not a full-width bar.
+    static let userCapMultiplier: CGFloat = 0.70
     static let userCapMax: CGFloat = 720
     static let userMinWidth: CGFloat = 120
     /// Horizontal card padding plus a small rounding allowance. Keep this tied
@@ -806,8 +815,10 @@ enum PiAgentBubbleWidth {
     static let userChrome: CGFloat = AppTheme.Chat.bubbleHPadding * 2 + 2
 
     /// Fixed width for an agent reply / tool / plan card.
+    /// Fills the transcript column minus the action-button gutter.
     static func replyCap(for paneWidth: CGFloat) -> CGFloat {
-        min(paneWidth * replyCapMultiplier, replyCapMax)
+        let column = max(1, paneWidth - actionGutter)
+        return min(column * replyCapMultiplier, replyCapMax, column)
     }
 
     /// Content-hugging width for a user (question) bubble. Pure arithmetic plus
@@ -948,11 +959,11 @@ private struct ThreadMessageRow<Content: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             if copyOn == .leading {
-                Spacer(minLength: 60)
+                Spacer(minLength: PiAgentBubbleWidth.actionGutter)
                 card
             } else {
                 card
-                Spacer(minLength: 60)
+                Spacer(minLength: PiAgentBubbleWidth.actionGutter)
             }
         }
         .onHover { isHovering = $0 }
