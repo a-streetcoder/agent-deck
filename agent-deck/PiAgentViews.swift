@@ -1399,11 +1399,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var lastWidthDelta: CGFloat = 0
         private var lastWidthReconfigTime: CFTimeInterval = 0
         private var lastWidthTrackApplyTime: CFTimeInterval = 0
-        /// True while a splitter drag (Review/sidebar live-resize) is active.
-        /// While set, the frame/bounds observers are suppressed so ONLY the
-        /// live-resize notification drives width updates — avoids two paths
-        /// double-applying card widths and triggering height/scroll compensations
-        /// mid-drag (jitter, overlap, vertical scroll jumps).
+        /// True while a splitter drag is active. The transcript column width is
+        /// FROZEN at its pre-drag value so content doesn't rewrap mid-drag (which
+        /// overlaps rows when narrowed) and doesn't reflow every frame (jitter).
+        /// On drag end the flag clears and one clean re-layout happens to settle.
         private var isLiveResizing = false
         // (legacy name kept out — large-delta uses trackLive instead of settle)
         // Smooth auto-follow. The streaming follow doesn't snap to the bottom each
@@ -1422,7 +1421,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var liveScrollStartObserver: NSObjectProtocol?
         private var liveScrollEndObserver: NSObjectProtocol?
         private var columnWidthAnimateObserver: NSObjectProtocol?
-        private var columnWidthLiveResizeObserver: NSObjectProtocol?
+        private var columnResizeActiveObserver: NSObjectProtocol?
         private var lastPinnedState = true
         // Auto-follow *intent*, distinct from the position-based `isPinnedToBottom`.
         // True = stick to the bottom as content streams. Only a user scroll changes
@@ -2119,23 +2118,28 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
             // Disabled for the top-level three-column host: predicting a target
             // width before the real viewport settles made bubble chrome and text
-            // content appear to scale/move twice. Real viewport updates come from
-            // frame-change + live-resize notifications only.
+            // content appear to scale/move twice. The frame-change observer is the
+            // single live width source; it's gated while a splitter drag is active
+            // so the transcript stays frozen (no rewrap / overlap / jitter) until
+            // the drag ends and it re-lays out once to the settled width.
             columnWidthAnimateObserver = nil
 
-            // Review splitter drag: reflow bubbles every frame (no 300ms settle).
-            columnWidthLiveResizeObserver = NotificationCenter.default.addObserver(
-                forName: .transcriptColumnLiveResizeWidth,
+            // Freeze transcript sizing while the user drags a splitter (Review /
+            // sidebar); thaw + re-layout when they release (`active: false`).
+            columnResizeActiveObserver = NotificationCenter.default.addObserver(
+                forName: .transcriptColumnResizeActive,
                 object: nil,
                 queue: .main
             ) { [weak self] note in
-                let info = note.userInfo
-                let widthValue = (info?["width"] as? CGFloat)
-                    ?? (info?["width"] as? Double).map { CGFloat($0) }
-                let isFinal = (info?["final"] as? Bool) ?? false
+                let active = (note.userInfo?["active"] as? Bool) ?? false
                 MainActor.assumeIsolated {
-                    guard let self, let widthValue, widthValue > 1 else { return }
-                    self.applyLiveTranscriptColumnWidth(widthValue, isFinal: isFinal)
+                    guard let self else { return }
+                    self.isLiveResizing = active
+                    if !active {
+                        // Drag ended: let the frame observer pick up the settled
+                        // width and do ONE clean re-layout.
+                        self.updateColumnWidthIfNeeded()
+                    }
                 }
             }
 
@@ -2191,13 +2195,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if let liveScrollStartObserver { NotificationCenter.default.removeObserver(liveScrollStartObserver) }
             if let liveScrollEndObserver { NotificationCenter.default.removeObserver(liveScrollEndObserver) }
             if let columnWidthAnimateObserver { NotificationCenter.default.removeObserver(columnWidthAnimateObserver) }
-            if let columnWidthLiveResizeObserver { NotificationCenter.default.removeObserver(columnWidthLiveResizeObserver) }
+            if let columnResizeActiveObserver { NotificationCenter.default.removeObserver(columnResizeActiveObserver) }
             boundsObserver = nil
             frameObserver = nil
             liveScrollStartObserver = nil
             liveScrollEndObserver = nil
             columnWidthAnimateObserver = nil
-            columnWidthLiveResizeObserver = nil
+            columnResizeActiveObserver = nil
             pendingHeightWork?.cancel()
             pendingScrollWork?.cancel()
             pendingSettleScrollWork?.cancel()
@@ -2910,51 +2914,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// Live sidebar tracking: only nudge bubble/question card widths.
         private func applyWidthOnlyToVisibleCells() {
             applyWidthOnlyToVisibleCells(width: contentWidth, animated: false, duration: 0)
-        }
-
-        /// Review/sidebar splitter drag: apply width immediately (no settle debounce).
-        /// While dragging (`isFinal == false`) ONLY card-width constraints are
-        /// updated — no height recompute, no full reconfigure, no estimate clear —
-        /// so the transcript follows horizontally without jitter/overlap. The flag
-        /// suppresses the frame/bounds observers so no second path fights this one.
-        private func applyLiveTranscriptColumnWidth(_ width: CGFloat, isFinal: Bool) {
-            isLiveResizing = !isFinal
-            // Prefer the live viewport when present — guards against stale
-            // host-wide widths if a notification still carries the wrong value.
-            let viewport = currentViewportWidth()
-            let proposed = max(200, width)
-            var target = proposed
-            if viewport > 40 {
-                if proposed > viewport + 24 {
-                    target = max(200, viewport)
-                } else {
-                    target = min(proposed, viewport + 2)
-                }
-            }
-            let delta = abs(target - contentWidth)
-            guard delta > 0.5 || isFinal else { return }
-            contentWidth = target
-            lastWidthChangeTime = CACurrentMediaTime()
-            lastWidthDelta = max(lastWidthDelta, delta)
-            lastWidthTrackApplyTime = CACurrentMediaTime()
-            // Cancel settle-based reconfig so drag does not wait 300ms.
-            pendingWidthWork?.cancel()
-            pendingWidthWork = nil
-            widthReconfigureGeneration += 1
-            if let tableView {
-                tableView.tableColumns.first?.width = target
-                tableView.sizeLastColumnToFit()
-            }
-            // Cards wrap at the OLD measured height; only the bubble/question
-            // width constraints move. Heights stay put until the drag ends.
-            TranscriptLayoutAnimation.animateWidth = false
-            applyWidthOnlyToVisibleCells(width: target, animated: false, duration: 0)
-            if isFinal {
-                // Once the drag ends: clear estimates and do ONE full reconfigure
-                // for correct row heights at the settled width.
-                estimateByID.removeAll()
-                reconfigureAllVisibleCells()
-            }
         }
 
         private func applyWidthOnlyToVisibleCells(width: CGFloat, animated: Bool, duration: TimeInterval) {
