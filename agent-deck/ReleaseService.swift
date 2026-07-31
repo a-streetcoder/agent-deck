@@ -1,6 +1,6 @@
 import Foundation
 
-/// Replicates `scripts/release.sh` for Agent Deck: preflight a clean, synced
+/// Replicates `scripts/release.sh` for Pi Deck: preflight a clean, synced
 /// `main`, read the latest `vX.Y[.Z]` tag, then `git tag -a` + `git push` a
 /// patch, minor, or major bump. The pushed tag fires `.github/workflows/release.yml`,
 /// which does the actual build/sign/notarize/publish — this service only tags
@@ -8,7 +8,8 @@ import Foundation
 struct ReleaseService {
     /// The one repo this whole flow is scoped to. The toolbar button only shows
     /// when the selected session's repo matches this.
-    nonisolated static let repository = "a-streetcoder/agent-deck"
+    /// Must match the public GitHub remote for this fork, not upstream Agent Deck.
+    nonisolated static let repository = AppBrand.githubRepository
     nonisolated static let remote = "origin"
     nonisolated static let mainBranch = "main"
 

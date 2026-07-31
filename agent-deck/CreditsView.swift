@@ -8,9 +8,9 @@ enum AboutWindow {
 
 /// Open-source, font, asset, and service acknowledgements.
 ///
-/// Shown in Agent Deck's custom About window (`AboutView`), opened from
-/// App menu ▸ About Agent Deck. Only things the app actually ships or
-/// adapted code from are listed — not loose inspirations.
+/// Shown in Pi Deck's custom About window (`AboutView`), opened from
+/// App menu ▸ About Pi Deck. Credits the fork maintainer, upstream Agent Deck
+/// authors, and things the app actually ships or adapted code from.
 enum AppCredits {
     struct Entry: Identifiable {
         let title: String
@@ -57,9 +57,12 @@ enum AppCredits {
         }
     }
 
+    /// GitHub logins shown in About → Created by.
+    /// Pi Deck maintainer first; upstream Agent Deck authors retained for attribution.
     static let authors: [Author] = [
-        Author(login: "acorvi", role: "Creator"),
-        Author(login: "almoretti", role: "Contributor")
+        Author(login: "mengeric", role: "Pi Deck · Maintainer"),
+        Author(login: "acorvi", role: "Agent Deck · Creator"),
+        Author(login: "almoretti", role: "Agent Deck · Contributor")
     ]
 
     static let sections: [Section] = [
@@ -77,9 +80,19 @@ enum AppCredits {
         ]),
         Section(title: LanguageStore.shared.t("credits.openSource"), entries: [
             Entry(
+                title: "Agent Deck",
+                detail: "Pi Deck is a fork / derivative of Agent Deck (MIT · Streetcoding Ltd). Upstream source and architecture are the foundation of this app.",
+                url: AppBrand.upstreamGitHubURL?.absoluteString
+            ),
+            Entry(
                 title: "pi coding agent",
-                detail: "Agent Deck is powered by pi, the terminal coding agent by Earendil Works.",
+                detail: "Pi Deck is powered by pi, the terminal coding agent by Earendil Works.",
                 url: "https://pi.dev"
+            ),
+            Entry(
+                title: "Pi Deck (source)",
+                detail: "This product’s source repository on GitHub.",
+                url: AppBrand.githubURL?.absoluteString
             ),
             Entry(
                 title: "marked.js",
