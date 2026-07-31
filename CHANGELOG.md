@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.6 — 2026-07-31
+
+### Highlights
+- **Markdown 表格可读性**：圆角边框卡片、表头底色、行/列分隔线、单元格内边距；列宽按内容权重分配（不再强制等分），剩余宽度补给长列并铺满气泡。
+- **表格色带对齐**：表头/斑马纹背景铺满外框（去掉左右 gutter 色差）。
+
+### Fixed
+- `MarkdownTableView`：等分列宽 → content-weighted；弱网格 → 明确表格 chrome；左侧背景未对齐。
+
+### Packaging
+- `MARKETING_VERSION` **0.0.6**，`CURRENT_PROJECT_VERSION` **6**
+- Tag: `v0.0.6`
+- Artifacts: `build/Pi-Deck-0.0.6.zip`, `build/Pi-Deck-0.0.6.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.5 — 2026-07-31
 
 ### Highlights
