@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.0.9 — 2026-07-31
+
+### Highlights
+- **分支切换**：composer 底部分支标签改为本地分支菜单（`git checkout`），访达打开降为次要项。
+- **会话标题只读**：去掉侧栏/会话头手动重命名，标题由 AI 自动生成展示。
+- **空 thinking 结束回合**：turn 结束且无最终 message payload 时正确回到 idle，避免一直 Working。
+
+### Fixed / Changed
+- `PiAgentComposerViews` + `GitRepositoryService.listLocalBranches`：分支列表与切换
+- `PiAgentSessionListViews` / `PiAgentViews`：移除 rename UI 与状态
+- thinking-only turn 结束路径（idle recovery）
+
+### Packaging
+- `MARKETING_VERSION` **0.0.9**，`CURRENT_PROJECT_VERSION` **9**
+- Tag: `v0.0.9`
+- Artifacts: `build/Pi-Deck-0.0.9.zip`, `build/Pi-Deck-0.0.9.dmg`（未签名）
+
+### Install (unsigned)
+```bash
+xattr -cr "/Applications/Pi Deck.app"
+```
+
+---
+
 ## 0.0.8 — 2026-07-31
 
 ### Highlights
