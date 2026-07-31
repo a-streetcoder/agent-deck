@@ -1166,10 +1166,10 @@ final class NativeMarkdownTextContainer: NSView {
 
     /// Native GFM table: builds each cell's attributed string (header cells bold,
     /// inline markdown parsed) and hands them to `MarkdownTableView`, which lays the
-    /// grid out by hand with equal columns and self-measured row heights. An
-    /// `NSGridView` of auto-sizing text views does NOT constrain column widths here,
-    /// so cells stacked into one tall column — manual layout
-    /// is what actually wraps cells into proper columns.
+    /// grid with **content-weighted** column widths and self-measured row heights.
+    /// `NSGridView` of auto-sizing text views does not constrain column widths
+    /// against the host width, so cells collapse into one tall column — manual
+    /// layout is what actually wraps cells into proper columns.
     private static func tableBlock(_ table: MarkdownTable) -> NSView {
         let bodyFont = NativeMarkdownFont.body
         let headerFont = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
@@ -1584,11 +1584,11 @@ final class NativeMarkdownTextContainer: NSView {
     }
 }
 
-/// Native GFM table laid out by hand: equal-width columns,
-/// each cell a text view measured at the column width, a hairline under the header,
-/// and a self height-constraint so the host stack's `fittingSize` includes it.
-/// `NSGridView` was tried first but doesn't constrain column widths against the
-/// auto-sizing cells, collapsing every cell into one tall column.
+/// Native GFM table laid out by hand: **content-weighted** columns (not equal
+/// split), each cell a text view measured at its column width, a hairline under
+/// the header, and a self height-constraint so the host stack's `fittingSize`
+/// includes it. `NSGridView` was tried first but doesn't constrain column widths
+/// against the auto-sizing cells, collapsing every cell into one tall column.
 private final class MarkdownTableView: NSView {
     private var cellViews: [[NSTextView]] = []   // [row][col]; row 0 is the header
     private let separator = NSBox()
@@ -1667,14 +1667,25 @@ private final class MarkdownTableView: NSView {
         let separatorGap: CGFloat = 6
         let headerPaddingBottom: CGFloat = 6
         let totalGaps = CGFloat(columnCount - 1) * columnGap
-        let usable = max(width - totalGaps, CGFloat(columnCount) * 40)
-        let columnWidth = floor(usable / CGFloat(columnCount))
+        let minColumnWidth: CGFloat = 40
+        // Keep at least a little room for every column; cap one long column from
+        // eating the whole pane before proportional shrink.
+        let maxColumnShare: CGFloat = 0.72
+        let usable = max(width - totalGaps, CGFloat(columnCount) * minColumnWidth)
+        let columnWidths = Self.contentWeightedColumnWidths(
+            cellViews: cellViews,
+            columnCount: columnCount,
+            usableWidth: usable,
+            minWidth: minColumnWidth,
+            maxWidth: max(minColumnWidth, floor(usable * maxColumnShare))
+        )
 
-        // Row heights from each cell's own TextKit layout at the column width.
+        // Row heights from each cell's own TextKit layout at its column width.
         var rowHeights: [CGFloat] = []
         for row in cellViews {
             var maxH: CGFloat = 0
-            for cell in row {
+            for (colIdx, cell) in row.enumerated() {
+                let columnWidth = columnWidths[min(colIdx, columnWidths.count - 1)]
                 cell.textContainer?.containerSize = NSSize(width: columnWidth, height: .greatestFiniteMagnitude)
                 if let lm = cell.layoutManager, let tc = cell.textContainer {
                     lm.ensureLayout(for: tc)
@@ -1691,6 +1702,7 @@ private final class MarkdownTableView: NSView {
             var x: CGFloat = 0
             let rowH = rowHeights[rowIdx]
             for (colIdx, cell) in row.enumerated() {
+                let columnWidth = columnWidths[min(colIdx, columnWidths.count - 1)]
                 cell.frame = NSRect(x: x, y: y, width: columnWidth, height: rowH)
                 x += columnWidth
                 if colIdx < row.count - 1 { x += columnGap }
@@ -1724,6 +1736,72 @@ private final class MarkdownTableView: NSView {
             heightConstraint.constant = newHeight
             invalidateIntrinsicContentSize()
         }
+    }
+
+    /// Preferred single-line (or unwrapped) width of a cell's attributed content.
+    private static func preferredContentWidth(of textView: NSTextView) -> CGFloat {
+        guard let storage = textView.textStorage, storage.length > 0 else { return 0 }
+        let bounds = storage.boundingRect(
+            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        // Small fudge so bold headers / emoji don't clip when rounded down.
+        return ceil(bounds.width) + 2
+    }
+
+    /// Distribute `usableWidth` across columns by content weight instead of equal
+    /// split. Short columns stay narrow; long prose gets more room and wraps only
+    /// after preferred widths exceed the pane.
+    private static func contentWeightedColumnWidths(
+        cellViews: [[NSTextView]],
+        columnCount: Int,
+        usableWidth: CGFloat,
+        minWidth: CGFloat,
+        maxWidth: CGFloat
+    ) -> [CGFloat] {
+        guard columnCount > 0 else { return [] }
+
+        var preferred = [CGFloat](repeating: minWidth, count: columnCount)
+        for row in cellViews {
+            for col in 0..<columnCount {
+                guard col < row.count else { continue }
+                preferred[col] = max(preferred[col], preferredContentWidth(of: row[col]))
+            }
+        }
+
+        // Clamp raw preference into [min, max] before scaling.
+        preferred = preferred.map { min(max($0, minWidth), maxWidth) }
+
+        let sumPreferred = preferred.reduce(0, +)
+        if sumPreferred <= usableWidth + 0.5 {
+            // Content fits: keep natural widths (left-aligned table; empty on the right).
+            return preferred.map { floor($0) }
+        }
+
+        // Overflow: scale down proportionally, then repair any column below min.
+        var widths = preferred.map { floor(max(minWidth, $0 * usableWidth / sumPreferred)) }
+        var allocated = widths.reduce(0, +)
+        // If rounding left leftover space, give it to the widest preferred column.
+        if allocated < floor(usableWidth) {
+            let deficit = floor(usableWidth) - allocated
+            if let widest = preferred.enumerated().max(by: { $0.element < $1.element })?.offset {
+                widths[widest] += deficit
+                allocated += deficit
+            }
+        }
+        // If still over (minWidth floor), shave the longest columns.
+        var overflow = allocated - floor(usableWidth)
+        while overflow > 0.5 {
+            guard let idx = widths.enumerated()
+                .filter({ $0.element > minWidth + 0.5 })
+                .max(by: { $0.element < $1.element })?
+                .offset
+            else { break }
+            let shave = min(overflow, widths[idx] - minWidth)
+            widths[idx] -= shave
+            overflow -= shave
+        }
+        return widths
     }
 
     override func draw(_ dirtyRect: NSRect) {
