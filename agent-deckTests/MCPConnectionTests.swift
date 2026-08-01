@@ -515,6 +515,25 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertTrue(scoped.contains { $0.qualifiedName == "alpha/echo" })
     }
 
+    @MainActor
+    func testProductionBridgeListDiscoversRequestingSessionScope() async {
+        let manager = manager()
+        await manager.configure(servers: [
+            MCPServerEntry(name: "active-project", config: MCPServerConfig(command: "active"), sourcePath: "/active"),
+            MCPServerEntry(name: "session-only", config: MCPServerConfig(command: "session"), sourcePath: "/session")
+        ])
+
+        let response = await AppViewModel.performMCPBridge(
+            request: PiMCPBridgeRequest(action: "list", server: nil, tool: nil, query: nil, args: nil),
+            scope: ["session-only"],
+            connectionManager: manager,
+            sessionID: UUID(),
+            projectID: "/session-project"
+        )
+
+        XCTAssertEqual(response, "- session-only: 2 tools")
+    }
+
     func testSearchAndDescribeUseCache() async throws {
         let manager = manager()
         await manager.configure(servers: [

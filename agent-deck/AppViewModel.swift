@@ -4889,7 +4889,7 @@ final class AppViewModel: NSObject {
     }
 
     private func handleSubagentMCPBridge(parentSessionID: UUID, runID: UUID, agentName: String?, request: PiMCPBridgeRequest) async -> String {
-        await performMCPBridge(request: request, scope: subagentMCPScope(parentSessionID: parentSessionID, agentName: agentName), sessionID: parentSessionID, projectID: piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID })?.projectPathForProjectFeatures, requestingAgent: agentName, subagentRunID: runID)
+        await Self.performMCPBridge(request: request, scope: subagentMCPScope(parentSessionID: parentSessionID, agentName: agentName), connectionManager: mcpConnectionManager, sessionID: parentSessionID, projectID: piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID })?.projectPathForProjectFeatures, requestingAgent: agentName, subagentRunID: runID)
     }
 
     /// Compact MCP tool catalog for a given set of entries. Shared by the parent-session
@@ -4936,7 +4936,7 @@ final class AppViewModel: NSObject {
         let boundAgentName = boundAgent(for: session)?.name
         Task { [weak self] in
             guard let self else { completion("\(AppBrand.displayName)'s MCP bridge is not available."); return }
-            let text = await self.performMCPBridge(request: request, scope: scope, sessionID: sessionID, projectID: self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.projectPathForProjectFeatures, requestingAgent: boundAgentName)
+            let text = await Self.performMCPBridge(request: request, scope: scope, connectionManager: self.mcpConnectionManager, sessionID: sessionID, projectID: self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.projectPathForProjectFeatures, requestingAgent: boundAgentName)
             completion(text)
         }
     }
@@ -4947,10 +4947,10 @@ final class AppViewModel: NSObject {
         return String(decoding: (try? encoder.encode(result)) ?? Data("MCP bridge result encoding failed.".utf8), as: UTF8.self)
     }
 
-    private func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>, sessionID: UUID, projectID: String? = nil, requestingAgent: String? = nil, subagentRunID: UUID? = nil) async -> String {
+    static func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>, connectionManager: MCPConnectionManager, sessionID: UUID, projectID: String? = nil, requestingAgent: String? = nil, subagentRunID: UUID? = nil) async -> String {
         switch request.action {
         case "search":
-            let hits = await mcpConnectionManager.search(query: request.query ?? "", serverNames: scope)
+            let hits = await connectionManager.search(query: request.query ?? "", serverNames: scope)
             guard !hits.isEmpty else { return "No MCP tools matched \"\(request.query ?? "")\"." }
             return hits.map { "- \($0.qualifiedName): \($0.description ?? "(no description)")" }.joined(separator: "\n")
 
@@ -4959,7 +4959,7 @@ final class AppViewModel: NSObject {
                   scope.contains(address.server) else {
                 return "Unknown or unassigned MCP tool \"\(request.tool ?? "")\"."
             }
-            guard let descriptor = await mcpConnectionManager.describe(server: address.server, tool: address.tool) else {
+            guard let descriptor = await connectionManager.describe(server: address.server, tool: address.tool) else {
                 return "Tool \(address.server)/\(address.tool) was not found."
             }
             var out = "\(address.server)/\(descriptor.name): \(descriptor.description ?? "(no description)")"
@@ -4976,14 +4976,14 @@ final class AppViewModel: NSObject {
                 return "MCP server \"\(address.server)\" is not assigned to this session."
             }
             do {
-                let result = try await mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context: MCPCallContext(sessionID: sessionID, projectID: projectID, server: address.server, tool: address.tool, requestingAgent: requestingAgent, subagentRunID: subagentRunID))
+                let result = try await connectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context: MCPCallContext(sessionID: sessionID, projectID: projectID, server: address.server, tool: address.tool, requestingAgent: requestingAgent, subagentRunID: subagentRunID))
                 return Self.encodeMCPBridgeCallResult(.callResult(result, server: address.server, tool: address.tool))
             } catch {
                 return Self.encodeMCPBridgeCallResult(.failure(server: address.server, tool: address.tool, message: "MCP call failed: \(error.localizedDescription)"))
             }
 
         default: // "list"
-            let entries = mcpCatalogSnapshot.filter { scope.contains($0.server) }
+            let entries = await connectionManager.discoverCatalog(serverNames: scope)
             guard !entries.isEmpty else { return "No MCP servers are assigned to this session." }
             let counts = Dictionary(grouping: entries, by: \.server).mapValues(\.count)
             return counts.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value) tools" }.joined(separator: "\n")
