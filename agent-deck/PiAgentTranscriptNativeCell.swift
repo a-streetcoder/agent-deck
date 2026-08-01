@@ -670,32 +670,32 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
 
     /// Width-only update (no document rebuild). Used for live sidebar tracking
     /// and for proactive open/close animation in lockstep with the Review panel.
+    // `animated`/`duration` are retained for source compatibility with the settle
+    // caller, but the card constraint is always committed as a hard model update
+    // (never an animator projection) — see the body for why.
     func applyRowWidth(_ rowWidth: CGFloat, animated: Bool = false, duration: TimeInterval = TranscriptLayoutAnimation.duration) {
         guard payload != nil else { return }
         let cardW = cardWidth(forRowWidth: rowWidth)
         let cardLeading = payload!.isUserHugged ? max(0, rowWidth - cardW) : 0
         guard abs(cardWidthC.constant - cardW) > 0.5 || abs(cardLeadingC.constant - cardLeading) > 0.5 else { return }
-        // Always commit the model constants first so Auto Layout resolves the
-        // real card frame before we re-wrap markdown. Animating only via the
-        // animator proxy with allowsImplicitAnimation=true was sliding subviews
-        // and leaving text painted on the trailing half of the expanded card.
+        // Commit model geometry and re-wrap markdown against the *actual* laid-out
+        // content width — never an animator-projection that can disagree with the
+        // still-animating host column. Animating `cardWidthC`/`cardLeadingC` via
+        // NSLayoutConstraint.animator() left autolayout resolving to the
+        // constraint's presentation value (the *old* width) during the animation,
+        // so layoutSubtreeIfNeeded() measured `container.bounds.width` as the
+        // pre-resize width and re-wrapped markdown against it; the stale
+        // textContainer widths then painted short line-fragments on the trailing
+        // edge of the newly expanded card (shown as "all text on the right, empty
+        // left" on sidebar close). The host column's own frame animation already
+        // drives per-frame boundsObserver → trackLive updates, so easing the card
+        // constraint here is neither needed nor safe.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         cardView.layer?.removeAllAnimations()
         cardWidthC.constant = cardW
         cardLeadingC.constant = cardLeading
-        if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = duration
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                ctx.allowsImplicitAnimation = false
-                cardWidthC.animator().constant = cardW
-                cardLeadingC.animator().constant = cardLeading
-            }
-        }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         layoutSubtreeIfNeeded()
-        // Re-wrap against the *actual* laid-out content width — never a predicted
-        // target that can disagree with the still-animating host column.
         for container in markdownContainers {
             container.prepareForEnclosingWidthChange()
             let laidOut = max(1, container.bounds.width)
