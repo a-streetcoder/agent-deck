@@ -76,6 +76,7 @@ private struct ThreeColumnChatWidthKey: PreferenceKey {
 /// Review collapses to width 0; chat is always the flex middle column so
 /// transcript live-reflow uses chat viewport only (never sidebar).
 struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
+    var isSidebarVisible: Bool = true
     var isReviewExpanded: Bool
     @Binding var sidebarWidth: CGFloat
     @Binding var reviewPanelWidth: CGFloat
@@ -120,13 +121,22 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
                 }
                 .clipped()
                 .layoutPriority(0)
+                .opacity(isSidebarVisible ? 1 : 0)
+                .animation(isAnyDragging ? nil : PanelTransition.fade, value: isSidebarVisible)
+                .transaction { txn in
+                    if isAnyDragging { txn.disablesAnimations = true }
+                }
+                .allowsHitTesting(isSidebarVisible)
 
             columnHandle(
                 isDragging: isSidebarDragging,
                 onDragChanged: handleSidebarDragChanged,
                 onDragEnded: handleSidebarDragEnded
             )
-            .frame(width: handleWidth)
+            .frame(width: isSidebarVisible ? handleWidth : 0)
+            .padding(.horizontal, isSidebarVisible ? 6 : 0)
+            .opacity(isSidebarVisible ? 1 : 0)
+            .allowsHitTesting(isSidebarVisible)
 
             // ② Chat / detail (flex)
             main()
@@ -184,9 +194,15 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
         )
         .onPreferenceChange(ThreeColumnChatWidthKey.self) { chatColumnWidth = $0 }
         .onChange(of: isReviewExpanded) { _, _ in
+            // Programmatic panel open/close already produces continuous frame
+            // changes that the transcript width observer can follow live.
+            // Do not bracket it as a drag-style freeze/thaw cycle — that was
+            // causing one extra visible settle pulse after the layout had
+            // already reached its final width.
             clampWidthsToHost()
-            // Let the transcript follow the real viewport via frame updates/live resize.
-            // The proactive target-width path caused bubble/content double-motion.
+        }
+        .onChange(of: isSidebarVisible) { _, _ in
+            clampWidthsToHost()
         }
         .onChange(of: hostWidth) { _, _ in
             clampWidthsToHost()
@@ -196,7 +212,8 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
     // MARK: Widths
 
     private var clampedSidebarWidth: CGFloat {
-        min(sidebarMax, max(sidebarMin, sidebarWidth))
+        guard isSidebarVisible else { return 0 }
+        return min(sidebarMax, max(sidebarMin, sidebarWidth))
     }
 
     private var displayedReviewWidth: CGFloat {
@@ -210,8 +227,11 @@ struct ThreeColumnWorkspaceHost<Sidebar: View, Main: View, Panel: View>: View {
     /// Max review so chat keeps `chatMin` and sidebar keeps its current width.
     private var effectiveMaxReviewWidth: CGFloat {
         let host = hostWidth > 1 ? hostWidth : 1400
-        // Reserve: sidebar + sidebar|chat handle + chatMin + chat|review handle
-        let reserved = clampedSidebarWidth + handleWidth + chatMin + handleWidth
+        // Reserve: sidebar + sidebar|chat handle + chatMin + chat|review handle.
+        // When the sidebar is hidden, it and its handle take no width.
+        let sidebarPart = isSidebarVisible ? (clampedSidebarWidth + handleWidth) : 0
+        let reviewHandle = isReviewExpanded ? handleWidth : 0
+        let reserved = sidebarPart + chatMin + reviewHandle
         let fromHost = max(reviewMin, host - reserved)
         return min(reviewMax, fromHost)
     }
@@ -743,10 +763,10 @@ struct PiAgentRepoReviewPanel: View {
             } else {
                 HSplitView {
                     previewColumn
-                        .frame(minWidth: 300)
+                        .frame(minWidth: 140)
                         .layoutPriority(1)
                     fileListColumn
-                        .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
+                        .frame(minWidth: 130, idealWidth: 220, maxWidth: 300)
                 }
             }
         }
@@ -762,63 +782,55 @@ struct PiAgentRepoReviewPanel: View {
     // MARK: Chrome
 
     private var chromeBar: some View {
-        HStack(spacing: 10) {
-            // Active tab chip (room for future inspector tabs).
-            HStack(spacing: 6) {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(languageStore.t("review.title"))
-                    .font(AppTheme.Font.caption.weight(.semibold))
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(AppTheme.contentSubtleFill.opacity(0.9))
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .strokeBorder(AppTheme.hairlineStroke.opacity(0.6), lineWidth: 1)
-                    )
-            )
+        // Single row — branch + diff summary owns the full width, trailing
+        // actions always visible and pinned right.
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                if let snapshot = viewModel.githubRepositoryChanges {
+                    branchChip(snapshot)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .clipped()
 
-            if let snapshot = viewModel.githubRepositoryChanges {
-                branchChip(snapshot)
-                if additionHint > 0 || deletionHint > 0 {
-                    HStack(spacing: 6) {
-                        if additionHint > 0 {
-                            Text("+\(additionHint)")
-                                .foregroundStyle(AppTheme.diffAdded)
+                    if additionHint > 0 || deletionHint > 0 {
+                        HStack(spacing: 6) {
+                            if additionHint > 0 {
+                                Text("+\(additionHint)")
+                                    .foregroundStyle(AppTheme.diffAdded)
+                                    .lineLimit(1)
+                            }
+                            if deletionHint > 0 {
+                                Text("-\(deletionHint)")
+                                    .foregroundStyle(AppTheme.diffRemoved)
+                                    .lineLimit(1)
+                            }
                         }
-                        if deletionHint > 0 {
-                            Text("-\(deletionHint)")
-                                .foregroundStyle(AppTheme.diffRemoved)
-                        }
+                        .font(AppTheme.Font.caption2.weight(.semibold).monospacedDigit())
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                    .font(AppTheme.Font.caption2.weight(.semibold).monospacedDigit())
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                if viewModel.githubIsLoadingRepositoryChanges {
+                    AppSpinner().controlSize(.mini)
+                }
 
-            if viewModel.githubIsLoadingRepositoryChanges {
-                AppSpinner().controlSize(.mini)
+                AppCircleIconButton(
+                    style: .neutral,
+                    size: 26,
+                    imageScale: .medium,
+                    symbolWeight: .semibold,
+                    help: languageStore.t("common.refresh")
+                ) {
+                    viewModel.prepareRepoChangesForSelectedPiAgentSession(force: true)
+                } symbol: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(viewModel.githubIsLoadingRepositoryChanges)
+                .opacity(viewModel.githubIsLoadingRepositoryChanges ? 0.5 : 1)
             }
-
-            chromeIconButton(
-                systemName: "arrow.clockwise",
-                help: languageStore.t("common.refresh"),
-                disabled: viewModel.githubIsLoadingRepositoryChanges
-            ) {
-                viewModel.prepareRepoChangesForSelectedPiAgentSession(force: true)
-            }
-
-            chromeIconButton(
-                systemName: "sidebar.trailing",
-                help: languageStore.t("review.collapse")
-            ) {
-                viewModel.collapseTrailingInspector()
-            }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -830,11 +842,13 @@ struct PiAgentRepoReviewPanel: View {
                 .font(.system(size: 10, weight: .semibold))
             Text(snapshot.branchName)
                 .lineLimit(1)
+                .truncationMode(.middle)
             if let upstream = snapshot.upstreamBranch, !upstream.isEmpty {
                 Text("→")
                     .foregroundStyle(AppTheme.mutedText)
                 Text(upstream)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                     .foregroundStyle(AppTheme.mutedText)
             }
         }
@@ -845,24 +859,6 @@ struct PiAgentRepoReviewPanel: View {
             Capsule(style: .continuous)
                 .strokeBorder(AppTheme.hairlineStroke.opacity(0.55), lineWidth: 1)
         )
-    }
-
-    private func chromeIconButton(
-        systemName: String,
-        help: String,
-        disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 26, height: 26)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(disabled ? AppTheme.mutedText.opacity(0.45) : .primary)
-        .disabled(disabled)
-        .help(help)
     }
 
     private var additionHint: Int {

@@ -1371,6 +1371,8 @@
 
 /* Repo Review 工作台 */
 "review.title" = "审阅改动";
+"toolbar.toggleSidebar" = "侧边栏";
+"toolbar.toggleSidebarHelp" = "打开或关闭左侧导航侧边栏";
 "review.toolbar" = "审阅";
 "review.toolbarHelp" = "打开或关闭右侧审阅侧栏";
 "review.noSession" = "无会话";

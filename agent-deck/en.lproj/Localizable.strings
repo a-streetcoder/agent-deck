@@ -1372,6 +1372,8 @@
 
 /* Repo Review workbench */
 "review.title" = "Review Changes";
+"toolbar.toggleSidebar" = "Toggle Sidebar";
+"toolbar.toggleSidebarHelp" = "Show or hide the left navigation sidebar";
 "review.toolbar" = "Review";
 "review.toolbarHelp" = "Show or hide the trailing Review inspector";
 "review.noSession" = "No Session";

@@ -2801,11 +2801,26 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         func updateColumnWidthIfNeeded() {
-            guard !isLiveResizing else { return }
             guard let tableView else { return }
             let width = currentViewportWidth()
             let delta = abs(width - contentWidth)
             guard delta > 0.5 else { return }
+
+            // While a splitter drag (or panel-open/close animation freeze)
+            // is active, keep the table column width in lock-step with the
+            // viewport so the unpack on thaw is ~0 — eliminating the second
+            // visible reflow flash. We only update the column + card widths,
+            // not the height bucketing; that resolves naturally on settle.
+            if isLiveResizing {
+                contentWidth = width
+                lastWidthChangeTime = CACurrentMediaTime()
+                lastWidthDelta = delta
+                tableView.tableColumns.first?.width = width
+                tableView.sizeLastColumnToFit()
+                applyWidthOnlyToVisibleCells(width: width, animated: false, duration: 0)
+                return
+            }
+
             lastWidthDelta = delta
             contentWidth = width
             lastWidthChangeTime = CACurrentMediaTime()
@@ -2869,9 +2884,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     if widthMoved || quietFor < self.widthTrackInterval * 2 {
                         self.scheduleVisibleWidthReconfigure()
                     } else {
-                        // Final settle: full reconfigure for correct row heights.
+                        // Final settle: applyRowWidth already re-wrapped each
+                        // cell's markdown in place, so heights are already correct.
+                        // Sync the table column and let cells report new heights
+                        // naturally — avoid reconfigureAllVisibleCells which
+                        // rebuilds markdown from scratch and causes a visible flash.
                         TranscriptLayoutAnimation.animateWidth = false
-                        self.reconfigureAllVisibleCells()
+                        self.syncTableColumnAfterWidthSettle()
                     }
                     return
                 }
@@ -2895,7 +2914,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 // Prefer immediate width apply + short ease only when not streaming.
                 let allowEase = !self.profiler.isStreamingRecently
                 TranscriptLayoutAnimation.animateWidth = allowEase
-                self.reconfigureAllVisibleCells()
+                // Gentle settle: nudge card widths in place, then sync table
+                // column + heights without a full markdown rebuild (no flash).
+                self.applyWidthOnlyToVisibleCells(width: self.contentWidth, animated: allowEase, duration: TranscriptLayoutAnimation.duration)
+                self.syncTableColumnAfterWidthSettle()
                 if allowEase {
                     let clearAfter = TranscriptLayoutAnimation.duration + 0.05
                     DispatchQueue.main.asyncAfter(deadline: .now() + clearAfter) {
@@ -3064,6 +3086,44 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingRemeasureWork = work
             let delay = isUserScrollingRecently ? 0.05 : heightReportInterval
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+
+        /// Gentle post-track settle: sync the table column width and let
+        /// cells that already re-wrapped via applyRowWidth report their new
+        /// heights naturally. Avoids the full markdown rebuild (flash) that
+        /// reconfigureAllVisibleCells would cause.
+        private func syncTableColumnAfterWidthSettle() {
+            guard let tableView else { return }
+            let width = currentViewportWidth()
+            let delta = abs(width - contentWidth)
+            if delta > 0.5 {
+                contentWidth = width
+                tableView.tableColumns.first?.width = width
+                tableView.sizeLastColumnToFit()
+            }
+            estimateByID.removeAll()
+            lastWidthReconfigTime = CACurrentMediaTime()
+            // Let visible cells report their re-wrapped heights. Cells were
+            // already nudged to the new width by applyRowWidth; we just trigger
+            // a height report for any cell whose height changed.
+            let visible = tableView.rows(in: tableView.visibleRect)
+            guard visible.length > 0 else { return }
+            var retileIDs: Set<String> = []
+            let bucket = Int(width.rounded())
+            for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
+                let id = orderedIDs[row]
+                guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
+                let h = cell.forcedIntrinsicHeight()
+                let prior = measuredHeightByID[id]?[bucket] ?? lastNotedHeight[id] ?? estimatedRowHeight
+                if h > 0 && abs(h - prior) > heightChangeEpsilon {
+                    measuredHeightByID[id, default: [:]][bucket] = h
+                    lastNotedHeight[id] = h
+                    retileIDs.insert(id)
+                }
+            }
+            if !retileIDs.isEmpty {
+                noteHeightsChanged(forIDs: retileIDs)
+            }
         }
 
         private func reconfigureAllVisibleCells() {
@@ -4436,6 +4496,10 @@ struct CodingAgentExpandedPanel: View {
                 .padding(.top, 12)
                 .padding(.bottom, 10)
 
+            PiAgentSessionSearchField(text: $sessionSearchText)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+
             if !rendersPreviousSessionsInline {
                 Rectangle()
                     .fill(AppTheme.contentStroke)
@@ -5523,6 +5587,8 @@ struct PiAgentScreen: View {
                         )
                     }
                 }
+
+                PiAgentSessionSearchField(text: $sessionSearchText)
             }
             .padding(.vertical, 18)
             // 14 keeps the title flush with the session rows' text (6 AppList

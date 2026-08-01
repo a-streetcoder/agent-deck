@@ -427,6 +427,8 @@ struct ContentView: View {
     @State private var reviewPanelWidth: CGFloat = 480
     /// Top-level sidebar column width (persisted).
     @State private var sidebarColumnWidth: CGFloat = 280
+    /// Whether the top-level left sidebar is visible (toggle via toolbar).
+    @State private var isSidebarVisible: Bool = true
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
     @State private var isMemoryProjectPopoverPresented = false
@@ -606,6 +608,7 @@ struct ContentView: View {
         // Independent drag handles; transcript live width = middle column only.
         // Toolbar stays on this outer host so primary-action islands never collapse into >>.
         ThreeColumnWorkspaceHost(
+            isSidebarVisible: isSidebarVisible,
             isReviewExpanded: viewModel.isTrailingInspectorExpanded,
             sidebarWidth: $sidebarColumnWidth,
             reviewPanelWidth: $reviewPanelWidth,
@@ -645,12 +648,16 @@ struct ContentView: View {
             if savedSidebar > 0 {
                 sidebarColumnWidth = CGFloat(savedSidebar)
             }
+            isSidebarVisible = UserDefaults.standard.object(forKey: "piDeck.sidebarVisible") as? Bool ?? true
         }
         .onChange(of: viewModel.isTrailingInspectorExpanded) { _, expanded in
             // Persist settled Review width when the panel closes (drag-end also saves).
             if !expanded {
                 UserDefaults.standard.set(Double(reviewPanelWidth), forKey: "piDeck.reviewPanelWidth")
             }
+        }
+        .onChange(of: isSidebarVisible) { _, visible in
+            UserDefaults.standard.set(visible, forKey: "piDeck.sidebarVisible")
         }
         .navigationTitle(toolbarTitle)
         .toolbar { mainToolbarContent }
@@ -765,7 +772,7 @@ struct ContentView: View {
             CodingAgentCollapsedPanel(
                 viewModel: viewModel,
                 store: viewModel.piAgentSessionStore,
-                sessionSearchText: piAgentSessionSearchText
+                sessionSearchText: $piAgentSessionSearchText
             )
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -813,7 +820,7 @@ struct ContentView: View {
 
     private var toolbarSearchIsVisible: Bool {
         switch viewModel.selectedSidebarItem {
-        case .projects, .agents, .memory, .skills, .prompts, .loops, .agent:
+        case .projects, .agents, .memory, .skills, .prompts, .loops:
             return true
         default:
             return false
@@ -828,7 +835,6 @@ struct ContentView: View {
         case .skills: return languageStore.t("search.skills")
         case .prompts: return languageStore.t("search.prompts")
         case .loops: return languageStore.t("search.loops")
-        case .agent: return languageStore.t("search.sessions")
         default: return languageStore.t("search.default")
         }
     }
@@ -843,7 +849,6 @@ struct ContentView: View {
                 case .skills: return skillSearchText
                 case .prompts: return promptSearchText
                 case .loops: return loopSearchText
-                case .agent: return piAgentSessionSearchText
                 default: return ""
                 }
             },
@@ -855,7 +860,6 @@ struct ContentView: View {
                 case .skills: skillSearchText = value
                 case .prompts: promptSearchText = value
                 case .loops: loopSearchText = value
-                case .agent: piAgentSessionSearchText = value
                 default: break
                 }
             }
@@ -1039,6 +1043,15 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var mainToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button {
+                withAnimation(PanelTransition.fade) { isSidebarVisible.toggle() }
+            } label: {
+                Label(languageStore.t("toolbar.toggleSidebar"), systemImage: "sidebar.left")
+            }
+            .toolbarNeutralChrome()
+            .help(languageStore.t("toolbar.toggleSidebarHelp"))
+        }
         ToolbarSpacer(.flexible)
         primaryActionToolbarItems
     }

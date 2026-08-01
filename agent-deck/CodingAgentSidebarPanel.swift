@@ -103,7 +103,7 @@ struct CodingAgentCollapsedPanel: View {
     let store: PiAgentSessionStore
     /// The same toolbar search the expanded list filters on, so searching
     /// narrows the recents too.
-    let sessionSearchText: String
+    @Binding var sessionSearchText: String
 
     /// Cached so `body` never reads `store.sessions` directly — `touchSession`
     /// mutates that array many times per second during streaming. Rebuilt only
@@ -131,6 +131,10 @@ struct CodingAgentCollapsedPanel: View {
             // card at the top of the sidebar.
             .padding(.horizontal, 6)
             .padding(.top, 2)
+
+            PiAgentSessionSearchField(text: $sessionSearchText)
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
 
             Rectangle()
                 .fill(AppTheme.contentStroke)
