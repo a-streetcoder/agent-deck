@@ -224,7 +224,7 @@ final class AppViewModel: NSObject {
     var githubIsCommitting = false
     var githubIsPushing = false
     var piAgentGitAutomationAction: PiAgentGitAutomationAction?
-    var githubIsRefreshingEverything = false
+    var isRefreshingEverything = false
     var githubLastError: String?
     var loopDefinitions: [LoopDefinition] = []
     var selectedLoopDefinitionID: LoopDefinition.ID?
@@ -458,19 +458,23 @@ final class AppViewModel: NSObject {
         }
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
-        warmMemoryEmbedder()
-        refreshAvailableModels()
         // First-frame refresh: only scan global + the last-selected project
-        // (cheap). The full-project scan is deferred to after first paint so a
-        // user with many projects doesn't pay the O(P × dir-walk) cost before
-        // the first frame renders. The scheduled follow-up below populates the
-        // remaining projects ~500ms later.
+        // (cheap). Defer memory embedder warm-up, model catalog, and full-project
+        // scan until after the initial snapshot lands so launch CPU/disk do not
+        // compete with first paint.
         let initialExtras: Set<String> = selectedProjectPath.map { [$0] } ?? []
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: initialExtras)
         Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            // Wait until the first refresh applied (or a short timeout) before
+            // heavier follow-up work.
+            for _ in 0..<40 {
+                guard let self, !self.didShutdown else { return }
+                if self.hasCompletedInitialRefresh { break }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
             guard let self, !self.didShutdown else { return }
-            self.refresh(includeModels: false, scanAllProjects: true, silentlyReconcile: true)
+            self.warmMemoryEmbedder()
+            self.refresh(includeModels: true, scanAllProjects: true, silentlyReconcile: true)
         }
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
@@ -1986,15 +1990,15 @@ final class AppViewModel: NSObject {
 
 
     func refreshEverything() {
-        guard !githubIsRefreshingEverything else { return }
+        guard !isRefreshingEverything else { return }
 
-        githubIsRefreshingEverything = true
+        isRefreshingEverything = true
         githubLastError = nil
 
         Task { [weak self] in
             guard let self else { return }
             defer {
-                self.githubIsRefreshingEverything = false
+                self.isRefreshingEverything = false
             }
             self.refresh(includeModels: true)
             if self.selectedDiscoveredProject?.isGitRepository == true {
@@ -2830,7 +2834,7 @@ final class AppViewModel: NSObject {
             return
         }
         // Re-queue if a new turn started between dequeue and send.
-        if session.status.isActive {
+        if ComposerMessageQueue.shouldRequeueAfterDrain(sessionIsActive: session.status.isActive) {
             piAgentSessionStore.requeueComposerMessageAtFront(item, for: sessionID)
             return
         }

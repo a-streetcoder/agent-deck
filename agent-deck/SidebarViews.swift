@@ -117,12 +117,12 @@ struct SidebarTitleBar: View {
                     .imageScale(.medium)
                     .foregroundStyle(AppTheme.mutedText)
                     .appActionTarget()
-                    .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
+                    .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingEverything)
             }
             .buttonStyle(.plain)
             .help(LanguageStore.shared.t("sidebar.refreshEverythingHelp"))
             .accessibilityLabel(LanguageStore.shared.t("sidebar.refreshProjectsGit"))
-            .disabled(viewModel.githubIsRefreshingEverything)
+            .disabled(viewModel.isRefreshingEverything)
 
             Button {
                 openSettings()

@@ -203,7 +203,14 @@ struct WindowBackgroundApplier: NSViewRepresentable {
 struct AppInitialLoadWindowCover: NSViewRepresentable {
     /// Master switch for the launch splash. Flip to `false` to disable it — the
     /// workspace usually loads fast enough that the splash isn't strictly needed.
-    static let isEnabled = true
+    /// Also disabled when `PI_DECK_NO_SPLASH=1` (or `true`/`YES`) is set in the process environment.
+    static var isEnabled: Bool {
+        let raw = ProcessInfo.processInfo.environment["PI_DECK_NO_SPLASH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if raw == "1" || raw == "true" || raw == "yes" { return false }
+        return true
+    }
 
     var isActive: Bool
 
@@ -249,8 +256,9 @@ struct AppInitialLoadWindowCover: NSViewRepresentable {
         /// When the cover became visible, so a too-fast launch still shows the
         /// splash for at least `minimumOnScreen` before it fades.
         private var shownAt: Date?
-        /// Long enough for the splash animation (2.5s) to finish its lockup.
-        private let minimumOnScreen: TimeInterval = 2.8
+        /// Short floor so a fast first refresh does not flash empty chrome; full
+        /// brand animation is no longer required before the workspace is usable.
+        private let minimumOnScreen: TimeInterval = 0.6
         /// Failsafe: the cover blocks the *entire* window — toolbar and the
         /// traffic-light close/minimize buttons included. If the initial refresh
         /// never reports complete (an unforeseen hang or error path that skips
