@@ -195,30 +195,18 @@ struct ExtensionsScreen: View {
         .opacity(isActive ? 1 : 0.55)
     }
 
-    /// Ensure `~/.pi/web-search.json` exists (stub template if needed) and open it.
+    /// Ensure `~/.pi/web-search.json` exists (create stub if missing), then open it.
     ///
-    /// Creates parent `~/.pi` and a commented-friendly JSON stub when the file is
-    /// missing so the user can paste Exa/Brave/Tavily keys without hunting paths.
+    /// - Note: Missing file → create template with empty key fields; existing file is never overwritten.
     private func openWebSearchConfigFile() {
-        let url = PiNativeSubagentBridgeExtensions.webSearchConfigURL()
-        let fm = FileManager.default
-        let dir = url.deletingLastPathComponent()
-        if !fm.fileExists(atPath: dir.path) {
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            let result = try PiNativeSubagentBridgeExtensions.ensureWebSearchConfigFile()
+            NSWorkspace.shared.open(result.url)
+        } catch {
+            NSLog("[Extensions] open web-search config failed: \(error.localizedDescription)")
+            // Last resort: still try to open the expected path (may fail if create failed).
+            NSWorkspace.shared.open(PiNativeSubagentBridgeExtensions.webSearchConfigURL())
         }
-        if !fm.fileExists(atPath: url.path) {
-            let stub = """
-            {
-              "provider": "exa",
-              "searchProvider": "exa",
-              "exaApiKey": "",
-              "braveApiKey": "",
-              "tavilyApiKey": ""
-            }
-            """
-            try? stub.write(to: url, atomically: true, encoding: .utf8)
-        }
-        NSWorkspace.shared.open(url)
     }
 
     // MARK: - User extension checklist

@@ -171,6 +171,76 @@ struct PiNativeSubagentBridgeExtensions {
             .appendingPathComponent("web-search.json")
     }
 
+    /// Result of ensuring the web-search config file is on disk.
+    nonisolated struct WebSearchConfigEnsureResult: Sendable {
+        /// Absolute URL of the config file.
+        let url: URL
+        /// `true` when this call created a new stub file.
+        let didCreate: Bool
+    }
+
+    /// Ensure `web-search.json` exists; create parent dirs + stub when missing.
+    ///
+    /// Stub matches pi-web-access / Deck bridge keys so the user only needs to
+    /// paste API keys. Does not overwrite an existing file.
+    ///
+    /// - Parameter fileManager: File manager. Defaults to `.default`.
+    /// - Returns: Path and whether a stub was created.
+    /// - Throws: Directory or write failures with path context.
+    @discardableResult
+    nonisolated static func ensureWebSearchConfigFile(
+        fileManager: FileManager = .default
+    ) throws -> WebSearchConfigEnsureResult {
+        let url = webSearchConfigURL()
+        let dir = url.deletingLastPathComponent()
+        if !fileManager.fileExists(atPath: dir.path) {
+            do {
+                try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            } catch {
+                throw NSError(
+                    domain: "PiDeck.WebSearchConfig",
+                    code: 1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Could not create config directory \(dir.path): \(error.localizedDescription)"
+                    ]
+                )
+            }
+        }
+        if fileManager.fileExists(atPath: url.path) {
+            return WebSearchConfigEnsureResult(url: url, didCreate: false)
+        }
+        let stub = """
+        {
+          "provider": "exa",
+          "searchProvider": "exa",
+          "exaApiKey": "",
+          "braveApiKey": "",
+          "tavilyApiKey": ""
+        }
+        """
+        guard let data = stub.data(using: .utf8) else {
+            throw NSError(
+                domain: "PiDeck.WebSearchConfig",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Could not encode web-search stub JSON."]
+            )
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            throw NSError(
+                domain: "PiDeck.WebSearchConfig",
+                code: 3,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Could not create \(url.path): \(error.localizedDescription)"
+                ]
+            )
+        }
+        return WebSearchConfigEnsureResult(url: url, didCreate: true)
+    }
+
     /// True when any supported web-search provider credential is available
     /// (env vars and/or `~/.pi/web-search.json`, same keys as pi-web-access).
     nonisolated static func isExaConfigured(environment: [String: String]) -> Bool {

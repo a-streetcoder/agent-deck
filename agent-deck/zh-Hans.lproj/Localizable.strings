@@ -2408,5 +2408,5 @@
 "composer.queue.fullHint" = "已满 · 最多 %d 条 — 撤回后可继续排队";
 "extensionChrome.a11y" = "扩展状态";
 "extensionChrome.moreLines" = "另有 %d 行";
-"ext.bridge.webSearch.openConfig" = "打开配置文件";
-"ext.bridge.webSearch.openConfigHelp" = "用默认编辑器打开 ~/.pi/web-search.json（若不存在则创建模板）。";
+"ext.bridge.webSearch.openConfig" = "打开 / 创建配置文件";
+"ext.bridge.webSearch.openConfigHelp" = "打开 ~/.pi/web-search.json；若不存在则先创建模板再打开。";

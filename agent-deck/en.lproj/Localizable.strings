@@ -2409,5 +2409,5 @@
 "composer.queue.fullHint" = "Full · max %d — withdraw to add more";
 "extensionChrome.a11y" = "Extension status";
 "extensionChrome.moreLines" = "+%d more";
-"ext.bridge.webSearch.openConfig" = "Open config file";
-"ext.bridge.webSearch.openConfigHelp" = "Open ~/.pi/web-search.json in your default editor (creates a stub if missing).";
+"ext.bridge.webSearch.openConfig" = "Open / create config file";
+"ext.bridge.webSearch.openConfigHelp" = "Open ~/.pi/web-search.json. If the file does not exist, create a stub template first.";
