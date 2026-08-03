@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Runtime → Extensions. Controls whether the user's own Pi extensions load into
@@ -173,6 +174,18 @@ struct ExtensionsScreen: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // Web search: one-click open ~/.pi/web-search.json (create stub if missing).
+                if bridge.id == "web_exa" {
+                    Button {
+                        openWebSearchConfigFile()
+                    } label: {
+                        Label(languageStore.t("ext.bridge.webSearch.openConfig"), systemImage: "doc.text")
+                            .font(AppTheme.Font.micro.weight(.semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .help(languageStore.t("ext.bridge.webSearch.openConfigHelp"))
+                    .padding(.top, 2)
+                }
             }
 
             Spacer(minLength: 8)
@@ -180,6 +193,32 @@ struct ExtensionsScreen: View {
         }
         .padding(.vertical, 12)
         .opacity(isActive ? 1 : 0.55)
+    }
+
+    /// Ensure `~/.pi/web-search.json` exists (stub template if needed) and open it.
+    ///
+    /// Creates parent `~/.pi` and a commented-friendly JSON stub when the file is
+    /// missing so the user can paste Exa/Brave/Tavily keys without hunting paths.
+    private func openWebSearchConfigFile() {
+        let url = PiNativeSubagentBridgeExtensions.webSearchConfigURL()
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        if !fm.fileExists(atPath: dir.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        if !fm.fileExists(atPath: url.path) {
+            let stub = """
+            {
+              "provider": "exa",
+              "searchProvider": "exa",
+              "exaApiKey": "",
+              "braveApiKey": "",
+              "tavilyApiKey": ""
+            }
+            """
+            try? stub.write(to: url, atomically: true, encoding: .utf8)
+        }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - User extension checklist
