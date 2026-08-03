@@ -223,34 +223,12 @@ nonisolated struct PiExtensionDiscoveryService: @unchecked Sendable {
         packageDirectory: URL,
         launchSource: String
     ) -> String {
-        let base = unscopedPackageBaseName(packageName)
-        let packageRoot = packageDirectory.standardizedFileURL.path
-        let source = URL(fileURLWithPath: launchSource).standardizedFileURL.path
-        // Single-entry packages: always show package base (`pi-ocr`, not `extensions`).
-        // Multi-entry: `package · relative` so siblings stay distinct.
-        let relative: String
-        if source.hasPrefix(packageRoot + "/") {
-            relative = String(source.dropFirst(packageRoot.count + 1))
-        } else {
-            relative = displayName(for: launchSource)
-        }
-        let entryFolderHints: Set<String> = ["src", "extensions", "dist", "lib", "build"]
-        let relativeDir = URL(fileURLWithPath: relative).deletingLastPathComponent().path
-        let isDefaultLayout =
-            relative == "index.ts"
-            || relative == "index.js"
-            || relative == "index.mjs"
-            || relative.hasPrefix("src/")
-            || relative.hasPrefix("extensions/")
-            || relative.hasPrefix("dist/")
-            || entryFolderHints.contains(URL(fileURLWithPath: relative).deletingLastPathComponent().lastPathComponent)
-        // Most packages declare one entry under src/extensions/dist — package name wins.
-        if isDefaultLayout || relativeDir == "." || relativeDir.isEmpty {
-            return base.isEmpty ? displayName(for: launchSource) : base
-        }
-        // Unusual multi-file packages keep a short relative suffix.
-        if base.isEmpty { return displayName(for: launchSource) }
-        return "\(base) · \(relative)"
+        PiExtensionDisplayNaming.packageExtensionDisplayName(
+            packageName: packageName,
+            packageDirectory: packageDirectory,
+            launchSource: launchSource,
+            pathDisplayName: { displayName(for: $0) }
+        )
     }
 
     /// `@scope/name` → `name`; bare package → itself.
@@ -258,12 +236,7 @@ nonisolated struct PiExtensionDiscoveryService: @unchecked Sendable {
     /// - Parameter packageName: Full package name. Required.
     /// - Returns: Unscoped base name for UI.
     private func unscopedPackageBaseName(_ packageName: String) -> String {
-        let trimmed = packageName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-        if let slash = trimmed.lastIndex(of: "/") {
-            return String(trimmed[trimmed.index(after: slash)...])
-        }
-        return trimmed
+        PiExtensionDisplayNaming.unscopedPackageBaseName(packageName)
     }
 
     private struct ParsedSettings {
