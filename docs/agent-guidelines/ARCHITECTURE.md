@@ -47,7 +47,6 @@ File watching uses `FileWatchEventMonitor` (macOS FSEvents) with a 1-second debo
 | `SubagentConfigPersistence` | Subagent configuration JSON |
 | `PiAgentSessionStore` | Agent Deck session/transcript persistence and session-owned MCP image lifecycle |
 | `MCPConnectionManager` | Scoped MCP catalogs, connections, policy, and calls |
-| `CodexComputerUseBrokerDiscovery` | Resolve and integrity-check Agent Deck's derived auto-accept Computer Use broker and Node runtime |
 
 ## Read-Only Builtins
 
@@ -67,7 +66,6 @@ Use the source map as an entry point, but always inspect actual files before edi
 - Scanner/resources: `PiScanner.swift`, `Models.swift`
 - Native subagents: `PiSubagentRunService.swift`, `PiNativeSubagentBridgeExtensions.swift`, `bundled-agents/*.md`
 - Pi Agent RPC: `PiRPCClient.swift`, `PiAgentRunnerService.swift`
-- MCP and Computer Use: `MCP/`, `CodexPluginMCPDiscovery.swift`, `CodexComputerUseBrokerDiscovery.swift`, `ComputerUseChatGPTRuntime.swift`, `ComputerUseCapability.swift`, `scripts/derive-computer-use-broker.py`
 - Persistence: `*Persistence.swift`, `PiAgentSessionStore.swift`
 - UI: relevant view file + `AppViewModel.swift`
 
