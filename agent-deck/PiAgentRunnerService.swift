@@ -1322,19 +1322,10 @@ final class PiAgentRunnerService {
         images: [PiAgentImageAttachment],
         pasteAttachments: [PiAgentPasteAttachment]
     ) -> Bool {
-        guard images.isEmpty, pasteAttachments.isEmpty else { return false }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return false }
-        return lines.allSatisfy { line in
-            guard line.hasPrefix("/") else { return false }
-            // Active skill invocations are real turns and should remain in history.
-            if line.lowercased().hasPrefix("/skill:") { return false }
-            return true
-        }
+        EphemeralSlashCommand.shouldOmitFromTranscript(
+            text: text,
+            hasAttachments: !images.isEmpty || !pasteAttachments.isEmpty
+        )
     }
 
     /// Builds the canonical Pi RPC prompt. Attachment-only transcript labels are

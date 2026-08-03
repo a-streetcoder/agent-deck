@@ -5,7 +5,7 @@ import Foundation
 /// Some providers (or CLI wrappers) decorate thinking with truecolor SGR codes, e.g.
 /// `ESC[38;2;138;190;183mThinking:ESC[39m …`. When ESC is dropped on the wire,
 /// the orphan CSI body still appears as `[38;2;138;190;183mThinking:[39m`.
-enum TextSanitizer {
+nonisolated enum TextSanitizer {
     private static let esc = "\u{001B}"
     private static let bel = "\u{0007}"
 

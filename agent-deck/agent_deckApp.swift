@@ -28,7 +28,13 @@ final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
         // Crash-proof hang detector: when the main thread freezes (janky scroll),
         // it auto-captures the hung backtrace via the external `sample` tool to
         // /tmp/agentdeck-hang-<n>.txt. Disable with HangWatchdogEnabled=NO.
-        HangWatchdog.shared.start()
+        // Start after first paint so launch does not compete with snapshot I/O.
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await MainActor.run {
+                HangWatchdog.shared.start()
+            }
+        }
         // Autonomous perf collection: when launched with AGENTDECK_AUTOPERF=1
         // the app runs accessory/offscreen, self-drives ScrollBench + STREAMSIM,
         // writes a rollup, and quits. DEBUG-only; no-op otherwise.
