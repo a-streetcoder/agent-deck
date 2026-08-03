@@ -204,21 +204,14 @@ struct PiAgentOpenTerminalToolbarButton: View {
     var viewModel: AppViewModel
     var store: PiAgentSessionStore
     @ObservedObject private var languageStore = LanguageStore.shared
-    @State private var isParallelContinuationWarningPresented = false
     /// Cached result of `canOpen`. Refreshed via `.onChange` rather than
-    /// computed per body — the previous computed property did a
-    /// `FileManager.default.fileExists` on every toolbar re-render (which
-    /// includes per-streaming-token invalidation pulses on a jank-sensitive
-    /// hot path).
+    /// computed per body — avoids `FileManager.fileExists` on every toolbar
+    /// re-render (streaming hot path).
     @State private var canOpen: Bool = false
 
     var body: some View {
         Button {
-            if selectedSessionIsActive {
-                isParallelContinuationWarningPresented = true
-            } else {
-                viewModel.openSelectedPiAgentSessionInTerminal()
-            }
+            viewModel.openSelectedPiAgentSessionInTerminal()
         } label: {
             Label(languageStore.t("agent.resumeTerminal"), systemImage: "terminal")
         }
@@ -226,33 +219,16 @@ struct PiAgentOpenTerminalToolbarButton: View {
         .symbolRenderingMode(.monochrome)
         .foregroundStyle(.primary)
         .tint(.primary)
-        .help(languageStore.t("agent.resumeTerminalHelp", AppBrand.displayName))
+        .help(languageStore.t("agent.resumeTerminalHelp"))
         .disabled(!canOpen)
-        .alert(languageStore.t("agent.resumeTerminalAlertTitle"), isPresented: $isParallelContinuationWarningPresented) {
-            Button(languageStore.t("agent.resumeTerminal")) { viewModel.openSelectedPiAgentSessionInTerminal() }
-            Button(languageStore.t("common.cancel"), role: .cancel) {}
-        } message: {
-            Text(languageStore.t("agent.resumeTerminalMessage", AppBrand.displayName))
-        }
         .task(id: store.selectedSession?.id) { refreshCanOpen() }
-        .onChange(of: store.selectedSession?.piSessionFile) { refreshCanOpen() }
-        .onChange(of: store.selectedSession?.piSessionId) { refreshCanOpen() }
+        .onChange(of: store.selectedSession?.projectPath) { refreshCanOpen() }
+        .onChange(of: store.selectedSession?.worktreePath) { refreshCanOpen() }
     }
 
+    /// Enables the button when the selected session has an on-disk project directory.
     private func refreshCanOpen() {
-        guard let session = store.selectedSession else {
-            canOpen = false
-            return
-        }
-        if let sessionFile = session.piSessionFile, FileManager.default.fileExists(atPath: sessionFile) {
-            canOpen = true
-            return
-        }
-        canOpen = session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-
-    private var selectedSessionIsActive: Bool {
-        store.selectedSession?.status.isActive == true
+        canOpen = viewModel.canOpenSelectedPiAgentSessionInTerminal
     }
 }
 

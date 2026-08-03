@@ -110,10 +110,10 @@
 "agent.commitAndPushAlertTitle" = "Commit and push all changes?";
 "agent.commitAndPushAlertConfirm" = "Commit & Push All Changes";
 "agent.mergeAlertTitle" = "Merge session branch?";
-"agent.resumeTerminal" = "Resume in Terminal";
-"agent.resumeTerminalAlertTitle" = "Resume in Terminal?";
-"agent.resumeTerminalHelp" = "Opens a terminal continuation from this session file. Terminal messages do not sync back into %@ yet.";
-"agent.resumeTerminalMessage" = "This opens a parallel terminal continuation from the session file. Messages sent in Terminal do not sync back into %@ yet.";
+"agent.resumeTerminal" = "Open Terminal";
+"agent.resumeTerminalAlertTitle" = "Open Terminal?";
+"agent.resumeTerminalHelp" = "Opens your configured terminal in this session’s project directory. Does not resume the Pi session.";
+"agent.resumeTerminalMessage" = "Opens a terminal at the project directory only.";
 
 /* MARK: - Sessions */
 "session.searchAll" = "Search all sessions";
@@ -902,7 +902,7 @@
 "menu.previousSession" = "Previous Session";
 "menu.stopSession" = "Stop Session";
 "menu.deleteSession" = "Delete Session";
-"menu.resumeTerminal" = "Resume in Terminal";
+"menu.resumeTerminal" = "Open Terminal";
 "menu.openAgentFile" = "Open Agent File";
 "menu.revealAgent" = "Reveal Agent in Finder";
 "menu.enableAgent" = "Enable Agent";
@@ -943,7 +943,7 @@
 "shortcut.nextQuestion.desc" = "Jump to the next user question when the Pi Agent transcript is focused.";
 "shortcut.stopSession.desc" = "Stop the currently running session.";
 "shortcut.deleteSession.desc" = "Delete the selected session.";
-"shortcut.resumeTerminal.desc" = "Resume the selected session in your configured terminal.";
+"shortcut.resumeTerminal.desc" = "Open the configured terminal in the selected session’s project directory.";
 "shortcut.dictation" = "Start Composer Dictation";
 "shortcut.dictation.desc" = "Start macOS Dictation in the focused Pi Agent composer.";
 "shortcut.newAgent.desc" = "Create a new custom agent.";
@@ -2146,7 +2146,8 @@
 "vm.enterCommitTitle" = "Enter a commit title first.";
 "vm.providersLoadFailed" = "Couldn’t load providers from Pi. Update or reinstall Pi, then try again.";
 "vm.piAgentNeedsReview" = "Pi Agent needs review";
-"vm.openedInTerminal" = "Opened in Terminal";
+"vm.openedInTerminal" = "Opened project folder in Terminal";
+"vm.projectDirectoryMissing" = "Project directory is missing or not a folder.";
 "vm.sessionFileMissing" = "Pi session file no longer exists; trying session id if available.";
 "vm.terminalAppMissing" = "Selected terminal app no longer exists. Choose another app in Settings.";
 "vm.couldNotLaunchApp" = "Could not launch %@: %@";

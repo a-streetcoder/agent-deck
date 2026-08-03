@@ -110,10 +110,10 @@
 "agent.commitAndPushAlertTitle" = "提交并推送全部更改？";
 "agent.commitAndPushAlertConfirm" = "提交并推送全部更改";
 "agent.mergeAlertTitle" = "合并会话分支？";
-"agent.resumeTerminal" = "在终端继续";
-"agent.resumeTerminalAlertTitle" = "在终端继续？";
-"agent.resumeTerminalHelp" = "从该会话文件打开终端续写。终端中的消息目前不会同步回 %@。";
-"agent.resumeTerminalMessage" = "将从会话文件打开并行终端续写。在终端发送的消息目前不会同步回 %@。";
+"agent.resumeTerminal" = "打开终端";
+"agent.resumeTerminalAlertTitle" = "打开终端？";
+"agent.resumeTerminalHelp" = "在已配置的终端中打开当前会话的项目目录，不会恢复 Pi 会话。";
+"agent.resumeTerminalMessage" = "仅在项目目录打开终端。";
 
 /* MARK: - Sessions */
 "session.searchAll" = "搜索全部会话";
@@ -901,7 +901,7 @@
 "menu.previousSession" = "上一个会话";
 "menu.stopSession" = "停止会话";
 "menu.deleteSession" = "删除会话";
-"menu.resumeTerminal" = "在终端中恢复";
+"menu.resumeTerminal" = "打开终端";
 "menu.openAgentFile" = "打开 Agent 文件";
 "menu.revealAgent" = "在 Finder 中显示 Agent";
 "menu.enableAgent" = "启用 Agent";
@@ -942,7 +942,7 @@
 "shortcut.nextQuestion.desc" = "在 Pi Agent 记录聚焦时跳到下一条用户提问。";
 "shortcut.stopSession.desc" = "停止当前运行中的会话。";
 "shortcut.deleteSession.desc" = "删除所选会话。";
-"shortcut.resumeTerminal.desc" = "在已配置的终端中恢复所选会话。";
+"shortcut.resumeTerminal.desc" = "在已配置的终端中打开所选会话的项目目录。";
 "shortcut.dictation" = "开始 Composer 听写";
 "shortcut.dictation.desc" = "在聚焦的 Pi Agent 输入框启动 macOS 听写。";
 "shortcut.newAgent.desc" = "创建自定义 Agent。";
@@ -2145,7 +2145,8 @@
 "vm.enterCommitTitle" = "请先输入提交标题。";
 "vm.providersLoadFailed" = "无法从 Pi 加载提供方。请更新或重装 Pi 后重试。";
 "vm.piAgentNeedsReview" = "Pi Agent 需要审阅";
-"vm.openedInTerminal" = "已在终端打开";
+"vm.openedInTerminal" = "已在终端打开项目目录";
+"vm.projectDirectoryMissing" = "项目目录不存在或不是文件夹。";
 "vm.sessionFileMissing" = "Pi 会话文件已不存在；若可用将尝试会话 id。";
 "vm.terminalAppMissing" = "所选终端应用已不存在。请在设置中选择其他应用。";
 "vm.couldNotLaunchApp" = "无法启动 %@：%@";

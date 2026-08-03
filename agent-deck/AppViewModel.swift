@@ -2972,10 +2972,14 @@ final class AppViewModel: NSObject {
         piAgentSessionStore.setSessionPinned(id, pinned: pinned)
     }
 
+    /// Whether the toolbar/menu can open a plain terminal at the selected session's project cwd.
+    ///
+    /// - Returns: `true` when a session is selected and its launch working directory exists on disk.
     var canOpenSelectedPiAgentSessionInTerminal: Bool {
         guard let session = piAgentSessionStore.selectedSession else { return false }
-        if let sessionFile = session.piSessionFile, FileManager.default.fileExists(atPath: sessionFile) { return true }
-        return session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        var isDir: ObjCBool = false
+        let path = session.launchWorkingDirectory.path
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
     func openPiSelfUpdateInTerminal() {
@@ -3085,57 +3089,52 @@ final class AppViewModel: NSObject {
         """
     }
 
+    /// Opens the configured terminal app at the selected session's project directory.
+    ///
+    /// Does **not** resume the Pi session file or inject `pi --session`; only `cd` into
+    /// `launchWorkingDirectory` and start an interactive shell. Reuses the same terminal
+    /// launcher path as install/update scripts (`openTerminalScript`).
+    ///
+    /// - Note: Requires a selected session whose working directory exists; otherwise no-ops.
     func openSelectedPiAgentSessionInTerminal() {
-        guard let session = piAgentSessionStore.selectedSession,
-              let sessionRef = resumablePiSessionReference(for: session) else { return }
+        guard let session = piAgentSessionStore.selectedSession else { return }
         acknowledgePiAgentSession(session.id)
 
         let workingDirectory = session.launchWorkingDirectory.path
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: workingDirectory, isDirectory: &isDir), isDir.boolValue else {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = LanguageStore.shared.t("vm.projectDirectoryMissing")
+            }
+            return
+        }
+
         let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agent-deck-resume-\(session.id.uuidString)")
+            .appendingPathComponent("pi-deck-open-dir-\(session.id.uuidString)")
             .appendingPathExtension("command")
-        let resumeCommand = terminalResumeCommand(workingDirectory: workingDirectory, sessionReference: sessionRef)
+        // Keep PATH useful for everyday shell work; do not launch pi or pass session refs.
         let script = """
         #!/bin/zsh
         \(augmentedShellPATHExport(prepending: resolvedPiPathForShell()))
-        \(resumeCommand)
+        cd \(shellQuoted(workingDirectory)) || exit 1
+        exec /bin/zsh -i
         """
 
         do {
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
             openTerminalScript(scriptURL, for: session.id)
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: LanguageStore.shared.t("vm.openedInTerminal"), text: LanguageStore.shared.t("vm.openedInTerminal")))
+            piAgentSessionStore.append(.init(
+                sessionID: session.id,
+                role: .status,
+                title: LanguageStore.shared.t("vm.openedInTerminal"),
+                text: LanguageStore.shared.t("vm.openedInTerminal")
+            ))
         } catch {
             piAgentSessionStore.updateSession(session.id) { record in
                 record.lastError = error.localizedDescription
             }
         }
-    }
-
-    private func resumablePiSessionReference(for session: PiAgentSessionRecord) -> String? {
-        if let sessionFile = session.piSessionFile?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !sessionFile.isEmpty,
-           FileManager.default.fileExists(atPath: sessionFile) {
-            return sessionFile
-        }
-        if let sessionID = session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty {
-            return sessionID
-        }
-        if let sessionFile = session.piSessionFile?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionFile.isEmpty {
-            piAgentSessionStore.updateSession(session.id) { record in
-                record.lastError = LanguageStore.shared.t("vm.sessionFileMissing")
-            }
-        }
-        return nil
-    }
-
-    private func terminalResumeCommand(workingDirectory: String, sessionReference: String) -> String {
-        let piPath = resolvedPiPathForShell()
-        return """
-        cd \(shellQuoted(workingDirectory)) || exit 1
-        "\(piPath)" --session \(shellQuoted(sessionReference)) || { echo "Pi not found. Install pi or add it to PATH."; echo ""; echo "Command: pi --session \(shellQuoted(sessionReference))"; read -k 1 "?Press any key to close."; }
-        """
     }
 
     private func openTerminalScript(_ scriptURL: URL, for sessionID: UUID) {
