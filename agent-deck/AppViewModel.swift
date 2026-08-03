@@ -104,30 +104,55 @@ final class AppViewModel: NSObject {
     /// Collapsed only when the user collapses it or selects another sidebar item
     /// (see `ContentView.handleSidebarSelectionChange`).
     var isCodingAgentPanelExpanded = true
+
+    /// Visible session rows of the ACTIVE sidebar panel (expanded or collapsed),
+    /// refreshed by that panel whenever it rebuilds its cached sections. Keyboard
+    /// navigation (`selectAdjacentPiAgentSession`, ⌘]/⌘[, in-list ↑/↓) operates
+    /// within this list only — no navigation into hidden preview/collapsed rows
+    /// and no auto-reveal. Empty until the first panel reports in; navigation
+    /// falls back to `scopedPiAgentSessionsInOrder` in that brief window.
+    var piAgentVisibleSessionsForNavigation: [PiAgentSessionRecord] = []
+
+    // MARK: - Provider sign-in
+
+    /// Providers with a credential in `~/.pi/agent/auth.json` (== signed in).
+    var signedInProviders: Set<String> = []
+    /// Provider id → credential type (`"api_key"`/`"oauth"`) for UI labelling.
+    var providerAuthTypes: [String: String] = [:]
+    /// Every provider Pi can connect to, including the authentication methods
+    /// advertised by the installed runtime. This powers the Add Provider picker.
+    var connectableProviders: [PiConnectableProvider] = []
+    var isLoadingConnectableProviders = false
+    var connectableProvidersError: String?
+    var connectableProviderLoadState = PiProviderCatalogLoadState()
+    let providerLogoutService = PiProviderLoginService()
+    /// Drives the Add Provider picker sheet (opened from the Models toolbar `+`).
+    var isAddProviderPresented = false
+
     var selectedAgentID: EffectiveAgentRecord.ID?
     var selectedSkillID: SkillRecord.ID?
     /// Skills whose deletion file I/O has finished but for which a fresh
     /// snapshot has not yet landed. Filtered out of `allVisibleSkillRecords`
     /// so the row disappears instantly. Pruned in `applyRefreshSnapshot`.
-    private(set) var pendingDeletedSkillIDs: Set<String> = [] {
+    var pendingDeletedSkillIDs: Set<String> = [] {
         didSet { rebuildVisibleSkillRecordCachesIfNeeded() }
     }
     /// Prompt templates whose deletion file I/O has finished but for which a
     /// fresh snapshot has not yet landed. Filtered out of
     /// `allVisiblePromptTemplateRecords`. Pruned in `applyRefreshSnapshot`.
-    private(set) var pendingDeletedPromptIDs: Set<String> = []
+    var pendingDeletedPromptIDs: Set<String> = []
     /// After a rename the fresh snapshot is applied asynchronously, so the
     /// renamed record's new id is not known synchronously. These hold the new
     /// name so `applyRefreshSnapshot` can restore the selection once it lands.
-    @ObservationIgnored private var pendingSelectAgentName: String?
-    @ObservationIgnored private var pendingSelectSkillName: String?
+    @ObservationIgnored var pendingSelectAgentName: String?
+    @ObservationIgnored var pendingSelectSkillName: String?
     /// After a new skill/prompt is saved its record only appears in the
     /// snapshot once the next refresh lands. These hold the filepath so
     /// `applyRefreshSnapshot` can select the freshly-created record once it
     /// becomes visible — replaces the older "synchronous refresh + lookup"
     /// pattern that froze the UI on the filesystem scan.
-    @ObservationIgnored private var pendingSelectSkillFilePath: String?
-    @ObservationIgnored private var pendingSelectPromptFilePath: String?
+    @ObservationIgnored var pendingSelectSkillFilePath: String?
+    @ObservationIgnored var pendingSelectPromptFilePath: String?
     var selectedCommandItemID: String?
     /// Set by `openMemory(byID:)` when the user taps an injected memory title in a
     /// transcript recall card. `MemoryScreen` consumes it to select that record,
@@ -151,8 +176,8 @@ final class AppViewModel: NSObject {
     /// Becomes true after the first discovery result is applied. Persisted sessions
     /// can load before then; grouping must not classify their project paths as
     /// orphaned during that cold-start window.
-    private(set) var hasCompletedInitialProjectDiscovery = false
-    private func rebuildProjectByPath() {
+    var hasCompletedInitialProjectDiscovery = false
+    func rebuildProjectByPath() {
         projectByPath = Dictionary(uniqueKeysWithValues: discoveredProjects.map { ($0.path, $0) })
     }
     var isRefreshingProjects = false
@@ -229,10 +254,10 @@ final class AppViewModel: NSObject {
     /// observation-ignored and rebuilt in the `didSet` above.
     @ObservationIgnored private var cachedStandardizedExternalSkillPaths: Set<String> = []
     /// Updated only by the refresh pipeline; prevents per-row Codex cache walks.
-    @ObservationIgnored private var cachedResolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]
+    @ObservationIgnored var cachedResolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]
     /// Transient merged MCP entries from the last refresh (config only).
     @ObservationIgnored var mergedMCPEntries: [MCPServerEntry] = []
-    private(set) var hasCompletedInitialRefresh = false
+    var hasCompletedInitialRefresh = false
     private(set) var cachedHasAgentWarnings = false
     private(set) var cachedHasSkillWarnings = false
     private(set) var cachedHasPromptWarnings = false
@@ -316,7 +341,7 @@ final class AppViewModel: NSObject {
     /// group renders only its header).
     var collapsedProjects: Set<String> = []
     var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
-    private(set) var piAgentPendingComposerText: String?
+    var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
     let agentMemoryStore = AgentMemoryStore()
     let agentImageStore = AgentImageStore()
@@ -335,7 +360,7 @@ final class AppViewModel: NSObject {
     var agentDeckReleaseService: ReleaseService { ReleaseService(gitRepositoryService: gitRepositoryService) }
     let agentAvatarPromptService = AgentAvatarPromptGenerationService()
     let skillDescriptionService = SkillDescriptionGenerationService()
-    private let releaseNotesGenerator = ReleaseNotesGenerationService()
+    let releaseNotesGenerator = ReleaseNotesGenerationService()
     let subagentWorktreeService = PiSubagentWorktreeService()
     let sessionWorktreeService = PiAgentSessionWorktreeService()
     @ObservationIgnored lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
@@ -375,12 +400,12 @@ final class AppViewModel: NSObject {
     private var watchEventDebounceTask: Task<Void, Never>?
     private var deferredWatchRefreshTask: Task<Void, Never>?
     private var fileWatchEventMonitor: FileWatchEventMonitor?
-    private var lastWatchFingerprint: String = ""
-    private var watchedURLsForAutoRefresh: [URL] = []
+    var lastWatchFingerprint: String = ""
+    var watchedURLsForAutoRefresh: [URL] = []
     var refreshTask: Task<Void, Never>?
     var refreshRequestID = 0
-    private var launchResourceFingerprintTask: Task<Void, Never>?
-    private var launchResourceFingerprintsBySessionID: [UUID: String] = [:]
+    var launchResourceFingerprintTask: Task<Void, Never>?
+    var launchResourceFingerprintsBySessionID: [UUID: String] = [:]
     private var isRefreshingModels = false
     var repositoryChangesRequestID = 0
     var repositoryDiffRequestID = 0
@@ -400,7 +425,7 @@ final class AppViewModel: NSObject {
     private var artifactCleanupTask: Task<Void, Never>?
     private var didShutdown = false
 
-    private var piAgentNotificationDelay: TimeInterval {
+    var piAgentNotificationDelay: TimeInterval {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
     }
 
@@ -615,532 +640,6 @@ final class AppViewModel: NSObject {
     /// though it shows the correct state already, which reads as a long wait
     /// after every toggle. Structural refreshes (project switch, initial
     /// load) leave the default so the spinner + disabled state still appear.
-    func refresh(includeModels: Bool = false, scanAllProjects: Bool = false, extraProjectPathsToScan: Set<String> = [], silentlyReconcile: Bool = false) {
-        let selectedProjectPath = selectedProjectPath
-        let shouldScanAllProjects = scanAllProjects
-        let preferencesByPath = projectPreferencesStore.preferencesByPath
-        let rootURLs = configuredProjectsRootURLs
-        let externalSkillPaths = appSettings.externalSkillPaths
-        let externalPromptPaths = appSettings.externalPromptPaths
-        let codexPluginSkillReferences = appSettings.codexPluginSkillReferences
-        let skillCollectionNames = Set(appSettings.skillCollections.map(\.name))
-        refreshRequestID += 1
-        let requestID = refreshRequestID
-        if !silentlyReconcile {
-            isRefreshingProjects = true
-        }
-
-        refreshTask?.cancel()
-        let viewModel = self
-        // `.utility`, not the default (which escalates to user-interactive QoS): a
-        // filesystem project scan must NOT outrank the main thread, or it starves the
-        // UI for CPU during scroll/interaction (a ~280ms scroll hang traced to
-        // `discoverProjects` running at user-interactive QoS).
-        refreshTask = Task.detached(priority: .utility) {
-            let result = AppRefreshService().loadSnapshot(
-                rootURLs: rootURLs,
-                selectedProjectPath: selectedProjectPath,
-                preferencesByPath: preferencesByPath,
-                externalSkillPaths: externalSkillPaths,
-                externalPromptPaths: externalPromptPaths,
-                codexPluginSkillReferences: codexPluginSkillReferences,
-                skillCollectionNames: skillCollectionNames,
-                scanAllProjects: shouldScanAllProjects,
-                extraProjectPathsToScan: extraProjectPathsToScan
-            )
-
-            await MainActor.run {
-                guard !Task.isCancelled, requestID == viewModel.refreshRequestID else { return }
-                viewModel.applyRefreshSnapshot(
-                    result,
-                    includeModels: includeModels
-                )
-                // Always clear in completion — covers the case where a silent
-                // refresh cancels an in-flight loud one (the loud one's
-                // `isRefreshingProjects = true` would otherwise stay set
-                // because its completion never runs).
-                if requestID == viewModel.refreshRequestID {
-                    viewModel.isRefreshingProjects = false
-                }
-            }
-        }
-    }
-
-    // Blocks the main thread on a full project rescan. Only `refreshAfterOverrideChange`
-    // should reach for this: builtin-override toggles are bound to snapshot-derived UI
-    // state, and an async refresh would let the toggle snap back to the old value for a
-    // frame while the rescan is in flight. Every other caller should use `refresh(...)`
-    // (which is detached) and rely on `silentlyReconcile: true` to avoid the spinner.
-    private func refreshSynchronouslyBlocksMainUntilDone(
-        includeModels: Bool = false,
-        scanAllProjects: Bool = false,
-        extraProjectPathsToScan: Set<String> = []
-    ) {
-        let result = AppRefreshService().loadSnapshot(
-            rootURLs: configuredProjectsRootURLs,
-            selectedProjectPath: selectedProjectPath,
-            preferencesByPath: projectPreferencesStore.preferencesByPath,
-            externalSkillPaths: appSettings.externalSkillPaths,
-            externalPromptPaths: appSettings.externalPromptPaths,
-            codexPluginSkillReferences: appSettings.codexPluginSkillReferences,
-            skillCollectionNames: Set(appSettings.skillCollections.map(\.name)),
-            scanAllProjects: scanAllProjects,
-            extraProjectPathsToScan: extraProjectPathsToScan
-        )
-        applyRefreshSnapshot(result, includeModels: includeModels)
-        isRefreshingProjects = false
-    }
-
-    /// Queue a "select this skill once it shows up" intent and kick off an
-    /// async refresh. Used by sheet-save flows that create a new skill —
-    /// avoids the prior synchronous refresh that blocked the UI on the
-    /// filesystem scan just so the next line could look up the new record's id.
-    func scheduleSelectSkill(byFilePath path: String) {
-        pendingSelectSkillFilePath = path
-        // Already-visible record? Select it inline so the detail pane updates
-        // before the rescan lands.
-        if let id = allVisibleSkillRecords.first(where: { $0.filePath == path })?.id {
-            selectedSkillID = id
-        }
-        refresh(includeModels: false, scanAllProjects: true, silentlyReconcile: true)
-    }
-
-    /// Sibling of `scheduleSelectSkill(byFilePath:)` for prompts.
-    func scheduleSelectPrompt(byFilePath path: String) {
-        pendingSelectPromptFilePath = path
-        if let id = allVisiblePromptTemplateRecords.first(where: { $0.filePath == path })?.id {
-            selectedCommandItemID = id
-        }
-        refresh(includeModels: false, scanAllProjects: true, silentlyReconcile: true)
-    }
-
-    /// Navigate to the Memory screen and select a specific record. Driven by the
-    /// `.agentDeckOpenMemoryRequested` notification a transcript recall card posts
-    /// when an injected memory title is tapped. Switches the project if the record
-    /// lives in another one so it lands in the visible set; `MemoryScreen` consumes
-    /// `selectedMemoryID`. A since-deleted id simply won't resolve — a graceful no-op.
-    func openMemory(byID id: String) {
-        if let record = agentMemoryStore.records.first(where: { $0.id == id }),
-           let projectPath = record.projectPath,
-           projectPath != selectedProjectPath {
-            selectedProjectPath = projectPath
-        }
-        selectedSidebarItem = .memory
-        selectedMemoryID = id
-    }
-
-    private func applyRefreshSnapshot(
-        _ result: AppRefreshSnapshot,
-        includeModels: Bool
-    ) {
-        // Swift Observation notifies on every `=`, equal value or not. A
-        // file-watch refresh frequently produces a byte-identical snapshot (the
-        // catalog on disk didn't actually change), so reassigning unconditionally
-        // re-evaluates the whole screen body — including the transcript's
-        // itemsBuild + updateNSView — for nothing. Gate each heavy reassignment
-        // on real inequality so a no-op rescan is invisible to the UI.
-        if projectPreferencesByPath != result.projectPreferencesByPath {
-            projectPreferencesByPath = result.projectPreferencesByPath
-            projectPreferencesRevision &+= 1
-        }
-        // DiscoveredProject has no volatile fields (no timestamps / counts), so
-        // value-equality is a true "the project list didn't change" test — a
-        // session streaming its transcript never alters it.
-        if discoveredProjects != result.discoveredProjects {
-            discoveredProjects = result.discoveredProjects
-        }
-        hasCompletedInitialProjectDiscovery = true
-
-        if !appSettings.didMigrateAgentAssignmentsFromDiscoveredFiles {
-            guard result.includesAllProjectSnapshots else {
-                refresh(includeModels: includeModels, scanAllProjects: true)
-                return
-            }
-            migrateAgentAssignmentsFromDiscoveredFiles(globalSnapshot: result.globalSnapshot, projectSnapshots: result.projectSnapshots)
-        }
-
-        // Merge the raw per-project snapshots FIRST so the catalog used to
-        // resolve `globalSnapshot.effectiveAgents` reflects EVERY enabled
-        // project — independent of which project triggered this (possibly
-        // partial) refresh. Without this, a partial rescan
-        // (`scanAllProjects: false`, e.g. the refresh fired by selecting a
-        // project) would scope `globalSnapshot` against only the freshly-scanned
-        // project, making the always-global Agents/Skills/Prompts views depend
-        // on the selected project. `scopedAgentSnapshot` only rewrites
-        // `effectiveAgents` (it preserves `projectAgents`/`libraryAgents`), so
-        // mixing already-scoped existing snapshots with raw fresh ones here is
-        // safe — the catalog only reads the preserved fields.
-        let discoveredProjectPaths = Set(result.discoveredProjects.map(\.path))
-        var mergedRawProjectSnapshots: [String: ScanSnapshot]
-        if result.includesAllProjectSnapshots {
-            mergedRawProjectSnapshots = result.projectSnapshots
-                .filter { discoveredProjectPaths.contains($0.key) }
-        } else {
-            mergedRawProjectSnapshots = allProjectSnapshots
-            mergedRawProjectSnapshots.merge(result.projectSnapshots) { _, fresh in fresh }
-            mergedRawProjectSnapshots = mergedRawProjectSnapshots
-                .filter { discoveredProjectPaths.contains($0.key) }
-        }
-        let catalogProjectSnapshots = Array(mergedRawProjectSnapshots.values)
-
-        let newGlobalSnapshot = scopedAgentSnapshot(result.globalSnapshot, projectPath: nil, globalCatalogSnapshot: result.globalSnapshot, catalogProjectSnapshots: catalogProjectSnapshots)
-        if globalSnapshot != newGlobalSnapshot { globalSnapshot = newGlobalSnapshot }
-
-        // Per-project scoping: only freshly-scanned projects are re-scoped
-        // (existing keep their prior effectiveAgents) and merged with the fresh
-        // set — same number of `scopedAgentSnapshot` calls as before, no perf
-        // change. The complete catalog above is what keeps the always-global
-        // resource views stable across project selection.
-        let freshProjectSnapshots = result.projectSnapshots.mapValues { projectSnapshot in
-            scopedAgentSnapshot(projectSnapshot, projectPath: projectSnapshot.projectRoot, globalCatalogSnapshot: result.globalSnapshot, catalogProjectSnapshots: catalogProjectSnapshots)
-        }
-        let newAllProjectSnapshots: [String: ScanSnapshot]
-        if result.includesAllProjectSnapshots {
-            newAllProjectSnapshots = freshProjectSnapshots
-        } else {
-            var merged = allProjectSnapshots
-            merged.merge(freshProjectSnapshots) { _, fresh in fresh }
-            newAllProjectSnapshots = merged.filter { discoveredProjectPaths.contains($0.key) }
-        }
-        if allProjectSnapshots != newAllProjectSnapshots { allProjectSnapshots = newAllProjectSnapshots }
-        watchedURLsForAutoRefresh = result.watchedURLs
-        cachedResolvedCodexPluginSkillPaths = result.resolvedCodexPluginSkillPaths
-        if result.includesWatchFingerprint {
-            lastWatchFingerprint = result.watchFingerprint
-        }
-        updateAutoRefreshWatchList()
-
-        if let matchingProject = result.selectedProject {
-            if projectRootURL != matchingProject.url { projectRootURL = matchingProject.url }
-            let newSnapshot = allProjectSnapshots[matchingProject.path]
-                ?? result.selectedProjectSnapshot.map { scopedAgentSnapshot($0, projectPath: matchingProject.path, globalCatalogSnapshot: result.globalSnapshot, catalogProjectSnapshots: catalogProjectSnapshots) }
-                ?? globalSnapshot
-            if snapshot != newSnapshot { snapshot = newSnapshot }
-        } else {
-            if projectRootURL != nil { projectRootURL = nil }
-            if self.selectedProjectPath != nil {
-                self.selectedProjectPath = nil
-                persistSelectedProjectPath(nil)
-            }
-            let newSnapshot = makeAggregateSnapshot()
-            if snapshot != newSnapshot { snapshot = newSnapshot }
-        }
-
-        // Keep MCP connections + catalog aligned with the active project. The call is
-        // a no-op when the (mcpEnabled, project) key is unchanged, so frequent
-        // file-watch refreshes don't re-spawn servers.
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-
-        // A fresh snapshot is authoritative. Drop pending deletions no longer
-        // present (deletion confirmed); keep IDs still present so a stale
-        // in-flight refresh can't un-hide a row mid-deletion. Pruned against the
-        // global catalog — the resource views are always global.
-        if !pendingDeletedSkillIDs.isEmpty {
-            let liveSkillIDs = Set((globalSnapshot.skills + globalSnapshot.librarySkills).map(\.id))
-            pendingDeletedSkillIDs.formIntersection(liveSkillIDs)
-        }
-        if !pendingDeletedPromptIDs.isEmpty {
-            let livePromptIDs = Set((globalSnapshot.promptTemplates + globalSnapshot.libraryPromptTemplates).map(\.id))
-            pendingDeletedPromptIDs.formIntersection(livePromptIDs)
-        }
-        pruneStaleOptionalResourceAssignments()
-
-        let currentAgentID = selectedAgentID
-        let previousSelectedAgentName = currentAgentID.flatMap { cachedDisplayAgentByID[$0]?.name }
-        let currentSkillID = selectedSkillID
-        let currentCommandItemID = selectedCommandItemID
-
-        selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == currentSkillID }) ? currentSkillID : allVisibleSkillRecords.first?.id
-        let availablePromptIDs = Set(allVisiblePromptTemplateRecords.map(\.id))
-        if availablePromptIDs.contains(currentCommandItemID ?? "") {
-            selectedCommandItemID = currentCommandItemID
-        } else {
-            selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
-        }
-
-        // After a rename, restore skill selection onto the renamed record now
-        // that the fresh snapshot exposes its new id.
-        if let name = pendingSelectSkillName {
-            if let id = allVisibleSkillRecords.first(where: { $0.name == name })?.id {
-                selectedSkillID = id
-            }
-            pendingSelectSkillName = nil
-        }
-        // After a new skill/prompt save, switch selection onto the newly-
-        // visible record. Replaces the prior synchronous-refresh + manual
-        // lookup at the call site, which blocked the UI on a full scan.
-        if let path = pendingSelectSkillFilePath {
-            if let id = allVisibleSkillRecords.first(where: { $0.filePath == path })?.id {
-                selectedSkillID = id
-            }
-            pendingSelectSkillFilePath = nil
-        }
-        if let path = pendingSelectPromptFilePath {
-            if let id = allVisiblePromptTemplateRecords.first(where: { $0.filePath == path })?.id {
-                selectedCommandItemID = id
-            }
-            pendingSelectPromptFilePath = nil
-        }
-
-        piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
-
-        if includeModels {
-            refreshAvailableModels()
-        }
-
-        rebuildWarningCaches()
-        reconcileSelectedAgentAfterDisplayCacheRebuild(previousID: currentAgentID, previousName: previousSelectedAgentName)
-        // Agent display records are cache-backed; perform pending name restore
-        // after `rebuildWarningCaches()` so the lookup sees the fresh IDs.
-        if let name = pendingSelectAgentName {
-            if let id = filteredAgents.first(where: { $0.name == name })?.id {
-                selectedAgentID = id
-            }
-            pendingSelectAgentName = nil
-        }
-        self.reconcileRunningSessionLaunchResourceFingerprints()
-        hasCompletedInitialRefresh = true
-    }
-
-    func reconcileRunningSessionLaunchResourceFingerprints() {
-        launchResourceFingerprintTask?.cancel()
-        let runningSessions = piAgentSessionStore.sessions.filter { piAgentRunner.isRunning(sessionID: $0.id) }
-        guard !runningSessions.isEmpty else {
-            launchResourceFingerprintsBySessionID.removeAll()
-            return
-        }
-        launchResourceFingerprintTask = Task { @MainActor [weak self] in
-            var fresh: [UUID: String] = [:]
-            for session in runningSessions {
-                guard let self, !Task.isCancelled else { return }
-                fresh[session.id] = await self.launchResourceFingerprint(for: session)
-            }
-            guard let self, !Task.isCancelled else { return }
-            for session in runningSessions where self.piAgentRunner.isRunning(sessionID: session.id) {
-                guard let fingerprint = fresh[session.id] else { continue }
-                if let previous = self.launchResourceFingerprintsBySessionID[session.id], previous != fingerprint {
-                    self.piAgentRunner.requestLaunchResourceRelaunch(
-                        sessionID: session.id,
-                        summary: "launch resources changed"
-                    )
-                }
-                self.launchResourceFingerprintsBySessionID[session.id] = fingerprint
-            }
-            self.launchResourceFingerprintsBySessionID = self.launchResourceFingerprintsBySessionID.filter { id, _ in
-                self.piAgentRunner.isRunning(sessionID: id)
-            }
-        }
-    }
-
-    private func recordCurrentLaunchResourceFingerprint(sessionID: UUID) async {
-        guard piAgentRunner.isRunning(sessionID: sessionID),
-              let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
-        launchResourceFingerprintsBySessionID[sessionID] = await launchResourceFingerprint(for: session)
-    }
-
-    private func launchResourceFingerprint(for session: PiAgentSessionRecord) async -> String {
-        let projectURL = session.launchWorkingDirectory
-        var parts: [String] = [
-            "sessionKind=\(session.kind.rawValue)",
-            "project=\(projectURL.standardizedFileURL.path)",
-            "subagentsEnabled=\(session.subagentsEnabled)",
-            "mcpEnabled=\(appSettings.mcpEnabled)",
-            "memoryEnabled=\(appSettings.agentMemoryEnabled)",
-            "memoryRecallCompleted=\(session.memoryRecallCompleted)",
-            "recalledMemoryPrompt=\(session.recalledMemoryPrompt ?? "")"
-        ]
-        var resourcePaths: [String] = []
-        if !session.isNoProject {
-            resourcePaths.append(contentsOf: launchSystemPromptResourcePaths(projectURL: projectURL))
-            let packageArgs = PiAgentLaunchArgumentBuilder.packageExtensionArguments(
-                settings: appSettings,
-                projectURL: projectURL
-            )
-            let extensionArgs = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
-                settings: appSettings,
-                projectURL: projectURL
-            )
-            parts.append("packageArgs=\(packageArgs.joined(separator: "\u{1f}"))")
-            parts.append("extensionArgs=\(extensionArgs.joined(separator: "\u{1f}"))")
-            resourcePaths.append(contentsOf: launchResourcePaths(in: packageArgs + extensionArgs, flags: ["--extension"]))
-        }
-
-        if let boundAgent = boundAgent(for: session) {
-            parts.append("boundAgent=\(boundAgent.name)")
-            parts.append("boundAgentPrompt=\(boundAgent.resolved.systemPrompt)")
-            parts.append("boundAgentSkills=\(boundAgent.resolved.skills.sorted().joined(separator: ","))")
-            if let sourcePath = boundAgent.sourcePath {
-                resourcePaths.append(sourcePath)
-            }
-            if let args = try? boundAgentSkillArguments(for: boundAgent) {
-                parts.append("boundAgentSkillArgs=\(args.joined(separator: "\u{1f}"))")
-                resourcePaths.append(contentsOf: launchResourcePaths(in: args, flags: ["--skill"]))
-            }
-        } else if !session.isNoProject {
-            if let args = try? parentSkillArguments(for: projectURL) {
-                parts.append("skillArgs=\(args.joined(separator: "\u{1f}"))")
-                resourcePaths.append(contentsOf: launchResourcePaths(in: args, flags: ["--skill"]))
-            }
-            if let args = try? parentPromptTemplateArguments(for: projectURL) {
-                parts.append("promptTemplateArgs=\(args.joined(separator: "\u{1f}"))")
-                resourcePaths.append(contentsOf: launchResourcePaths(in: args, flags: ["--prompt-template"]))
-            }
-            if session.subagentsEnabled, let catalog = nativeSubagentCatalogPrompt(for: session) {
-                parts.append("subagentCatalog=\(catalog)")
-            } else {
-                parts.append("subagentCatalog=")
-            }
-        }
-
-        if let catalog = await mcpCatalogPrompt(for: session) {
-            parts.append("mcpCatalog=\(catalog)")
-        } else {
-            parts.append("mcpCatalog=")
-        }
-
-        parts.append("files=\(resourcePaths.sorted().map(fileMetadataFingerprint(path:)).joined(separator: "\u{1e}"))")
-        return parts.joined(separator: "\u{1d}")
-    }
-
-    private func launchSystemPromptResourcePaths(projectURL: URL) -> [String] {
-        let project = projectURL.standardizedFileURL
-        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
-        var paths: [String] = [
-            project.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("SYSTEM.md").path,
-            home.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("agent", isDirectory: true).appendingPathComponent("SYSTEM.md").path,
-            project.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("APPEND_SYSTEM.md").path,
-            home.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("agent", isDirectory: true).appendingPathComponent("APPEND_SYSTEM.md").path
-        ]
-        let contextNames = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
-        paths.append(contentsOf: contextNames.map {
-            home.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("agent", isDirectory: true).appendingPathComponent($0).path
-        })
-        var cursor: URL? = project
-        while let directory = cursor {
-            paths.append(contentsOf: contextNames.map { directory.appendingPathComponent($0).path })
-            let parent = directory.deletingLastPathComponent()
-            guard parent.path != directory.path else { break }
-            cursor = parent
-        }
-        return Array(Set(paths))
-    }
-
-    private func launchResourcePaths(in arguments: [String], flags: Set<String>) -> [String] {
-        var paths: [String] = []
-        for index in arguments.indices where flags.contains(arguments[index]) {
-            let valueIndex = arguments.index(after: index)
-            guard valueIndex < arguments.endIndex else { continue }
-            paths.append(arguments[valueIndex])
-        }
-        return paths
-    }
-
-    private func fileMetadataFingerprint(path: String) -> String {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey]) else {
-            return "\(url.path)#missing"
-        }
-        let modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let size = values.fileSize ?? -1
-        return "\(url.path)#\(values.isDirectory == true ? "dir" : "file")#\(size)#\(modified)"
-    }
-
-    /// Remove optional skill/prompt assignments whose catalog records vanished
-    /// outside Agent Deck. Required dependencies (agents, loop roles, agent
-    /// frontmatter skills/MCP) are intentionally left alone.
-    private func pruneStaleOptionalResourceAssignments() {
-        let availableSkillNames = Set((globalSnapshot.skills + globalSnapshot.librarySkills).map(\.name))
-        let availablePromptNames = Set((globalSnapshot.promptTemplates + globalSnapshot.libraryPromptTemplates).map { PiPromptTemplateLaunchResolver.normalizedNames([$0.name]).first ?? $0.name })
-        var settingsChanged = false
-        var projectAssignmentsChanged = false
-
-        for name in appSettings.defaultSkillNames where !availableSkillNames.contains(name) {
-            settingsChanged = appSettingsController.setDefaultSkill(name, enabled: false) || settingsChanged
-        }
-        for name in appSettings.defaultPromptTemplateNames {
-            let normalized = PiPromptTemplateLaunchResolver.normalizedNames([name]).first ?? name
-            if !availablePromptNames.contains(normalized) {
-                settingsChanged = appSettingsController.setDefaultPromptTemplate(name, enabled: false) || settingsChanged
-            }
-        }
-
-        for (projectPath, preference) in projectPreferencesStore.preferencesByPath {
-            for name in preference.assignedSkillNames where !availableSkillNames.contains(name) {
-                projectPreferencesStore.setAssignedSkill(name, assigned: false, for: projectPath)
-                projectAssignmentsChanged = true
-            }
-            for name in preference.assignedPromptTemplateNames {
-                let normalized = PiPromptTemplateLaunchResolver.normalizedNames([name]).first ?? name
-                if !availablePromptNames.contains(normalized) {
-                    projectPreferencesStore.setAssignedPromptTemplate(name, assigned: false, for: projectPath)
-                    projectAssignmentsChanged = true
-                }
-            }
-        }
-
-        if settingsChanged {
-            appSettings = appSettingsController.settings
-        }
-        if projectAssignmentsChanged {
-            projectPreferencesByPath = projectPreferencesStore.preferencesByPath
-            projectPreferencesRevision &+= 1
-        }
-    }
-
-    /// Re-derive snapshot-scoped state from the already-cached raw snapshots
-    /// after an assignment-preference change. No disk I/O: project assignment
-    /// only mutates UserDefaults, and `scopedAgentSnapshot` is idempotent over
-    /// the agent-catalog fields it copies through. This replaces a full
-    /// `refresh()` (which re-walks the filesystem) for assignment toggles.
-    private func reconcileSnapshotsFromPreferences() {
-        // Capture the selected agent before rebuilding the display cache,
-        // because its EffectiveAgentRecord.id can change when it moves between
-        // catalog-only and effective (e.g. global/project assignment toggle).
-        let previousSelectedAgentID = selectedAgentID
-        let previousSelectedAgentName = selectedAgent?.name
-        let catalogProjectSnapshots = Array(allProjectSnapshots.values)
-        globalSnapshot = scopedAgentSnapshot(
-            globalSnapshot,
-            projectPath: nil,
-            globalCatalogSnapshot: globalSnapshot,
-            catalogProjectSnapshots: catalogProjectSnapshots
-        )
-        allProjectSnapshots = allProjectSnapshots.mapValues { projectSnapshot in
-            scopedAgentSnapshot(
-                projectSnapshot,
-                projectPath: projectSnapshot.projectRoot,
-                globalCatalogSnapshot: globalSnapshot,
-                catalogProjectSnapshots: catalogProjectSnapshots
-            )
-        }
-        if let path = selectedProjectPath, let scoped = allProjectSnapshots[path] {
-            snapshot = scoped
-        } else if selectedProjectPath == nil {
-            snapshot = makeAggregateSnapshot()
-        }
-        rebuildWarningCaches()
-        reconcileSelectedAgentAfterDisplayCacheRebuild(previousID: previousSelectedAgentID, previousName: previousSelectedAgentName)
-        reconcileRunningSessionLaunchResourceFingerprints()
-    }
-
-    private func reconcileSelectedAgentAfterDisplayCacheRebuild(previousID: EffectiveAgentRecord.ID?, previousName: String?) {
-        if let previousID, filteredAgents.contains(where: { $0.id == previousID }) {
-            selectedAgentID = previousID
-            return
-        }
-        if let previousName, let remappedID = filteredAgents.first(where: { $0.name == previousName })?.id {
-            selectedAgentID = remappedID
-            return
-        }
-        // If there was a real selection before the rebuild and the same logical
-        // agent is temporarily unresolved, do not select an unrelated first row.
-        // The list mirror will keep its local highlight until the next snapshot
-        // either remaps the agent or the selection is intentionally cleared.
-        if previousID != nil || previousName != nil {
-            return
-        }
-        selectedAgentID = filteredAgents.first?.id
-    }
 
     /// Patch the in-memory effective-agent skill list so snapshot-derived
     /// toggles (`skill(_:isAssignedTo:)`) update immediately after a draft
@@ -1532,940 +1031,7 @@ final class AppViewModel: NSObject {
 
 
 
-    func openPiAgentForSelectedProject() {
-        selectedSidebarItem = .agent
-        let project = piAgentSessionProjectContext()
-        if piAgentSessionStore.selectedSession?.projectPath != project.path {
-            let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
-            if let existing {
-                selectPiAgentSession(existing.id)
-                ensurePiAgentModelCatalogLoaded()
-            } else {
-                let session = piAgentSessionStore.createSession(
-                    kind: .project,
-                    title: LanguageStore.shared.t("vm.projectAgent", project.name),
-                    project: project,
-                    repository: project.gitHubRemote?.nameWithOwner
-                )
-                revealSessionGroup(session)
-                selectPiAgentSession(session.id)
-            }
-        } else {
-            acknowledgeVisibleSelectedPiAgentSession()
-        }
-    }
 
-    func createPiAgentDraftForSelectedSessionProjectOrSelectedProject() {
-        if let sessionProjectPath = piAgentSessionStore.selectedSession?.projectPathForProjectFeatures,
-           let project = projectByPath[sessionProjectPath] {
-            createPiAgentDraft(for: project)
-            return
-        }
-
-        createPiAgentDraftForSelectedProject()
-    }
-
-    func createPiAgentDraftForSelectedProject() {
-        guard let project = selectedDiscoveredProject else {
-            createNoProjectPiAgentDraft()
-            return
-        }
-        createPiAgentDraft(for: project)
-    }
-
-    func createNoProjectPiAgentDraft() {
-        selectedSidebarItem = .agent
-        let session = piAgentSessionStore.createNoProjectCodingAgentSession()
-        uncollapseSessionGroup(session)
-        selectPiAgentSession(session.id)
-    }
-
-    func createAgentDeckBuilderDraft() {
-        selectedSidebarItem = .agent
-        let session = piAgentSessionStore.createAgentDeckBuilderSession()
-        uncollapseSessionGroup(session)
-        selectPiAgentSession(session.id)
-    }
-
-    func createPiAgentDraft(for project: DiscoveredProject) {
-        selectedSidebarItem = .agent
-        let session = piAgentSessionStore.createSession(
-            kind: .project,
-            title: "Draft · \(project.name)",
-            project: project,
-            repository: project.gitHubRemote?.nameWithOwner
-        )
-        // Settle selection synchronously: createSession already inserts, sorts,
-        // and assigns `selectedSessionID`; uncollapse the target's group so the
-        // new row can render, but do not activate "Show more". New sessions are
-        // already in the preview set, and expanding here makes the 5-row
-        // "Show less" list unexpectedly become the full list when pressing +.
-        // selectPiAgentSession commits the sidebar tab. A second re-assertion on
-        // the next runloop was only here to win the fight against the old
-        // per-project `selectedProjectPath` reconciler, which is gone now.
-        uncollapseSessionGroup(session)
-        selectPiAgentSession(session.id)
-    }
-
-    func startPiAgentForSelectedProject(initialInstruction: String) {
-        guard let project = selectedDiscoveredProject else {
-            selectedSidebarItem = .agent
-            let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n").first.map(String.init) ?? "General Chat"
-            let session = piAgentSessionStore.createNoProjectCodingAgentSession(
-                title: title.isEmpty ? LanguageStore.shared.t("vm.generalChat") : String(title.prefix(80))
-            )
-            revealSessionGroup(session)
-            selectPiAgentSession(session.id)
-            piAgentRunner.resume(session: session, initialPrompt: initialInstruction)
-            return
-        }
-        selectedSidebarItem = .agent
-
-        // If worktree isolation is enabled, create the session and provision the
-        // worktree before the runner spawns Pi — otherwise Pi launches in the
-        // project root and won't pick up the worktree path on the first turn.
-        if appSettings.piAgentSessionsUseWorktree, project.isGitRepository {
-            let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n").first.map(String.init) ?? "Project agent · \(project.name)"
-            let session = piAgentSessionStore.createSession(
-                kind: .project,
-                title: title.isEmpty ? LanguageStore.shared.t("vm.newAgentSession") : String(title.prefix(80)),
-                project: project,
-                repository: project.gitHubRemote?.nameWithOwner
-            )
-            revealSessionGroup(session)
-            selectPiAgentSession(session.id)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.provisionWorktreeIfEnabled(for: session.id, project: project)
-                guard let refreshed = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }) else { return }
-                let prompt = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.piAgentRunner.resume(session: refreshed, initialPrompt: prompt)
-            }
-            return
-        }
-
-        piAgentRunner.startProjectSession(project: project, initialInstruction: initialInstruction)
-    }
-
-
-
-    func consumePendingPiAgentComposerText() -> String? {
-        guard let pending = piAgentPendingComposerText else { return nil }
-        piAgentPendingComposerText = nil
-        return pending
-    }
-
-
-    func openPiAgentScreen() {
-        selectedSidebarItem = .agent
-        expandCodingAgentPanel()
-    }
-
-    /// Expands the Coding Agent sidebar panel without changing the selected
-    /// navigation item. Use for the collapsed panel's disclosure/bench path so
-    /// the detail view and toolbar stay stable while the panel animates open.
-    func expandCodingAgentPanel() {
-        isCodingAgentPanelExpanded = true
-        if piAgentSessionStore.selectedSession?.id != nil {
-            ensurePiAgentModelCatalogLoaded()
-        }
-        prepareRepoChangesForSelectedPiAgentSession()
-        acknowledgeVisibleSelectedPiAgentSession()
-    }
-
-    func selectPiAgentSession(_ id: UUID) {
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == id }) else { return }
-        transientFocusedPiAgentSessionID = nil
-        if session.needsAttention {
-            transientFocusedPiAgentSessionID = id
-        }
-        piAgentSessionStore.select(id)
-        selectedSidebarItem = .agent
-        ensurePiAgentModelCatalogLoaded()
-        prepareRepoChangesForSelectedPiAgentSession()
-        acknowledgePiAgentSession(id)
-    }
-
-    /// The ONE authority for "is the selected session still valid". Now that the
-    /// session list is global (no per-project filter), validity is simply "the
-    /// selected session still exists in the store". It still ignores per-panel
-    /// view filters (search text, attention-only) so two mounted panels with
-    /// different filters can never fight over the global selection.
-    ///
-    /// Previously this also coerced selection into the currently-selected
-    /// *project* scope (`selectedProjectPath`). That was correct when the list
-    /// was project-scoped, but after unscoping it actively broke the app: a user
-    /// could click (or send into) a session whose `projectPath` differs from the
-    /// project they last picked for new-session context, and the next list
-    /// rebuild (fired by the send's `mark(.running)` → `sessionListRevision`
-    /// bump) would call back into here and clear/move the selection right out
-    /// from under the turn — leaving the composer in a "no session selected"
-    /// state even though the message had already gone out. `selectedProjectPath`
-    /// now only drives new-session context and is never assumed to equal the
-    /// active session's project.
-    func reconcileSelectedSessionWithProjectScope() {
-        let store = piAgentSessionStore
-        if let id = store.selectedSessionID, store.sessions.contains(where: { $0.id == id }) { return }
-        if let first = store.sessions.min(by: { PiAgentSessionRecord.sessionListPrecedes($0, $1) }) {
-            store.select(first.id)
-        } else {
-            store.clearSelection()
-        }
-    }
-
-    /// Repairs a session's transcript from Pi's session file when it becomes the
-    /// visible session — on click, on keyboard nav, and on the selection restored
-    /// at launch. Cheap and self-guarding (once per session, only when there's
-    /// something missing), so it's safe to call from view appear/selection hooks.
-    func rehydratePiAgentTranscriptIfNeeded(_ sessionID: UUID?) {
-        guard let sessionID,
-              let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
-        piAgentRunner.rehydrateTranscriptFromSessionFileIfNeeded(session)
-    }
-
-    /// Sessions for the active project, in the store's stable order (pinned +
-    /// recency) — the base order the sidebar shows before any search filter.
-    /// Drives next/previous session navigation and the scroll benchmark.
-    func scopedPiAgentSessionsInOrder() -> [PiAgentSessionRecord] {
-        guard let path = selectedProjectPath else { return piAgentSessionStore.sessions }
-        return piAgentSessionStore.sessions.filter { $0.projectPath == path }
-    }
-
-    /// Sessions created or touched (`updatedAt` bumped) during the current app
-    /// run. Populated by the store's `createSession`/
-    /// `touchSession(bumpUpdatedAt: true)` paths; disk-reload paths keep it clean.
-    /// The expanded sidebar surfaces these above its top-N preview cap so a
-    /// freshly-created or jostled older chat stays reachable.
-    var piAgentSessionsTouchedThisRunIDs: Set<UUID> {
-        piAgentSessionStore.sessionsTouchedThisRun
-    }
-
-    /// Visible session rows of the ACTIVE sidebar panel (expanded or collapsed),
-    /// refreshed by that panel whenever it rebuilds its cached sections. Keyboard
-    /// navigation (`selectAdjacentPiAgentSession`, ⌘]/⌘[, in-list ↑/↓) operates
-    /// within this list only — no navigation into hidden preview/collapsed rows
-    /// and no auto-reveal. Empty until the first panel reports in; navigation
-    /// falls back to `scopedPiAgentSessionsInOrder` in that brief window.
-    var piAgentVisibleSessionsForNavigation: [PiAgentSessionRecord] = []
-
-    /// Move selection by `offset` within the active panel's visible session
-    /// list, in display order. `wrap == true` wraps at both ends (⌘]/⌘[);
-    /// `false` stops at the ends (↑/↓). No-op when there are no sessions.
-    ///
-    /// Navigation operates on the visible rows the active sidebar panel reports
-    /// via `piAgentVisibleSessionsForNavigation`. It does NOT auto-expand a
-    /// disclosure-collapsed group or activate "Show more" for a capped one — the
-    /// target row must already be visible. When no panel has reported in yet
-    /// (e.g. before the first rebuild), it falls back to the scoped session
-    /// list in stable order so keyboard shortcuts still work at the start of an
-    /// app launch.
-    ///
-    /// Both ⌘]/⌘[ and the in-list ↑/↓ arrows go through here so the two entry
-    /// points share one navigation order.
-    func selectAdjacentPiAgentSession(offset: Int, wrap: Bool = true) {
-        let ordered = piAgentVisibleSessionsForNavigation.isEmpty
-            ? scopedPiAgentSessionsInOrder()
-            : piAgentVisibleSessionsForNavigation
-        guard !ordered.isEmpty else { return }
-        let currentID = piAgentSessionStore.selectedSessionID
-        let currentIndex = ordered.firstIndex { $0.id == currentID } ?? 0
-        let count = ordered.count
-        var nextIndex: Int
-        if wrap {
-            nextIndex = ((currentIndex + offset) % count + count) % count
-        } else {
-            nextIndex = min(max(currentIndex + offset, 0), count - 1)
-        }
-        let target = ordered[nextIndex]
-        // No auto-reveal: the target row is already visible (it's in `ordered`,
-        // which is the panel's visible row set). The previous `revealSessionGroup`
-        // call here drove navigation into hidden preview/collapsed rows, which
-        // is no longer desired for the expanded/full sidebar UX.
-        selectPiAgentSession(target.id)
-    }
-
-    /// Every scoped session in grouped display order, ignoring group collapse
-    /// and "Show more" caps — the full pre-`exactSort`/visible-rows rework
-    /// navigation surface. Retained for the rare fallback (e.g. nil visible
-    /// panels at cold start) and any future caller needing the full set, but
-    /// `selectAdjacentPiAgentSession` no longer routes through here.
-    private func orderedAllSessionsForNavigation() -> [PiAgentSessionRecord] {
-        PiAgentSessionGrouping.sections(
-            from: scopedPiAgentSessionsInOrder(),
-            projectByPath: projectByPath,
-            projectDiscoveryComplete: hasCompletedInitialProjectDiscovery,
-            expandedProjectIDs: [],
-            collapsedProjectIDs: [],
-            capPreviews: false,
-            isWorking: { _ in false },
-            selectedSessionID: nil
-        ).flatMap(\.items)
-    }
-
-    private func sessionGroupID(for session: PiAgentSessionRecord) -> String {
-        if session.isAgentDeckBuilderSession { return PiAgentSessionGrouping.agentDeckBuilderSectionID }
-        if session.isNoProject { return PiAgentSessionGrouping.noProjectSectionID }
-        return projectByPath[session.projectPath] != nil || !hasCompletedInitialProjectDiscovery
-            ? session.projectPath
-            : PiAgentSessionGrouping.otherSectionID
-    }
-
-    /// Ensure the group owning `session` is not disclosure-collapsed without
-    /// changing its Show more/less state. Used for newly-created sessions, which
-    /// are already visible in the capped preview.
-    private func uncollapseSessionGroup(_ session: PiAgentSessionRecord) {
-        collapsedProjects.remove(sessionGroupID(for: session))
-    }
-
-    /// Auto-reveal the group owning `session` so it lands on a rendered row:
-    /// expand a disclosure-collapsed group and activate "Show more" for a
-    /// capped one. State is shared on the view model so every mounted session
-    /// list stays consistent. Used by selection paths that intentionally force
-    /// a hidden target visible (e.g. notification tap); keyboard navigation no
-    /// longer calls this.
-    private func revealSessionGroup(_ session: PiAgentSessionRecord) {
-        let groupID = sessionGroupID(for: session)
-        collapsedProjects.remove(groupID)
-        expandedProjects.insert(groupID)
-    }
-
-    func selectNextPiAgentSession() { selectAdjacentPiAgentSession(offset: 1, wrap: true) }
-    func selectPreviousPiAgentSession() { selectAdjacentPiAgentSession(offset: -1, wrap: true) }
-
-    var canNavigatePiAgentSessions: Bool {
-        scopedPiAgentSessionsInOrder().count > 1
-    }
-
-    func acknowledgeVisibleSelectedPiAgentSession() {
-        guard let session = piAgentSessionStore.selectedSession,
-              isPiAgentSessionActuallyVisible(session.id) else { return }
-        if session.needsAttention {
-            transientFocusedPiAgentSessionID = session.id
-        }
-        acknowledgePiAgentSession(session.id)
-    }
-
-    func releaseTransientFocusedPiAgentSession() {
-        transientFocusedPiAgentSessionID = nil
-    }
-
-    func piAgentSessionIsWorking(_ session: PiAgentSessionRecord) -> Bool {
-        session.status.isActive || piAgentSessionHasActiveSubagent(session.id)
-    }
-
-    private func piAgentSessionHasActiveSubagent(_ sessionID: UUID) -> Bool {
-        piAgentSessionStore.subagentRuns(for: sessionID).contains { $0.status.isActive }
-    }
-
-    // MARK: - Provider sign-in
-
-    /// Providers with a credential in `~/.pi/agent/auth.json` (== signed in).
-    var signedInProviders: Set<String> = []
-    /// Provider id → credential type (`"api_key"`/`"oauth"`) for UI labelling.
-    var providerAuthTypes: [String: String] = [:]
-    /// Every provider Pi can connect to, including the authentication methods
-    /// advertised by the installed runtime. This powers the Add Provider picker.
-    var connectableProviders: [PiConnectableProvider] = []
-    var isLoadingConnectableProviders = false
-    var connectableProvidersError: String?
-    var connectableProviderLoadState = PiProviderCatalogLoadState()
-    let providerLogoutService = PiProviderLoginService()
-    /// Drives the Add Provider picker sheet (opened from the Models toolbar `+`).
-    var isAddProviderPresented = false
-
-
-    func setDefaultPiAgentModel(_ model: AvailableModel?) {
-        guard writePiRuntimeDefaults(provider: model?.provider, model: model?.model, thinkingLevel: nil) else { return }
-        piRuntimeSettingsRevision += 1
-    }
-
-    func setDefaultPiAgentThinkingLevel(_ level: String) {
-        guard writePiRuntimeDefaults(provider: nil, model: nil, thinkingLevel: level) else { return }
-        piRuntimeSettingsRevision += 1
-    }
-
-    func acknowledgePiAgentSession(_ id: UUID) {
-        pendingPiAgentNotificationTasks[id]?.cancel()
-        pendingPiAgentNotificationTasks[id] = nil
-        piAgentSessionStore.updateSession(id) { $0.needsAttention = false }
-        let identifier = piAgentNotificationIdentifier(for: id)
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-    }
-
-    private func handlePiAgentTurnFinished(_ sessionID: UUID) {
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
-        // Deliver the next queued follow-up before attention/notification bookkeeping.
-        // Gate on *turn* status only — `piAgentRunner.isRunning` means the warm RPC
-        // process is alive between turns, not that a model turn is in flight.
-        if !(piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.status.isActive ?? false) {
-            drainComposerMessageQueueIfNeeded(sessionID: sessionID)
-        }
-        if isPiAgentSessionActuallyVisible(sessionID) {
-            acknowledgePiAgentSession(sessionID)
-            // Pi may have changed files during the completed turn. Refresh once at
-            // the turn boundary so Git toolbar actions don't keep reading a clean
-            // cached snapshot until the user changes sessions.
-            if shouldShowPiAgentGitActions,
-               piAgentSessionStore.selectedSession?.id == sessionID {
-                prepareRepoChangesForSelectedPiAgentSession(force: true)
-            }
-            return
-        }
-
-        guard !session.needsAttention else { return }
-        piAgentSessionStore.updateSession(sessionID) { record in
-            record.status = .idle
-            record.needsAttention = true
-        }
-        schedulePiAgentCompletionNotification(for: sessionID)
-    }
-
-    /// Sends at most one queued composer message after a turn becomes idle.
-    /// Further items wait for the next `onTurnFinished`.
-    ///
-    /// Note: do **not** use `piAgentRunner.isRunning` as a turn gate. That flag is true
-    /// whenever the warm Pi RPC child process is alive (including between turns).
-    private func drainComposerMessageQueueIfNeeded(sessionID: UUID) {
-        guard let item = piAgentSessionStore.dequeueComposerMessage(for: sessionID) else { return }
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else {
-            // Session gone — drop the dequeued item.
-            return
-        }
-        // Re-queue if a new turn started between dequeue and send.
-        if ComposerMessageQueue.shouldRequeueAfterDrain(sessionIsActive: session.status.isActive) {
-            piAgentSessionStore.requeueComposerMessageAtFront(item, for: sessionID)
-            return
-        }
-        deliverPiAgentMessage(
-            item.message,
-            mode: .prompt,
-            transcriptText: item.transcriptText,
-            titleSource: item.titleSource,
-            images: item.images,
-            pasteAttachments: item.pasteAttachments,
-            session: session
-        )
-    }
-
-    private func isPiAgentSessionActuallyVisible(_ sessionID: UUID) -> Bool {
-        NSApp.isActive
-            && selectedSidebarItem == .agent
-            && piAgentSessionStore.selectedSession?.id == sessionID
-            && (NSApp.keyWindow?.isVisible ?? NSApp.mainWindow?.isVisible ?? false)
-    }
-
-    private func schedulePiAgentCompletionNotification(for sessionID: UUID) {
-        pendingPiAgentNotificationTasks[sessionID]?.cancel()
-        let delay = UInt64(piAgentNotificationDelay * 1_000_000_000)
-        pendingPiAgentNotificationTasks[sessionID] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: delay)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self?.sendPiAgentCompletionNotificationIfNeeded(for: sessionID)
-            }
-        }
-    }
-
-    private func sendPiAgentCompletionNotificationIfNeeded(for sessionID: UUID) {
-        pendingPiAgentNotificationTasks[sessionID] = nil
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
-        guard session.needsAttention, !isPiAgentSessionActuallyVisible(sessionID), shouldSendPiAgentSystemNotification else { return }
-        sendPiAgentCompletionNotification(for: session)
-    }
-
-    private var shouldSendPiAgentSystemNotification: Bool {
-        !NSApp.isActive || !(NSApp.keyWindow?.isVisible ?? NSApp.mainWindow?.isVisible ?? false)
-    }
-
-    private func piAgentNotificationIdentifier(for sessionID: UUID) -> String {
-        "pi-agent-\(sessionID.uuidString)"
-    }
-
-    private func sendPiAgentCompletionNotification(for session: PiAgentSessionRecord) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            do {
-                // .badge is required even though the Dock count is set via
-                // NSDockTile.badgeLabel: once an app registers for notifications,
-                // the Dock only draws its badge when the per-app "Badge
-                // application icon" setting is authorized.
-                let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge])
-                guard granted else { return }
-
-                let content = UNMutableNotificationContent()
-                content.title = LanguageStore.shared.t("vm.piAgentNeedsReview")
-                content.body = session.displayTitle
-                content.userInfo = [
-                    "sessionID": session.id.uuidString,
-                    "windowID": windowID.uuidString
-                ]
-
-                let request = UNNotificationRequest(
-                    identifier: "pi-agent-\(session.id.uuidString)",
-                    content: content,
-                    trigger: nil
-                )
-
-                try await UNUserNotificationCenter.current().add(request)
-                self.piAgentSessionStore.updateSession(session.id) { record in
-                    record.lastNotificationAt = Date()
-                }
-            } catch {
-                return
-            }
-        }
-    }
-
-    func renamePiAgentSession(_ id: UUID, title: String) {
-        piAgentSessionStore.renameSession(id, title: title)
-        piAgentRunner.syncSessionName(for: id)
-    }
-
-    func setPiAgentSessionPinned(_ id: UUID, pinned: Bool) {
-        if pinned, let session = piAgentSessionStore.sessions.first(where: { $0.id == id }) {
-            let sectionID: String
-            if session.isAgentDeckBuilderSession {
-                sectionID = PiAgentSessionGrouping.agentDeckBuilderSectionID
-            } else if session.isNoProject {
-                sectionID = PiAgentSessionGrouping.noProjectSectionID
-            } else if projectByPath[session.projectPath] != nil {
-                sectionID = session.projectPath
-            } else {
-                sectionID = PiAgentSessionGrouping.otherSectionID
-            }
-            collapsedProjects.remove(sectionID)
-        }
-        piAgentSessionStore.setSessionPinned(id, pinned: pinned)
-    }
-
-    /// Whether the toolbar/menu can open a plain terminal at the selected session's project cwd.
-    ///
-    /// - Returns: `true` when a session is selected and its launch working directory exists on disk.
-    var canOpenSelectedPiAgentSessionInTerminal: Bool {
-        guard let session = piAgentSessionStore.selectedSession else { return false }
-        var isDir: ObjCBool = false
-        let path = session.launchWorkingDirectory.path
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
-    }
-
-
-    func resumeSelectedPiAgentSession() {
-        guard let session = piAgentSessionStore.selectedSession else { return }
-        selectedSidebarItem = .agent
-        acknowledgePiAgentSession(session.id)
-        piAgentRunner.resume(session: session)
-    }
-
-
-    var shouldShowPiAgentGitActions: Bool {
-        piAgentCommitMessageModel() != nil
-    }
-
-    /// Whether the dedicated "Release" toolbar button should appear: only when the
-    /// selected session's repo is agent-deck itself. Matches the session's recorded
-    /// `repository` (owner/repo), falling back to the project's GitHub remote.
-    var shouldShowAgentDeckReleaseAction: Bool {
-        guard let session = piAgentSessionStore.selectedSession else { return false }
-        let target = ReleaseService.repository
-        if let repository = session.repository,
-           repository.caseInsensitiveCompare(target) == .orderedSame {
-            return true
-        }
-        if let projectPath = session.projectPathForProjectFeatures,
-           let remote = projectByPath[projectPath]?.gitHubRemote?.nameWithOwner,
-           remote.caseInsensitiveCompare(target) == .orderedSame {
-            return true
-        }
-        return false
-    }
-
-    /// The main checkout to tag against — the project path, never a worktree, so the
-    /// release lands on `main` rather than a session's feature branch.
-    var agentDeckReleaseProjectURL: URL? {
-        guard let projectPath = piAgentSessionStore.selectedSession?.projectPathForProjectFeatures else { return nil }
-        return URL(fileURLWithPath: projectPath, isDirectory: true)
-    }
-
-    /// Draft friendly release notes for the pending Agent Deck release using the
-    /// default model (thinking off), from the commits since `sinceTag`. The
-    /// returned markdown body is shown — and editable — in the release sheet, then
-    /// rides the annotated tag into CI. Throws if no default model/project is
-    /// available; the sheet treats that as "fall back to CI commit listing".
-    func generateAgentDeckReleaseNotes(version: String, sinceTag: String?) async throws -> String {
-        guard let model = defaultPiAgentModel() else {
-            throw ReleaseNotesGenerationService.GenerationError.rpc(LanguageStore.shared.t("vm.noDefaultModel"))
-        }
-        guard let projectURL = agentDeckReleaseProjectURL else {
-            throw ReleaseNotesGenerationService.GenerationError.rpc(LanguageStore.shared.t("vm.noProjectSelectedShort"))
-        }
-        let commits = try await gitRepositoryService.commitSubjects(sinceTag: sinceTag, in: projectURL)
-        let environment = EnvRuntimeEnvironment().environment()
-        return try await releaseNotesGenerator.generate(
-            version: version,
-            commitSubjects: commits,
-            model: model,
-            projectURL: projectURL,
-            environment: environment
-        )
-    }
-
-    /// Record a successful release in the selected session's transcript.
-    func recordAgentDeckReleaseSucceeded(tag: String) {
-        guard let session = piAgentSessionStore.selectedSession else { return }
-        piAgentSessionStore.append(.init(
-            sessionID: session.id,
-            role: .status,
-            title: "Release Pushed",
-            text: "Tagged and pushed \(tag). CI build is now running."
-        ))
-    }
-
-    /// Whether the dev-server toolbar control should appear for the selected
-    /// session: its project has a detectable dev server, or one is already
-    /// running for it. Hidden for projects with no dev server (e.g. a Swift app)
-    /// so the toolbar doesn't offer a control that can only report "none found".
-    var shouldShowProjectServerControls: Bool {
-        guard let path = piAgentSessionStore.selectedSession?.projectPathForProjectFeatures else { return false }
-        if projectServerService.currentServer(forProjectPath: path) != nil { return true }
-        return projectServerService.hasDetectedCommands(forProjectPath: path) == true
-    }
-
-    var shouldShowCommitSelectedPiAgentSession: Bool {
-        guard shouldShowPiAgentGitActions,
-              let session = piAgentSessionStore.selectedSession,
-              let changes = repositoryChangesCache[session.repositoryRoot]?.snapshot else { return false }
-        return changes.conflicted.isEmpty
-            && (!changes.staged.isEmpty || !changes.unstaged.isEmpty || !changes.untracked.isEmpty)
-    }
-
-    var shouldShowPushSelectedPiAgentSession: Bool {
-        guard shouldShowPiAgentGitActions,
-              let session = piAgentSessionStore.selectedSession,
-              let changes = repositoryChangesCache[session.repositoryRoot]?.snapshot else { return false }
-        return changes.aheadCount > 0
-    }
-
-    var canCommitSelectedPiAgentSession: Bool {
-        guard shouldShowCommitSelectedPiAgentSession,
-              let session = piAgentSessionStore.selectedSession else { return false }
-        return piAgentGitAutomationAction == nil && !session.status.isActive
-    }
-
-    var canPushSelectedPiAgentSession: Bool {
-        guard shouldShowPushSelectedPiAgentSession,
-              let session = piAgentSessionStore.selectedSession else { return false }
-        return piAgentGitAutomationAction == nil && !session.status.isActive
-    }
-
-    var canCommitAndPushSelectedPiAgentSession: Bool { canCommitSelectedPiAgentSession }
-
-    var shouldShowMergeSelectedPiAgentSession: Bool {
-        guard shouldShowPiAgentGitActions,
-              let session = piAgentSessionStore.selectedSession else { return false }
-        return session.worktreePath != nil && session.branchName != nil && session.sourceBranch != nil
-    }
-
-    var canMergeSelectedPiAgentSession: Bool {
-        guard shouldShowMergeSelectedPiAgentSession,
-              let session = piAgentSessionStore.selectedSession,
-              piAgentGitAutomationAction == nil,
-              !session.status.isActive,
-              let changes = repositoryChangesCache[session.repositoryRoot]?.snapshot else { return false }
-
-        let hasUncommittedChanges = !changes.unstaged.isEmpty || !changes.untracked.isEmpty || !changes.conflicted.isEmpty || !changes.staged.isEmpty
-        let hasCommittedBranchChanges = repositoryChangesCache[session.repositoryRoot]?.hasMergeableBranchChanges == true
-        return hasUncommittedChanges || hasCommittedBranchChanges
-    }
-
-    func commitSelectedPiAgentSession() {
-        shipSelectedPiAgentSession(pushAfterCommit: false)
-    }
-
-    func commitAndPushSelectedPiAgentSession() {
-        shipSelectedPiAgentSession(pushAfterCommit: true)
-    }
-
-    func pushSelectedPiAgentSession() {
-        guard let session = piAgentSessionStore.selectedSession else { return }
-        let sessionID = session.id
-        let branchName = session.branchName ?? "current branch"
-        let projectURL = URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
-        piAgentGitAutomationAction = .push
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await gitRepositoryService.pushCurrentBranch(in: projectURL)
-                await MainActor.run {
-                    self.piAgentGitAutomationAction = nil
-                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Push Completed", text: "Pushed \(branchName)"))
-                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                }
-            } catch {
-                await MainActor.run {
-                    self.piAgentGitAutomationAction = nil
-                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Push Failed", text: error.localizedDescription))
-                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                }
-            }
-        }
-    }
-
-    /// Stages all changes in `workingURL`, generates an AI commit message, and commits.
-    /// Throws `PiAgentShipService.ShipError.noChanges` when there is nothing to commit
-    /// (caller decides whether that's fatal) and `.conflicts` when the working tree has
-    /// unresolved merge conflicts. Shared by the Commit button and the Merge action.
-    private func performPiAgentAutoCommit(
-        workingURL: URL,
-        model: AvailableModel,
-        environment: [String: String]
-    ) async throws -> PiAgentShipService.CommitMessage {
-        let before = try await gitRepositoryService.loadChanges(in: workingURL)
-        if !before.conflicted.isEmpty { throw PiAgentShipService.ShipError.conflicts }
-        if before.staged.isEmpty && before.unstaged.isEmpty && before.untracked.isEmpty {
-            throw PiAgentShipService.ShipError.noChanges
-        }
-
-        try await gitRepositoryService.stageAll(in: workingURL)
-        let status = try await gitRepositoryService.statusText(in: workingURL)
-        let diff = try await gitRepositoryService.stagedDiffForCommitMessage(in: workingURL)
-        let message = try await withCheckedThrowingContinuation { continuation in
-            shipService.generateCommitMessage(status: status, diff: diff, model: model, projectURL: workingURL, environment: environment) { result in
-                continuation.resume(with: result)
-            }
-        }
-        try await gitRepositoryService.commit(message: message.title, description: message.body, in: workingURL)
-        return message
-    }
-
-    private func shipSelectedPiAgentSession(pushAfterCommit: Bool) {
-        guard let session = piAgentSessionStore.selectedSession else { return }
-        guard let model = piAgentCommitMessageModel() else {
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Ship Failed", text: PiAgentShipService.ShipError.noModel.localizedDescription))
-            return
-        }
-
-        let sessionID = session.id
-        let projectURL = URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
-        let environment = EnvRuntimeEnvironment().environment()
-        piAgentGitAutomationAction = pushAfterCommit ? .commitAndPush : .commit
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let message = try await self.performPiAgentAutoCommit(workingURL: projectURL, model: model, environment: environment)
-                if pushAfterCommit {
-                    try await gitRepositoryService.pushCurrentBranch(in: projectURL)
-                }
-
-                await MainActor.run {
-                    self.piAgentGitAutomationAction = nil
-                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: pushAfterCommit ? "Commit & Push Completed" : "Commit Completed", text: pushAfterCommit ? "Committed and pushed “\(message.title)”" : "Committed “\(message.title)”"))
-                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                }
-            } catch {
-                await MainActor.run {
-                    self.piAgentGitAutomationAction = nil
-                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: pushAfterCommit ? "Commit & Push Failed" : "Commit Failed", text: error.localizedDescription))
-                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                }
-            }
-        }
-    }
-
-    func startProjectServer(for session: PiAgentSessionRecord, command: ServerCommand) {
-        guard let projectPath = session.projectPathForProjectFeatures else { return }
-        projectServerService.start(command: command, projectPath: projectPath, projectName: session.projectName)
-        piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: "Dev Server Started", text: "Started dev server."))
-    }
-
-    func stopProjectServer(for session: PiAgentSessionRecord, server: RunningServer) {
-        projectServerService.stop(server)
-        piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: "Dev Server Stopped", text: "Stopped dev server."))
-    }
-
-    func restartProjectServer(for session: PiAgentSessionRecord, server: RunningServer) {
-        projectServerService.restart(server)
-        piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: "Dev Server Restarted", text: "Restarted dev server."))
-    }
-
-    func mergeSelectedPiAgentSession() {
-        guard let session = piAgentSessionStore.selectedSession,
-              let projectPath = session.projectPathForProjectFeatures,
-              let worktreePath = session.worktreePath,
-              let branchName = session.branchName,
-              let sourceBranch = session.sourceBranch else { return }
-        guard let model = piAgentCommitMessageModel() else {
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Merge Failed", text: PiAgentShipService.ShipError.noModel.localizedDescription))
-            return
-        }
-        let sessionID = session.id
-        let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
-        let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true)
-        let environment = EnvRuntimeEnvironment().environment()
-        let keepWorktreeAfterMerge = appSettings.piAgentSessionsKeepWorktreeAfterMerge
-        piAgentGitAutomationAction = .merge
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                // 1. Auto-commit any uncommitted work in the worktree using the same
-                //    code path as the Commit toolbar button. `.noChanges` is expected
-                //    when the agent didn't touch files and is not an error here.
-                do {
-                    let message = try await self.performPiAgentAutoCommit(workingURL: worktreeURL, model: model, environment: environment)
-                    await MainActor.run {
-                        self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Committed Changes", text: "Committed `\(message.title)` on `\(branchName)` before merging."))
-                    }
-                } catch PiAgentShipService.ShipError.noChanges {
-                    // Nothing to stage — proceed; the commits-ahead check below decides.
-                }
-
-                // 2. Detect a no-op merge. Without this, `git merge --no-ff` of an
-                //    already-merged branch silently reports "Already up to date." and
-                //    the cleanup below would still remove the worktree.
-                let ahead = try await self.gitRepositoryService.commitsAhead(branch: branchName, base: sourceBranch, in: projectURL)
-                guard ahead > 0 else {
-                    throw NSError(domain: "AgentDeckMerge", code: 3, userInfo: [NSLocalizedDescriptionKey: "Nothing to merge: `\(branchName)` has no commits ahead of `\(sourceBranch)`. The worktree and branch were left in place."])
-                }
-
-                // 3. Existing pre-merge checks on the parent repo.
-                let parentClean = try await self.gitRepositoryService.isClean(in: projectURL)
-                guard parentClean else {
-                    throw NSError(domain: "AgentDeckMerge", code: 1, userInfo: [NSLocalizedDescriptionKey: "The project repository has uncommitted changes. Commit, stash, or discard them before merging."])
-                }
-
-                guard try await self.gitRepositoryService.hasBranch(sourceBranch, in: projectURL) else {
-                    throw NSError(domain: "AgentDeckMerge", code: 2, userInfo: [NSLocalizedDescriptionKey: "Source branch `\(sourceBranch)` no longer exists in the project."])
-                }
-
-                let parentBranch = try await self.gitRepositoryService.currentBranch(in: projectURL)
-                if parentBranch != sourceBranch {
-                    try await self.gitRepositoryService.checkoutBranch(sourceBranch, in: projectURL)
-                }
-
-                // 4. Merge.
-                let outcome = try await self.gitRepositoryService.merge(branch: branchName, in: projectURL)
-                switch outcome {
-                case .success:
-                    if keepWorktreeAfterMerge {
-                        await MainActor.run {
-                            self.piAgentGitAutomationAction = nil
-                            self.piAgentSessionStore.append(.init(
-                                sessionID: sessionID,
-                                role: .status,
-                                title: "Merge Completed",
-                                text: "Merged \(branchName) into \(sourceBranch)."
-                            ))
-                            self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                        }
-                        return
-                    }
-                    await MainActor.run {
-                        self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Merge Completed", text: "Merged \(branchName) into \(sourceBranch)"))
-                    }
-                    // The merge has already landed on `sourceBranch`. Anything that goes
-                    // wrong from here is a cleanup problem, not a merge problem — surface
-                    // it that way so the transcript doesn't read like the merge itself failed.
-                    let cleanupResult: Result<PiAgentBranchDeletionOutcome, Error>
-                    do {
-                        let outcome = try await self.sessionWorktreeService.removeWorktree(
-                            worktreePath: worktreeURL.path,
-                            projectURL: projectURL,
-                            branchName: branchName,
-                            sourceBranch: sourceBranch,
-                            deleteBranch: true
-                        )
-                        cleanupResult = .success(outcome)
-                    } catch {
-                        cleanupResult = .failure(error)
-                    }
-                    await MainActor.run {
-                        self.piAgentGitAutomationAction = nil
-                        switch cleanupResult {
-                        case .success(let cleanupOutcome):
-                            // The worktree directory was removed (the only paths inside
-                            // `removeWorktree` that affect persisted state run before the
-                            // function returns). Forget the worktree on the session record;
-                            // keep the branch reference iff the branch survived.
-                            self.piAgentSessionStore.updateSession(sessionID) { record in
-                                record.worktreePath = nil
-                                record.sourceBranch = nil
-                                switch cleanupOutcome {
-                                case .deleted, .skippedNoBranchName, .skippedNotRequested:
-                                    record.branchName = nil
-                                case .retainedUnmerged:
-                                    break
-                                }
-                            }
-                            switch cleanupOutcome {
-                            case .deleted:
-                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("vm.worktreeRemoved"), text: LanguageStore.shared.t("vm.removedWorktreeBranch", branchName)))
-                            case .skippedNoBranchName, .skippedNotRequested:
-                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: LanguageStore.shared.t("vm.worktreeRemoved"), text: LanguageStore.shared.t("vm.removedWorktree")))
-                            case let .retainedUnmerged(reason):
-                                self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Branch Retained", text: "Merged into `\(sourceBranch)` and removed the worktree, but branch `\(branchName)` was not deleted: \(reason). Delete it manually with `git branch -D \(branchName)` once you've checked."))
-                            }
-                        case .failure(let cleanupError):
-                            // `removeWorktree` only throws before any cleanup runs, so the
-                            // worktree directory and branch are still on disk. Don't clear
-                            // session fields — the user needs them to investigate.
-                            self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Worktree Cleanup Failed", text: "The merge into `\(sourceBranch)` succeeded, but the worktree at `\(worktreeURL.path)` could not be cleaned up: \(cleanupError.localizedDescription)."))
-                        }
-                        self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                    }
-                case let .conflict(status):
-                    await MainActor.run {
-                        self.piAgentGitAutomationAction = nil
-                        self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Merge Conflict", text: "Merge of `\(branchName)` into `\(sourceBranch)` left conflicts. Resolve them in the project, then commit.\n\n\(status)"))
-                        self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                    }
-                }
-            } catch let skipError as NSError where skipError.domain == "AgentDeckMerge" && skipError.code == 3 {
-                await MainActor.run {
-                    self.piAgentGitAutomationAction = nil
-                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Merge Skipped", text: skipError.localizedDescription))
-                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                }
-            } catch {
-                await MainActor.run {
-                    self.piAgentGitAutomationAction = nil
-                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Merge Failed", text: error.localizedDescription))
-                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
-                }
-            }
-        }
-    }
-
-    /// Creates a session worktree for the given project if the user opted in via
-    /// settings. Posts a status entry to the session's transcript on success or
-    /// failure. Called lazily, right before the session's first message launches
-    /// Pi — drafts stay pure records until then, so abandoning one never leaves
-    /// a worktree or branch behind. Callers must await this before starting the
-    /// agent so Pi launches in the worktree on the very first turn.
-    func provisionWorktreeIfEnabled(for sessionID: UUID, project: DiscoveredProject) async {
-        guard appSettings.piAgentSessionsUseWorktree else { return }
-        guard project.isGitRepository else {
-            piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Skipped", text: "Worktree isolation is enabled, but the project is not a git repository. Running in the project root."))
-            return
-        }
-        do {
-            let creation = try await sessionWorktreeService.createWorktree(for: sessionID, projectURL: project.url)
-            piAgentSessionStore.updateSession(sessionID) { record in
-                record.worktreePath = creation.worktreePath
-                record.branchName = creation.branchName
-                record.sourceBranch = creation.sourceBranch
-            }
-            piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Ready", text: "Created branch `\(creation.branchName)` off `\(creation.sourceBranch)` in an isolated worktree."))
-        } catch {
-            piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Worktree Setup Failed", text: "Could not create a session worktree: \(error.localizedDescription). The session will run in the project root."))
-        }
-    }
-
-    @discardableResult
 
 
     func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {
@@ -2732,7 +1298,7 @@ final class AppViewModel: NSObject {
         return records.filter { !pendingDeletedSkillIDs.contains($0.id) }
     }
 
-    private func rebuildVisibleSkillRecordCachesIfNeeded() {
+    func rebuildVisibleSkillRecordCachesIfNeeded() {
         let records = computeAllVisibleSkillRecords()
         guard records != cachedAllVisibleSkillRecords else { return }
         cachedAllVisibleSkillRecords = records
@@ -2936,7 +1502,7 @@ final class AppViewModel: NSObject {
         return result
     }
 
-    private func clearAgentUniverseCache() {
+    func clearAgentUniverseCache() {
         agentUniverseCacheByProjectPath.removeAll(keepingCapacity: true)
     }
 
@@ -3069,7 +1635,7 @@ final class AppViewModel: NSObject {
         )
     }
 
-    private func scopedAgentSnapshot(_ base: ScanSnapshot, projectPath: String?, globalCatalogSnapshot: ScanSnapshot, catalogProjectSnapshots: [ScanSnapshot]) -> ScanSnapshot {
+    func scopedAgentSnapshot(_ base: ScanSnapshot, projectPath: String?, globalCatalogSnapshot: ScanSnapshot, catalogProjectSnapshots: [ScanSnapshot]) -> ScanSnapshot {
         let projectAgentNames = projectPath.map { projectPreference(for: $0).assignedAgentNames } ?? []
         return ScanSnapshot(
             projectRoot: base.projectRoot,
@@ -3094,7 +1660,7 @@ final class AppViewModel: NSObject {
         )
     }
 
-    private func migrateAgentAssignmentsFromDiscoveredFiles(globalSnapshot: ScanSnapshot, projectSnapshots: [String: ScanSnapshot]) {
+    func migrateAgentAssignmentsFromDiscoveredFiles(globalSnapshot: ScanSnapshot, projectSnapshots: [String: ScanSnapshot]) {
         for name in Set(globalSnapshot.globalAgents.map(\.name)) {
             _ = appSettingsController.setDefaultAgent(name, enabled: true)
         }
@@ -4241,7 +2807,7 @@ final class AppViewModel: NSObject {
     /// Recomputes cached model lists/lookups. Called only at real boundaries —
     /// app launch / activation, a model-list reload, or a settings change —
     /// never per view body evaluation.
-    private func rebuildModelCaches() {
+    func rebuildModelCaches() {
         let foundation = FoundationModelAutomationService.availableModel()
         let disabledProviders = appSettings.disabledProviders
         let disabledIdentifiers = appSettings.disabledModelIdentifiers
@@ -4303,7 +2869,7 @@ final class AppViewModel: NSObject {
         )
     }
 
-    private func rebuildWarningCaches() {
+    func rebuildWarningCaches() {
         // Rebuild the agent-display cache first — the warning computations below
         // read `filteredAgents`, which derives from `allDisplayAgents`.
         cachedAllDisplayAgents = computeAllDisplayAgents()
@@ -5018,7 +3584,7 @@ final class AppViewModel: NSObject {
         )
     }
 
-    private func parentSkillArguments(for projectURL: URL) throws -> [String] {
+    func parentSkillArguments(for projectURL: URL) throws -> [String] {
         let projectPath = projectURL.standardizedFileURL.path
         let names = effectiveSkillNames(
             directNames: appSettings.defaultSkillNames.union(projectPreference(for: projectPath).assignedSkillNames),
@@ -5035,7 +3601,7 @@ final class AppViewModel: NSObject {
             .flatMap { ["--skill", $0.filePath] }
     }
 
-    private func parentPromptTemplateArguments(for projectURL: URL) throws -> [String] {
+    func parentPromptTemplateArguments(for projectURL: URL) throws -> [String] {
         let projectPath = projectURL.standardizedFileURL.path
         let names = Array(appSettings.defaultPromptTemplateNames.union(projectPreference(for: projectPath).assignedPromptTemplateNames))
         return try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: names, catalog: promptTemplateCatalog(forProjectPath: projectPath), missingPromptPolicy: .skip)
@@ -6173,7 +4739,7 @@ final class AppViewModel: NSObject {
         }
     }
 
-    private func updateAutoRefreshWatchList() {
+    func updateAutoRefreshWatchList() {
         guard let fileWatchEventMonitor else { return }
         fileWatchEventMonitor.updateWatchedURLs(currentWatchedURLsForAutoRefresh())
     }
