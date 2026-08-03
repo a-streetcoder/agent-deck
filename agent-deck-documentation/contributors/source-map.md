@@ -47,7 +47,6 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/PiAgentComposerViews.swift`, `PiAgentTranscriptViews.swift`, `PiAgentSubagentViews.swift` — Pi Agent composer, transcript, and native subagent UI
 - `agent-deck/PiAgentActivityPanelViews.swift`, `PiAgentInspectorPanelViews.swift`, `PiAgentRepoChangesPanelViews.swift` — activity, inspector, and repo change panels
 - `agent-deck/CommandsAndPromptsViews.swift` — prompts/commands screen
-- `agent-deck/GitHubViews.swift`, `GitHubIssuesViews.swift`, `GitHubRepoChangesViews.swift`, `GitHubConnectionViews.swift` — GitHub screen and feature sections
 - `agent-deck/SettingsAndCatalogViews.swift` — settings, extensions, models, subagent config screens
 - `agent-deck/MarkdownViews.swift` — markdown rendering
 - `agent-deck/LoopBankViews.swift`, `LoopLaunchViews.swift`, `PiAgentLoopControlBar.swift` — loop editing, launch preflight, and run controls
@@ -57,5 +56,4 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/GitHubCLIAuthService.swift` — `gh` auth/token lookup
 - `agent-deck/GitHubAPIClient.swift` — REST client
 - `agent-deck/GitHubSearchService.swift` — issue board search
-- `agent-deck/GitHubIssueService.swift` — issue details/comments/relationships/actions
 - `agent-deck/GitRepositoryService.swift` — git status/diff/stage/commit/push

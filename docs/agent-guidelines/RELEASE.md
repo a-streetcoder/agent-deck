@@ -37,21 +37,3 @@ bash scripts/package-dmg.sh
 
 If release behavior changes, update both the script and the workflow.
 
-## Computer Use prerequisites and permissions
-
-Agent Deck does not bundle the independent `codex-computer-use-mcp` package or OpenAI components. Live release validation requires running `scripts/install-computer-use-broker.sh`, which preserves the integrity-pinned upstream package and creates the separately integrity-pinned Agent Deck auto-accept variant. The official ChatGPT app and its signed Codex app-server/Computer Use components must also be installed.
-
-The variant automatically accepts bounded first-party app-server approval requests whenever trusted Computer Use is assigned. Release checks must preserve the exact ten-tool allowlist, explicit assignment boundary, broad-authority UI disclosure, and ChatGPT session-start prerequisite alert. Computer Use calls run through signed OpenAI components, not directly from Agent Deck or Pi. If macOS blocks access, do not reset or request TCC permissions automatically. Ask the user to review **System Settings → Privacy & Security** for the installed ChatGPT/Codex Computer Use component:
-
-1. **Automation** for app control.
-2. **Accessibility** for Accessibility-tree access and actions.
-3. **Screen & System Audio Recording** for screenshots.
-
-A new Agent Deck signature does not own these grants. Updating or reinstalling the responsible OpenAI component can require the user to review them again.
-
-Before publishing, run the focused static regression checks in addition to the normal signing/notarization flow:
-
-```bash
-bash scripts/test-package-signing.sh
-"$(dirname "$(command -v pi)")/node" scripts/test-computer-use-broker-variant.mjs
-```

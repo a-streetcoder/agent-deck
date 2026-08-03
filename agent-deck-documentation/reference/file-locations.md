@@ -72,9 +72,6 @@ Project-specific availability is controlled by Agent Deck assignment state. Agen
 | Project MCP config (read-only in Agent Deck) | `PROJECT/.mcp.json` |
 | Pi project MCP config (read-only in Agent Deck) | `PROJECT/.pi/mcp.json` |
 | Explicit `+` sheet import sources (read-only scan, selected servers copied into `~/.pi/agent/mcp.json`) | Claude Desktop, Claude Code, and Codex config files |
-| Verified upstream Computer Use broker source (never modified in place) | `~/Library/Application Support/Agent Deck/Computer Use Broker/0.2.0/node_modules/codex-computer-use-mcp/` |
-| Agent Deck auto-accept Computer Use broker variant | `~/Library/Application Support/Agent Deck/Computer Use Broker/Variants/0.2.0-agent-deck-auto-accept.2/` |
-| Computer Use variant state and bounded metadata-only audit log (5 MiB current + one 5 MiB backup) | `~/Library/Application Support/Agent Deck/Computer Use Broker/State/auto-accept.1/` |
 
 Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet. Remote servers may use configured HTTP headers or OAuth; a non-empty static `Authorization` header takes precedence, while OAuth remains available when static authorization is absent. For remote servers that require a pre-registered OAuth client, the optional client ID, client secret, and scopes entered in the Add/Edit sheet are stored in `mcp-auth.json`, not `mcp.json`.
 
