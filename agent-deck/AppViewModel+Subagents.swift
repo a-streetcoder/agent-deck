@@ -942,4 +942,65 @@ extension AppViewModel {
         nativeSubagentRunner.cancelSupervisorRequest(requestID, parentSessionID: parentSessionID)
     }
 
+    var areSubagentsEnabledForNewSessions: Bool {
+        appSettingsController.areSubagentsEnabledForNewSessions
+    }
+
+    func setSubagentsEnabledForNewSessions(_ isEnabled: Bool) {
+        guard appSettingsController.setSubagentsEnabledForNewSessions(isEnabled) else { return }
+        syncAppSettings()
+        piAgentSessionStore.newSessionSubagentsEnabled = isEnabled
+    }
+
+    func setNativeSubagentDelegationPolicy(_ policy: NativeSubagentDelegationPolicy) {
+        guard appSettingsController.setNativeSubagentDelegationPolicy(policy) else { return }
+        syncAppSettings()
+    }
+
+    func toggleSubagentsForNewSessions() {
+        guard appSettingsController.toggleSubagentsForNewSessions() else { return }
+        syncAppSettings()
+        piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
+    }
+
+    func setSubagentsEnabledForSelectedSession(_ isEnabled: Bool) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        setSubagentsEnabled(isEnabled, forSessionID: session.id)
+    }
+
+    func setSubagentsEnabled(_ isEnabled: Bool, forSessionID sessionID: UUID) {
+        piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
+            session.subagentsEnabled = session.isNoProject ? false : isEnabled
+            if session.isNoProject {
+                session.agentSelection = nil
+            }
+        }
+        reconcileRunningSessionLaunchResourceFingerprints()
+    }
+
+    /// Draft-only footer control: before the first launch, subagents act like a
+    /// session default. Update both the selected draft and the default for new
+    /// sessions. Once Pi has started, the footer becomes read-only.
+    func setSubagentsEnabledForSelectedDraftAndNewSessions(_ isEnabled: Bool) {
+        guard let session = piAgentSessionStore.selectedSession, session.status == .draft else {
+            setSubagentsEnabledForNewSessions(isEnabled)
+            return
+        }
+        guard !session.isNoProject else {
+            piAgentSessionStore.updateSession(session.id, bumpUpdatedAt: false) { session in
+                session.subagentsEnabled = false
+                session.agentSelection = nil
+            }
+            return
+        }
+        setSubagentsEnabledForNewSessions(isEnabled)
+        piAgentSessionStore.updateSession(session.id, bumpUpdatedAt: false) { session in
+            session.subagentsEnabled = isEnabled
+        }
+    }
+
+    /// Persists a session's per-session subagent selection. `nil` restores the
+    /// default (all effective agents); a non-nil set pins an explicit choice.
+    /// Cached — see `cachedAllDisplayAgents`. Rebuilt by `rebuildWarningCaches()`.
+
 }

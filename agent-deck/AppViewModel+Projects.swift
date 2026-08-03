@@ -172,4 +172,151 @@ extension AppViewModel {
         }
     }
 
+    func chooseProjectRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = LanguageStore.shared.t("vm.addProject")
+        panel.message = LanguageStore.shared.t("vm.addProjectMessage", AppBrand.displayName)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        addProject(url, selectingAfterAdd: true)
+    }
+
+    /// The folder the skill-import picker opens to. Skill catalogs are global
+    /// or explicit imports only, so default to Pi's global skills folder rather
+    /// than project-local `.pi/skills` folders.
+
+    var selectedProjectName: String {
+        projectRootURL?.lastPathComponent ?? LanguageStore.shared.t("vm.noProjectSelected")
+    }
+
+    var configuredProjectsRootURLs: [URL] {
+        appSettingsController.configuredProjectsRootURLs
+    }
+
+    var configuredProjectsRootPaths: [String] {
+        appSettingsController.configuredProjectsRootPaths
+    }
+
+    var primaryProjectsRootURL: URL {
+        appSettingsController.primaryProjectsRootURL
+    }
+
+    var primaryProjectsRootPath: String {
+        appSettingsController.primaryProjectsRootPath
+    }
+
+    var suggestedProjectsRootPath: String? {
+        appSettingsController.suggestedProjectsRootURL?.path
+    }
+
+    var hasConfirmedProjectsRootPaths: Bool {
+        appSettingsController.hasConfirmedProjectsRootPaths
+    }
+
+    var enabledProjects: [DiscoveredProject] {
+        discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
+    }
+
+    var gitHubProjects: [DiscoveredProject] {
+        enabledProjects.filter(\.isGitHubRepository)
+    }
+
+    var selectedDiscoveredProject: DiscoveredProject? {
+        guard let selectedProjectPath else { return nil }
+        return projectByPath[selectedProjectPath]
+    }
+
+    var selectedGitHubProject: DiscoveredProject? {
+        guard let selectedDiscoveredProject, selectedDiscoveredProject.isGitHubRepository else { return nil }
+        return selectedDiscoveredProject
+    }
+
+    var shouldWarnProjectSelection: Bool {
+        enabledProjects.isEmpty
+    }
+
+    var shouldWarnDoctor: Bool {
+        !hasConfirmedProjectsRootPaths
+            || !configuredProjectsRootsExist
+            || !snapshot.warnings.isEmpty
+    }
+
+    /// True only when every configured projects-root entry resolves to an
+    /// existing directory. Empty list ⇒ warn.
+    var configuredProjectsRootsExist: Bool {
+        let urls = configuredProjectsRootURLs
+        guard !urls.isEmpty else { return false }
+        return urls.allSatisfy { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+    }
+
+    var hasAgentWarnings: Bool {
+        cachedHasAgentWarnings
+    }
+
+    var hasSkillWarnings: Bool {
+        cachedHasSkillWarnings
+    }
+
+    var hasPromptWarnings: Bool {
+        cachedHasPromptWarnings
+    }
+
+    var skillWarnings: [DiagnosticWarning] {
+        cachedSkillWarnings
+    }
+
+    var promptWarnings: [DiagnosticWarning] {
+        cachedPromptWarnings
+    }
+
+    var skillReferenceWarnings: [SkillReferenceWarning] {
+        guard !pendingDeletedSkillIDs.isEmpty else { return cachedSkillReferenceWarnings }
+        // The cached warnings are rebuilt only on refresh, so for the ~1s until
+        // the background scan lands they can still cite a skill the user just
+        // deleted. Drop those so the warnings card matches the visible list.
+        let names = Set((snapshot.skills + snapshot.librarySkills)
+            .filter { pendingDeletedSkillIDs.contains($0.id) }
+            .map(\.name))
+        return cachedSkillReferenceWarnings.filter { !names.contains($0.missingSkill) }
+    }
+
+    func piAgentSessionProjectContext() -> DiscoveredProject {
+        if let selectedDiscoveredProject {
+            return selectedDiscoveredProject
+        }
+
+        let rootURL = primaryProjectsRootURL
+        let rootName = rootURL.lastPathComponent.isEmpty ? rootURL.path : rootURL.lastPathComponent
+        return DiscoveredProject(
+            url: rootURL,
+            gitHubRemote: nil,
+            isGitRepository: false,
+            iconFileURL: nil,
+            projectType: .unknown,
+            fallbackSymbolName: ProjectType.unknown.sfSymbolFallback,
+            searchIndex: [rootName, rootURL.path].joined(separator: "\n").lowercased()
+        )
+    }
+
+    var availableModelProviders: [String] {
+        Array(Set(enabledAvailableModels.map(\.provider)))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var totalProjectWarnings: Int {
+        let enabledProjectPaths = Set(enabledProjects.map(\.path))
+        return allProjectSnapshots
+            .filter { enabledProjectPaths.contains($0.key) }
+            .values
+            .reduce(0) { $0 + $1.warnings.count }
+    }
+
+
+    /// the user saves the editor sheet, so cancelling creates nothing.
+
 }

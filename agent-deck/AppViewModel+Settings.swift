@@ -542,4 +542,84 @@ extension AppViewModel {
         return summary
     }
 
+    func syncAppSettings() {
+        appSettings = appSettingsController.settings
+        // Keep process-wide pi resolution pinned to Settings without rescanning PATH.
+        PiExecutableResolver.setPreferredPath(appSettings.piExecutablePath)
+        writeOpenAIFastModeConfig()
+        configurePiAgentIdleParking()
+    }
+
+    func writeOpenAIFastModeConfig() {
+        // This view model is main-actor isolated. Writing this tiny config here,
+        // rather than from detached tasks, preserves the order of rapid toggles.
+        PiNativeSubagentBridgeExtensions.writeOpenAIFastConfig(
+            isEnabled: appSettings.openAIFastEnabled
+        )
+    }
+
+    func configurePiAgentIdleParking() {
+        piAgentRunner.configureIdleParking(timeout: piAgentIdleParkingTimeout)
+    }
+
+
+    func handleProjectsRootSettingsChange() {
+        syncAppSettings()
+        refresh(includeModels: false)
+        refreshRepositoryProjectScopedState()
+    }
+
+    func registerAppNotificationObservers() {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(handlePiAgentNotificationResponse(_:)), name: .piAgentNotificationResponse, object: nil)
+        center.addObserver(self, selector: #selector(handleAppDidBecomeActiveNotification(_:)), name: NSApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppWillResignActiveNotification(_:)), name: NSApplication.willResignActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppWillTerminateNotification(_:)), name: NSApplication.willTerminateNotification, object: nil)
+    }
+
+    @objc func handlePiAgentNotificationResponse(_ notification: Notification) {
+        guard let rawSessionID = notification.userInfo?["sessionID"] as? String,
+              let sessionID = UUID(uuidString: rawSessionID) else { return }
+        if let rawWindowID = notification.userInfo?["windowID"] as? String,
+           let notificationWindowID = UUID(uuidString: rawWindowID),
+           notificationWindowID != windowID {
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.selectPiAgentSession(sessionID)
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.mainWindow?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    @objc func handleAppDidBecomeActiveNotification(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Re-sample Foundation Model availability — it may have changed
+            // (model finished downloading) while the app was inactive.
+            self.rebuildModelCaches()
+            self.startAutoRefresh()
+            self.refreshIfWatchedFilesChanged()
+            self.acknowledgeVisibleSelectedPiAgentSession()
+            if self.selectedSidebarItem == .agent && self.shouldShowPiAgentGitActions {
+                self.prepareRepoChangesForSelectedPiAgentSession()
+            }
+        }
+    }
+
+    @objc func handleAppWillResignActiveNotification(_ notification: Notification) {
+        stopAutoRefresh(cancelPendingScan: true)
+    }
+
+    @objc func handleAppWillTerminateNotification(_ notification: Notification) {
+        shutdown(recordTranscript: false)
+        piAgentSessionStore.flushPendingSave()
+        // Best-effort teardown of MCP server subprocesses on quit.
+        Task { await shutdownMCP() }
+    }
+
+
+
 }

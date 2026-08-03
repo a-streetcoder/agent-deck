@@ -750,5 +750,53 @@ extension AppViewModel {
         return projectSnapshot
     }
 
+    func ensureLibraryAgent(for agent: AgentRecord) throws -> URL {
+        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agent-library/agents", isDirectory: true)
+        let libraryURL = libraryRoot.appendingPathComponent("\(agent.name).md")
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: libraryURL.path) { return libraryURL }
+
+        let sourceURL = URL(fileURLWithPath: agent.filePath)
+        if agent.source.kind == .global {
+            try fileManager.moveItem(at: sourceURL, to: libraryURL)
+        } else if agent.source.kind == .library {
+            return sourceURL
+        } else {
+            try fileManager.copyItem(at: sourceURL, to: libraryURL)
+        }
+        return libraryURL
+    }
+
+
+    var userDisableBuiltins: Bool {
+        settingsSummary(for: .global)?.disableBuiltins ?? false
+    }
+
+    var projectDisableBuiltins: Bool {
+        settingsSummary(for: .project)?.disableBuiltins ?? false
+    }
+
+
+
+    func defaultCustomScope(for agent: EffectiveAgentRecord) -> AgentEditingTarget.CustomAgentScope {
+        return .global
+    }
+
+    func duplicatedName(for name: String) -> String {
+        let existingNames = Set(snapshot.effectiveAgents.map(\.name))
+        var candidate = "\(name)-copy"
+        var index = 2
+        while existingNames.contains(candidate) {
+            candidate = "\(name)-copy-\(index)"
+            index += 1
+        }
+        return candidate
+    }
+
+    func deduplicateByID<T: Identifiable>(_ values: [T]) -> [T] where T.ID: Hashable {
+        var seen: Set<T.ID> = []
+        return values.filter { seen.insert($0.id).inserted }
+    }
 
 }
