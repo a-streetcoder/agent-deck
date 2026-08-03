@@ -1696,6 +1696,87 @@ struct PiAgentModelSelection {
     let modelID: String
 }
 
+/// Live extension footer chrome (`setStatus` / `setWidget`) above the composer.
+///
+/// Empty chrome collapses to zero height. Notify stays in transcript cards.
+struct PiAgentExtensionStatusStrip: View {
+    let chrome: PiAgentExtensionChrome
+    @ObservedObject private var languageStore = LanguageStore.shared
+
+    /// Max widget lines shown before truncating (keeps composer usable).
+    private let maxWidgetLines = 3
+
+    var body: some View {
+        if chrome.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                if !chrome.statusItems.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Text(statusLine)
+                            .font(AppTheme.Font.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                ForEach(chrome.widgetItems, id: \.key) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.key)
+                            .font(AppTheme.Font.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                        ForEach(Array(item.lines.prefix(maxWidgetLines).enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(AppTheme.Font.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        if item.lines.count > maxWidgetLines {
+                            Text(languageStore.t("extensionChrome.moreLines", item.lines.count - maxWidgetLines))
+                                .font(AppTheme.Font.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.panelFill.opacity(0.55))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(languageStore.t("extensionChrome.a11y"))
+            .accessibilityValue(accessibilitySummary)
+        }
+    }
+
+    /// Status chips joined for a single caption line.
+    private var statusLine: String {
+        chrome.statusItems.map { item in
+            // Avoid "key · key text" when the extension already prefixes the key.
+            if item.text.localizedCaseInsensitiveContains(item.key) {
+                return item.text
+            }
+            return "\(item.key) · \(item.text)"
+        }
+        .joined(separator: "  ·  ")
+    }
+
+    /// Combined a11y value for VoiceOver.
+    private var accessibilitySummary: String {
+        var parts: [String] = []
+        if !statusLine.isEmpty { parts.append(statusLine) }
+        for item in chrome.widgetItems {
+            parts.append("\(item.key): \(item.lines.joined(separator: " "))")
+        }
+        return parts.joined(separator: "; ")
+    }
+}
+
 struct PiAgentComposerFooterBar: View {
     let session: PiAgentSessionRecord
     var viewModel: AppViewModel

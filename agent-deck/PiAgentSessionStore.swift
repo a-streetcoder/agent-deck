@@ -126,6 +126,8 @@ final class PiAgentSessionStore {
     private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
     /// In-memory only: extension `notify` popups. Never written to transcript / disk.
     private(set) var extensionNotifiesBySessionID: [UUID: [PiAgentExtensionNotify]] = [:]
+    /// Live `setStatus` / `setWidget` chrome for the session footer strip. Not persisted.
+    private(set) var extensionChromeBySessionID: [UUID: PiAgentExtensionChrome] = [:]
     private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:] {
         didSet { subagentRunsRevision &+= 1 }
     }
@@ -672,6 +674,7 @@ final class PiAgentSessionStore {
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
         extensionNotifiesBySessionID[record.id] = nil
+        extensionChromeBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
@@ -798,6 +801,7 @@ final class PiAgentSessionStore {
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
         extensionNotifiesBySessionID[record.id] = nil
+        extensionChromeBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
@@ -890,6 +894,7 @@ final class PiAgentSessionStore {
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
         extensionNotifiesBySessionID[record.id] = nil
+        extensionChromeBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
@@ -1066,6 +1071,81 @@ final class PiAgentSessionStore {
     /// - Parameter sessionID: Owning session. Required.
     func clearExtensionNotifies(sessionID: UUID) {
         extensionNotifiesBySessionID[sessionID] = nil
+    }
+
+    /// Extension footer chrome for a session (statuses + widgets).
+    ///
+    /// - Parameter sessionID: Owning session. Required.
+    /// - Returns: Chrome snapshot, or empty chrome when none.
+    func extensionChrome(for sessionID: UUID) -> PiAgentExtensionChrome {
+        extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
+    }
+
+    /// Selected session's extension chrome for the composer strip.
+    var selectedExtensionChrome: PiAgentExtensionChrome {
+        guard let id = selectedSessionID else { return PiAgentExtensionChrome() }
+        return extensionChrome(for: id)
+    }
+
+    /// Upsert or clear a `setStatus` slot (Pi TUI footer status).
+    ///
+    /// - Parameters:
+    ///   - sessionID: Owning Deck session. Required.
+    ///   - key: Status key from the extension. Required; empty keys are ignored.
+    ///   - text: Display text; empty / whitespace clears the key.
+    func applyExtensionSetStatus(sessionID: UUID, key: String, text: String) {
+        guard !deletedSessionIDs.contains(sessionID) else { return }
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var chrome = extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
+        if trimmedText.isEmpty {
+            chrome.statuses.removeValue(forKey: trimmedKey)
+        } else if chrome.statuses[trimmedKey] == trimmedText {
+            return
+        } else {
+            chrome.statuses[trimmedKey] = trimmedText
+        }
+        if chrome.isEmpty {
+            extensionChromeBySessionID[sessionID] = nil
+        } else {
+            extensionChromeBySessionID[sessionID] = chrome
+        }
+    }
+
+    /// Upsert or clear a `setWidget` slot (Pi TUI footer widget).
+    ///
+    /// - Parameters:
+    ///   - sessionID: Owning Deck session. Required.
+    ///   - key: Widget key from the extension. Required; empty keys are ignored.
+    ///   - lines: Display lines; all-empty clears the key.
+    func applyExtensionSetWidget(sessionID: UUID, key: String, lines: [String]) {
+        guard !deletedSessionIDs.contains(sessionID) else { return }
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        let cleaned = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var chrome = extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
+        if cleaned.isEmpty {
+            chrome.widgets.removeValue(forKey: trimmedKey)
+        } else if chrome.widgets[trimmedKey] == cleaned {
+            return
+        } else {
+            chrome.widgets[trimmedKey] = cleaned
+        }
+        if chrome.isEmpty {
+            extensionChromeBySessionID[sessionID] = nil
+        } else {
+            extensionChromeBySessionID[sessionID] = chrome
+        }
+    }
+
+    /// Drop all extension footer chrome for a session.
+    ///
+    /// - Parameter sessionID: Owning session. Required.
+    func clearExtensionChrome(sessionID: UUID) {
+        extensionChromeBySessionID[sessionID] = nil
     }
 
     func subagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {
@@ -3121,6 +3201,7 @@ final class PiAgentSessionStore {
             processingActivityBySessionID[sessionID] = nil
             uiRequestsBySessionID[sessionID] = nil
             extensionNotifiesBySessionID[sessionID] = nil
+            extensionChromeBySessionID[sessionID] = nil
             composerMessageQueueBySessionID[sessionID] = nil
             clearComposerDraft(for: sessionID)
             deleteGeneralChatScratchFolders(for: sessionID)

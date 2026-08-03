@@ -2711,15 +2711,15 @@ final class PiAgentRunnerService {
             return
         }
 
-        // Fire-and-forget extension chrome → soft in-timeline system notices
-        // (Claude-style `[tag]` cards). Not chat bubbles; still session-local history.
+        // notify → soft transcript cards (unchanged).
+        // setStatus / setWidget → per-session footer chrome (keyed overwrite, not history).
         switch method {
         case "notify":
             appendExtensionSystemNotice(event, rawLine: rawLine, sessionID: sessionID, kind: .notify)
         case "setStatus":
-            appendExtensionSystemNotice(event, rawLine: rawLine, sessionID: sessionID, kind: .status)
+            applyExtensionSetStatus(event, rawLine: rawLine, sessionID: sessionID)
         case "setWidget":
-            appendExtensionSystemNotice(event, rawLine: rawLine, sessionID: sessionID, kind: .widget)
+            applyExtensionSetWidget(event, sessionID: sessionID)
         case "setTitle", "set_editor_text":
             // Title/editor chrome is not modeled in the transcript.
             break
@@ -2728,74 +2728,83 @@ final class PiAgentRunnerService {
         }
     }
 
-    private enum ExtensionSystemNoticeKind {
-        case notify
-        case status
-        case widget
+    /// Apply extension `setStatus` into the session chrome strip (no transcript row).
+    ///
+    /// - Parameters:
+    ///   - event: Decoded extension_ui_request. Required.
+    ///   - rawLine: Raw JSONL for message fallback. Required.
+    ///   - sessionID: Owning Deck session. Required.
+    private func applyExtensionSetStatus(
+        _ event: PiAgentRPCEvent,
+        rawLine: String,
+        sessionID: UUID
+    ) {
+        let key = event.statusKey
+            ?? extensionUIString("statusKey", from: event)
+            ?? extensionUIString("key", from: event)
+            ?? "status"
+        let text = event.statusText
+            ?? extensionUIString("statusText", from: event)
+            ?? extensionUIString("text", from: event)
+            ?? extensionNotifyMessage(from: event, rawLine: rawLine)
+            ?? ""
+        let sanitized = TextSanitizer.sanitizeAnswer(text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        store.applyExtensionSetStatus(sessionID: sessionID, key: key, text: sanitized)
     }
 
-    /// Append a soft system-notice status row for extension UI chrome.
+    /// Apply extension `setWidget` into the session chrome strip (no transcript row).
+    ///
+    /// - Parameters:
+    ///   - event: Decoded extension_ui_request. Required.
+    ///   - sessionID: Owning Deck session. Required.
+    private func applyExtensionSetWidget(
+        _ event: PiAgentRPCEvent,
+        sessionID: UUID
+    ) {
+        let key = event.widgetKey
+            ?? extensionUIString("widgetKey", from: event)
+            ?? extensionUIString("key", from: event)
+            ?? "widget"
+        let lines = extensionUIStringList(event.widgetLines)
+            ?? extensionUIStringList(event.data?["widgetLines"])
+            ?? extensionUIStringList(event.data?["lines"])
+            ?? extensionUIStringList(event.message?["widgetLines"])
+            ?? []
+        let cleaned = lines.map { TextSanitizer.sanitizeAnswer($0) }
+        store.applyExtensionSetWidget(sessionID: sessionID, key: key, lines: cleaned)
+    }
+
+    /// Append a soft system-notice card for extension `notify` only.
+    ///
+    /// `setStatus` / `setWidget` use the footer chrome strip instead.
     ///
     /// - Parameters:
     ///   - event: Decoded extension_ui_request. Required.
     ///   - rawLine: Raw JSONL fallback for message parse. Required.
     ///   - sessionID: Owning Deck session. Required.
-    ///   - kind: notify / setStatus / setWidget. Required.
+    ///   - kind: Must be `.notify` (parameter kept for call-site clarity).
     private func appendExtensionSystemNotice(
         _ event: PiAgentRPCEvent,
         rawLine: String,
         sessionID: UUID,
         kind: ExtensionSystemNoticeKind
     ) {
-        let body: String
-        let title: String
-        switch kind {
-        case .notify:
-            let rawMessage = extensionNotifyMessage(from: event, rawLine: rawLine)
-            body = TextSanitizer.sanitizeAnswer(rawMessage ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let levelRaw = event.notifyType
-                ?? extensionUIString("notifyType", from: event)
-                ?? extensionNotifyTopLevelString("notifyType", from: rawLine)
-            switch (levelRaw ?? "").lowercased() {
-            case "warning", "warn": title = "Notify Warning"
-            case "error", "danger", "fail", "failure": title = "Notify Error"
-            default: title = "Notify"
-            }
-        case .status:
-            let key = event.statusKey
-                ?? extensionUIString("statusKey", from: event)
-                ?? extensionUIString("key", from: event)
-                ?? "status"
-            let text = event.statusText
-                ?? extensionUIString("statusText", from: event)
-                ?? extensionUIString("text", from: event)
-                ?? extensionNotifyMessage(from: event, rawLine: rawLine)
-                ?? ""
-            let sanitized = TextSanitizer.sanitizeAnswer(text)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            body = sanitized.isEmpty ? "" : "[\(key)]\n\(sanitized)"
-            title = "Extension Status"
-        case .widget:
-            let key = event.widgetKey
-                ?? extensionUIString("widgetKey", from: event)
-                ?? extensionUIString("key", from: event)
-                ?? "widget"
-            let lines = extensionUIStringList(event.widgetLines)
-                ?? extensionUIStringList(event.data?["widgetLines"])
-                ?? extensionUIStringList(event.data?["lines"])
-                ?? extensionUIStringList(event.message?["widgetLines"])
-                ?? []
-            let joined = lines
-                .map { TextSanitizer.sanitizeAnswer($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
-            body = joined.isEmpty ? "" : "[\(key)]\n\(joined)"
-            title = "Extension Widget"
-        }
+        guard kind == .notify else { return }
+        let rawMessage = extensionNotifyMessage(from: event, rawLine: rawLine)
+        let body = TextSanitizer.sanitizeAnswer(rawMessage ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
-        // Extension hosts often re-emit the same notify/status on resume or
-        // double RPC delivery — collapse consecutive identical soft cards.
+        let levelRaw = event.notifyType
+            ?? extensionUIString("notifyType", from: event)
+            ?? extensionNotifyTopLevelString("notifyType", from: rawLine)
+        let title: String
+        switch (levelRaw ?? "").lowercased() {
+        case "warning", "warn": title = "Notify Warning"
+        case "error", "danger", "fail", "failure": title = "Notify Error"
+        default: title = "Notify"
+        }
+        // Collapse consecutive identical soft cards (double RPC / resume).
         if let last = store.transcript(for: sessionID).last,
            last.role == .status,
            last.title == title,
@@ -2809,6 +2818,10 @@ final class PiAgentRunnerService {
             text: body,
             rawJSON: rawLine
         ))
+    }
+
+    private enum ExtensionSystemNoticeKind {
+        case notify
     }
 
     /// Resolve notify message from decoded event, nested keys, then raw JSON.

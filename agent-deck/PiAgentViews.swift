@@ -5986,6 +5986,9 @@ struct PiAgentScreen: View {
 
             Divider()
 
+            // Extension setStatus / setWidget chrome (per-session, not transcript).
+            PiAgentExtensionStatusStrip(chrome: store.selectedExtensionChrome)
+
             VStack(spacing: 12) {
                 // Shown for project drafts, including subagents-off — the card
                 // renders dimmed with its switch so agents can be turned back
