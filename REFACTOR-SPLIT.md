@@ -6,7 +6,8 @@ Local branch for modularizing God objects. **Not pushed by default.**
 
 | Commit | Change |
 |--------|--------|
-| (HEAD) | `PiAgentRunnerService` → Launch / TranscriptIO / RPC / Streaming / ExtensionBridge / Parse |
+| (HEAD) | `PiAgentTranscriptAppKitViews` → RenderCache / Models / QuestionRail / Host / View |
+| 0ccd266 | `PiAgentRunnerService` → Launch / TranscriptIO / RPC / Streaming / ExtensionBridge / Parse |
 | 1ea1d41 | `PiAgentScreen` transcript → items / native / chrome |
 | ff703bb | `PiAgentScreen` → Sessions / Layout / Transcript / Composer |
 | ccae826 | `PiAgentViews` → AppKit transcript / session panel / composer panel |
@@ -31,6 +32,14 @@ Local branch for modularizing God objects. **Not pushed by default.**
 - `+Streaming` — flush, tools, compaction, rehydrate
 - `+ExtensionBridge` — extension UI + Deck bridges
 - `+Parse` — extract text / termination / mark status
+
+
+### PiAgentTranscript AppKit stack
+- `PiAgentTranscriptRenderCache.swift` — cache + stack + picker stress
+- `PiAgentTranscriptModels.swift` — timeline / cell kind / row item / rail policy
+- `PiAgentTranscriptQuestionRail.swift` — table chrome, question rail, jump-to-latest
+- `PiAgentTranscriptHost.swift` — SwiftUI host isolating cache observation
+- `PiAgentTranscriptAppKitViews.swift` — `NSViewRepresentable` + Coordinator
 
 ## Merge guidance
 
