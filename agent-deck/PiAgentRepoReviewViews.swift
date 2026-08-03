@@ -786,7 +786,7 @@ struct PiAgentRepoReviewPanel: View {
         // actions always visible and pinned right.
         HStack(spacing: 8) {
             HStack(spacing: 8) {
-                if let snapshot = viewModel.githubRepositoryChanges {
+                if let snapshot = viewModel.repositoryChanges {
                     branchChip(snapshot)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .clipped()
@@ -812,7 +812,7 @@ struct PiAgentRepoReviewPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 6) {
-                if viewModel.githubIsLoadingRepositoryChanges {
+                if viewModel.isLoadingRepositoryChanges {
                     AppSpinner().controlSize(.mini)
                 }
 
@@ -827,8 +827,8 @@ struct PiAgentRepoReviewPanel: View {
                 } symbol: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .disabled(viewModel.githubIsLoadingRepositoryChanges)
-                .opacity(viewModel.githubIsLoadingRepositoryChanges ? 0.5 : 1)
+                .disabled(viewModel.isLoadingRepositoryChanges)
+                .opacity(viewModel.isLoadingRepositoryChanges ? 0.5 : 1)
             }
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -862,12 +862,12 @@ struct PiAgentRepoReviewPanel: View {
     }
 
     private var additionHint: Int {
-        guard let text = viewModel.githubSelectedDiffText else { return 0 }
+        guard let text = viewModel.repositorySelectedDiffText else { return 0 }
         return text.split(separator: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
     }
 
     private var deletionHint: Int {
-        guard let text = viewModel.githubSelectedDiffText else { return 0 }
+        guard let text = viewModel.repositorySelectedDiffText else { return 0 }
         return text.split(separator: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
     }
 
@@ -894,15 +894,15 @@ struct PiAgentRepoReviewPanel: View {
             .padding(.bottom, 6)
 
             Group {
-                if viewModel.githubIsLoadingRepositoryChanges && viewModel.githubRepositoryChanges == nil {
+                if viewModel.isLoadingRepositoryChanges && viewModel.repositoryChanges == nil {
                     loadingBlock(languageStore.t("review.loading"))
-                } else if let error = viewModel.githubLastError, viewModel.githubRepositoryChanges == nil {
+                } else if let error = viewModel.repositoryLastError, viewModel.repositoryChanges == nil {
                     Text(error)
                         .font(AppTheme.Font.caption)
                         .foregroundStyle(.orange)
                         .padding(12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                } else if let snapshot = viewModel.githubRepositoryChanges {
+                } else if let snapshot = viewModel.repositoryChanges {
                     if snapshot.totalChangeCount == 0 {
                         Text(languageStore.t("review.clean"))
                             .font(AppTheme.Font.caption)
@@ -945,9 +945,9 @@ struct PiAgentRepoReviewPanel: View {
             Divider().opacity(0.5)
             HStack(spacing: 12) {
                 Button(languageStore.t("review.stageAll")) { viewModel.stageAllChanges() }
-                    .disabled(!(viewModel.githubRepositoryChanges?.canStageAll ?? false))
+                    .disabled(!(viewModel.repositoryChanges?.canStageAll ?? false))
                 Button(languageStore.t("review.unstageAll")) { viewModel.unstageAllChanges() }
-                    .disabled(!(viewModel.githubRepositoryChanges?.canUnstageAll ?? false))
+                    .disabled(!(viewModel.repositoryChanges?.canUnstageAll ?? false))
                 Spacer(minLength: 0)
             }
             .font(AppTheme.Font.caption2.weight(.medium))
@@ -978,7 +978,7 @@ struct PiAgentRepoReviewPanel: View {
     }
 
     private func fileRow(_ change: RepositoryFileChange, kind: GitDiffKind) -> some View {
-        let selected = viewModel.githubSelectedDiffFilePath == change.path
+        let selected = viewModel.repositorySelectedDiffFilePath == change.path
         let name = (change.path as NSString).lastPathComponent
         let folder = (change.path as NSString).deletingLastPathComponent
         return Button {
@@ -1126,24 +1126,24 @@ struct PiAgentRepoReviewPanel: View {
 
     private var previewColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let path = viewModel.githubSelectedDiffFilePath {
+            if let path = viewModel.repositorySelectedDiffFilePath {
                 filePathBar(path)
                 Divider().opacity(0.45)
             }
 
             Group {
-                if viewModel.githubSelectedDiffFilePath == nil {
+                if viewModel.repositorySelectedDiffFilePath == nil {
                     AppEmptyState(
                         languageStore.t("review.selectFile"),
                         systemImage: "doc.text.magnifyingglass",
                         description: languageStore.t("review.selectFileBody"),
                         layout: .fill
                     )
-                } else if let text = viewModel.githubSelectedDiffText {
+                } else if let text = viewModel.repositorySelectedDiffText {
                     // Edge-to-edge code surface (no nested card padding).
                     FullFileDiffView(diffText: text)
                         .clipShape(Rectangle())
-                } else if let error = viewModel.githubLastError {
+                } else if let error = viewModel.repositoryLastError {
                     Text(error)
                         .font(AppTheme.Font.caption)
                         .foregroundStyle(.orange)
@@ -1171,7 +1171,7 @@ struct PiAgentRepoReviewPanel: View {
                 .layoutPriority(1)
                 .help(path)
 
-            if let kind = viewModel.githubSelectedDiffKind {
+            if let kind = viewModel.repositorySelectedDiffKind {
                 Text(shortKindLabel(kind))
                     .font(AppTheme.Font.caption2.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
@@ -1188,10 +1188,10 @@ struct PiAgentRepoReviewPanel: View {
 
             // Actions stay on one line — never wrap or truncate mid-label.
             HStack(spacing: 10) {
-                if viewModel.githubSelectedDiffKind != .staged {
+                if viewModel.repositorySelectedDiffKind != .staged {
                     Button(languageStore.t("review.stage")) { viewModel.stage(path) }
                 }
-                if viewModel.githubSelectedDiffKind == .staged {
+                if viewModel.repositorySelectedDiffKind == .staged {
                     Button(languageStore.t("review.unstage")) { viewModel.unstage(path) }
                 }
                 openEditorControl(for: path)

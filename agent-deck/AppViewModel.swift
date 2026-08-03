@@ -89,22 +89,6 @@ enum PiAgentSessionOwnedArtifactCleanup {
     }
 }
 
-private struct GitDiffCacheKey: Hashable {
-    let projectPath: String
-    let filePath: String
-    let kind: GitDiffKind
-}
-
-private struct RepositoryChangesCacheEntry {
-    var snapshot: RepositoryChangesSnapshot? = nil
-    var fetchedAt: Date? = nil
-    var isLoading: Bool = false
-    var error: String?
-    var requestID: Int = 0
-    var mergeSourceBranch: String?
-    var mergeSessionBranch: String?
-    var hasMergeableBranchChanges: Bool?
-}
 
 @MainActor
 @Observable
@@ -205,27 +189,27 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var cachedPiRuntimeSettingsModificationDate: Date?
     @ObservationIgnored private var lastPiRuntimeSettingsStatCheck: Date?
     @ObservationIgnored private var cachedPiRuntimeDefaults: (settingsModificationDate: Date?, provider: String?, model: String?, thinkingLevel: String?)?
-    var githubRepositoryChanges: RepositoryChangesSnapshot?
-    var githubRepositoryChangesProjectPath: String?
-    private var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
-    var githubSelectedChangePaths: Set<String> = []
-    var githubSelectedDiffFilePath: String?
-    var githubSelectedDiffKind: GitDiffKind?
-    var githubSelectedDiffText: String?
+    var repositoryChanges: RepositoryChangesSnapshot?
+    var repositoryChangesProjectPath: String?
+    var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
+    var repositorySelectedChangePaths: Set<String> = []
+    var repositorySelectedDiffFilePath: String?
+    var repositorySelectedDiffKind: GitDiffKind?
+    var repositorySelectedDiffText: String?
     /// Trailing inspector open state (Repo Review workbench; expandable later).
     var isTrailingInspectorExpanded = false
     /// Full working-tree file text for the selected change (not truncated diff).
-    var githubSelectedFileText: String?
-    var githubSelectedFileLoadError: String?
-    private var githubFileContentRequestID = 0
-    var githubCommitMessage = ""
-    var githubCommitDescription = ""
-    var githubIsLoadingRepositoryChanges = false
-    var githubIsCommitting = false
-    var githubIsPushing = false
+    var repositorySelectedFileText: String?
+    var repositorySelectedFileLoadError: String?
+    var repositoryFileContentRequestID = 0
+    var repositoryCommitMessage = ""
+    var repositoryCommitDescription = ""
+    var isLoadingRepositoryChanges = false
+    var isCommittingRepository = false
+    var isPushingRepository = false
     var piAgentGitAutomationAction: PiAgentGitAutomationAction?
     var isRefreshingEverything = false
-    var githubLastError: String?
+    var repositoryLastError: String?
     var loopDefinitions: [LoopDefinition] = []
     var selectedLoopDefinitionID: LoopDefinition.ID?
     var newLoopRequestID = UUID()
@@ -345,7 +329,7 @@ final class AppViewModel: NSObject {
     private let envPersistence = EnvPersistence()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsController = AppSettingsController()
-    private let gitRepositoryService = GitRepositoryService()
+    let gitRepositoryService = GitRepositoryService()
     private let shipService = PiAgentShipService()
     /// Tag-and-push release flow, scoped to the agent-deck repo itself.
     var agentDeckReleaseService: ReleaseService { ReleaseService(gitRepositoryService: gitRepositoryService) }
@@ -398,12 +382,12 @@ final class AppViewModel: NSObject {
     private var launchResourceFingerprintTask: Task<Void, Never>?
     private var launchResourceFingerprintsBySessionID: [UUID: String] = [:]
     private var isRefreshingModels = false
-    private var githubRepositoryChangesRequestID = 0
-    private var githubDiffRequestID = 0
-    private var githubDiffCache: [GitDiffCacheKey: String] = [:]
-    private var githubDiffCacheOrder: [GitDiffCacheKey] = []
-    private let githubDiffCacheLimit = 64
-    private let repositoryChangesCacheLifetime: TimeInterval = 5
+    var repositoryChangesRequestID = 0
+    var repositoryDiffRequestID = 0
+    var repositoryDiffCache: [GitDiffCacheKey: String] = [:]
+    var repositoryDiffCacheOrder: [GitDiffCacheKey] = []
+    let repositoryDiffCacheLimit = 64
+    let repositoryChangesCacheLifetime: TimeInterval = 5
     private let watchEventDebounceNanoseconds: UInt64 = 1_000_000_000
     private let watchRefreshQuietNanoseconds: UInt64 = 1_200_000_000
     private let fallbackAutoRefreshInterval: TimeInterval = 300
@@ -1835,7 +1819,7 @@ final class AppViewModel: NSObject {
 
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [standardizedURL.path])
         if selectingAfterAdd {
-            refreshGitHubProjectScopedState()
+            refreshRepositoryProjectScopedState()
         }
     }
 
@@ -1852,7 +1836,7 @@ final class AppViewModel: NSObject {
         selectedProjectPath = standardizedURL.path
         persistSelectedProjectPath(standardizedURL.path)
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [standardizedURL.path])
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     func clearProjectRoot() {
@@ -1860,7 +1844,7 @@ final class AppViewModel: NSObject {
         selectedProjectPath = nil
         persistSelectedProjectPath(nil)
         refresh(includeModels: false)
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     func projectPreference(for path: String) -> ProjectPreference {
@@ -1882,7 +1866,7 @@ final class AppViewModel: NSObject {
         } else if selectedProjectPath == nil {
             snapshot = makeAggregateSnapshot()
         }
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     func setAllProjectsEnabled(_ isEnabled: Bool) {
@@ -1901,19 +1885,19 @@ final class AppViewModel: NSObject {
         } else {
             snapshot = makeAggregateSnapshot()
         }
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     func removeProjectFromLibrary(_ project: DiscoveredProject) {
         forgetProject(project)
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     func moveProjectToTrash(_ project: DiscoveredProject) throws {
         try FileManager.default.trashItem(at: project.url, resultingItemURL: nil)
         forgetProject(project)
         refresh(includeModels: false, scanAllProjects: true)
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     private func forgetProject(_ project: DiscoveredProject) {
@@ -1947,7 +1931,7 @@ final class AppViewModel: NSObject {
             try projectPreferencesStore.setCustomIcon(from: url, for: project.path)
             applyProjectPreferenceChanges()
         } catch {
-            githubLastError = error.localizedDescription
+            repositoryLastError = error.localizedDescription
         }
     }
 
@@ -1989,342 +1973,6 @@ final class AppViewModel: NSObject {
     }
 
 
-    func refreshEverything() {
-        guard !isRefreshingEverything else { return }
-
-        isRefreshingEverything = true
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.isRefreshingEverything = false
-            }
-            self.refresh(includeModels: true)
-            if self.selectedDiscoveredProject?.isGitRepository == true {
-                self.refreshRepositoryChanges(preservingDiffSelection: true)
-            }
-        }
-    }
-    func refreshRepositoryChanges(preservingDiffSelection: Bool = false, force: Bool = true) {
-        guard let project = selectedDiscoveredProject, project.isGitRepository else {
-            githubRepositoryChangesRequestID += 1
-            githubRepositoryChanges = nil
-            githubRepositoryChangesProjectPath = nil
-            githubSelectedChangePaths = []
-            githubSelectedDiffFilePath = nil
-            githubSelectedDiffKind = nil
-            githubSelectedDiffText = nil
-            githubIsLoadingRepositoryChanges = false
-            githubLastError = nil
-            return
-        }
-
-        refreshRepositoryChanges(
-            forProjectPath: project.path,
-            preservingDiffSelection: preservingDiffSelection,
-            force: force,
-            activeContextIsCurrent: { [weak self] in
-                guard let self else { return false }
-                return self.selectedDiscoveredProject?.path == project.path
-            }
-        )
-    }
-
-    /// Active git root for Review / stage / diff — session worktree first so
-    /// isolated sessions never stage/diff against the parent project root.
-    var activeRepositoryRootPath: String? {
-        if let session = piAgentSessionStore.selectedSession {
-            return session.repositoryRoot
-        }
-        if let path = githubRepositoryChangesProjectPath, !path.isEmpty { return path }
-        return selectedDiscoveredProject?.path
-    }
-
-    var activeRepositoryURL: URL? {
-        guard let path = activeRepositoryRootPath else { return nil }
-        return URL(fileURLWithPath: path, isDirectory: true)
-    }
-
-    func loadDiff(for filePath: String, kind: GitDiffKind) {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        let cacheKey = GitDiffCacheKey(projectPath: rootPath, filePath: filePath, kind: kind)
-        if githubSelectedDiffFilePath == filePath,
-           githubSelectedDiffKind == kind,
-           githubSelectedDiffText != nil {
-            return
-        }
-
-        githubDiffRequestID += 1
-        let requestID = githubDiffRequestID
-        githubSelectedDiffFilePath = filePath
-        githubSelectedDiffKind = kind
-        githubSelectedDiffText = cachedGithubDiff(for: cacheKey)
-        githubLastError = nil
-        // Always also load the full working-tree file for the Review inspector.
-        loadRepositoryFileContent(for: filePath)
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                // Full-file context so Review can render Codex-style complete file + collapse.
-                let diff = try await self.gitRepositoryService.loadDiff(
-                    for: filePath,
-                    kind: kind,
-                    in: repoURL,
-                    contextLines: 1_000_000
-                )
-                await MainActor.run {
-                    guard self.githubDiffRequestID == requestID,
-                          self.activeRepositoryRootPath == rootPath,
-                          self.githubSelectedDiffFilePath == filePath,
-                          self.githubSelectedDiffKind == kind else { return }
-                    let displayText = diff.isEmpty ? LanguageStore.shared.t("vm.noDiffForFile", kind.rawValue.lowercased()) : diff
-                    self.storeGithubDiff(displayText, for: cacheKey)
-                    self.githubSelectedDiffText = displayText
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.githubDiffRequestID == requestID,
-                          self.activeRepositoryRootPath == rootPath,
-                          self.githubSelectedDiffFilePath == filePath,
-                          self.githubSelectedDiffKind == kind else { return }
-                    self.githubSelectedDiffText = nil
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func stage(_ filePath: String) {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.gitRepositoryService.stage(filePath, in: repoURL)
-                await MainActor.run {
-                    self.invalidateDiffCache(projectPath: rootPath, filePath: filePath)
-                    self.refreshRepositoryChanges(forProjectPath: rootPath, preservingDiffSelection: true, force: true)
-                    self.loadDiff(for: filePath, kind: .staged)
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func unstage(_ filePath: String) {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.gitRepositoryService.unstage(filePath, in: repoURL)
-                await MainActor.run {
-                    self.invalidateDiffCache(projectPath: rootPath, filePath: filePath)
-                    self.refreshRepositoryChanges(forProjectPath: rootPath, preservingDiffSelection: true, force: true)
-                    self.loadDiff(for: filePath, kind: .unstaged)
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func toggleChangeSelection(_ filePath: String) {
-        if githubSelectedChangePaths.contains(filePath) {
-            githubSelectedChangePaths.remove(filePath)
-        } else {
-            githubSelectedChangePaths.insert(filePath)
-        }
-    }
-
-    func selectAllVisibleChanges() {
-        guard let snapshot = githubRepositoryChanges else { return }
-        githubSelectedChangePaths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
-    }
-
-    func clearSelectedChanges() {
-        githubSelectedChangePaths.removeAll()
-    }
-
-    func stageSelectedChanges() {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        let paths = Array(githubSelectedChangePaths)
-        guard !paths.isEmpty else { return }
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                for path in paths {
-                    try await self.gitRepositoryService.stage(path, in: repoURL)
-                }
-                await MainActor.run {
-                    self.refreshRepositoryChanges(forProjectPath: rootPath, preservingDiffSelection: true, force: true)
-                }
-            } catch {
-                await MainActor.run { self.githubLastError = error.localizedDescription }
-            }
-        }
-    }
-
-    func unstageSelectedChanges() {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        let paths = Array(githubSelectedChangePaths)
-        guard !paths.isEmpty else { return }
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                for path in paths {
-                    try await self.gitRepositoryService.unstage(path, in: repoURL)
-                }
-                await MainActor.run {
-                    self.refreshRepositoryChanges(forProjectPath: rootPath, preservingDiffSelection: true, force: true)
-                }
-            } catch {
-                await MainActor.run { self.githubLastError = error.localizedDescription }
-            }
-        }
-    }
-
-    func stageAllChanges() {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.gitRepositoryService.stageAll(in: repoURL)
-                await MainActor.run {
-                    self.invalidateDiffCache(projectPath: rootPath)
-                    self.refreshRepositoryChanges(forProjectPath: rootPath, preservingDiffSelection: true, force: true)
-                }
-            } catch {
-                await MainActor.run { self.githubLastError = error.localizedDescription }
-            }
-        }
-    }
-
-    func unstageAllChanges() {
-        guard let rootPath = activeRepositoryRootPath,
-              let repoURL = activeRepositoryURL else { return }
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.gitRepositoryService.unstageAll(in: repoURL)
-                await MainActor.run {
-                    self.invalidateDiffCache(projectPath: rootPath)
-                    self.refreshRepositoryChanges(forProjectPath: rootPath, preservingDiffSelection: true, force: true)
-                }
-            } catch {
-                await MainActor.run { self.githubLastError = error.localizedDescription }
-            }
-        }
-    }
-
-    private func invalidateDiffCache(projectPath: String, filePath: String? = nil) {
-        githubDiffCache = githubDiffCache.filter { entry in
-            guard entry.key.projectPath == projectPath else { return true }
-            guard let filePath else { return false }
-            return entry.key.filePath != filePath
-        }
-        githubDiffCacheOrder.removeAll { key in
-            guard key.projectPath == projectPath else { return false }
-            guard let filePath else { return true }
-            return key.filePath == filePath
-        }
-    }
-
-    private func cachedGithubDiff(for key: GitDiffCacheKey) -> String? {
-        guard let value = githubDiffCache[key] else { return nil }
-        markGithubDiffCacheKeyUsed(key)
-        return value
-    }
-
-    private func storeGithubDiff(_ value: String, for key: GitDiffCacheKey) {
-        githubDiffCache[key] = value
-        markGithubDiffCacheKeyUsed(key)
-        while githubDiffCacheOrder.count > githubDiffCacheLimit, let oldest = githubDiffCacheOrder.first {
-            githubDiffCacheOrder.removeFirst()
-            githubDiffCache[oldest] = nil
-        }
-    }
-
-    private func markGithubDiffCacheKeyUsed(_ key: GitDiffCacheKey) {
-        githubDiffCacheOrder.removeAll { $0 == key }
-        githubDiffCacheOrder.append(key)
-    }
-
-    func commitChanges() {
-        guard let project = selectedDiscoveredProject else { return }
-        let message = githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        let description = githubCommitDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
-            githubLastError = LanguageStore.shared.t("vm.enterCommitTitle")
-            return
-        }
-
-        githubIsCommitting = true
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.gitRepositoryService.commit(message: message, description: description, in: project.url)
-                await MainActor.run {
-                    self.githubCommitMessage = ""
-                    self.githubCommitDescription = ""
-                    self.githubIsCommitting = false
-                    self.refreshRepositoryChanges()
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubIsCommitting = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func pushCurrentBranch() {
-        guard let project = selectedDiscoveredProject else { return }
-        githubIsPushing = true
-        githubLastError = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.gitRepositoryService.pushCurrentBranch(in: project.url)
-                await MainActor.run {
-                    self.githubIsPushing = false
-                    self.refreshRepositoryChanges()
-                }
-            } catch {
-                await MainActor.run {
-                    self.githubIsPushing = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
 
 
 
@@ -5575,7 +5223,7 @@ final class AppViewModel: NSObject {
             lastPiRuntimeSettingsStatCheck = Date()
             return true
         } catch {
-            githubLastError = "Could not update Pi settings: \(error.localizedDescription)"
+            repositoryLastError = "Could not update Pi settings: \(error.localizedDescription)"
             return false
         }
     }
@@ -5799,261 +5447,11 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func prepareRepoChangesForSelectedPiAgentSession(force: Bool = false) {
-        guard let session = piAgentSessionStore.selectedSession else { return }
-        let repoRoot = session.repositoryRoot
-        refreshRepositoryChanges(
-            forProjectPath: repoRoot,
-            preservingDiffSelection: true,
-            force: force,
-            activeContextIsCurrent: { [weak self] in
-                guard let self else { return false }
-                return self.piAgentSessionStore.selectedSession?.repositoryRoot == repoRoot || self.selectedDiscoveredProject?.path == repoRoot
-            }
-        )
-    }
-
-    func refreshRepositoryChanges(forProjectPath projectPath: String, preservingDiffSelection: Bool = false, force: Bool = true) {
-        refreshRepositoryChanges(
-            forProjectPath: projectPath,
-            preservingDiffSelection: preservingDiffSelection,
-            force: force,
-            activeContextIsCurrent: { [weak self] in
-                guard let self else { return false }
-                return self.piAgentSessionStore.selectedSession?.projectPath == projectPath || self.selectedDiscoveredProject?.path == projectPath
-            }
-        )
-    }
-
-    private func refreshRepositoryChanges(
-        forProjectPath projectPath: String,
-        preservingDiffSelection: Bool,
-        force: Bool,
-        activeContextIsCurrent: @escaping @MainActor () -> Bool
-    ) {
-        if !force, let entry = repositoryChangesCache[projectPath] {
-            syncActiveRepositoryChanges(projectPath: projectPath, preservingDiffSelection: preservingDiffSelection)
-            if entry.isLoading || !isRepositoryChangesCacheStale(entry) { return }
-        }
-
-        let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
-        githubRepositoryChangesRequestID += 1
-        let requestID = githubRepositoryChangesRequestID
-        var entry = repositoryChangesCache[projectPath] ?? RepositoryChangesCacheEntry()
-        entry.isLoading = true
-        entry.error = nil
-        entry.requestID = requestID
-        repositoryChangesCache[projectPath] = entry
-
-        if activeContextIsCurrent() {
-            syncActiveRepositoryChanges(projectPath: projectPath, preservingDiffSelection: preservingDiffSelection)
-        }
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let snapshot = try await self.gitRepositoryService.loadChanges(in: projectURL)
-                let mergeability = await self.mergeabilityState(forRepositoryPath: projectPath, repositoryURL: projectURL)
-                await MainActor.run {
-                    guard self.repositoryChangesCache[projectPath]?.requestID == requestID else { return }
-                    self.repositoryChangesCache[projectPath] = RepositoryChangesCacheEntry(
-                        snapshot: snapshot,
-                        fetchedAt: Date(),
-                        isLoading: false,
-                        error: nil,
-                        requestID: requestID,
-                        mergeSourceBranch: mergeability?.sourceBranch,
-                        mergeSessionBranch: mergeability?.sessionBranch,
-                        hasMergeableBranchChanges: mergeability?.hasMergeableChanges
-                    )
-                    guard activeContextIsCurrent() else { return }
-                    self.syncActiveRepositoryChanges(projectPath: projectPath, preservingDiffSelection: preservingDiffSelection)
-                }
-            } catch {
-                await MainActor.run {
-                    guard var entry = self.repositoryChangesCache[projectPath], entry.requestID == requestID else { return }
-                    entry.isLoading = false
-                    entry.error = error.localizedDescription
-                    self.repositoryChangesCache[projectPath] = entry
-                    guard activeContextIsCurrent() else { return }
-                    self.syncActiveRepositoryChanges(projectPath: projectPath, preservingDiffSelection: preservingDiffSelection)
-                }
-            }
-        }
-    }
-
-    private func mergeabilityState(forRepositoryPath projectPath: String, repositoryURL: URL) async -> (sourceBranch: String, sessionBranch: String, hasMergeableChanges: Bool)? {
-        guard let session = await MainActor.run(body: { self.piAgentSessionStore.selectedSession }),
-              session.repositoryRoot == projectPath,
-              let sourceBranch = session.sourceBranch,
-              let sessionBranch = session.branchName else { return nil }
-
-        let hasMergeableChanges = (try? await gitRepositoryService.isBranchAhead(sessionBranch, of: sourceBranch, in: repositoryURL)) ?? false
-        return (sourceBranch, sessionBranch, hasMergeableChanges)
-    }
-
-    private func syncActiveRepositoryChanges(projectPath: String, preservingDiffSelection: Bool) {
-        let entry = repositoryChangesCache[projectPath]
-        githubRepositoryChanges = entry?.snapshot
-        githubRepositoryChangesProjectPath = entry?.snapshot == nil ? nil : projectPath
-        githubIsLoadingRepositoryChanges = entry?.isLoading == true
-        githubLastError = entry?.error
-
-        if !preservingDiffSelection {
-            githubSelectedChangePaths = []
-            githubSelectedDiffFilePath = nil
-            githubSelectedDiffKind = nil
-            githubSelectedDiffText = nil
-        }
-
-        guard let snapshot = entry?.snapshot else { return }
-        let validPaths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
-        if preservingDiffSelection {
-            githubSelectedChangePaths = githubSelectedChangePaths.intersection(validPaths)
-        }
-    }
-
-    private func isRepositoryChangesCacheStale(_ entry: RepositoryChangesCacheEntry) -> Bool {
-        guard let fetchedAt = entry.fetchedAt else { return true }
-        return Date().timeIntervalSince(fetchedAt) > repositoryChangesCacheLifetime
-    }
-
-    func openRepoChangesForSelectedPiAgentSession() {
-        prepareRepoChangesForSelectedPiAgentSession(force: true)
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-            isTrailingInspectorExpanded = true
-        }
-    }
-
-    func toggleTrailingInspector() {
-        if isTrailingInspectorExpanded {
-            collapseTrailingInspector()
-        } else {
-            openRepoChangesForSelectedPiAgentSession()
-        }
-    }
-
-    func collapseTrailingInspector() {
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-            isTrailingInspectorExpanded = false
-        }
-    }
-
-    /// Absolute file URL under the active review repository root.
-    func absoluteURLForRepositoryRelativePath(_ relativePath: String) -> URL? {
-        guard let root = activeRepositoryRootPath else { return nil }
-        if relativePath.hasPrefix("/") {
-            return URL(fileURLWithPath: relativePath)
-        }
-        return URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent(relativePath)
-    }
-
-    func openRepositoryFileInDefaultEditor(_ relativePath: String) {
-        // Prefer remembered / VS Code default when available; fall back to system default app.
-        if let preferred = ExternalCodeEditor.preferredBundleID() {
-            openRepositoryFile(relativePath, withEditorBundleID: preferred)
-            return
-        }
-        guard let url = absoluteURLForRepositoryRelativePath(relativePath) else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    func openRepositoryFile(_ relativePath: String, withEditorBundleID bundleID: String) {
-        guard let fileURL = absoluteURLForRepositoryRelativePath(relativePath) else { return }
-        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-            NSWorkspace.shared.open(fileURL)
-            return
-        }
-        ExternalCodeEditor.rememberPreferred(bundleID: bundleID)
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([fileURL], withApplicationAt: appURL, configuration: configuration, completionHandler: nil)
-    }
-
-    func revealRepositoryFileInFinder(_ relativePath: String) {
-        guard let url = absoluteURLForRepositoryRelativePath(relativePath) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
-    /// Loads the full working-tree file (not a truncated diff preview).
-    func loadRepositoryFileContent(for relativePath: String) {
-        guard let url = absoluteURLForRepositoryRelativePath(relativePath) else {
-            githubSelectedFileText = nil
-            githubSelectedFileLoadError = LanguageStore.shared.t("review.fileMissing")
-            return
-        }
-        githubFileContentRequestID += 1
-        let requestID = githubFileContentRequestID
-        githubSelectedFileLoadError = nil
-        // Keep previous text until the new read finishes to avoid flicker.
-        Task.detached(priority: .userInitiated) {
-            let result: Result<String, Error>
-            do {
-                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
-                if values.isDirectory == true {
-                    result = .failure(NSError(domain: "PiDeck", code: 1, userInfo: [NSLocalizedDescriptionKey: "Path is a directory"]))
-                } else if let size = values.fileSize, size > 2_000_000 {
-                    // Still load, but cap display length for UI safety.
-                    let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-                    let prefix = data.prefix(2_000_000)
-                    var text = String(data: prefix, encoding: .utf8)
-                        ?? String(decoding: prefix, as: UTF8.self)
-                    text += "\n\n… [file truncated for display; opened size > 2MB]"
-                    result = .success(text)
-                } else {
-                    let data = try Data(contentsOf: url)
-                    if let text = String(data: data, encoding: .utf8) {
-                        result = .success(text)
-                    } else if data.isEmpty {
-                        result = .success("")
-                    } else {
-                        result = .failure(NSError(domain: "PiDeck", code: 2, userInfo: [NSLocalizedDescriptionKey: "Binary or non-UTF8 file"]))
-                    }
-                }
-            } catch {
-                result = .failure(error)
-            }
-            await MainActor.run {
-                guard self.githubFileContentRequestID == requestID,
-                      self.githubSelectedDiffFilePath == relativePath else { return }
-                switch result {
-                case let .success(text):
-                    self.githubSelectedFileText = text
-                    self.githubSelectedFileLoadError = nil
-                case let .failure(error):
-                    self.githubSelectedFileText = nil
-                    self.githubSelectedFileLoadError = error.localizedDescription
-                }
-            }
-        }
-    }
 
     func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {
         piAgentRunner.isRunning(sessionID: sessionID)
     }
 
-    private func refreshRepositoryChangesForPiAgentSession() {
-        guard let session = piAgentSessionStore.selectedSession,
-              selectedProjectPath == session.projectPath else { return }
-        // The Git tab is showing the project — refresh by project path. The session's
-        // own worktree status is refreshed separately by prepareRepoChangesForSelectedPiAgentSession.
-        refreshRepositoryChanges(preservingDiffSelection: true)
-        if session.repositoryRoot != session.projectPath {
-            prepareRepoChangesForSelectedPiAgentSession(force: true)
-        }
-    }
-    private func refreshGitHubProjectScopedState() {
-        githubRepositoryChangesRequestID += 1
-        githubRepositoryChanges = nil
-        githubRepositoryChangesProjectPath = nil
-        repositoryChangesCache.removeAll()
-        githubSelectedChangePaths = []
-        githubSelectedDiffFilePath = nil
-        githubSelectedDiffKind = nil
-        githubSelectedDiffText = nil
-        githubCommitMessage = ""
-        githubCommitDescription = ""
-        githubIsLoadingRepositoryChanges = false
-    }
 
     var piAgentNotificationDelayMinutes: Int {
         appSettingsController.piAgentNotificationDelayMinutes
@@ -6916,7 +6314,7 @@ final class AppViewModel: NSObject {
     private func handleProjectsRootSettingsChange() {
         syncAppSettings()
         refresh(includeModels: false)
-        refreshGitHubProjectScopedState()
+        refreshRepositoryProjectScopedState()
     }
 
     private func registerAppNotificationObservers() {
@@ -7318,7 +6716,7 @@ final class AppViewModel: NSObject {
     private func piAgentRunnerSurfaceError(message: String) {
         // The agent-chat start path has no transcript yet; route the message
         // through the existing GitHub-style banner so the user sees it.
-        githubLastError = message
+        repositoryLastError = message
     }
 
     func selectableAgentUniverse(forProjectPath path: String) -> [EffectiveAgentRecord] {
@@ -10200,7 +9598,7 @@ final class AppViewModel: NSObject {
             try agentPersistence.setDisableBuiltins(isDisabled, scope: scope, projectRoot: selectedProjectPath)
             refreshAfterOverrideChange(scope: scope)
         } catch {
-            githubLastError = error.localizedDescription
+            repositoryLastError = error.localizedDescription
         }
     }
 
@@ -10210,7 +9608,7 @@ final class AppViewModel: NSObject {
             try agentPersistence.setBuiltinDisabled(isDisabled, for: agent, scope: scope, projectRoot: targetRoot)
             patchBuiltinDisabledOverride(agentName: agent.name, scope: scope, isDisabled: isDisabled, explicitProjectRoot: explicitProjectRoot)
         } catch {
-            githubLastError = error.localizedDescription
+            repositoryLastError = error.localizedDescription
         }
     }
 

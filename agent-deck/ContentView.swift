@@ -878,7 +878,7 @@ struct ContentView: View {
         let selectedSession = viewModel.piAgentSessionStore.selectedSession
         let selectedSessionID = selectedSession?.id
         let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
-        let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commitMessage = viewModel.repositoryCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
         let selectedPrompt = viewModel.selectedPromptTemplate
         let selectedAgent = viewModel.selectedAgent
@@ -888,8 +888,8 @@ struct ContentView: View {
             String(selectedSessionIsRunning),
             String(viewModel.canOpenSelectedPiAgentSessionInTerminal),
             commitMessage,
-            String(viewModel.githubIsCommitting),
-            String(viewModel.githubIsPushing),
+            String(viewModel.isCommittingRepository),
+            String(viewModel.isPushingRepository),
             String(hasGitProject),
             String(viewModel.discoveredProjects.count),
             selectedPrompt?.id ?? "nil",
@@ -903,7 +903,7 @@ struct ContentView: View {
         let selectedSession = viewModel.piAgentSessionStore.selectedSession
         let selectedSessionID = selectedSession?.id
         let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
-        let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commitMessage = viewModel.repositoryCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
         let selectedPrompt = viewModel.selectedPromptTemplate
         let selectedAgent = viewModel.selectedAgent
@@ -923,8 +923,8 @@ struct ContentView: View {
         ctx.canStopPiAgentSession = selectedSessionIsRunning
         ctx.canNavigatePiAgentSessions = viewModel.canNavigatePiAgentSessions
         ctx.canOpenPiAgentInTerminal = viewModel.canOpenSelectedPiAgentSessionInTerminal
-        ctx.canCommitGitHubChanges = hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting
-        ctx.canPushGitHubBranch = hasGitProject && !viewModel.githubIsPushing
+        ctx.canCommitGitHubChanges = hasGitProject && !commitMessage.isEmpty && !viewModel.isCommittingRepository
+        ctx.canPushGitHubBranch = hasGitProject && !viewModel.isPushingRepository
         ctx.canEnableAllProjects = !viewModel.discoveredProjects.isEmpty
         ctx.canDisableAllProjects = !viewModel.discoveredProjects.isEmpty
         ctx.canAddProject = true
