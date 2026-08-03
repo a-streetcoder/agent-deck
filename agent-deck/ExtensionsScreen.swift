@@ -286,6 +286,17 @@ private struct PiExtensionSelectionRow: View {
             .appCheckbox()
             .opacity(!conflictingToolNames.isEmpty ? 0.6 : 1.0)
 
+            // npm package identity (when path-derived name used to be `src` / `extensions`).
+            if let packageName = candidate.packageName,
+               !packageName.isEmpty,
+               packageName.caseInsensitiveCompare(candidate.name) != .orderedSame {
+                Text(packageName)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .padding(.leading, 22)
+            }
+
             Text(candidate.launchSource)
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
