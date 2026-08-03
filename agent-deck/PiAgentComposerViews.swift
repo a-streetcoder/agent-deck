@@ -297,6 +297,16 @@ struct PiAgentComposerBox: View {
             }
 
             VStack(spacing: 10) {
+                // Extension setStatus / setWidget — lives with the composer footer
+                // (TUI status-bar equivalent), not as transcript cards.
+                if let footerSession {
+                    PiAgentExtensionStatusStrip(
+                        store: viewModel.piAgentSessionStore,
+                        sessionID: footerSession.id
+                    )
+                    .padding(.horizontal, 12)
+                }
+
                 if let footerSession {
                     HStack(spacing: 10) {
                         PiAgentComposerFooterBar(
@@ -1696,17 +1706,28 @@ struct PiAgentModelSelection {
     let modelID: String
 }
 
-/// Live extension footer chrome (`setStatus` / `setWidget`) above the composer.
+/// Live extension footer chrome (`setStatus` / `setWidget`) above the metrics row.
 ///
-/// Empty chrome collapses to zero height. Notify stays in transcript cards.
+/// Reads chrome from the session store so Observation tracks map + revision updates.
+/// Empty chrome collapses to zero height. Notify stays as transcript soft cards.
 struct PiAgentExtensionStatusStrip: View {
-    let chrome: PiAgentExtensionChrome
+    /// Session store owning `extensionChromeBySessionID`. Required.
+    var store: PiAgentSessionStore
+    /// Session whose chrome to show. Required.
+    let sessionID: UUID
     @ObservedObject private var languageStore = LanguageStore.shared
 
     /// Max widget lines shown before truncating (keeps composer usable).
     private let maxWidgetLines = 3
 
+    /// Current chrome snapshot; reading revision forces refresh on upserts.
+    private var chrome: PiAgentExtensionChrome {
+        _ = store.extensionChromeRevision
+        return store.extensionChrome(for: sessionID)
+    }
+
     var body: some View {
+        let chrome = self.chrome
         if chrome.isEmpty {
             EmptyView()
         } else {
@@ -1715,49 +1736,60 @@ struct PiAgentExtensionStatusStrip: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "dot.radiowaves.left.and.right")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppTheme.brandAccent)
                             .accessibilityHidden(true)
-                        Text(statusLine)
+                        Text(statusLine(for: chrome))
                             .font(AppTheme.Font.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.primary)
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
                     }
                 }
                 ForEach(chrome.widgetItems, id: \.key) { item in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(item.key)
                             .font(AppTheme.Font.caption2.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                         ForEach(Array(item.lines.prefix(maxWidgetLines).enumerated()), id: \.offset) { _, line in
                             Text(line)
                                 .font(AppTheme.Font.caption.monospaced())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary)
                                 .lineLimit(2)
+                                .textSelection(.enabled)
                         }
                         if item.lines.count > maxWidgetLines {
                             Text(languageStore.t("extensionChrome.moreLines", item.lines.count - maxWidgetLines))
                                 .font(AppTheme.Font.caption2)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.panelFill.opacity(0.55))
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(AppTheme.brandAccent.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(AppTheme.brandAccent.opacity(0.22), lineWidth: 1)
+            )
             .accessibilityElement(children: .combine)
             .accessibilityLabel(languageStore.t("extensionChrome.a11y"))
-            .accessibilityValue(accessibilitySummary)
+            .accessibilityValue(accessibilitySummary(for: chrome))
         }
     }
 
     /// Status chips joined for a single caption line.
-    private var statusLine: String {
+    ///
+    /// - Parameter chrome: Chrome snapshot. Required.
+    /// - Returns: Display string for the status row.
+    private func statusLine(for chrome: PiAgentExtensionChrome) -> String {
         chrome.statusItems.map { item in
-            // Avoid "key · key text" when the extension already prefixes the key.
             if item.text.localizedCaseInsensitiveContains(item.key) {
                 return item.text
             }
@@ -1767,9 +1799,13 @@ struct PiAgentExtensionStatusStrip: View {
     }
 
     /// Combined a11y value for VoiceOver.
-    private var accessibilitySummary: String {
+    ///
+    /// - Parameter chrome: Chrome snapshot. Required.
+    /// - Returns: Spoken summary.
+    private func accessibilitySummary(for chrome: PiAgentExtensionChrome) -> String {
         var parts: [String] = []
-        if !statusLine.isEmpty { parts.append(statusLine) }
+        let line = statusLine(for: chrome)
+        if !line.isEmpty { parts.append(line) }
         for item in chrome.widgetItems {
             parts.append("\(item.key): \(item.lines.joined(separator: " "))")
         }

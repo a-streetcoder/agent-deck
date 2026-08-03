@@ -128,6 +128,9 @@ final class PiAgentSessionStore {
     private(set) var extensionNotifiesBySessionID: [UUID: [PiAgentExtensionNotify]] = [:]
     /// Live `setStatus` / `setWidget` chrome for the session footer strip. Not persisted.
     private(set) var extensionChromeBySessionID: [UUID: PiAgentExtensionChrome] = [:]
+    /// Bumped when any session's extension chrome map changes so composer UI can
+    /// re-read without depending on dictionary identity observation alone.
+    private(set) var extensionChromeRevision: Int = 0
     private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:] {
         didSet { subagentRunsRevision &+= 1 }
     }
@@ -1100,6 +1103,7 @@ final class PiAgentSessionStore {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var chrome = extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
         if trimmedText.isEmpty {
+            guard chrome.statuses[trimmedKey] != nil else { return }
             chrome.statuses.removeValue(forKey: trimmedKey)
         } else if chrome.statuses[trimmedKey] == trimmedText {
             return
@@ -1111,6 +1115,7 @@ final class PiAgentSessionStore {
         } else {
             extensionChromeBySessionID[sessionID] = chrome
         }
+        extensionChromeRevision &+= 1
     }
 
     /// Upsert or clear a `setWidget` slot (Pi TUI footer widget).
@@ -1128,6 +1133,7 @@ final class PiAgentSessionStore {
             .filter { !$0.isEmpty }
         var chrome = extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
         if cleaned.isEmpty {
+            guard chrome.widgets[trimmedKey] != nil else { return }
             chrome.widgets.removeValue(forKey: trimmedKey)
         } else if chrome.widgets[trimmedKey] == cleaned {
             return
@@ -1139,13 +1145,16 @@ final class PiAgentSessionStore {
         } else {
             extensionChromeBySessionID[sessionID] = chrome
         }
+        extensionChromeRevision &+= 1
     }
 
     /// Drop all extension footer chrome for a session.
     ///
     /// - Parameter sessionID: Owning session. Required.
     func clearExtensionChrome(sessionID: UUID) {
+        guard extensionChromeBySessionID[sessionID] != nil else { return }
         extensionChromeBySessionID[sessionID] = nil
+        extensionChromeRevision &+= 1
     }
 
     func subagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {

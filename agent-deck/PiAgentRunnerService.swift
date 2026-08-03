@@ -2742,13 +2742,18 @@ final class PiAgentRunnerService {
         let key = event.statusKey
             ?? extensionUIString("statusKey", from: event)
             ?? extensionUIString("key", from: event)
+            ?? extensionNotifyTopLevelString("statusKey", from: rawLine)
+            ?? extensionNotifyTopLevelString("key", from: rawLine)
             ?? "status"
+        // Prefer stripAnsi only — sanitizeAnswer may drop short status labels.
         let text = event.statusText
             ?? extensionUIString("statusText", from: event)
             ?? extensionUIString("text", from: event)
-            ?? extensionNotifyMessage(from: event, rawLine: rawLine)
+            ?? extensionNotifyTopLevelString("statusText", from: rawLine)
+            ?? extensionNotifyTopLevelString("text", from: rawLine)
             ?? ""
-        let sanitized = TextSanitizer.sanitizeAnswer(text)
+        // `undefined` clear from Pi arrives as null/omitted → empty → remove key.
+        let sanitized = TextSanitizer.stripAnsi(text)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         store.applyExtensionSetStatus(sessionID: sessionID, key: key, text: sanitized)
     }
@@ -2771,7 +2776,7 @@ final class PiAgentRunnerService {
             ?? extensionUIStringList(event.data?["lines"])
             ?? extensionUIStringList(event.message?["widgetLines"])
             ?? []
-        let cleaned = lines.map { TextSanitizer.sanitizeAnswer($0) }
+        let cleaned = lines.map { TextSanitizer.stripAnsi($0) }
         store.applyExtensionSetWidget(sessionID: sessionID, key: key, lines: cleaned)
     }
 
