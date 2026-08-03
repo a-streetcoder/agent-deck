@@ -39,7 +39,11 @@ Local branch for modularizing God objects. **Not pushed by default.**
 - `PiAgentTranscriptModels.swift` — timeline / cell kind / row item / rail policy
 - `PiAgentTranscriptQuestionRail.swift` — table chrome, question rail, jump-to-latest
 - `PiAgentTranscriptHost.swift` — SwiftUI host isolating cache observation
-- `PiAgentTranscriptAppKitViews.swift` — `NSViewRepresentable` + Coordinator
+- `PiAgentTranscriptAppKitViews.swift` — `NSViewRepresentable` shell + Coordinator stored state + cell views
+- `PiAgentAppKitTranscriptCoordinator+DataSource.swift` — data source / prewarm / question rail
+- `PiAgentAppKitTranscriptCoordinator+Apply.swift` — apply snapshot / benches / scroll observation
+- `PiAgentAppKitTranscriptCoordinator+Layout.swift` — width / height / anchors
+- `PiAgentAppKitTranscriptCoordinator+Scroll.swift` — follow glide / pin / table delegate
 
 ## Merge guidance
 
