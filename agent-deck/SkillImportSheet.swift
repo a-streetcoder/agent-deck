@@ -912,24 +912,14 @@ struct SkillImportSheet: View {
     private func applyLocalCandidates(_ candidates: [ExternalSkillCandidate]) {
         isScanningLocal = false
         localScanProgress = nil
-        let blockedComputerUseCount = candidates.filter {
-            ComputerUseCapability.isInstalledRawSkill(at: URL(fileURLWithPath: $0.sourceRootPath))
-        }.count
-        localCandidates = candidates.filter {
-            !ComputerUseCapability.isInstalledRawSkill(at: URL(fileURLWithPath: $0.sourceRootPath))
-        }
+        localCandidates = candidates
         let importable = updateCandidateCaches()
         scheduleFilterUpdate(immediate: true, candidates: importable)
 
         guard !localCandidates.isEmpty else {
             selectedIDs = []
-            importErrorMessage = blockedComputerUseCount > 0
-                ? "Computer Use is managed from MCP Servers and cannot be imported as a Pi skill."
-                : "No importable skill folders were found. Choose a skill root containing SKILL.md, or a folder that contains skill roots below it."
+            importErrorMessage = "No importable skill folders were found. Choose a skill root containing SKILL.md, or a folder that contains skill roots below it."
             return
-        }
-        if blockedComputerUseCount > 0 {
-            importErrorMessage = "Computer Use is managed from MCP Servers and was skipped."
         }
         // Pre-select only skills that are not already in the catalog.
         selectedIDs = Set(importable.map(\.id))
@@ -965,10 +955,7 @@ struct SkillImportSheet: View {
             }
             claudeCodexScanProgress = "Scanning installed Codex plugins…"
             for (candidate, reference, package) in await CodexPluginSkillDiscovery.candidateReferences() {
-                // Computer Use is selected exclusively through its MCP assignment.
-                // Its raw Codex skill requires node_repl and is not Pi-compatible.
-                guard !ComputerUseCapability.isComputerUsePluginSkill(reference),
-                      seenRootPaths.insert("plugin:\(reference.marketplace):\(reference.plugin):\(reference.relativeSkillRoot)").inserted else { continue }
+                guard seenRootPaths.insert("plugin:\(reference.marketplace):\(reference.plugin):\(reference.relativeSkillRoot)").inserted else { continue }
                 discovered.append(KnownSkillCandidate(
                     external: candidate,
                     source: KnownSkillSource(root: package.root, label: "Codex Plugin · \(package.displayName) · \(package.version) · \(reference.marketplace)", provider: "openai-codex"),

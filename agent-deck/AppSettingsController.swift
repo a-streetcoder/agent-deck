@@ -667,15 +667,6 @@ final class AppSettingsController {
         return true
     }
 
-    @discardableResult
-    func addLegacyComputerUseSkillNames(_ names: Set<String>) -> Bool {
-        let normalized = Set(names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
-        let updated = settings.legacyComputerUseSkillNames.union(normalized)
-        guard updated != settings.legacyComputerUseSkillNames else { return false }
-        settings.legacyComputerUseSkillNames = updated
-        persist()
-        return true
-    }
 
     @discardableResult
     func removeExternalSkillPaths(_ paths: Set<String>) -> Bool {
@@ -1174,15 +1165,6 @@ final class AppSettingsController {
         persist()
     }
 
-    @discardableResult
-    func setComputerUseNoProjectMode(_ mode: PiAgentNoProjectMode, enabled: Bool) -> Bool {
-        var modes = settings.computerUseNoProjectModes
-        let changed = enabled ? modes.insert(mode).inserted : modes.remove(mode) != nil
-        guard changed else { return false }
-        settings.computerUseNoProjectModes = modes
-        persist()
-        return true
-    }
 
     /// Display name for transcript user bubbles. Empty falls back to localized "You".
     var userDisplayName: String {

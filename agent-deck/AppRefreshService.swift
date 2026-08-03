@@ -40,19 +40,10 @@ nonisolated struct AppRefreshService: Sendable {
         scanAllProjects: Bool = true,
         extraProjectPathsToScan: Set<String> = []
     ) -> AppRefreshSnapshot {
+        _ = codexPluginPackages
         let discovery = ProjectDiscovery()
-        // Computer Use is an MCP-backed capability, not a Pi skill. Exclude only
-        // its exact Codex plugin reference; other Codex plugin skills remain importable.
-        let importablePluginReferences = codexPluginSkillReferences.filter { !ComputerUseCapability.isComputerUsePluginSkill($0) }
-        let resolvedCodexPluginSkillPaths = CodexPluginSkillDiscovery.resolveAll(importablePluginReferences).mapValues(\.path)
-        let installedCodexPackages = codexPluginPackages ?? CodexPluginSkillDiscovery.activePackages()
-        // Legacy/local imports can point directly into the Codex cache. Exclude
-        // only the verified installed Computer Use raw skill, not same-named
-        // user-authored or copied folders.
-        let importableExternalSkillPaths = externalSkillPaths.filter {
-            !ComputerUseCapability.isInstalledRawSkill(at: URL(fileURLWithPath: $0), packages: installedCodexPackages)
-        }
-        let scanner = PiScanner(externalSkillPaths: importableExternalSkillPaths.union(Set(resolvedCodexPluginSkillPaths.values)), externalPromptPaths: externalPromptPaths, skillCollectionNames: skillCollectionNames)
+        let resolvedCodexPluginSkillPaths = CodexPluginSkillDiscovery.resolveAll(codexPluginSkillReferences).mapValues(\.path)
+        let scanner = PiScanner(externalSkillPaths: externalSkillPaths.union(Set(resolvedCodexPluginSkillPaths.values)), externalPromptPaths: externalPromptPaths, skillCollectionNames: skillCollectionNames)
         let discoveredProjects = discovery.discoverProjects(
             rootDirectoryURLs: rootURLs,
             additionalProjectPaths: Array(preferencesByPath.keys),
@@ -111,8 +102,8 @@ nonisolated struct AppRefreshService: Sendable {
         } else {
             projectsToWatch = scanAllProjects ? enabledProjects : projectsToScan
         }
-        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: importableExternalSkillPaths, externalPromptPaths: externalPromptPaths, codexPluginSkillReferences: importablePluginReferences, resolvedCodexPluginSkillPaths: resolvedCodexPluginSkillPaths)
-        let pluginBaseURLs = Set(importablePluginReferences.compactMap { CodexPluginSkillDiscovery.pluginBaseDirectory(for: $0)?.standardizedFileURL.path })
+        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths, codexPluginSkillReferences: codexPluginSkillReferences, resolvedCodexPluginSkillPaths: resolvedCodexPluginSkillPaths)
+        let pluginBaseURLs = Set(codexPluginSkillReferences.compactMap { CodexPluginSkillDiscovery.pluginBaseDirectory(for: $0)?.standardizedFileURL.path })
         let watchFingerprint = FileWatchFingerprint.make(urls: watchedURLs, shallowDirectoryPaths: pluginBaseURLs)
 
         return AppRefreshSnapshot(

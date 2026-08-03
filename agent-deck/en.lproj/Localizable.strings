@@ -508,9 +508,6 @@
 "mcp.assignAfterSave" = "Assign this server to your projects or agents after saving.";
 "mcp.scanning" = "Scanning known config files…";
 "mcp.noForeignFound" = "No Claude or Codex MCP servers were found that are not already in %@.";
-"mcp.computerUse" = "Computer Use controls";
-"mcp.chatgptRunning" = "ChatGPT: Running";
-"mcp.chatgptNotRunning" = "ChatGPT: Not running";
 "mcp.openChatGPT" = "Open ChatGPT";
 "mcp.generalChat" = "General Chat";
 "mcp.deckBuilder" = "Agent Deck Builder";
@@ -1479,9 +1476,6 @@
 "agents.defaultProgress" = "Default progress";
 "agents.interactive" = "Interactive";
 "agents.maxSubagentDepth" = "Max Subagent Depth";
-"mcp.chatgptHint" = "ChatGPT must be running, signed in, and have Computer Use available for the account.";
-"mcp.computerUseTools" = "Available tools: list_apps, get_app_state, click, perform_secondary_action, set_value, select_option, scroll, type_text, open_app, wait.";
-"mcp.computerUseAuthority" = "Automatic authority: assigning Computer Use gives sessions in this scope access to all ten methods above.";
 "mcp.noProjectHint" = "No-project chats never inherit All Projects, project, default, or agent MCP assignments. These servers stay off until assigned to No-project sessions.";
 "mcp.trustHint" = "Enable it only for projects, agents, or no-project modes you trust to control this Mac. Unassigned scopes stay blocked.";
 "mcp.removeConfirm" = "Remove “%@” from ~/.pi/agent/mcp.json and clear it from every project and agent assignment.";
@@ -1710,10 +1704,6 @@
 "agent.earlierTitle" = "Earlier Transcript";
 "agent.earlierBody" = "Messages before the latest %d visible items.";
 "agent.loopUnavailable" = "Loop Unavailable";
-"agent.chatgptStartTitle" = "Start ChatGPT for Computer Use";
-"agent.chatgptStartBody" = "You can open ChatGPT now, or continue without opening it.";
-"agent.continueWithoutOpening" = "Continue Without Opening";
-"agent.openChatgpt" = "Open ChatGPT";
 "agents.renameAgent" = "Rename agent %@";
 "agents.editNamed" = "Edit %@";
 "agents.missingSkillsHere" = "Missing skills here: %@";
@@ -1773,7 +1763,6 @@
 "transcript.previewUnavailable" = "Preview is not available for this file type.";
 "transcript.finalRuntimeSystemPrompt" = "Final Runtime System Prompt";
 "transcript.openDetails" = "Open Details";
-"mcp.chatgptRequired" = "ChatGPT must be running, signed in, and have Computer Use available for the account.";
 "mcp.remoteHttp" = "Remote (HTTP)";
 "mcp.optional" = "Optional";
 "mcp.optionalSpaceSeparated" = "Optional, space-separated";
@@ -1824,7 +1813,6 @@
 "agent.loadEarlier" = "Load Earlier";
 "agent.earlierItemsFmt" = "%d earlier items before %@";
 "agent.showingLatestFmt" = "Showing the latest %d items to keep this chat responsive. %d earlier items stay available above.";
-"agent.chatgptMustRunning" = "This session has trusted Computer Use enabled. ChatGPT must be running and signed in to an eligible account before Computer Use can be used.";
 "agent.loopSaved" = "Loop Saved";
 "agent.loopSavedBody" = "Saved loop to Loop Bank.";
 "agents.removeAvatar" = "Remove avatar image";
@@ -2132,7 +2120,6 @@
 "vm.choosePiExtension" = "Choose a Pi extension file containing pi.registerCommand(...).";
 "vm.skillsAllUpToDate" = "All synced skills are up to date.";
 "vm.skillsNoUpdateNeeded" = "No skills needed updating.";
-"vm.skillsRemovedCodexComputerUse" = "Removed the obsolete Codex Computer Use skill reference. Enable Computer Use from MCP Servers instead.";
 "vm.syncedGitSkillCollection" = "Synced Git skill collection";
 "vm.localSkillCollection" = "Local skill collection";
 "vm.generalChat" = "General Chat";

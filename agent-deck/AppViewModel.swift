@@ -7,12 +7,6 @@ import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
-private struct PendingComputerUseSessionStart {
-    let sessionID: UUID
-    let start: () -> Void
-}
-
-@MainActor
 private final class NativeSubagentCompletionGate {
     private(set) var isCompleted = false
 
@@ -252,12 +246,8 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var cachedStandardizedExternalSkillPaths: Set<String> = []
     /// Updated only by the refresh pipeline; prevents per-row Codex cache walks.
     @ObservationIgnored private var cachedResolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]
-    /// Transient merged MCP entries for capability-specific runtime instructions.
-    /// Never persist plugin paths; refresh rebuilds this from discovery.
+    /// Transient merged MCP entries from the last refresh (config only).
     @ObservationIgnored private var mergedMCPEntries: [MCPServerEntry] = []
-    /// Names read from exact legacy Computer Use plugin references at launch.
-    /// They are skipped only when absent from the current skill catalog.
-    @ObservationIgnored private var legacyComputerUseSkillNames: Set<String> = []
     private(set) var hasCompletedInitialRefresh = false
     private(set) var cachedHasAgentWarnings = false
     private(set) var cachedHasSkillWarnings = false
@@ -381,10 +371,6 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var mcpCatalogSnapshot: [MCPCatalogEntry] = []
     private(set) var mcpCatalogRevision = 0
     @ObservationIgnored private var mcpConfiguredServerNames: Set<String> = []
-    @ObservationIgnored private var codexComputerUseMCPDiscovery = CodexPluginMCPDiscovery.Result(resources: [], diagnostics: [.pluginNotInstalled])
-    @ObservationIgnored private var codexComputerUseBrokerDiscovery = CodexComputerUseBrokerDiscovery.Result.unavailable("Computer Use broker has not been checked yet.")
-    private(set) var isComputerUseChatGPTStartAlertPresented = false
-    @ObservationIgnored private var pendingComputerUseSessionStart: PendingComputerUseSessionStart?
     @ObservationIgnored private let mcpRefreshCoordinator = MCPConfigurationRefreshCoordinator()
     @ObservationIgnored private var mcpRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var mcpLastRefreshKey: String?
@@ -444,19 +430,6 @@ final class AppViewModel: NSObject {
 
         appSettings = appSettingsController.settings
         PiExecutableResolver.setPreferredPath(appSettings.piExecutablePath)
-        legacyComputerUseSkillNames = appSettings.legacyComputerUseSkillNames
-        // A previous release could store the Codex-only Computer Use skill as a
-        // generic plugin reference. Drop only that exact reference: do not alter
-        // same-named user skills or promote it to an MCP assignment.
-        let staleComputerUseReferences = appSettings.codexPluginSkillReferences.filter(ComputerUseCapability.isComputerUsePluginSkill)
-        if !staleComputerUseReferences.isEmpty {
-            let migratedNames = ComputerUseCapability.legacySkillNames(for: staleComputerUseReferences)
-            _ = appSettingsController.addLegacyComputerUseSkillNames(migratedNames)
-            _ = appSettingsController.removeCodexPluginSkillReferences(staleComputerUseReferences)
-            appSettings = appSettingsController.settings
-            legacyComputerUseSkillNames = appSettings.legacyComputerUseSkillNames
-            skillBatchActionMessage = LanguageStore.shared.t("vm.skillsRemovedCodexComputerUse")
-        }
         reloadLoopDefinitions()
         ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
         ThemeManager.shared.setMarkdownHighlightingEnabled(appSettingsController.settings.piAgentMarkdownHighlightingEnabled)
@@ -1448,10 +1421,6 @@ final class AppViewModel: NSObject {
         for candidate in candidates {
             let sourceURL = URL(fileURLWithPath: candidate.sourceRootPath)
             let sourcePath = sourceURL.standardizedFileURL.path
-            if ComputerUseCapability.isInstalledRawSkill(at: sourceURL) {
-                skippedNames.append(candidate.name)
-                continue
-            }
             if existingPaths.contains(sourcePath) {
                 skippedNames.append(candidate.name)
                 continue
@@ -1496,11 +1465,7 @@ final class AppViewModel: NSObject {
         var skippedNames: [String] = []
         for candidate in candidates {
             if let reference = candidate.pluginReference {
-                // Defensive backstop for callers outside SkillImportSheet: the
-                // Codex Computer Use skill is never a Pi import candidate.
-                if ComputerUseCapability.isComputerUsePluginSkill(reference) {
-                    skippedNames.append(candidate.external.name)
-                } else if existingReferences.contains(reference) { skippedNames.append(candidate.external.name) }
+                if existingReferences.contains(reference) { skippedNames.append(candidate.external.name) }
                 else { references.insert(reference); importedNames.append(candidate.external.name) }
             } else {
                 let path = URL(fileURLWithPath: candidate.external.sourceRootPath).standardizedFileURL.path
@@ -4092,13 +4057,12 @@ final class AppViewModel: NSObject {
             await self.mcpConnectionManager.setAuthTokenProvider { server in
                 await MCPOAuthService.shared.accessToken(for: server)
             }
-            // Config I/O only — Pi Deck does not auto-inject Codex Computer Use.
             async let configuredTask = Task.detached(priority: .utility) { MCPConfigLoader().load(projectRoot: projectURL).servers }.value
             let configured = await configuredTask
             guard !Task.isCancelled, self.mcpRefreshCoordinator.isCurrent(token) else { return }
 
             self.mcpCatalogRevision &+= 1
-            let merged = CodexComputerUseMCPIntegration.merge(configured: configured)
+            let merged = configured.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             self.mergedMCPEntries = merged
             self.mcpConfiguredServerNames = Set(merged.map(\.name))
             guard enabled else {
@@ -4241,7 +4205,6 @@ final class AppViewModel: NSObject {
     private func assignedMCPServerNames(for session: PiAgentSessionRecord) -> Set<String> {
         if session.isNoProject {
             // No-project chats never inherit project/default MCP assignments.
-            // Computer Use auto-injection has been removed.
             return []
         }
 
@@ -4283,7 +4246,7 @@ final class AppViewModel: NSObject {
         let configured = await Task.detached(priority: .utility) {
             MCPConfigLoader().load(projectRoot: root).servers
         }.value
-        return CodexComputerUseMCPIntegration.merge(configured: configured)
+        return configured.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func mcpServer(_ name: String, isEnabledFor project: DiscoveredProject) -> Bool {
@@ -4318,17 +4281,6 @@ final class AppViewModel: NSObject {
         refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
     }
 
-    func computerUseIsEnabledForNoProjectMode(_ mode: PiAgentNoProjectMode) -> Bool {
-        appSettings.computerUseNoProjectModes.contains(mode)
-    }
-
-    func setComputerUseEnabledForNoProjectMode(_ mode: PiAgentNoProjectMode, enabled: Bool) {
-        guard appSettingsController.setComputerUseNoProjectMode(mode, enabled: enabled) else { return }
-        appSettings = appSettingsController.settings
-        // A running no-project session's launch resources have changed. This also
-        // removes the bridge immediately on its next safe relaunch when disabled.
-        reconcileRunningSessionLaunchResourceFingerprints()
-    }
 
     /// Compact MCP tool catalog injected into the system prompt, scoped to the session's
     /// assigned servers. Returns nil when MCP is off or nothing is assigned, so neither
@@ -4397,8 +4349,7 @@ final class AppViewModel: NSObject {
     /// and delegated-Deck-agent paths.
     private func mcpCatalogPrompt(fromEntries entries: [MCPCatalogEntry], scope: Set<String>) -> String? {
         guard appSettings.mcpEnabled else { return nil }
-        // The compatibility guide is an MCP-dependent runtime prompt, not a Pi
-        // skill, so restrictive agents need no `read` grant to use Computer Use.
+        _ = scope
         let entries = entries.sorted { $0.qualifiedName < $1.qualifiedName }
         guard !entries.isEmpty else { return nil }
 
@@ -4418,12 +4369,7 @@ final class AppViewModel: NSObject {
             lines.append("Available MCP servers (use mcp({ search }) to find specific tools):")
             lines.append(contentsOf: counts.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value) tools" })
         }
-        return ComputerUseCapability.appendGuide(
-            to: lines.joined(separator: "\n"),
-            scope: scope,
-            entries: mergedMCPEntries,
-            catalogEntries: entries
-        )
+        return lines.joined(separator: "\n")
     }
 
     /// Handles an `mcp` proxy bridge request: routes list/search/describe/call to the
@@ -5184,20 +5130,6 @@ final class AppViewModel: NSObject {
     @discardableResult
     func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, titleSource: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], beforeStart: () -> Void = {}) -> Bool {
         guard let session = piAgentSessionStore.selectedSession else { return false }
-        if shouldPromptToOpenChatGPT(for: session, mode: mode) {
-            let sessionID = session.id
-            pendingComputerUseSessionStart = PendingComputerUseSessionStart(sessionID: sessionID) { [weak self] in
-                guard let self,
-                      let originalSession = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
-                self.enqueuePiAgentMessage(
-                    text, mode: mode, transcriptText: transcriptText, titleSource: titleSource,
-                    images: images, pasteAttachments: pasteAttachments,
-                    session: originalSession
-                )
-            }
-            isComputerUseChatGPTStartAlertPresented = false
-            return false
-        }
         beforeStart()
         enqueuePiAgentMessage(
             text, mode: mode, transcriptText: transcriptText, titleSource: titleSource,
@@ -5237,35 +5169,6 @@ final class AppViewModel: NSObject {
         deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, session: session)
     }
 
-    func continuePendingComputerUseSessionStart(openChatGPT: Bool, beforeStart: () -> Void) async -> UUID? {
-        guard let pending = pendingComputerUseSessionStart else { return nil }
-        pendingComputerUseSessionStart = nil
-        isComputerUseChatGPTStartAlertPresented = false
-        if openChatGPT, !(await ComputerUseChatGPTRuntime.openAndWaitUntilRunning()) {
-            pendingComputerUseSessionStart = pending
-            isComputerUseChatGPTStartAlertPresented = false
-            return nil
-        }
-        if piAgentSessionStore.selectedSession?.id == pending.sessionID { beforeStart() }
-        pending.start()
-        return pending.sessionID
-    }
-
-    func cancelPendingComputerUseSessionStart() {
-        pendingComputerUseSessionStart = nil
-        isComputerUseChatGPTStartAlertPresented = false
-    }
-
-    private func shouldPromptToOpenChatGPT(for session: PiAgentSessionRecord, mode: PiAgentInputMode) -> Bool {
-        guard !piAgentRunner.isRunning(sessionID: session.id) else { return false }
-        return ComputerUseCapability.shouldPromptToOpenChatGPT(
-            scope: assignedMCPServerNames(for: session),
-            entries: mergedMCPEntries,
-            mcpEnabled: appSettings.mcpEnabled,
-            chatGPTRunning: ComputerUseChatGPTRuntime.isRunning,
-            isInitialPrompt: mode == .prompt
-        )
-    }
 
     private func deliverPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], session: PiAgentSessionRecord) {
         let effectiveText = text
@@ -7342,7 +7245,7 @@ final class AppViewModel: NSObject {
             agent: agent,
             snapshot: snapshot,
             expandedSkillNames: expandedNames,
-            ignoredMissingSkillNames: legacyComputerUseSkillNames
+            ignoredMissingSkillNames: []
         )
     }
 

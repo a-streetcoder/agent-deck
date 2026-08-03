@@ -164,23 +164,12 @@ nonisolated enum MCPServerProvenance: Hashable, Sendable {
 /// Native tool-catalog restrictions for supported adapters.
 nonisolated enum MCPServerToolPolicy: Hashable, Sendable {
     case unrestricted
-    /// The Codex app-server broker exposes all ten official methods with no Agent
-    /// Deck approval prompt. Assignment is the sole app-level enablement.
-    case computerUseAutoAccept
-
-    static let computerUseKnownTools: Set<String> = [
-        "list_apps", "get_app_state", "click", "perform_secondary_action", "set_value",
-        "select_text", "scroll", "drag", "press_key", "type_text"
-    ]
 
     func allows(_ tool: String) -> Bool {
         switch self {
         case .unrestricted: true
-        case .computerUseAutoAccept: Self.computerUseKnownTools.contains(tool)
         }
     }
-
-    var isComputerUse: Bool { self == .computerUseAutoAccept }
 }
 
 /// A resolved server with provenance: the merged config plus the on-disk file it

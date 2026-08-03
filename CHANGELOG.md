@@ -1,3 +1,7 @@
+## Unreleased
+
+- Removed Codex Computer Use MCP integration, broker install scripts, ChatGPT start gate, and related settings/tests.
+
 # Changelog
 
 ## 0.0.10 — 2026-07-31

@@ -8417,49 +8417,6 @@ struct PiAgentScreen: View {
     }
 }
 
-private struct ComputerUseChatGPTStartSheet: View {
-    let onCancel: () -> Void
-    let onContinueWithoutOpening: () -> Void
-    let onOpenChatGPT: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            AppSheetHeader(
-                systemImage: "desktopcomputer",
-                title: LanguageStore.shared.t("agent.chatgptStartTitle")
-            ) {
-                EmptyView()
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(LanguageStore.shared.t("agent.chatgptMustRunning"))
-                    .font(.callout)
-                Text(LanguageStore.shared.t("agent.chatgptStartBody"))
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(18)
-
-            Divider()
-
-            HStack(spacing: 10) {
-                Spacer()
-                Button(LanguageStore.shared.t("common.cancel"), action: onCancel)
-                    .appSecondaryButton()
-                    .keyboardShortcut(.cancelAction)
-                Button(LanguageStore.shared.t("agent.continueWithoutOpening"), action: onContinueWithoutOpening)
-                    .appSecondaryButton()
-                Button(LanguageStore.shared.t("agent.openChatgpt"), action: onOpenChatGPT)
-                    .appPrimaryButton()
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(18)
-        }
-        .frame(width: 460)
-        .background(AppTheme.windowBackground)
-    }
-}
 
 private struct PiAgentComposerPanel: View {
     var viewModel: AppViewModel
@@ -8699,33 +8656,8 @@ private struct PiAgentComposerPanel: View {
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
         }
-        .sheet(
-            isPresented: Binding(
-                get: { viewModel.isComputerUseChatGPTStartAlertPresented },
-                set: { if !$0 { viewModel.cancelPendingComputerUseSessionStart() } }
-            )
-        ) {
-            ComputerUseChatGPTStartSheet(
-                onCancel: { viewModel.cancelPendingComputerUseSessionStart() },
-                onContinueWithoutOpening: { completePendingComputerUseSessionStart(openChatGPT: false) },
-                onOpenChatGPT: { completePendingComputerUseSessionStart(openChatGPT: true) }
-            )
-        }
     }
 
-    private func completePendingComputerUseSessionStart(openChatGPT: Bool) {
-        Task { @MainActor in
-            guard let sessionID = await viewModel.continuePendingComputerUseSessionStart(
-                openChatGPT: openChatGPT,
-                beforeStart: onWillSend
-            ) else { return }
-            if store.selectedSession?.id == sessionID {
-                onDidSend()
-                clearComposerInput()
-            }
-            store.clearComposerDraft(for: sessionID)
-        }
-    }
 
     private func revealArtifactsAction(for run: LoopRun) -> (() -> Void)? {
         guard let path = run.artifactDirectoryPath else { return nil }

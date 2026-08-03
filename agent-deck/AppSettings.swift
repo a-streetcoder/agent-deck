@@ -210,9 +210,6 @@ struct AppSettings: Codable, Hashable {
     /// MCP server names enabled for every project ("All Projects"). Per-project
     /// additions live in `ProjectPreference.assignedMcpServerNames`.
     var defaultMcpServerNames: Set<String> = []
-    /// No-project chats never inherit generic MCP assignments. Only the trusted
-    /// Computer Use capability may be explicitly assigned to these modes.
-    var computerUseNoProjectModes: Set<PiAgentNoProjectMode> = []
     var agentMemoryEnabled: Bool = true
     var agentMemorySubagentsEnabled: Bool = true
     var agentMemoryShowTranscriptCards: Bool = true
@@ -249,9 +246,6 @@ struct AppSettings: Codable, Hashable {
     var externalSkillPaths: Set<String> = []
     /// Stable references to Codex plugin skills. Versioned cache paths are deliberately not persisted.
     var codexPluginSkillReferences: Set<CodexPluginSkillReference> = []
-    /// Missing skill names from the targeted Computer Use plugin-reference migration.
-    /// Kept only to prevent stale agent frontmatter from blocking future launches.
-    var legacyComputerUseSkillNames: Set<String> = []
     var skillCollections: [SkillCollectionRecord] = []
     var importedSkillRepositories: [ImportedSkillRepository] = []
     var defaultPromptTemplateNames: Set<String> = []
@@ -287,7 +281,6 @@ struct AppSettings: Codable, Hashable {
         case nativeSubagentDelegationPolicy
         case mcpEnabled
         case defaultMcpServerNames
-        case computerUseNoProjectModes
         case agentMemoryEnabled
         case agentMemorySubagentsEnabled
         case agentMemoryShowTranscriptCards
@@ -316,7 +309,6 @@ struct AppSettings: Codable, Hashable {
         case defaultSkillCollectionIDs
         case externalSkillPaths
         case codexPluginSkillReferences
-        case legacyComputerUseSkillNames
         case skillCollections
         case importedSkillRepositories
         case defaultPromptTemplateNames
@@ -357,7 +349,6 @@ struct AppSettings: Codable, Hashable {
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         mcpEnabled = try container.decodeIfPresent(Bool.self, forKey: .mcpEnabled) ?? false
         defaultMcpServerNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultMcpServerNames) ?? []
-        computerUseNoProjectModes = try container.decodeIfPresent(Set<PiAgentNoProjectMode>.self, forKey: .computerUseNoProjectModes) ?? []
         nativeSubagentDelegationPolicy = try container.decodeIfPresent(NativeSubagentDelegationPolicy.self, forKey: .nativeSubagentDelegationPolicy) ?? .balanced
         agentMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryEnabled) ?? true
         agentMemorySubagentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemorySubagentsEnabled) ?? true
@@ -389,7 +380,6 @@ struct AppSettings: Codable, Hashable {
         defaultSkillCollectionIDs = try container.decodeIfPresent(Set<UUID>.self, forKey: .defaultSkillCollectionIDs) ?? []
         externalSkillPaths = try container.decodeIfPresent(Set<String>.self, forKey: .externalSkillPaths) ?? []
         codexPluginSkillReferences = try container.decodeIfPresent(Set<CodexPluginSkillReference>.self, forKey: .codexPluginSkillReferences) ?? []
-        legacyComputerUseSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .legacyComputerUseSkillNames) ?? []
         skillCollections = try container.decodeIfPresent([SkillCollectionRecord].self, forKey: .skillCollections) ?? []
         importedSkillRepositories = try container.decodeIfPresent([ImportedSkillRepository].self, forKey: .importedSkillRepositories) ?? []
         defaultPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultPromptTemplateNames) ?? []

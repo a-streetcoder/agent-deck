@@ -88,16 +88,8 @@ final class MCPAssignmentTests: XCTestCase {
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data(legacy.utf8))
         XCTAssertFalse(settings.mcpEnabled)
         XCTAssertTrue(settings.defaultMcpServerNames.isEmpty)
-        XCTAssertTrue(settings.computerUseNoProjectModes.isEmpty)
     }
 
-    @MainActor
-    func testComputerUseNoProjectModesRoundTrip() throws {
-        var settings = AppSettings()
-        settings.computerUseNoProjectModes = [.general, .agentDeckBuilder]
-        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
-        XCTAssertEqual(decoded.computerUseNoProjectModes, [.general, .agentDeckBuilder])
-    }
 
     @MainActor
     func testAppSettingsDoesNotInferCollectionsFromImportedRepositories() throws {

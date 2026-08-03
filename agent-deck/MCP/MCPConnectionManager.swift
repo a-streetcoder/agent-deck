@@ -134,17 +134,13 @@ actor MCPConnectionManager {
                 return try MCPHTTPTransport(config: serverConfig, tokenProvider: tokenProvider)
             }
         }
-        let policy = policies[name, default: .unrestricted]
         let connection = MCPConnection(
             name: name,
             config: config,
             clientName: clientName,
             clientVersion: clientVersion,
-            // Broker startup/catalog discovery stays bounded. Direct app-server tool
-            // calls get the package's documented three-minute budget without enabling
-            // any Agent Deck approval handler.
-            requestTimeout: policy == .computerUseAutoAccept ? .seconds(5) : requestTimeout,
-            interactiveRequestTimeout: policy == .computerUseAutoAccept ? .seconds(180) : nil,
+            requestTimeout: requestTimeout,
+            interactiveRequestTimeout: nil,
             serverRequestHandler: nil,
             transportFactory: factory
         )
@@ -176,22 +172,9 @@ actor MCPConnectionManager {
     func call(server: String, tool: String, arguments: JSONValue?, context: MCPCallContext) async throws -> MCPCallResult {
         let policy = policies[server, default: .unrestricted]
         guard policy.allows(tool) else {
-            throw MCPError.policyDenied("Computer Use tool is not supported by Agent Deck.")
+            throw MCPError.policyDenied("Tool is not permitted by the server policy.")
         }
-        do {
-            let result = try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
-            if policies[server]?.isComputerUse == true,
-               result.isError == true,
-               let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: result.combinedText) {
-                throw MCPError.runtimeAuthorization(diagnostic)
-            }
-            return result
-        } catch let error as MCPError {
-            if case .runtimeAuthorization = error { throw error }
-            guard policies[server]?.isComputerUse == true,
-                  let diagnostic = ComputerUseCapability.runtimeDiagnostic(for: error.errorDescription ?? "") else { throw error }
-            throw MCPError.runtimeAuthorization(diagnostic)
-        }
+        return try await connection(for: server).callTool(name: tool, arguments: arguments, context: context)
     }
 
     /// Returns a cached descriptor for `server/tool`, discovering the server's tools
@@ -259,8 +242,8 @@ actor MCPConnectionManager {
             config: entry.config,
             clientName: clientName,
             clientVersion: clientVersion,
-            requestTimeout: entry.toolPolicy.isComputerUse ? .seconds(5) : .seconds(20),
-            interactiveRequestTimeout: entry.toolPolicy == .computerUseAutoAccept ? .seconds(180) : nil,
+            requestTimeout: .seconds(20),
+            interactiveRequestTimeout: nil,
             serverRequestHandler: nil,
             transportFactory: factory
         )

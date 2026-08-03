@@ -536,85 +536,16 @@ final class MCPConnectionManagerTests: XCTestCase {
         XCTAssertEqual(result.combinedText, "ok")
     }
 
-    func testComputerUseAutoAcceptCallsActionsWithoutOuterElicitationAndFiltersStatusTool() async throws {
-        let tools = (MCPServerToolPolicy.computerUseKnownTools.sorted() + ["computer_use_status"])
-            .map { #"{"name":"\#($0)"}"# }.joined(separator: ",")
-        let responder: MCPStubTransport.Responder = { line in
-            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
-            let id = object?["id"] as? Int ?? 0
-            switch object?["method"] as? String {
-            case "initialize":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"broker"}}}"#]
-            case "tools/list":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"tools":[\#(tools)]}}"#]
-            case "tools/call":
-                return [#"{"jsonrpc":"2.0","id":\#(id),"result":{"content":[{"type":"text","text":"clicked"},{"type":"image","data":"AQI=","mimeType":"image/png"}],"isError":false}}"#]
-            default:
-                return []
-            }
-        }
-        let transport = MCPStubTransport(responder: responder)
-        let manager = MCPConnectionManager(transportFactory: { _ in transport })
-        let entry = MCPServerEntry(
-            name: "codex-computer-use", config: MCPServerConfig(command: "broker"), sourcePath: "/broker/mcp-server.js",
-            provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseAutoAccept
-        )
-        await manager.configure(servers: [entry])
 
-        let catalog = await manager.discoverCatalog(serverNames: [entry.name])
-        XCTAssertEqual(Set(catalog.map(\.tool)), MCPServerToolPolicy.computerUseKnownTools)
-        XCTAssertFalse(catalog.contains { $0.tool == "computer_use_status" })
-
-        let result = try await manager.call(
-            server: entry.name, tool: "click", arguments: .object([:]),
-            context: MCPCallContext(sessionID: UUID(), projectID: nil, server: entry.name, tool: "click")
-        )
-        XCTAssertEqual(result.content?.map(\.type), ["text", "image"])
-        let sent = await transport.sentLines()
-        XCTAssertFalse(sent.first(where: { $0.contains(#""method":"initialize""#) })?.contains("elicitation") == true)
-
-        let writesBeforeDeniedCall = sent.count
-        do {
-            _ = try await manager.call(
-                server: entry.name, tool: "computer_use_status", arguments: nil,
-                context: MCPCallContext(sessionID: UUID(), projectID: nil, server: entry.name, tool: "computer_use_status")
-            )
-            XCTFail("status must remain outside the exact Agent Deck allowlist")
-        } catch {}
-        let writesAfterDeniedCall = await transport.sentLines().count
-        XCTAssertEqual(writesAfterDeniedCall, writesBeforeDeniedCall)
-
-        let probeManager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
-        let probe = await probeManager.probe(entry: entry)
-        guard case let .ok(probeTools) = probe else { return XCTFail("expected successful probe") }
-        XCTAssertEqual(Set(probeTools.map(\.name)), MCPServerToolPolicy.computerUseKnownTools)
-    }
-
-    func testComputerUseAuthorizationErrorIsRuntimeDiagnostic() async {
-        let responder = MCPMockServer.responder { line in
-            let id = ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["id"] as? Int ?? 0
-            return #"{"jsonrpc":"2.0","id":\#(id),"result":{"content":[{"type":"text","text":"Automation denied (-1743)"}],"isError":true}}"#
-        }
-        let manager = MCPConnectionManager(transportFactory: { _ in MCPStubTransport(responder: responder) })
-        await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(command: "helper"), sourcePath: "/transient/.mcp.json", provenance: .codexPlugin(version: "1", availability: "Available"), toolPolicy: .computerUseAutoAccept)
-        ])
-        do {
-            _ = try await manager.call(server: "codex-computer-use", tool: "list_apps", arguments: nil, context: MCPCallContext(sessionID: UUID(), projectID: nil, server: "codex-computer-use", tool: "list_apps"))
-            XCTFail("expected authorization diagnostic")
-        } catch let error as MCPError {
-            XCTAssertEqual(error, .runtimeAuthorization("Computer Use needs macOS Automation permission (error -1743). In System Settings > Privacy & Security > Automation, allow the installed ChatGPT/Codex Computer Use component—not Pi or Agent Deck—then retry. Agent Deck will not request, reset, or change macOS permissions automatically. Original helper error: Automation denied (-1743)"))
-        } catch { XCTFail("unexpected error: \(error)") }
-    }
 
     func testUnavailableServerNeverConfiguresOrConnects() async {
         let manager = manager()
         await manager.configure(servers: [
-            MCPServerEntry(name: "codex-computer-use", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), toolPolicy: .computerUseAutoAccept, availabilityDiagnostic: "disabled")
+            MCPServerEntry(name: "transient", config: MCPServerConfig(), sourcePath: "", provenance: .codexPlugin(version: nil, availability: "Unavailable"), availabilityDiagnostic: "disabled")
         ])
-        let connectedBefore = await manager.hasLiveConnection("codex-computer-use")
-        let catalog = await manager.discoverCatalog(serverNames: ["codex-computer-use"])
-        let connectedAfter = await manager.hasLiveConnection("codex-computer-use")
+        let connectedBefore = await manager.hasLiveConnection("transient")
+        let catalog = await manager.discoverCatalog(serverNames: ["transient"])
+        let connectedAfter = await manager.hasLiveConnection("transient")
         XCTAssertFalse(connectedBefore)
         XCTAssertTrue(catalog.isEmpty)
         XCTAssertFalse(connectedAfter)
