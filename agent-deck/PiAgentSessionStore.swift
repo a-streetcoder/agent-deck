@@ -515,58 +515,60 @@ final class PiAgentSessionStore {
     }
 
     /// Max follow-ups waiting for the next idle drain (FIFO).
-    static let maxComposerMessageQueueCount = 5
+    static let maxComposerMessageQueueCount = ComposerMessageQueue.maxCount
 
     /// Whether another follow-up can be queued for this session.
     func canEnqueueComposerMessage(for sessionID: UUID) -> Bool {
-        composerMessageQueue(for: sessionID).count < Self.maxComposerMessageQueueCount
+        ComposerMessageQueue.canEnqueue(count: composerMessageQueue(for: sessionID).count)
     }
 
     /// Enqueues a follow-up when under capacity. Does not write to the transcript.
     /// - Returns: the item when accepted, or `nil` when the queue is full.
     @discardableResult
     func enqueueComposerMessage(_ item: PiAgentQueuedComposerMessage, for sessionID: UUID) -> PiAgentQueuedComposerMessage? {
-        var queue = composerMessageQueueBySessionID[sessionID] ?? []
-        guard queue.count < Self.maxComposerMessageQueueCount else { return nil }
-        queue.append(item)
-        composerMessageQueueBySessionID[sessionID] = queue
+        let current = composerMessageQueueBySessionID[sessionID] ?? []
+        guard let next = ComposerMessageQueue.enqueue(item, onto: current) else { return nil }
+        composerMessageQueueBySessionID[sessionID] = next
         return item
     }
 
     /// Puts an item back at the front of the queue (used when a drain race re-activates the session).
     /// Bypasses the capacity cap so a dequeued item is never dropped.
     func requeueComposerMessageAtFront(_ item: PiAgentQueuedComposerMessage, for sessionID: UUID) {
-        var queue = composerMessageQueueBySessionID[sessionID] ?? []
-        queue.removeAll { $0.id == item.id }
-        queue.insert(item, at: 0)
-        composerMessageQueueBySessionID[sessionID] = queue
+        let current = composerMessageQueueBySessionID[sessionID] ?? []
+        composerMessageQueueBySessionID[sessionID] = ComposerMessageQueue.requeueAtFront(
+            item, onto: current, id: item.id, idOf: \.id
+        )
     }
 
     /// Removes one queued item and returns it so the UI can restore the composer.
     @discardableResult
     func withdrawComposerMessage(id: UUID, for sessionID: UUID) -> PiAgentQueuedComposerMessage? {
-        guard var queue = composerMessageQueueBySessionID[sessionID] else { return nil }
-        guard let index = queue.firstIndex(where: { $0.id == id }) else { return nil }
-        let item = queue.remove(at: index)
-        if queue.isEmpty {
+        guard let current = composerMessageQueueBySessionID[sessionID],
+              let result = ComposerMessageQueue.withdraw(id: id, from: current, idOf: \.id) else {
+            return nil
+        }
+        if result.remaining.isEmpty {
             composerMessageQueueBySessionID.removeValue(forKey: sessionID)
         } else {
-            composerMessageQueueBySessionID[sessionID] = queue
+            composerMessageQueueBySessionID[sessionID] = result.remaining
         }
-        return item
+        return result.item
     }
 
     /// Pops the oldest queued message (FIFO) for delivery after idle.
     @discardableResult
     func dequeueComposerMessage(for sessionID: UUID) -> PiAgentQueuedComposerMessage? {
-        guard var queue = composerMessageQueueBySessionID[sessionID], !queue.isEmpty else { return nil }
-        let item = queue.removeFirst()
-        if queue.isEmpty {
+        guard let current = composerMessageQueueBySessionID[sessionID],
+              let result = ComposerMessageQueue.dequeueFirst(from: current) else {
+            return nil
+        }
+        if result.remaining.isEmpty {
             composerMessageQueueBySessionID.removeValue(forKey: sessionID)
         } else {
-            composerMessageQueueBySessionID[sessionID] = queue
+            composerMessageQueueBySessionID[sessionID] = result.remaining
         }
-        return item
+        return result.item
     }
 
     func clearComposerMessageQueue(for sessionID: UUID) {
@@ -1098,18 +1100,8 @@ final class PiAgentSessionStore {
     ///   - text: Display text; empty / whitespace clears the key.
     func applyExtensionSetStatus(sessionID: UUID, key: String, text: String) {
         guard !deletedSessionIDs.contains(sessionID) else { return }
-        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return }
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var chrome = extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
-        if trimmedText.isEmpty {
-            guard chrome.statuses[trimmedKey] != nil else { return }
-            chrome.statuses.removeValue(forKey: trimmedKey)
-        } else if chrome.statuses[trimmedKey] == trimmedText {
-            return
-        } else {
-            chrome.statuses[trimmedKey] = trimmedText
-        }
+        guard chrome.applySetStatus(key: key, text: text) else { return }
         if chrome.isEmpty {
             extensionChromeBySessionID[sessionID] = nil
         } else {
@@ -1126,20 +1118,8 @@ final class PiAgentSessionStore {
     ///   - lines: Display lines; all-empty clears the key.
     func applyExtensionSetWidget(sessionID: UUID, key: String, lines: [String]) {
         guard !deletedSessionIDs.contains(sessionID) else { return }
-        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return }
-        let cleaned = lines
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
         var chrome = extensionChromeBySessionID[sessionID] ?? PiAgentExtensionChrome()
-        if cleaned.isEmpty {
-            guard chrome.widgets[trimmedKey] != nil else { return }
-            chrome.widgets.removeValue(forKey: trimmedKey)
-        } else if chrome.widgets[trimmedKey] == cleaned {
-            return
-        } else {
-            chrome.widgets[trimmedKey] = cleaned
-        }
+        guard chrome.applySetWidget(key: key, lines: lines) else { return }
         if chrome.isEmpty {
             extensionChromeBySessionID[sessionID] = nil
         } else {
