@@ -231,7 +231,7 @@ final class AppViewModel: NSObject {
     /// Updated only by the refresh pipeline; prevents per-row Codex cache walks.
     @ObservationIgnored private var cachedResolvedCodexPluginSkillPaths: [CodexPluginSkillReference: String] = [:]
     /// Transient merged MCP entries from the last refresh (config only).
-    @ObservationIgnored private var mergedMCPEntries: [MCPServerEntry] = []
+    @ObservationIgnored var mergedMCPEntries: [MCPServerEntry] = []
     private(set) var hasCompletedInitialRefresh = false
     private(set) var cachedHasAgentWarnings = false
     private(set) var cachedHasSkillWarnings = false
@@ -321,14 +321,14 @@ final class AppViewModel: NSObject {
     let agentMemoryStore = AgentMemoryStore()
     let agentImageStore = AgentImageStore()
     let skillRepositorySyncService = SkillRepositorySyncService()
-    private(set) var isCheckingAllSkillUpdates = false
-    private(set) var isUpdatingAllSkillRepositories = false
+    var isCheckingAllSkillUpdates = false
+    var isUpdatingAllSkillRepositories = false
     var skillBatchActionMessage: String?
 
-    private let agentPersistence = AgentPersistence()
+    let agentPersistence = AgentPersistence()
     private let envPersistence = EnvPersistence()
-    private let projectPreferencesStore = ProjectPreferencesStore.shared
-    private let appSettingsController = AppSettingsController()
+    let projectPreferencesStore = ProjectPreferencesStore.shared
+    let appSettingsController = AppSettingsController()
     let gitRepositoryService = GitRepositoryService()
     private let shipService = PiAgentShipService()
     /// Tag-and-push release flow, scoped to the agent-deck repo itself.
@@ -352,13 +352,13 @@ final class AppViewModel: NSObject {
     let mcpConnectionManager = MCPConnectionManager()
     /// Cached catalog of all configured MCP tools, refreshed off-main. Read synchronously
     /// by the launch-time catalog provider, so it must never be recomputed in a view body.
-    @ObservationIgnored private var mcpCatalogSnapshot: [MCPCatalogEntry] = []
-    private(set) var mcpCatalogRevision = 0
-    @ObservationIgnored private var mcpConfiguredServerNames: Set<String> = []
-    @ObservationIgnored private let mcpRefreshCoordinator = MCPConfigurationRefreshCoordinator()
-    @ObservationIgnored private var mcpRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var mcpLastRefreshKey: String?
-    private var globalSnapshot: ScanSnapshot = .empty {
+    @ObservationIgnored var mcpCatalogSnapshot: [MCPCatalogEntry] = []
+    var mcpCatalogRevision = 0
+    @ObservationIgnored var mcpConfiguredServerNames: Set<String> = []
+    @ObservationIgnored let mcpRefreshCoordinator = MCPConfigurationRefreshCoordinator()
+    @ObservationIgnored var mcpRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var mcpLastRefreshKey: String?
+    var globalSnapshot: ScanSnapshot = .empty {
         didSet {
             clearAgentUniverseCache()
             rebuildVisibleSkillRecordCachesIfNeeded()
@@ -902,7 +902,7 @@ final class AppViewModel: NSObject {
         hasCompletedInitialRefresh = true
     }
 
-    private func reconcileRunningSessionLaunchResourceFingerprints() {
+    func reconcileRunningSessionLaunchResourceFingerprints() {
         launchResourceFingerprintTask?.cancel()
         let runningSessions = piAgentSessionStore.sessions.filter { piAgentRunner.isRunning(sessionID: $0.id) }
         guard !runningSessions.isEmpty else {
@@ -1490,7 +1490,7 @@ final class AppViewModel: NSObject {
         return NSString.path(withComponents: components)
     }
 
-    private func upsertSkillCollection(
+    func upsertSkillCollection(
         name: String,
         description: String?,
         skillRootPaths: [String],
@@ -1520,290 +1520,6 @@ final class AppViewModel: NSObject {
         appSettingsController.upsertSkillCollection(collection)
     }
 
-    // MARK: - Remote skill repositories
-
-    /// The synced repository whose clone contains `skill`, if any.
-    func importedRepository(for skill: SkillRecord) -> ImportedSkillRepository? {
-        appSettings.importedSkillRepositories.first { $0.contains(skillFilePath: skill.filePath) }
-    }
-
-    /// The synced repository explicitly associated with a Git-backed skill
-    /// collection. Local/user-organized collections intentionally return nil.
-    func importedRepository(for collection: SkillCollectionRecord) -> ImportedSkillRepository? {
-        guard let repositoryID = collection.importedRepositoryID else { return nil }
-        return appSettings.importedSkillRepositories.first { $0.id == repositoryID }
-    }
-
-    /// Resolve a pasted GitHub / skills.sh URL, clone it for discovery (or
-    /// reuse an existing clone when the repo is already imported), and list
-    /// its skills.
-    func prepareRemoteSkillImport(
-        from rawInput: String,
-        progress: (@Sendable (_ completed: Int, _ total: Int) -> Void)? = nil
-    ) async throws -> RemoteSkillImportContext {
-        let source = try SkillRepositorySyncService.resolveSource(from: rawInput)
-        let existing = appSettings.importedSkillRepositories.first {
-            $0.owner.caseInsensitiveCompare(source.owner) == .orderedSame
-                && $0.repo.caseInsensitiveCompare(source.repo) == .orderedSame
-        }
-
-        if let existing {
-            let clonePath = URL(fileURLWithPath: existing.clonePath, isDirectory: true)
-            let candidates = try await skillRepositorySyncService.listSkills(
-                inCloneAt: clonePath,
-                directoryConstraint: source.preselectedSkillDirectory,
-                progress: progress
-            )
-            return RemoteSkillImportContext(
-                source: source,
-                clonePath: clonePath,
-                resolvedRef: existing.ref,
-                headCommit: existing.lastSyncedCommit,
-                candidates: candidates,
-                existingRepository: existing
-            )
-        }
-
-        let clonePath = SkillRepositorySyncService.cloneDirectoryURL(owner: source.owner, repo: source.repo)
-        let info = try await skillRepositorySyncService.cloneForDiscovery(source, into: clonePath)
-        let candidates = try await skillRepositorySyncService.listSkills(
-            inCloneAt: clonePath,
-            directoryConstraint: source.preselectedSkillDirectory,
-            progress: progress
-        )
-        return RemoteSkillImportContext(
-            source: source,
-            clonePath: clonePath,
-            resolvedRef: info.resolvedRef,
-            headCommit: info.headCommit,
-            candidates: candidates,
-            existingRepository: nil
-        )
-    }
-
-    /// Sparse-check-out the selected skills, register their roots in the
-    /// catalog, and record (or extend) the synced-repository entry.
-    func importRemoteSkills(
-        context: RemoteSkillImportContext,
-        selectedCandidates: [RemoteSkillCandidate],
-        collectionName: String?
-    ) async throws -> SkillImportResult {
-        guard !selectedCandidates.isEmpty else {
-            return SkillImportResult(importedNames: [], skippedNames: [])
-        }
-
-        let requestedCollectionName = collectionName?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        try await skillRepositorySyncService.checkout(
-            selectedCandidates,
-            inCloneAt: context.clonePath,
-            additive: context.existingRepository != nil
-        )
-
-        let rootPaths = selectedCandidates.map { skillRootPath(for: $0, clonePath: context.clonePath) }
-        appSettingsController.addExternalSkillPaths(rootPaths)
-
-        var syncedDirectories = Set(context.existingRepository?.syncedSkillRelativePaths ?? [])
-        syncedDirectories.formUnion(selectedCandidates.map(\.repoRelativeDirectory))
-
-        let repositoryID = context.existingRepository?.id ?? UUID()
-        let record = ImportedSkillRepository(
-            id: repositoryID,
-            remoteURL: context.source.remoteURL,
-            owner: context.source.owner,
-            repo: context.source.repo,
-            ref: context.resolvedRef,
-            clonePath: context.clonePath.standardizedFileURL.path,
-            syncedSkillRelativePaths: syncedDirectories.sorted(),
-            lastSyncedCommit: context.headCommit,
-            lastSyncedDate: Date(),
-            lastCheckedDate: context.existingRepository?.lastCheckedDate,
-            latestKnownRemoteCommit: context.existingRepository?.latestKnownRemoteCommit
-        )
-        appSettingsController.upsertImportedSkillRepository(record)
-        if let collectionName = requestedCollectionName, !collectionName.isEmpty {
-            upsertSkillCollection(
-                name: collectionName,
-                description: LanguageStore.shared.t("vm.syncedGitSkillCollection"),
-                skillRootPaths: rootPaths,
-                skillNames: Set(selectedCandidates.map(\.name)),
-                importedRepositoryID: repositoryID,
-                sourceLabel: "GitHub · \(record.displayName)"
-            )
-        }
-        appSettings = appSettingsController.settings
-
-        refresh(includeModels: false, scanAllProjects: true)
-        if let firstName = selectedCandidates.first?.name {
-            selectedSkillID = allVisibleSkillRecords.first { $0.name == firstName }?.id ?? selectedSkillID
-        }
-        return SkillImportResult(importedNames: selectedCandidates.map(\.name), skippedNames: [])
-    }
-
-    /// Delete a discovery clone the user fetched but never imported from.
-    func discardDiscoveryClone(_ context: RemoteSkillImportContext) {
-        guard context.isFreshClone else { return }
-        let path = context.clonePath.standardizedFileURL.path
-        let isReferenced = appSettings.importedSkillRepositories.contains {
-            URL(fileURLWithPath: $0.clonePath).standardizedFileURL.path == path
-        }
-        guard !isReferenced else { return }
-        try? FileManager.default.removeItem(at: context.clonePath)
-    }
-
-    private func skillRootPath(for candidate: RemoteSkillCandidate, clonePath: URL) -> String {
-        let root = candidate.isWholeRepository
-            ? clonePath
-            : clonePath.appendingPathComponent(candidate.repoRelativeDirectory, isDirectory: true)
-        return root.standardizedFileURL.path
-    }
-
-    /// Manual "Check for Updates": a network-only `git ls-remote`. The result
-    /// is recorded so the skill detail can show an "update available" badge.
-    @discardableResult
-    func checkSkillRepositoryForUpdate(_ repository: ImportedSkillRepository) async throws -> SkillRepositoryUpdateStatus {
-        let status = try await skillRepositorySyncService.checkForUpdate(
-            remoteURL: repository.remoteURL,
-            ref: repository.ref,
-            syncedCommit: repository.lastSyncedCommit
-        )
-        var updated = repository
-        updated.lastCheckedDate = Date()
-        switch status {
-        case .upToDate:
-            updated.latestKnownRemoteCommit = repository.lastSyncedCommit
-        case let .updateAvailable(remoteCommit):
-            updated.latestKnownRemoteCommit = remoteCommit
-        }
-        appSettingsController.upsertImportedSkillRepository(updated)
-        appSettings = appSettingsController.settings
-        return status
-    }
-
-    /// Fetch and fast-forward a synced repository. Returns `.conflicts` when an
-    /// in-place edit collides with an upstream change for the caller to resolve.
-    func updateSkillRepository(_ repository: ImportedSkillRepository) async throws -> SkillRepositoryUpdateOutcome {
-        let outcome = try await skillRepositorySyncService.update(
-            cloneAt: URL(fileURLWithPath: repository.clonePath, isDirectory: true),
-            ref: repository.ref
-        )
-        applyUpdateOutcome(outcome, to: repository)
-        return outcome
-    }
-
-    /// Apply an update after the user chose Keep Mine / Take Remote per file.
-    func resolveSkillRepositoryUpdate(
-        _ repository: ImportedSkillRepository,
-        resolutions: [String: SkillConflictResolution]
-    ) async throws -> SkillRepositoryUpdateOutcome {
-        let outcome = try await skillRepositorySyncService.resolveConflicts(
-            cloneAt: URL(fileURLWithPath: repository.clonePath, isDirectory: true),
-            ref: repository.ref,
-            resolutions: resolutions
-        )
-        applyUpdateOutcome(outcome, to: repository)
-        return outcome
-    }
-
-    private func applyUpdateOutcome(_ outcome: SkillRepositoryUpdateOutcome, to repository: ImportedSkillRepository) {
-        // Reconcile the stored record to the clone's real HEAD for both a fresh
-        // fast-forward and the "already up to date" case. The latter matters when
-        // the clone advanced earlier but the record was left stale — otherwise the
-        // "update available" badge sticks even though there's nothing to pull.
-        let resolvedCommit: String
-        let didChangeFiles: Bool
-        switch outcome {
-        case let .updated(newCommit):
-            resolvedCommit = newCommit
-            didChangeFiles = true
-        case let .alreadyUpToDate(commit):
-            resolvedCommit = commit
-            didChangeFiles = false
-        case .conflicts:
-            return
-        }
-
-        var updated = repository
-        let commitChanged = updated.lastSyncedCommit != resolvedCommit
-        updated.lastSyncedCommit = resolvedCommit
-        updated.latestKnownRemoteCommit = resolvedCommit
-        if commitChanged { updated.lastSyncedDate = Date() }
-        updated.lastCheckedDate = Date()
-        appSettingsController.upsertImportedSkillRepository(updated)
-        appSettings = appSettingsController.settings
-        if didChangeFiles { refresh(includeModels: false, scanAllProjects: true) }
-    }
-
-    /// Synced repositories a manual check has flagged as having an upstream update.
-    var skillRepositoriesWithKnownUpdates: [ImportedSkillRepository] {
-        appSettings.importedSkillRepositories.filter(\.hasKnownUpdate)
-    }
-
-    /// Run a manual update check across every synced skill repository.
-    func checkAllSkillRepositoriesForUpdates() async {
-        guard !isCheckingAllSkillUpdates, !isUpdatingAllSkillRepositories else { return }
-        let repositories = appSettings.importedSkillRepositories
-        guard !repositories.isEmpty else { return }
-
-        isCheckingAllSkillUpdates = true
-        defer { isCheckingAllSkillUpdates = false }
-
-        var failures = 0
-        for repository in repositories {
-            do { _ = try await checkSkillRepositoryForUpdate(repository) }
-            catch { failures += 1 }
-        }
-
-        let updateCount = skillRepositoriesWithKnownUpdates.count
-        if failures > 0 {
-            skillBatchActionMessage = "Checked \(repositories.count) skill repositor\(repositories.count == 1 ? "y" : "ies"). \(updateCount) ha\(updateCount == 1 ? "s" : "ve") an update available. \(failures) could not be checked."
-        } else if updateCount == 0 {
-            skillBatchActionMessage = LanguageStore.shared.t("vm.skillsAllUpToDate")
-        }
-        // When updates were found and nothing failed, the per-row badges show
-        // the result — no alert needed.
-    }
-
-    /// Apply updates to every synced repository a check has flagged. Repositories
-    /// whose local edits conflict with upstream are skipped and reported so the
-    /// user can resolve them one at a time.
-    func updateAllSkillRepositoriesWithKnownUpdates() async {
-        guard !isUpdatingAllSkillRepositories, !isCheckingAllSkillUpdates else { return }
-        let targets = skillRepositoriesWithKnownUpdates
-        guard !targets.isEmpty else { return }
-
-        isUpdatingAllSkillRepositories = true
-        defer { isUpdatingAllSkillRepositories = false }
-
-        var updated = 0
-        var conflicted = 0
-        var failed = 0
-        for target in targets {
-            // Re-read the record — an earlier iteration may have mutated settings.
-            guard let current = appSettings.importedSkillRepositories.first(where: { $0.id == target.id }) else { continue }
-            do {
-                switch try await updateSkillRepository(current) {
-                case .updated: updated += 1
-                case .alreadyUpToDate: break
-                case .conflicts: conflicted += 1
-                }
-            } catch {
-                failed += 1
-            }
-        }
-
-        var parts: [String] = []
-        if updated > 0 {
-            parts.append("Updated \(updated) skill\(updated == 1 ? "" : "s").")
-        }
-        if conflicted > 0 {
-            parts.append("\(conflicted) skill\(conflicted == 1 ? " has" : "s have") local edits that conflict with the update — open each skill to resolve.")
-        }
-        if failed > 0 {
-            parts.append("\(failed) skill\(failed == 1 ? "" : "s") could not be updated.")
-        }
-        skillBatchActionMessage = parts.isEmpty ? LanguageStore.shared.t("vm.skillsNoUpdateNeeded") : parts.joined(separator: "\n\n")
-    }
 
     func addProject(_ url: URL, selectingAfterAdd: Bool = false) {
         let standardizedURL = url.standardizedFileURL
@@ -1940,7 +1656,7 @@ final class AppViewModel: NSObject {
         applyProjectPreferenceChanges()
     }
 
-    private func applyProjectPreferenceChanges() {
+    func applyProjectPreferenceChanges() {
         // Preference changes (especially hiding/removing a project) must invalidate any
         // in-flight refresh that was built with older preferences. Otherwise a stale
         // refresh can apply after this local mutation and reinsert the removed project.
@@ -2309,119 +2025,22 @@ final class AppViewModel: NSObject {
         piAgentSessionStore.subagentRuns(for: sessionID).contains { $0.status.isActive }
     }
 
-    func isProviderEnabled(_ provider: String) -> Bool {
-        !appSettings.disabledProviders.contains(provider)
-    }
-
-    func isModelEnabled(_ model: AvailableModel) -> Bool {
-        !appSettings.disabledModelIdentifiers.contains(model.identifier)
-    }
-
-    func isModelAvailable(_ model: AvailableModel) -> Bool {
-        isProviderEnabled(model.provider) && isModelEnabled(model)
-    }
-
-    func setProviderEnabled(_ provider: String, isEnabled: Bool) {
-        guard appSettingsController.setProviderEnabled(provider, isEnabled: isEnabled) else { return }
-        appSettings = appSettingsController.settings
-    }
-
     // MARK: - Provider sign-in
 
     /// Providers with a credential in `~/.pi/agent/auth.json` (== signed in).
-    private(set) var signedInProviders: Set<String> = []
+    var signedInProviders: Set<String> = []
     /// Provider id → credential type (`"api_key"`/`"oauth"`) for UI labelling.
-    private(set) var providerAuthTypes: [String: String] = [:]
+    var providerAuthTypes: [String: String] = [:]
     /// Every provider Pi can connect to, including the authentication methods
     /// advertised by the installed runtime. This powers the Add Provider picker.
-    private(set) var connectableProviders: [PiConnectableProvider] = []
-    private(set) var isLoadingConnectableProviders = false
-    private(set) var connectableProvidersError: String?
-    private var connectableProviderLoadState = PiProviderCatalogLoadState()
-    private let providerLogoutService = PiProviderLoginService()
+    var connectableProviders: [PiConnectableProvider] = []
+    var isLoadingConnectableProviders = false
+    var connectableProvidersError: String?
+    var connectableProviderLoadState = PiProviderCatalogLoadState()
+    let providerLogoutService = PiProviderLoginService()
     /// Drives the Add Provider picker sheet (opened from the Models toolbar `+`).
     var isAddProviderPresented = false
 
-    /// Loads the full connectable-provider list once until an explicit refresh.
-    func ensureConnectableProvidersLoaded() {
-        guard connectableProviderLoadState.beginInitialLoadIfNeeded() else { return }
-        loadConnectableProviders()
-    }
-
-    /// Refreshes runtime metadata when Add Provider opens. A request received
-    /// while a load is in flight is performed immediately afterward, never in
-    /// parallel with it.
-    func reloadConnectableProviders() {
-        guard connectableProviderLoadState.beginRefresh() else { return }
-        loadConnectableProviders()
-    }
-
-    private func loadConnectableProviders() {
-        isLoadingConnectableProviders = connectableProviderLoadState.isLoading
-        connectableProvidersError = nil
-        Task.detached(priority: .utility) {
-            let providers = await PiProviderCatalogService().loadConnectableProviders()
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.connectableProviders = providers
-                let shouldReload = self.connectableProviderLoadState.completeLoad()
-                self.isLoadingConnectableProviders = self.connectableProviderLoadState.isLoading
-                if providers.isEmpty {
-                    self.connectableProvidersError = LanguageStore.shared.t("vm.providersLoadFailed")
-                }
-                if shouldReload {
-                    self.loadConnectableProviders()
-                }
-            }
-        }
-    }
-
-    /// Reloads sign-in state from auth.json off the main thread.
-    func refreshProviderAuthState() {
-        Task.detached(priority: .utility) {
-            let types = PiAuthCredentialStore().signedInTypes()
-            await MainActor.run { [weak self] in
-                self?.applyProviderAuthState(types)
-            }
-        }
-    }
-
-    private func applyProviderAuthState(_ types: [String: String]) {
-        providerAuthTypes = types
-        signedInProviders = Set(types.keys)
-    }
-
-    func signOutProvider(_ provider: String) {
-        providerLogoutService.onCompleted = { [weak self] in self?.reloadAfterProviderAuthChange() }
-        providerLogoutService.startLogout(providerID: provider)
-    }
-
-    /// Re-reads sign-in state and re-queries the model catalog so newly
-    /// authorized (or removed) providers appear/disappear. Called after Pi
-    /// completes a login or logout.
-    func reloadAfterProviderAuthChange() {
-        refreshProviderAuthState()
-        refreshAvailableModels()
-    }
-
-    func setModelEnabled(_ model: AvailableModel, isEnabled: Bool) {
-        guard appSettingsController.setModelEnabled(identifier: model.identifier, isEnabled: isEnabled) else { return }
-        appSettings = appSettingsController.settings
-    }
-
-    var isOpenAIFastEnabled: Bool {
-        appSettings.openAIFastEnabled
-    }
-
-    func setOpenAIFastEnabled(_ isEnabled: Bool) {
-        guard appSettingsController.setOpenAIFastEnabled(isEnabled) else { return }
-        syncAppSettings()
-    }
-
-    func enableAllModels() {
-        guard appSettingsController.enableAllModels() else { return }
-        appSettings = appSettingsController.settings
-    }
 
     func setDefaultPiAgentModel(_ model: AvailableModel?) {
         guard writePiRuntimeDefaults(provider: model?.provider, model: model?.model, thinkingLevel: nil) else { return }
@@ -3688,415 +3307,6 @@ final class AppViewModel: NSObject {
         return "Session plan updated (`\(plan.id.uuidString)`):\n\(text)"
     }
 
-    // MARK: - MCP bridge
-
-    private static let mcpCatalogToolCap = 60
-
-    /// Reloads `mcp.json`, reconnects the manager, and rebuilds the cached catalog when
-    /// the (mcpEnabled, project) key changes. No-op otherwise so file-watch refreshes
-    /// don't churn server processes. Pass `forced: true` after the user edits config.
-    func refreshMCPConfigurationIfNeeded(projectURL: URL?, forced: Bool = false) {
-        let enabled = appSettings.mcpEnabled
-        let key = "\(enabled)#\(projectURL?.path ?? "")"
-        if !forced, key == mcpLastRefreshKey { return }
-        mcpLastRefreshKey = key
-        let token = mcpRefreshCoordinator.begin()
-        mcpRefreshTask?.cancel()
-
-        mcpRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            // Bind OAuth token resolution so remote (http) transports authorize.
-            await self.mcpConnectionManager.setAuthTokenProvider { server in
-                await MCPOAuthService.shared.accessToken(for: server)
-            }
-            async let configuredTask = Task.detached(priority: .utility) { MCPConfigLoader().load(projectRoot: projectURL).servers }.value
-            let configured = await configuredTask
-            guard !Task.isCancelled, self.mcpRefreshCoordinator.isCurrent(token) else { return }
-
-            self.mcpCatalogRevision &+= 1
-            let merged = configured.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            self.mergedMCPEntries = merged
-            self.mcpConfiguredServerNames = Set(merged.map(\.name))
-            guard enabled else {
-                guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: [], manager: self.mcpConnectionManager),
-                      !Task.isCancelled else { return }
-                self.mcpCatalogSnapshot = []
-                self.reconcileRunningSessionLaunchResourceFingerprints()
-                return
-            }
-            guard await self.mcpRefreshCoordinator.configureIfCurrent(token, servers: merged, manager: self.mcpConnectionManager),
-                  !Task.isCancelled else { return }
-            // Connect/enumerate ONLY servers assigned to this project (defaults +
-            // project assignment + any agent available to the project). Unassigned
-            // servers stay registered but unconnected, so adding an MCP without
-            // assigning it never spawns its process or triggers its permission prompt.
-            let scoped = self.assignedMCPServerNames(forProjectPath: projectURL?.path)
-            let catalog = await self.mcpConnectionManager.discoverCatalog(serverNames: scoped)
-            guard !Task.isCancelled, self.mcpRefreshCoordinator.isCurrent(token) else { return }
-            self.mcpCatalogSnapshot = catalog
-            self.reconcileRunningSessionLaunchResourceFingerprints()
-        }
-    }
-
-    /// Configured MCP server names available for assignment (cached; reflects the
-    /// active project's merged `mcp.json`). Sorted for stable UI.
-    var availableMCPServerNames: [String] { mcpConfiguredServerNames.sorted() }
-
-    /// Probes a server (connect + list tools) for the management UI's test button.
-    func probeMCPServer(_ entry: MCPServerEntry) async -> MCPProbeResult {
-        await mcpConnectionManager.probe(entry: entry)
-    }
-
-    /// Tools already discovered for a server (no connection opened), so the management
-    /// view can show a health pill from cache instead of reconnecting on entry.
-    func cachedMCPTools(_ name: String) async -> [MCPProbeTool]? {
-        await mcpConnectionManager.cachedTools(server: name)?
-            .map { MCPProbeTool(name: $0.name, description: $0.description) }
-    }
-
-    /// Whether a live (reused) connection to this server already exists.
-    func mcpServerHasLiveConnection(_ name: String) async -> Bool {
-        await mcpConnectionManager.hasLiveConnection(name)
-    }
-
-    /// Tears down all MCP connections. Called at app termination.
-    func shutdownMCP() async {
-        await mcpConnectionManager.shutdown()
-    }
-
-    // MARK: MCP OAuth (per-server Connect / Sign out)
-
-    /// Runs the OAuth Connect flow for a remote server (opens the browser). Returns an
-    /// error message on failure, or nil on success.
-    func connectMCPServer(_ entry: MCPServerEntry) async -> String? {
-        configureMCPBrandIcon()
-        guard let url = entry.config.url, !url.isEmpty else { return "This server has no URL to connect to." }
-        do {
-            try await MCPOAuthService.shared.connect(serverName: entry.name, serverURLString: url)
-            refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-            return nil
-        } catch {
-            return (error as? MCPError)?.errorDescription ?? error.localizedDescription
-        }
-    }
-
-    /// Signs out a remote server (drops stored tokens).
-    func disconnectMCPServer(_ name: String) async {
-        await MCPOAuthService.shared.disconnect(serverName: name)
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-    }
-
-    /// Whether a remote server currently has stored OAuth tokens.
-    func mcpServerIsConnected(_ name: String) async -> Bool {
-        await MCPAuthStore.shared.isConnected(name)
-    }
-
-    /// Renders the app icon to a small base64 PNG once, so the OAuth loopback success
-    /// page can show the brand mark. Idempotent; run lazily only when OAuth is starting
-    /// so startup/file-watch refreshes don't spend main-thread time encoding the icon.
-    private func configureMCPBrandIcon() {
-        guard MCPLoopbackServer.brandIconDataURI == nil else { return }
-        guard let icon = NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName) else { return }
-        let size = NSSize(width: 96, height: 96)
-        let resized = NSImage(size: size)
-        resized.lockFocus()
-        icon.draw(in: NSRect(origin: .zero, size: size))
-        resized.unlockFocus()
-        guard let tiff = resized.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { return }
-        MCPLoopbackServer.brandIconDataURI = "data:image/png;base64,\(png.base64EncodedString())"
-    }
-
-    /// Whether a discovered server can be edited/removed in-app. Only the app-owned
-    /// `~/.pi/agent/mcp.json` is writable; servers from project files or ~/.config/mcp
-    /// are shown read-only.
-    func mcpServerIsEditable(_ entry: MCPServerEntry) -> Bool {
-        URL(fileURLWithPath: entry.sourcePath).standardizedFileURL == MCPConfigLoader.writableConfigURL().standardizedFileURL
-    }
-
-    /// Adds or updates a server in the app-owned mcp.json, then refreshes connections.
-    func upsertMCPServer(name: String, config: MCPServerConfig) throws {
-        try MCPConfigWriter().upsert(name: name, config: config)
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-    }
-
-    /// Removes a server from the app-owned mcp.json, prunes its assignments, then
-    /// refreshes connections (the configured set genuinely changed here).
-    func removeMCPServer(named name: String) throws {
-        try MCPConfigWriter().remove(name: name)
-        removeMCPServerReferences(named: name)
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-    }
-
-    /// Drops a removed server from the All Projects default, every project
-    /// assignment, and any agent's `mcpServers` frontmatter — mirroring
-    /// `removeSkillReferences` so a deleted server leaves no orphaned assignments.
-    private func removeMCPServerReferences(named name: String) {
-        appSettingsController.setDefaultMcpServer(name, enabled: false)
-        appSettings = appSettingsController.settings
-
-        for projectPath in projectPreferencesStore.preferencesByPath.keys {
-            projectPreferencesStore.setAssignedMcpServer(name, assigned: false, for: projectPath)
-        }
-        applyProjectPreferenceChanges()
-
-        for agent in snapshot.effectiveAgents where (agent.resolved.mcpServers ?? []).contains(name) {
-            guard var draft = makeAgentDraft(for: agent) else { continue }
-            draft.config.mcpServers?.removeAll { $0 == name }
-            if draft.config.mcpServers?.isEmpty == true { draft.config.mcpServers = nil }
-            // Persist directly (no per-agent rescan); the trailing refresh in
-            // removeMCPServer picks up every edit.
-            try? agentPersistence.save(draft, original: agent, projectRoot: selectedProjectPath)
-        }
-    }
-
-    /// MCP servers in scope for a session: a bound-agent (1:1) session uses the agent's
-    /// assigned servers; a project session uses the global defaults unioned with the
-    /// project's assignment. Always intersected with servers that actually exist in config.
-    private func assignedMCPServerNames(for session: PiAgentSessionRecord) -> Set<String> {
-        if session.isNoProject {
-            // No-project chats never inherit project/default MCP assignments.
-            return []
-        }
-
-        let resolved: Set<String>
-        if let agent = boundAgent(for: session) {
-            resolved = Set(agent.resolved.mcpServers ?? [])
-        } else {
-            var names = appSettings.defaultMcpServerNames
-            if let projectPath = session.projectPathForProjectFeatures {
-                names.formUnion(projectPreference(for: projectPath).assignedMcpServerNames)
-            }
-            resolved = names
-        }
-        return resolved.intersection(mcpConfiguredServerNames)
-    }
-
-    /// MCP servers worth connecting when a chat in `projectPath` is opened: the global
-    /// defaults, the project's own assignment, and every server any agent available to
-    /// that project assigns (so a bound-agent chat finds its tools already discovered).
-    /// Intersected with the configured set. A server added but assigned to nothing
-    /// (e.g. an Xcode MCP) is excluded here, so it is never connected and never prompts.
-    private func assignedMCPServerNames(forProjectPath projectPath: String?) -> Set<String> {
-        var names = appSettings.defaultMcpServerNames
-        let scopedProjectPath = projectPath?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-        if let scopedProjectPath {
-            names.formUnion(projectPreference(for: scopedProjectPath).assignedMcpServerNames)
-        }
-        let agents = scopedProjectPath.flatMap { allProjectSnapshots[$0]?.effectiveAgents } ?? globalSnapshot.effectiveAgents
-        for agent in agents { names.formUnion(agent.resolved.mcpServers ?? []) }
-        return names.intersection(mcpConfiguredServerNames)
-    }
-
-    // MARK: MCP assignment (used by the MCP servers management UI)
-
-    /// All configured and transient plugin MCP entries for the active project. Plugin
-    /// paths are only held in the current refresh result and are never written.
-    func mcpServerEntries() async -> [MCPServerEntry] {
-        let root = projectRootURL
-        let configured = await Task.detached(priority: .utility) {
-            MCPConfigLoader().load(projectRoot: root).servers
-        }.value
-        return configured.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    func mcpServer(_ name: String, isEnabledFor project: DiscoveredProject) -> Bool {
-        projectPreference(for: project.path).assignedMcpServerNames.contains(name)
-    }
-
-    func setMcpServer(_ name: String, enabled: Bool, for project: DiscoveredProject) {
-        projectPreferencesStore.setAssignedMcpServer(name, assigned: enabled, for: project.path)
-        applyProjectPreferenceChanges()
-        // Assignment now governs which servers we actually connect, so re-run scoped
-        // discovery: a newly-assigned server connects (and populates the catalog) while
-        // a newly-unassigned one drops out. Connections are reused, so this only spawns
-        // a server process the first time it becomes assigned.
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-    }
-
-    func isMcpServerEnabledForAllProjects(_ name: String) -> Bool {
-        appSettings.defaultMcpServerNames.contains(name)
-    }
-
-    func setMcpServerEnabledForAllProjects(_ name: String, enabled: Bool) {
-        appSettingsController.setDefaultMcpServer(name, enabled: enabled)
-        appSettings = appSettingsController.settings
-        // A default assignment makes this server in-scope for every project, so re-run
-        // scoped discovery to connect/enumerate it (or drop it). Connections are reused.
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-    }
-
-    func setMCPEnabled(_ enabled: Bool) {
-        appSettingsController.setMCPEnabled(enabled)
-        appSettings = appSettingsController.settings
-        refreshMCPConfigurationIfNeeded(projectURL: projectRootURL, forced: true)
-    }
-
-
-    /// Compact MCP tool catalog injected into the system prompt, scoped to the session's
-    /// assigned servers. Returns nil when MCP is off or nothing is assigned, so neither
-    /// the bridge nor a prompt block is injected (matching the Deck-agents catalog).
-    ///
-    /// Sessions whose project differs from the active project discover their assigned
-    /// servers on demand via the connection manager instead of filtering the
-    /// active-project snapshot, which only covers the active project's scope. The
-    /// manager reuses live connections and caches tool lists, so a server already
-    /// connected for another project adds no extra process or permission prompt.
-    private func mcpCatalogPrompt(for session: PiAgentSessionRecord) async -> String? {
-        guard appSettings.mcpEnabled else { return nil }
-        let scope = assignedMCPServerNames(for: session)
-        let entries = await mcpCatalogEntries(forScope: scope, projectPath: session.projectPathForProjectFeatures)
-        return mcpCatalogPrompt(fromEntries: entries, scope: scope)
-    }
-
-    /// Resolves catalog entries for a scope. When the scope belongs to a project other
-    /// than the active one, discovers on demand via the connection manager (reusing
-    /// live connections and cached tool lists) instead of relying on the
-    /// active-project snapshot, which only covers the active project's assigned servers.
-    /// Relies on the servers being in the manager's configured set; globally configured
-    /// servers (the common case) are always present regardless of active project.
-    private func mcpCatalogEntries(forScope scope: Set<String>, projectPath: String?) async -> [MCPCatalogEntry] {
-        guard !scope.isEmpty else { return [] }
-        // `nil == nil` must not select the active-project cache: a no-project
-        // session has its own capability-only scope and must discover that scope
-        // directly rather than inheriting any cached project catalog.
-        if let projectPath, projectPath == projectRootURL?.path {
-            return mcpCatalogSnapshot.filter { scope.contains($0.server) }
-        }
-        return await mcpConnectionManager.discoverCatalog(serverNames: scope)
-    }
-
-    /// MCP servers in scope for a delegated Deck agent: its assigned `mcpServers`,
-    /// intersected with the configured set (mirrors the bound-agent branch of
-    /// `assignedMCPServerNames`).
-    private func subagentMCPScope(parentSessionID: UUID, agentName: String?) -> Set<String> {
-        guard let agentName,
-              let parent = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else { return [] }
-        let projectPath = parent.projectPathForProjectFeatures
-        let agent = (projectPath.flatMap { allProjectSnapshots[$0]?.effectiveAgents } ?? globalSnapshot.effectiveAgents)
-            .first { $0.name == agentName }
-            ?? projectPath.flatMap { selectableAgentUniverse(forProjectPath: $0).first { $0.name == agentName } }
-        return Set(agent?.resolved.mcpServers ?? []).intersection(mcpConfiguredServerNames)
-    }
-
-    /// Launch arguments injecting the native MCP bridge + a scoped catalog into a
-    /// delegated Deck agent, so an agent's assigned `mcpServers` work under delegation
-    /// exactly as they do in a 1:1 bound chat. Returns `[]` when MCP is off or the agent
-    /// has no in-scope servers (no bridge, no prompt block — like the parent path).
-    private func childMCPArguments(for parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord) async -> [String] {
-        guard appSettings.mcpEnabled else { return [] }
-        let scope = Set(agent.resolved.mcpServers ?? []).intersection(mcpConfiguredServerNames)
-        let entries = await mcpCatalogEntries(forScope: scope, projectPath: parentSession.projectPathForProjectFeatures)
-        guard let catalog = mcpCatalogPrompt(fromEntries: entries, scope: scope), !catalog.isEmpty,
-              let mcpURL = try? PiNativeSubagentBridgeExtensions.mcpExtensionURL() else { return [] }
-        return ["--extension", mcpURL.path, "--append-system-prompt", catalog]
-    }
-
-    private func handleSubagentMCPBridge(parentSessionID: UUID, runID: UUID, agentName: String?, request: PiMCPBridgeRequest) async -> String {
-        await performMCPBridge(request: request, scope: subagentMCPScope(parentSessionID: parentSessionID, agentName: agentName), sessionID: parentSessionID, projectID: piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID })?.projectPathForProjectFeatures, requestingAgent: agentName, subagentRunID: runID)
-    }
-
-    /// Compact MCP tool catalog for a given set of entries. Shared by the parent-session
-    /// and delegated-Deck-agent paths.
-    private func mcpCatalogPrompt(fromEntries entries: [MCPCatalogEntry], scope: Set<String>) -> String? {
-        guard appSettings.mcpEnabled else { return nil }
-        _ = scope
-        let entries = entries.sorted { $0.qualifiedName < $1.qualifiedName }
-        guard !entries.isEmpty else { return nil }
-
-        var lines: [String] = [
-            "MCP tools (call through the `mcp` proxy tool):",
-            "- Call a tool: mcp({ tool: \"server/tool\", args: { ... } })",
-            "- Discover: mcp({}) lists servers, mcp({ search: \"keywords\" }) finds tools, mcp({ describe: \"server/tool\" }) shows a tool's input schema."
-        ]
-        if entries.count <= Self.mcpCatalogToolCap {
-            lines.append("Available MCP tools:")
-            lines.append(contentsOf: entries.map { entry in
-                let desc = entry.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-                return "- \(entry.qualifiedName): \(desc?.isEmpty == false ? desc! : "(no description)")"
-            })
-        } else {
-            let counts = Dictionary(grouping: entries, by: \.server).mapValues(\.count)
-            lines.append("Available MCP servers (use mcp({ search }) to find specific tools):")
-            lines.append(contentsOf: counts.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value) tools" })
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    /// Handles an `mcp` proxy bridge request: routes list/search/describe/call to the
-    /// native connection manager, scoped to the session's assigned servers.
-    private func handleMCPBridge(sessionID: UUID, request: PiMCPBridgeRequest, completion: @escaping (String) -> Void) {
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else {
-            completion("Unknown Agent Deck session; MCP access is denied.")
-            return
-        }
-        let scope = assignedMCPServerNames(for: session)
-        let boundAgentName = boundAgent(for: session)?.name
-        Task { [weak self] in
-            guard let self else { completion("\(AppBrand.displayName)'s MCP bridge is not available."); return }
-            let text = await self.performMCPBridge(request: request, scope: scope, sessionID: sessionID, projectID: self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID })?.projectPathForProjectFeatures, requestingAgent: boundAgentName)
-            completion(text)
-        }
-    }
-
-    private static func encodeMCPBridgeCallResult(_ result: PiMCPBridgeCallResultEnvelope) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return String(decoding: (try? encoder.encode(result)) ?? Data(LanguageStore.shared.t("vm.mcpBridgeEncodeFailed").utf8), as: UTF8.self)
-    }
-
-    private func performMCPBridge(request: PiMCPBridgeRequest, scope: Set<String>, sessionID: UUID, projectID: String? = nil, requestingAgent: String? = nil, subagentRunID: UUID? = nil) async -> String {
-        switch request.action {
-        case "search":
-            let hits = await mcpConnectionManager.search(query: request.query ?? "", serverNames: scope)
-            guard !hits.isEmpty else { return "No MCP tools matched \"\(request.query ?? "")\"." }
-            return hits.map { "- \($0.qualifiedName): \($0.description ?? "(no description)")" }.joined(separator: "\n")
-
-        case "describe":
-            guard let address = MCPConnectionManager.resolveAddress(request.tool ?? "", serverHint: request.server),
-                  scope.contains(address.server) else {
-                return "Unknown or unassigned MCP tool \"\(request.tool ?? "")\"."
-            }
-            guard let descriptor = await mcpConnectionManager.describe(server: address.server, tool: address.tool) else {
-                return "Tool \(address.server)/\(address.tool) was not found."
-            }
-            var out = "\(address.server)/\(descriptor.name): \(descriptor.description ?? "(no description)")"
-            if let schema = descriptor.inputSchema, let json = Self.prettyJSON(schema) {
-                out += "\nInput schema:\n\(json)"
-            }
-            return out
-
-        case "call":
-            guard let address = MCPConnectionManager.resolveAddress(request.tool ?? "", serverHint: request.server) else {
-                return "Specify a tool as \"server/tool\"."
-            }
-            guard scope.contains(address.server) else {
-                return "MCP server \"\(address.server)\" is not assigned to this session."
-            }
-            do {
-                let result = try await mcpConnectionManager.call(server: address.server, tool: address.tool, arguments: request.args, context: MCPCallContext(sessionID: sessionID, projectID: projectID, server: address.server, tool: address.tool, requestingAgent: requestingAgent, subagentRunID: subagentRunID))
-                return Self.encodeMCPBridgeCallResult(.callResult(result, server: address.server, tool: address.tool))
-            } catch {
-                return Self.encodeMCPBridgeCallResult(.failure(server: address.server, tool: address.tool, message: LanguageStore.shared.t("vm.mcpCallFailed", error.localizedDescription)))
-            }
-
-        default: // "list"
-            let entries = mcpCatalogSnapshot.filter { scope.contains($0.server) }
-            guard !entries.isEmpty else { return LanguageStore.shared.t("vm.noMcpServersAssigned") }
-            let counts = Dictionary(grouping: entries, by: \.server).mapValues(\.count)
-            return counts.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value) tools" }.joined(separator: "\n")
-        }
-    }
-
-    private static func prettyJSON(_ value: JSONValue) -> String? {
-        guard let data = try? JSONEncoder().encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else {
-            return nil
-        }
-        return String(decoding: pretty, as: UTF8.self)
-    }
 
     private func nativeSubagentCatalogPrompt(for session: PiAgentSessionRecord) -> String? {
         let agents = catalogAgents(for: session)
@@ -5999,7 +5209,7 @@ final class AppViewModel: NSObject {
         return summary
     }
 
-    private func syncAppSettings() {
+    func syncAppSettings() {
         appSettings = appSettingsController.settings
         // Keep process-wide pi resolution pinned to Settings without rescanning PATH.
         PiExecutableResolver.setPreferredPath(appSettings.piExecutablePath)
@@ -9865,7 +9075,7 @@ final class AppViewModel: NSObject {
         ensurePiAgentModelCatalogLoaded()
     }
 
-    private func refreshAvailableModels() {
+    func refreshAvailableModels() {
         guard !isRefreshingModels else { return }
         isRefreshingModels = true
 
