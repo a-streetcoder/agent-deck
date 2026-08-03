@@ -3091,9 +3091,9 @@ final class AppViewModel: NSObject {
 
     /// Opens the configured terminal app at the selected session's project directory.
     ///
-    /// Does **not** resume the Pi session file or inject `pi --session`; only `cd` into
-    /// `launchWorkingDirectory` and start an interactive shell. Reuses the same terminal
-    /// launcher path as install/update scripts (`openTerminalScript`).
+    /// Does **not** resume the Pi session, write a temp `.command`, or inject PATH boilerplate.
+    /// Only `cd`s into `launchWorkingDirectory` so the shell prompt is clean (no
+    /// `/var/folders/.../pi-deck-open-dir-….command` echo from Terminal's `do script`).
     ///
     /// - Note: Requires a selected session whose working directory exists; otherwise no-ops.
     func openSelectedPiAgentSessionInTerminal() {
@@ -3109,31 +3109,65 @@ final class AppViewModel: NSObject {
             return
         }
 
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pi-deck-open-dir-\(session.id.uuidString)")
-            .appendingPathExtension("command")
-        // Keep PATH useful for everyday shell work; do not launch pi or pass session refs.
-        let script = """
-        #!/bin/zsh
-        \(augmentedShellPATHExport(prepending: resolvedPiPathForShell()))
-        cd \(shellQuoted(workingDirectory)) || exit 1
-        exec /bin/zsh -i
-        """
+        openTerminalAtDirectory(workingDirectory, sessionID: session.id)
+    }
 
-        do {
-            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-            openTerminalScript(scriptURL, for: session.id)
-            piAgentSessionStore.append(.init(
-                sessionID: session.id,
-                role: .status,
-                title: LanguageStore.shared.t("vm.openedInTerminal"),
-                text: LanguageStore.shared.t("vm.openedInTerminal")
-            ))
-        } catch {
-            piAgentSessionStore.updateSession(session.id) { record in
-                record.lastError = error.localizedDescription
+    /// Open a new terminal window already `cd`'d into `directory` (no temp script).
+    ///
+    /// - Parameters:
+    ///   - directory: Absolute project path. Required; must exist as a directory.
+    ///   - sessionID: Session for error reporting. Required.
+    private func openTerminalAtDirectory(_ directory: String, sessionID: UUID) {
+        // Single shell line: Terminal echoes this once; keep it short and purposeful.
+        let cdCommand = "cd \(shellQuoted(directory))"
+        let trimmedPath = appSettings.piAgentTerminalApplicationPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let selectedTerminalPath = trimmedPath, !selectedTerminalPath.isEmpty else {
+            if openInAppleTerminal(cdCommand: cdCommand, sessionID: sessionID) { return }
+            // Last resort: open the folder itself (Finder-style) if Terminal AppleScript fails.
+            NSWorkspace.shared.open(URL(fileURLWithPath: directory, isDirectory: true))
+            return
+        }
+
+        guard let terminal = SupportedTerminal(appPath: selectedTerminalPath) else {
+            let terminalURL = URL(fileURLWithPath: selectedTerminalPath)
+            guard FileManager.default.fileExists(atPath: terminalURL.path) else {
+                piAgentSessionStore.updateSession(sessionID) { record in
+                    record.lastError = LanguageStore.shared.t("vm.terminalAppMissing")
+                }
+                return
             }
+            // Unknown app: open the directory with that app if possible.
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            NSWorkspace.shared.open(
+                [URL(fileURLWithPath: directory, isDirectory: true)],
+                withApplicationAt: terminalURL,
+                configuration: configuration
+            )
+            return
+        }
+
+        switch terminal {
+        case .appleTerminal:
+            if openInAppleTerminal(cdCommand: cdCommand, sessionID: sessionID) { return }
+            NSWorkspace.shared.open(URL(fileURLWithPath: directory, isDirectory: true))
+        case .iTerm:
+            if openInITerm(cdCommand: cdCommand, sessionID: sessionID) { return }
+            NSWorkspace.shared.open(
+                [URL(fileURLWithPath: directory, isDirectory: true)],
+                withApplicationAt: URL(fileURLWithPath: selectedTerminalPath),
+                configuration: {
+                    let c = NSWorkspace.OpenConfiguration()
+                    c.activates = true
+                    return c
+                }()
+            )
+        case .ghostty, .kitty, .alacritty, .wezTerm:
+            if launchTerminalCLI(terminal, appPath: selectedTerminalPath, shellCommand: "\(cdCommand); exec /bin/zsh -i", sessionID: sessionID) {
+                return
+            }
+            NSWorkspace.shared.open(URL(fileURLWithPath: directory, isDirectory: true))
         }
     }
 
@@ -3179,6 +3213,37 @@ final class AppViewModel: NSObject {
     /// if the terminal's executable could not be found or started.
     @discardableResult
     private func launchTerminalCLI(_ terminal: SupportedTerminal, appPath: String, scriptURL: URL, sessionID: UUID) -> Bool {
+        launchTerminalCLI(terminal, appPath: appPath, shellArguments: [scriptURL.path], sessionID: sessionID)
+    }
+
+    /// Launch a CLI terminal running `/bin/zsh -lc <shellCommand>` (clean open-dir path).
+    ///
+    /// - Parameters:
+    ///   - terminal: Supported CLI terminal. Required.
+    ///   - appPath: Path to the .app bundle. Required.
+    ///   - shellCommand: Shell snippet to run then stay interactive. Required.
+    ///   - sessionID: Session for error reporting. Required.
+    /// - Returns: `true` if the process started.
+    @discardableResult
+    private func launchTerminalCLI(_ terminal: SupportedTerminal, appPath: String, shellCommand: String, sessionID: UUID) -> Bool {
+        launchTerminalCLI(terminal, appPath: appPath, shellArguments: ["-lc", shellCommand], sessionID: sessionID)
+    }
+
+    /// Shared CLI launcher: `terminal … /bin/zsh` + `shellArguments`.
+    ///
+    /// - Parameters:
+    ///   - terminal: Supported CLI terminal. Required.
+    ///   - appPath: Path to the .app bundle. Required.
+    ///   - shellArguments: Args after `/bin/zsh` (script path or `-lc cmd`). Required.
+    ///   - sessionID: Session for error reporting. Required.
+    /// - Returns: `true` if the process started.
+    @discardableResult
+    private func launchTerminalCLI(
+        _ terminal: SupportedTerminal,
+        appPath: String,
+        shellArguments: [String],
+        sessionID: UUID
+    ) -> Bool {
         guard let launcher = terminal.commandLineLauncher else { return false }
         let executableURL = URL(fileURLWithPath: appPath)
             .appendingPathComponent("Contents/MacOS", isDirectory: true)
@@ -3187,7 +3252,7 @@ final class AppViewModel: NSObject {
 
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = launcher.leadingArguments + ["/bin/zsh", scriptURL.path]
+        process.arguments = launcher.leadingArguments + ["/bin/zsh"] + shellArguments
         do {
             try process.run()
             return true
@@ -3233,30 +3298,60 @@ final class AppViewModel: NSObject {
         .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    /// Runs the prepared `#!/bin/zsh` `.command` file in Terminal. We point `do script`
-    /// at the script path (chmod 755 + shebang) rather than typing the raw multi-line
-    /// command, so behavior no longer depends on the user's interactive login shell.
+    /// Runs the prepared `#!/bin/zsh` `.command` file in Terminal (install/update scripts).
     @discardableResult
     private func openInAppleTerminal(scriptURL: URL, sessionID: UUID) -> Bool {
+        // Quote path so spaces work; still echoes the path once (acceptable for long scripts).
+        openInAppleTerminal(cdCommand: shellQuoted(scriptURL.path), sessionID: sessionID)
+    }
+
+    /// Open Terminal with a short shell line (e.g. `cd '/project'`). Avoids temp `.command` files.
+    ///
+    /// - Parameters:
+    ///   - cdCommand: Shell snippet already shell-quoted as needed. Required.
+    ///   - sessionID: Session for error reporting. Required.
+    /// - Returns: `true` when AppleScript succeeded.
+    @discardableResult
+    private func openInAppleTerminal(cdCommand: String, sessionID: UUID) -> Bool {
         let script = """
         tell application "Terminal"
             activate
-            do script "\(appleScriptEscaped(scriptURL.path))"
+            do script "\(appleScriptEscaped(cdCommand))"
         end tell
         """
         return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open Terminal.")
     }
 
-    /// Runs the prepared `.command` file in iTerm. iTerm's `command` parameter must be a
-    /// single executable to exec — passing a multi-line shell snippet makes iTerm try to
-    /// exec a bogus argv[0] and end the session immediately ("session ended very soon
-    /// after starting"). The script file is executable with a shebang, so exec works.
+    /// Runs the prepared `.command` file in iTerm (install/update scripts).
     @discardableResult
     private func openInITerm(scriptURL: URL, sessionID: UUID) -> Bool {
+        // iTerm `command` must be a single executable path — the .command file has a shebang.
         let script = """
         tell application "iTerm"
             activate
             create window with default profile command "\(appleScriptEscaped(scriptURL.path))"
+        end tell
+        """
+        return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open iTerm.")
+    }
+
+    /// Open iTerm at a project directory via `write text` after creating a default window.
+    ///
+    /// Avoids `command:` with a multi-line snippet (iTerm would treat it as argv[0] and exit).
+    ///
+    /// - Parameters:
+    ///   - cdCommand: Shell snippet such as `cd '/path'`. Required.
+    ///   - sessionID: Session for error reporting. Required.
+    /// - Returns: `true` when AppleScript succeeded.
+    @discardableResult
+    private func openInITerm(cdCommand: String, sessionID: UUID) -> Bool {
+        let script = """
+        tell application "iTerm"
+            activate
+            create window with default profile
+            tell current session of current window
+                write text "\(appleScriptEscaped(cdCommand))"
+            end tell
         end tell
         """
         return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open iTerm.")
