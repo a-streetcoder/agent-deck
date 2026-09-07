@@ -679,6 +679,7 @@ private struct MCPServerEditorSheet: View {
     @State private var oauthClientID: String
     @State private var oauthClientSecret: String
     @State private var oauthScopes: String
+    @State private var oauthRedirectURI: String
     @State private var pasteText: String = ""
     @State private var inputMode: InputMode = .manual
     @State private var importCandidates: [MCPForeignConfigScanner.Candidate] = []
@@ -686,7 +687,7 @@ private struct MCPServerEditorSheet: View {
     @State private var isScanningImports = false
     @FocusState private var focusedField: Field?
 
-    private enum Field { case name, command, args, env, url, headers, oauthClientID, oauthClientSecret, oauthScopes, paste }
+    private enum Field { case name, command, args, env, url, headers, oauthClientID, oauthClientSecret, oauthScopes, oauthRedirectURI, paste }
     private enum InputMode: String, Hashable, CaseIterable, Identifiable {
         case manual, paste, importServers
 
@@ -721,6 +722,7 @@ private struct MCPServerEditorSheet: View {
         _oauthClientID = State(initialValue: "")
         _oauthClientSecret = State(initialValue: "")
         _oauthScopes = State(initialValue: "")
+        _oauthRedirectURI = State(initialValue: "")
     }
 
     private var isEditing: Bool { model.existingEntry != nil }
@@ -883,7 +885,7 @@ private struct MCPServerEditorSheet: View {
             }
             AppCard(title: "OAuth client (optional)") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Only fill these fields when the MCP provider gives you a client ID because it does not support Dynamic Client Registration. Secrets are saved in ~/.pi/agent/mcp-auth.json, not mcp.json.")
+                    Text("Only fill these fields when the MCP provider gives you a client ID because it does not support Dynamic Client Registration. Set Redirect URI only when the provider requires an exact pre-registered redirect that a random loopback port cannot match. Secrets are saved in ~/.pi/agent/mcp-auth.json, not mcp.json.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -898,6 +900,10 @@ private struct MCPServerEditorSheet: View {
                     field("Scopes") {
                         AppTextField(text: $oauthScopes, placeholder: "Optional, space-separated")
                             .focused($focusedField, equals: .oauthScopes)
+                    }
+                    field("Redirect URI") {
+                        AppTextField(text: $oauthRedirectURI, placeholder: "Optional, e.g. http://localhost:9000/callback")
+                            .focused($focusedField, equals: .oauthRedirectURI)
                     }
                 }
             }
@@ -1089,6 +1095,7 @@ private struct MCPServerEditorSheet: View {
         oauthClientID = auth.clientID ?? ""
         oauthClientSecret = auth.clientSecret ?? ""
         oauthScopes = auth.scope ?? ""
+        oauthRedirectURI = auth.redirectURI ?? ""
     }
 
     private func saveOAuthClientSettings(for serverName: String) async {
@@ -1096,6 +1103,7 @@ private struct MCPServerEditorSheet: View {
         auth.clientID = emptyToNil(oauthClientID)
         auth.clientSecret = emptyToNil(oauthClientSecret)
         auth.scope = emptyToNil(oauthScopes)
+        auth.redirectURI = emptyToNil(oauthRedirectURI)
         await MCPAuthStore.shared.setAuth(auth, for: serverName)
     }
 

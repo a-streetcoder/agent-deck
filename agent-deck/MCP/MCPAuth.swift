@@ -28,6 +28,9 @@ nonisolated struct MCPServerAuth: Codable, Hashable, Sendable {
     var scope: String?
     var resource: String?
     var tokens: MCPOAuthTokens?
+    /// Fixed OAuth redirect URI for servers whose pre-registered client requires an exact
+    /// redirect; nil uses the default random-port loopback.
+    var redirectURI: String?
 }
 
 /// File shape for `~/.pi/agent/mcp-auth.json`.

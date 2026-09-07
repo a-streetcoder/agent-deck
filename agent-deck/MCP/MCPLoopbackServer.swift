@@ -17,11 +17,18 @@ nonisolated final class MCPLoopbackServer: @unchecked Sendable {
     private var pendingParams: [String: String]?
     private(set) var port: UInt16 = 0
 
-    init() throws {
+    /// Creates the loopback listener. Pass `port` to bind a specific loopback port when
+    /// the OAuth client requires a fixed pre-registered redirect URI; otherwise the OS
+    /// assigns a random ephemeral port (the default for Dynamic Client Registration).
+    init(port: UInt16? = nil) throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         parameters.requiredInterfaceType = .loopback
-        listener = try NWListener(using: parameters)
+        if let port, let endpointPort = NWEndpoint.Port(rawValue: port) {
+            listener = try NWListener(using: parameters, on: endpointPort)
+        } else {
+            listener = try NWListener(using: parameters)
+        }
     }
 
     /// Starts listening and returns the assigned loopback port.

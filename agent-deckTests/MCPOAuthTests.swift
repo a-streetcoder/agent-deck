@@ -498,7 +498,28 @@ final class MCPOAuthTests: XCTestCase {
     server.listen(0, '127.0.0.1', () => { base = 'http://127.0.0.1:' + server.address().port; console.log('PORT ' + server.address().port); });
     """
 
-    private func startMockServer(script scriptText: String? = nil) throws -> (process: Process, port: Int) {
+    /// Pre-registered client that also requires an exact redirect URI (like Slack).
+    private static let fixedRedirectOAuthServer = """
+    const http = require('http');
+    const url = require('url');
+    let base = '';
+    const server = http.createServer((req, res) => {
+      const u = url.parse(req.url, true);
+      const json = (status, o) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+      if (u.pathname === '/.well-known/oauth-protected-resource') return json(200, { resource: base + '/mcp', authorization_servers: [base] });
+      if (u.pathname === '/.well-known/oauth-authorization-server') return json(200, { authorization_endpoint: base + '/authorize', token_endpoint: base + '/token' });
+      if (u.pathname === '/register') return json(500, { error: 'registration should not be called' });
+      if (u.pathname === '/authorize') {
+        if (u.query.client_id !== 'pre-client' || u.query.redirect_uri !== process.env.EXPECTED_REDIRECT) return json(400, { error: 'redirect_uri did not match', query: u.query });
+        res.writeHead(302, { Location: u.query.redirect_uri + '?code=AUTHCODE&state=' + encodeURIComponent(u.query.state) }); return res.end();
+      }
+      if (u.pathname === '/token' && req.method === 'POST') { let b=''; req.on('data',c=>b+=c); req.on('end',()=>{ json(200, { access_token: 'FIXEDACCESS', refresh_token: 'FIXEDREFRESH', token_type: 'Bearer', expires_in: 3600 }); }); return; }
+      res.writeHead(404); res.end();
+    });
+    server.listen(0, '127.0.0.1', () => { base = 'http://127.0.0.1:' + server.address().port; console.log('PORT ' + server.address().port); });
+    """
+
+    private func startMockServer(script scriptText: String? = nil, env: [String: String]? = nil) throws -> (process: Process, port: Int) {
         guard let node = resolveNode() else { throw XCTSkip("node not found; skipping OAuth flow test.") }
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-oauth-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -507,6 +528,11 @@ final class MCPOAuthTests: XCTestCase {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: node)
         process.arguments = [script.path]
+        if let env {
+            var merged = ProcessInfo.processInfo.environment
+            for (key, value) in env { merged[key] = value }
+            process.environment = merged
+        }
         let pipe = Pipe()
         process.standardOutput = pipe
         try process.run()
@@ -581,5 +607,57 @@ final class MCPOAuthTests: XCTestCase {
         XCTAssertEqual(auth?.scope, "read tools")
         XCTAssertEqual(auth?.tokens?.accessToken, "PREACCESS")
         XCTAssertEqual(auth?.tokens?.refreshToken, "PREREFRESH")
+    }
+
+    // MARK: - Fixed loopback redirect port
+
+    func testLoopbackServerBindsRequestedFixedPort() async throws {
+        // Rebinding a just-released port can transiently fail while the socket tears down; retry.
+        let probe = try MCPLoopbackServer()
+        let freePort = try await probe.start()
+        probe.stop()
+
+        for attempt in 1...10 {
+            do {
+                let fixed = try MCPLoopbackServer(port: freePort)
+                let boundPort = try await fixed.start()
+                fixed.stop()
+                XCTAssertEqual(boundPort, freePort)
+                return
+            } catch {
+                if attempt == 10 { throw error }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+    }
+
+    func testConnectHonorsFixedRedirectURIForPreRegisteredClient() async throws {
+        // Reserve a free port; the mock accepts only this exact redirect_uri.
+        let probe = try MCPLoopbackServer()
+        let fixedPort = try await probe.start()
+        probe.stop()
+        let fixedRedirect = "http://127.0.0.1:\(fixedPort)/callback"
+
+        let fixture = try startMockServer(script: Self.fixedRedirectOAuthServer, env: ["EXPECTED_REDIRECT": fixedRedirect])
+        defer { fixture.process.terminate() }
+
+        let storeURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let store = MCPAuthStore(url: storeURL)
+        var storedAuth = MCPServerAuth()
+        storedAuth.clientID = "pre-client"
+        storedAuth.redirectURI = fixedRedirect
+        await store.setAuth(storedAuth, for: "fixture")
+
+        let openURL: @Sendable (URL) -> Void = { authURL in
+            Task.detached { _ = try? await URLSession.shared.data(from: authURL) }
+        }
+        let service = MCPOAuthService(session: .shared, store: store, openURL: openURL)
+
+        try await service.connect(serverName: "fixture", serverURLString: "http://127.0.0.1:\(fixture.port)/mcp")
+
+        let auth = await store.auth(for: "fixture")
+        XCTAssertEqual(auth?.redirectURI, fixedRedirect)
+        XCTAssertEqual(auth?.tokens?.accessToken, "FIXEDACCESS")
     }
 }

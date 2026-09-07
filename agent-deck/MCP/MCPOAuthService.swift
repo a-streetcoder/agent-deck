@@ -43,10 +43,13 @@ nonisolated final class MCPOAuthService: Sendable {
             throw MCPError.transportFailed("server did not advertise OAuth endpoints")
         }
 
-        let loopback = try MCPLoopbackServer()
+        let fixedPort = auth.redirectURI
+            .flatMap { URLComponents(string: $0)?.port }
+            .flatMap { UInt16(exactly: $0) }
+        let loopback = try MCPLoopbackServer(port: fixedPort)
         let port = try await loopback.start()
         defer { loopback.stop() }
-        let redirectURI = "http://127.0.0.1:\(port)/callback"
+        let redirectURI = auth.redirectURI ?? "http://127.0.0.1:\(port)/callback"
 
         if auth.clientID == nil {
             guard let registrationEndpoint = auth.registrationEndpoint.flatMap(URL.init(string:)) else {
