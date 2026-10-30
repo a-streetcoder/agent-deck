@@ -202,6 +202,8 @@ struct NativeBubblePayload {
     /// SF Symbol name for the header icon; `nil` renders the bundled "pi" logo.
     var iconSymbol: String?
     var markdownSource: String
+    /// Pi's working directory, used to resolve relative links in its response.
+    var linkBaseURL: URL? = nil
     var imageReferences: [PiAgentTranscriptImageReference] = []
     var showInlineImagePreviews: Bool = true
     /// Small bold label above the body (e.g. "Reasoning" for thinking rows).
@@ -808,6 +810,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             case .markdown(let text):
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let container = markdownContainer(at: markdownIndex)
+                container.linkBaseURL = payload?.linkBaseURL
                 markdownApplier(at: markdownIndex).apply(source: text, to: container)
                 markdownIndex += 1
                 blockHeight = container.measureHeight(forWidth: inner)
@@ -844,6 +847,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             case .markdown(let text):
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let container = markdownContainer(at: markdownIndex)
+                container.linkBaseURL = payload.linkBaseURL
                 markdownApplier(at: markdownIndex).apply(source: text, to: container)
                 markdownIndex += 1
                 contentStack.addArrangedSubview(container)

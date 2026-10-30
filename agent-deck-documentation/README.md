@@ -2,6 +2,8 @@
 
 This is the canonical reference set for how Agent Deck composes with the Pi CLI, how it manages resources, and how the app behaves at runtime.
 
+Local file links in coding-agent messages resolve relative paths against the session's working directory, including its worktree when present. Absolute file paths open directly with the system's default application.
+
 ## Concepts
 
 - [Pi runtime vs Agent Deck](concepts/pi-runtime-vs-agent-deck.md) — where Pi ends and the app begins.

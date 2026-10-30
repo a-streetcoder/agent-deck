@@ -461,6 +461,8 @@ final class MarkdownSourceApplier {
 }
 
 final class NativeMarkdownTextContainer: NSView {
+    var linkBaseURL: URL?
+    var openLocalLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
     private let stackView = NSStackView()
     private var lastDocument: CachedMarkdownDocument?
     private var lastStyleRevision = -1
@@ -1362,6 +1364,7 @@ final class NativeMarkdownTextContainer: NSView {
 
     private static func textView(_ source: String, font: NSFont, color: NSColor, parseInlineMarkdown: Bool = true) -> AutoSizingMarkdownTextView {
         let textView = AutoSizingMarkdownTextView(frame: .zero)
+        textView.delegate = textView
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.isEditable = false
         textView.isSelectable = true
@@ -1522,7 +1525,8 @@ private final class MarkdownTableView: NSView {
     }
 
     private static func makeCell(_ attr: NSAttributedString) -> NSTextView {
-        let tv = NSTextView(frame: .zero)
+        let tv = MarkdownLinkTextView(frame: .zero)
+        tv.delegate = tv
         tv.isEditable = false
         tv.isSelectable = true
         tv.drawsBackground = false
@@ -1632,7 +1636,41 @@ private final class MarkdownTableView: NSView {
     }
 }
 
-private final class AutoSizingMarkdownTextView: NSTextView {
+/// Resolves local Markdown destinations against the directory where Pi ran.
+enum MarkdownLocalLinkResolver {
+    static func fileURL(for url: URL, baseURL: URL?) -> URL? {
+        guard url.scheme == nil, url.host == nil, !url.path.isEmpty else { return nil }
+        let path = url.path
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path).standardizedFileURL
+        }
+        guard let baseURL else { return nil }
+        return baseURL.appendingPathComponent(path).standardizedFileURL
+    }
+}
+
+private class MarkdownLinkTextView: NSTextView, NSTextViewDelegate {
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        let url: URL?
+        if let value = link as? URL { url = value }
+        else if let value = link as? String { url = URL(string: value) }
+        else { url = nil }
+        guard let url else { return false }
+
+        var ancestor = superview
+        while let view = ancestor {
+            if let container = view as? NativeMarkdownTextContainer {
+                guard let fileURL = MarkdownLocalLinkResolver.fileURL(for: url, baseURL: container.linkBaseURL) else { return false }
+                container.openLocalLink(fileURL)
+                return true
+            }
+            ancestor = view.superview
+        }
+        return false
+    }
+}
+
+private final class AutoSizingMarkdownTextView: MarkdownLinkTextView {
     /// Bumped only when the text content actually changes (`applyContent`), NOT on
     /// layout. The intrinsic-size memo keys on it so a forced settle that re-queries
     /// `intrinsicContentSize` at an unchanged width + content skips the TextKit
