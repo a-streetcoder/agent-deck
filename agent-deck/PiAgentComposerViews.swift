@@ -717,6 +717,14 @@ final class DropSafeNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Let the input method handle candidate selection and composition keys
+        // before the composer interprets Return, arrows, Tab, or Escape.
+        if hasMarkedText() {
+            lastEscapeAt = nil
+            super.keyDown(with: event)
+            return
+        }
+
         let characters = event.charactersIgnoringModifiers ?? ""
         let isReturn = characters == "\r" || characters == "\n"
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
@@ -1553,7 +1561,7 @@ private struct PiAgentSmartZoneContextBar: View {
 }
 
 private struct PiAgentSmartZoneDottedMarker: Shape {
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.midX, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))

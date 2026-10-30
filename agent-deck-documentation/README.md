@@ -2,6 +2,8 @@
 
 This is the canonical reference set for how Agent Deck composes with the Pi CLI, how it manages resources, and how the app behaves at runtime.
 
+In the session composer, Return sends the message once text input is complete. While an input method is composing text, Return and candidate navigation keys are handled by the input method first; confirming a candidate does not send the message.
+
 ## Concepts
 
 - [Pi runtime vs Agent Deck](concepts/pi-runtime-vs-agent-deck.md) — where Pi ends and the app begins.

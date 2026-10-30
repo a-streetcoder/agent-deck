@@ -161,7 +161,7 @@ private struct FakeGitInvocation: Sendable, Equatable {
 }
 
 private actor FakeWorktreeCommandRunner: CommandRunning {
-    static let neverCalled = FakeWorktreeCommandRunner { invocation in
+    @MainActor static let neverCalled = FakeWorktreeCommandRunner { invocation in
         XCTFail("Unexpected git invocation: \(invocation.arguments)")
         return CommandResult(stdout: "", stderr: "", exitCode: 1)
     }
@@ -169,7 +169,7 @@ private actor FakeWorktreeCommandRunner: CommandRunning {
     private var recordedArguments: [[String]] = []
     private let handler: @Sendable (FakeGitInvocation) async throws -> CommandResult
 
-    init(handler: @escaping @Sendable (FakeGitInvocation) async throws -> CommandResult) {
+    @MainActor init(handler: @escaping @Sendable (FakeGitInvocation) async throws -> CommandResult) {
         self.handler = handler
     }
 

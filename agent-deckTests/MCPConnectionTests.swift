@@ -157,6 +157,7 @@ actor CloseGate {
 }
 
 actor DelayedCloseTransport: MCPTransport {
+    nonisolated var supportsDuplexServerRequests: Bool { false }
     private let base: MCPStubTransport
     private let gate: CloseGate
 

@@ -27,7 +27,7 @@ enum CommandRunnerError: LocalizedError {
     }
 }
 
-protocol CommandRunning: Sendable {
+nonisolated protocol CommandRunning: Sendable {
     func run(
         _ command: String,
         arguments: [String],
